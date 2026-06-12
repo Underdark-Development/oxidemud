@@ -2,6 +2,7 @@
 
 mod components;
 mod events;
+pub mod format;
 mod resources;
 
 pub use components::*;
