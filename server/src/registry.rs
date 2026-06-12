@@ -28,6 +28,11 @@ impl ConnectionRegistry {
         self.map.contains_key(&entity)
     }
 
+    /// Get the sender for a specific entity, if registered.
+    pub fn sender(&self, entity: Entity) -> Option<&mpsc::UnboundedSender<Vec<u8>>> {
+        self.map.get(&entity)
+    }
+
     /// Broadcast a message to all players in the given room, optionally excluding one entity.
     pub fn broadcast_to_room(
         &self,
