@@ -3978,6 +3978,8 @@ that need synchronous room enumeration.
 
 ```rust
 enum Color {
+    // Terminal default (no explicit color)
+    Default,
     // 16 standard ANSI colors
     Black,
     Red,
@@ -3999,20 +4001,18 @@ enum Color {
     Indexed(u8),
 }
 
-struct Format {
-    fg: Option<Color>,
-    bg: Option<Color>,
-    bold: bool,
-    italic: bool,
-    underline: bool,
-    blink: bool,
-}
+/// Bitmask of text modifiers (replaces the earlier `Format` bool-struct
+/// design — more compact, supports more attributes).
+struct Modifier(u8); // BOLD | DIM | ITALIC | UNDERLINE | BLINK | REVERSE | HIDDEN | STRIKE
 
 impl Color {
     /// Nearest 16-color equivalent for basic-ANSI clients.
-    fn fallback_16(&self) -> Self;
+    fn fallback_16(self) -> Self;
 }
 ```
+
+`Color::Default` plays the role of "no color set" (instead of
+`Option<Color>`), so every `Segment` carries a concrete fg/bg.
 
 ### RichText Builder
 
@@ -4021,15 +4021,24 @@ struct RichText(Vec<Segment>);
 
 struct Segment {
     text: String,
-    format: Format,
+    fg: Color,
+    bg: Color,
+    modifiers: Modifier,
+}
+
+impl Segment {
+    fn new(text: impl Into<String>) -> Self;                     // default fg/bg, no modifiers
+    fn colored(text: impl Into<String>, fg: Color) -> Self;
+    fn styled(text: impl Into<String>, fg: Color, bg: Color, modifiers: Modifier) -> Self;
 }
 
 impl RichText {
     fn new() -> Self;
-    fn append(mut self, text: impl AsRef<str>, format: Format) -> Self;
-    fn push(&mut self, text: impl AsRef<str>, format: Format);
-    fn push_segment(&mut self, segment: Segment);
+    fn push(&mut self, segment: Segment);
     fn is_empty(&self) -> bool;
+    fn segments(&self) -> &[Segment];
+    fn plain(self) -> String;       // strip formatting, consume
+    fn as_plain(&self) -> String;   // strip formatting, borrow
     /// Render to ANSI string if `ansi=true`, else plain text.
     /// `allow_blink` gates blink output (client or user preference).
     fn render(&self, ansi: bool, allow_blink: bool) -> String;
@@ -4098,6 +4107,11 @@ Verbose color names, terse reset:
 {green italic}system message{/}
 ```
 
+Bright colors also accept hyphenated aliases (`{bright-blue}` ==
+`{brightblue}`), plus `{grey}`/`{gray}` for `brightblack`. Additional
+forms: `{bg:color}` sets background, `{/modifier}` clears a single
+modifier, `{{` emits a literal brace.
+
 Parser in `core/src/format/tag.rs`:
 
 ```rust
@@ -4157,9 +4171,10 @@ description = "A {green}green-skinned{/} goblin."
 | Path | Contents |
 |---|---|
 | `core/src/format/mod.rs` | Re-exports |
-| `core/src/format/color.rs` | `Color`, `Format` |
-| `core/src/format/rich_text.rs` | `RichText`, `Segment` |
+| `core/src/format/color.rs` | `Color`, `fallback_16()` |
+| `core/src/format/rich_text.rs` | `RichText`, `Segment`, `Modifier` |
 | `core/src/format/tag.rs` | `parse_tags()` |
+| `core/src/format/conventions.rs` | Color convention helpers (room name, player name, exits, ...) |
 
 ### Schema Addition
 
@@ -7013,17 +7028,17 @@ AI Agent (Claude)          mcp server               Game Server (REST)
 - [x] Player spawn — connects into void room with `Position` component
 
 ### Phase 1 — World & Movement
-- [ ] `ConnectionRegistry` — `HashMap<Entity, Sender<Vec<u8>>>` for room broadcasts
-- [ ] `say` — room broadcast (speaker: `You say, "..."`, others: `Player says, "..."`)
-- [ ] `look` — rooms, occupants, visible exits (`RoomExits`)
-- [ ] Movement commands — `n`/`s`/`e`/`w`/`u`/`d` + `ne`/`nw`/`se`/`sw` + long forms
-- [ ] Void room movement check — block all relocation
-- [ ] Auto-`look` on room entry + room enter/leave broadcasts
-- [ ] Player cleanup — despawn entity + registry remove on disconnect
-- [ ] `core::format` module — `Color`, `Format`, `RichText`, `render()`, `parse_tags()`
-- [ ] Connection feature flags — `Ansi`, `ExtendedColor`, `Blink`
-- [ ] ANSI color conventions (room name, exits, player name, say, etc.)
-- [ ] Unit tests — movement, void blocking, room broadcast, ANSI rendering
+- [x] `ConnectionRegistry` — `HashMap<Entity, Sender<Vec<u8>>>` for room broadcasts
+- [x] `say` — room broadcast (speaker: `You say, "..."`, others: `Player says, "..."`)
+- [x] `look` — rooms, occupants, visible exits (`RoomExits`)
+- [x] Movement commands — `n`/`s`/`e`/`w`/`u`/`d` + `ne`/`nw`/`se`/`sw` + long forms
+- [x] Void room movement check — block all relocation
+- [x] Auto-`look` on room entry + room enter/leave broadcasts
+- [x] Player cleanup — despawn entity + registry remove on disconnect
+- [x] `core::format` module — `Color`, `Modifier`, `RichText`, `RichText::render()`, `parse_tags()`
+- [x] Connection feature flags — `Ansi`, `ExtendedColor`, `Blink`
+- [x] ANSI color conventions (room name, exits, player name, say, etc.)
+- [x] Unit tests — movement, void blocking, room broadcast, ANSI rendering
 
 ### Phase 2 — Character System
 - [ ] Connection state machine (pre-Playing states)
