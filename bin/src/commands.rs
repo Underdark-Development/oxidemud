@@ -43,7 +43,9 @@ fn get_name(world: &World, entity: core::Entity) -> Option<Name> {
 }
 
 fn is_void_room(world: &World, room: core::Entity) -> bool {
-    world.query_one::<&VoidRoom>(room).is_ok_and(|mut q| q.get().is_some())
+    world
+        .query_one::<&VoidRoom>(room)
+        .is_ok_and(|mut q| q.get().is_some())
 }
 
 fn get_exits(world: &World, room: core::Entity) -> Vec<core::format::StyledText> {
@@ -89,7 +91,7 @@ pub fn cmd_look(
     if is_void_room(world, room) {
         conn.send_line("");
         send_formatted(conn, &core::format::conventions::room_name("The Void"));
-        send_formatted(conn, &core::format::conventions::separator(&"-".repeat(9)));
+        send_formatted(conn, &core::format::conventions::separator("-".repeat(9)));
         conn.send_line("You are floating in an endless, featureless void.");
         conn.send_line("There is nothing here and no way out.");
         conn.send_line("");
@@ -108,9 +110,10 @@ pub fn cmd_look(
 
     conn.send_line("");
     send_formatted(conn, &core::format::conventions::room_name(&room_name));
-    send_formatted(conn, &core::format::conventions::separator(&"-".repeat(
-        room_name.len().min(40),
-    )));
+    send_formatted(
+        conn,
+        &core::format::conventions::separator("-".repeat(room_name.len().min(40))),
+    );
     conn.send_line(&room_desc);
 
     // Exits
@@ -252,7 +255,9 @@ fn send_leave_broadcast(
         name.as_str(),
         core::format::Color::Green,
     ));
-    msg.push(core::format::StyledText::new(format!(" leaves {dir_long}.")));
+    msg.push(core::format::StyledText::new(format!(
+        " leaves {dir_long}."
+    )));
     let rendered = core::format::render(&msg);
     let bytes = format!("{}\r\n", rendered).into_bytes();
     for &other in &registry.occupants(world, from_room) {
@@ -525,7 +530,10 @@ mod tests {
         (world, void_room, room_a, room_b)
     }
 
-    fn test_player(world: &mut World, room: core::Entity) -> (core::Entity, MockConnection, ConnectionRegistry) {
+    fn test_player(
+        world: &mut World,
+        room: core::Entity,
+    ) -> (core::Entity, MockConnection, ConnectionRegistry) {
         let player = world.spawn((Position::new(room), Name::new("TestPlayer")));
         let mut conn = MockConnection::new();
         conn.set_entity(player);
@@ -562,7 +570,9 @@ mod tests {
 
         let lines = conn.take_lines();
         assert!(lines.iter().any(|l| l.contains("The Void")));
-        assert!(lines.iter().any(|l| l.contains("endless, featureless void")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("endless, featureless void")));
     }
 
     #[test]

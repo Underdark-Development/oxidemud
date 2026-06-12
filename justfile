@@ -69,9 +69,11 @@ clean:
 
 # ─── Tools ──────────────────────────────────────────────────────────
 
-# Install development tooling (cargo-watch for auto-rebuild)
+# Install development tooling (cargo-watch, lefthook, cocogitto)
 install-tools:
     cargo install cargo-watch
+    brew install lefthook cocogitto
+    lefthook install
 
 # ─── Watch ──────────────────────────────────────────────────────────
 
@@ -85,6 +87,20 @@ ci-check:
     cargo fmt --all --check
     cargo clippy --workspace -- -D warnings
     cargo test --workspace
+
+# ─── Conventional Commits ─────────────────────────────────────────────
+
+# Lint a commit message against conventional commits spec
+lint-commit file:
+    cog verify --file {{file}}
+
+# Generate CHANGELOG.md from git tags
+changelog:
+    cog changelog
+
+# Auto-bump version based on commit history + generate changelog
+bump:
+    cog bump --auto
 
 # ─── Default ────────────────────────────────────────────────────────
 

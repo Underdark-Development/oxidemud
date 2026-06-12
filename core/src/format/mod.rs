@@ -72,6 +72,12 @@ impl Color {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Modifier(u8);
 
+impl Default for Modifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Modifier {
     pub const BOLD: u8 = 0b0000_0001;
     pub const DIM: u8 = 0b0000_0010;
@@ -449,7 +455,12 @@ mod tests {
     fn test_render_bold_colored() {
         let mut m = Modifier::new();
         m.set(Modifier::BOLD);
-        let t = Text::from(StyledText::styled("bold red", Color::Red, Color::Default, m));
+        let t = Text::from(StyledText::styled(
+            "bold red",
+            Color::Red,
+            Color::Default,
+            m,
+        ));
         assert_eq!(render(&t), "\x1b[0;1;31;49mbold red\x1b[0m");
     }
 

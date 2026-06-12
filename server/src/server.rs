@@ -165,7 +165,7 @@ async fn handle_connection(
             let name = w
                 .query_one::<&Name>(entity)
                 .ok()
-                .and_then(|mut q| q.get().map(|n| n.clone()))
+                .and_then(|mut q| q.get().cloned())
                 .unwrap_or(Name::new("Someone"));
 
             let room = w
@@ -175,7 +175,7 @@ async fn handle_connection(
 
             // Broadcast departure to room occupants
             if let Some(room) = room {
-                use mud_core::format::{Color, StyledText, Text, render};
+                use mud_core::format::{render, Color, StyledText, Text};
                 let mut msg = Text::new();
                 msg.push(StyledText::colored(name.as_str(), Color::Red));
                 msg.push(StyledText::new(" has disconnected."));

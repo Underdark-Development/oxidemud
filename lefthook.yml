@@ -1,0 +1,14 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      run: just fmt-check
+    clippy:
+      run: just lint
+    test:
+      run: just test
+
+commit-msg:
+  commands:
+    verify:
+      run: cog verify --file {1}

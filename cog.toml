@@ -1,0 +1,15 @@
+[commit_types]
+feat = { changelog_title = "Features" }
+fix = { changelog_title = "Bug Fixes" }
+refactor = { changelog_title = "Refactoring" }
+perf = { changelog_title = "Performance" }
+test = { changelog_title = "Tests", omit_from_changelog = true }
+docs = { changelog_title = "Documentation" }
+style = { changelog_title = "Style" }
+chore = { changelog_title = "", omit_from_changelog = true }
+ci = { changelog_title = "", omit_from_changelog = true }
+revert = { changelog_title = "Reverts" }
+
+[changelog]
+path = "CHANGELOG.md"
+template = "default"
