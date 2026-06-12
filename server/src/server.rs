@@ -155,5 +155,39 @@ async fn handle_connection(
         }
     }
 
+    // Player cleanup: broadcast departure, unregister, despawn
+    {
+        let mut w = world.lock().await;
+        let mut reg = registry.lock().await;
+
+        if let Some(entity) = conn.entity() {
+            // Get player name and room for departure broadcast
+            let name = w
+                .query_one::<&Name>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.clone()))
+                .unwrap_or(Name::new("Someone"));
+
+            let room = w
+                .query_one::<&Position>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.room));
+
+            // Broadcast departure to room occupants
+            if let Some(room) = room {
+                use mud_core::format::{Color, StyledText, Text, render};
+                let mut msg = Text::new();
+                msg.push(StyledText::colored(name.as_str(), Color::Red));
+                msg.push(StyledText::new(" has disconnected."));
+                reg.broadcast_to_room(&w, room, &render(&msg), Some(entity));
+            }
+
+            reg.unregister(entity);
+            let _ = w.despawn(entity).inspect_err(|e| {
+                tracing::warn!("Failed to despawn entity {entity:?}: {e}");
+            });
+        }
+    }
+
     let _ = output_handle.await;
 }
