@@ -2,16 +2,13 @@ use mud_core as core;
 use mud_core::{Direction, Name, Position, Room, RoomExits, VoidRoom, World};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
-fn send_formatted(conn: &mut dyn Connection, text: &core::format::Text) {
-    if conn.flags().has(ConnectionFlag::Ansi) {
-        conn.send_line(&core::format::render(text));
-    } else {
-        conn.send_line(&core::format::render_plain(text));
-    }
+fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
+    let ansi = conn.flags().has(ConnectionFlag::Ansi);
+    conn.send_line(&text.render(ansi, true));
 }
 
-fn section_label(text: &str) -> core::format::StyledText {
-    core::format::StyledText::colored(text, core::format::Color::BrightBlack)
+fn section_label(text: &str) -> core::format::Segment {
+    core::format::Segment::colored(text, core::format::Color::BrightBlack)
 }
 
 fn get_pos_room(world: &World, entity: core::Entity) -> Option<core::Entity> {
@@ -48,13 +45,13 @@ fn is_void_room(world: &World, room: core::Entity) -> bool {
         .is_ok_and(|mut q| q.get().is_some())
 }
 
-fn get_exits(world: &World, room: core::Entity) -> Vec<core::format::StyledText> {
+fn get_exits(world: &World, room: core::Entity) -> Vec<core::format::Segment> {
     let mut exits = Vec::new();
     if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
         if let Some(room_exits) = q.get() {
             for exit in &room_exits.0 {
                 if !exit.is_hidden() {
-                    exits.push(core::format::StyledText::colored(
+                    exits.push(core::format::Segment::colored(
                         exit.direction.short_name(),
                         core::format::Color::Cyan,
                     ));
@@ -119,11 +116,11 @@ pub fn cmd_look(
     // Exits
     let exits = get_exits(world, room);
     if !exits.is_empty() {
-        let mut t = core::format::Text::new();
+        let mut t = core::format::RichText::new();
         t.push(section_label("[Exits: "));
         for (i, exit) in exits.iter().enumerate() {
             if i > 0 {
-                t.push(core::format::StyledText::new(" "));
+                t.push(core::format::Segment::new(" "));
             }
             t.push(exit.clone());
         }
@@ -139,14 +136,14 @@ pub fn cmd_look(
         .collect();
 
     if !others.is_empty() {
-        let mut t = core::format::Text::new();
+        let mut t = core::format::RichText::new();
         t.push(section_label("Players here: "));
         for (i, &other) in others.iter().enumerate() {
             if i > 0 {
-                t.push(core::format::StyledText::new(", "));
+                t.push(core::format::Segment::new(", "));
             }
             if let Some(name) = get_name(world, other) {
-                t.push(core::format::StyledText::colored(
+                t.push(core::format::Segment::colored(
                     name.as_str(),
                     core::format::Color::Green,
                 ));
@@ -194,9 +191,9 @@ pub fn cmd_say(
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
 
     // Speaker message
-    let mut speaker_msg = core::format::Text::new();
-    speaker_msg.push(core::format::StyledText::new("You say, \""));
-    speaker_msg.push(core::format::StyledText::styled(
+    let mut speaker_msg = core::format::RichText::new();
+    speaker_msg.push(core::format::Segment::new("You say, \""));
+    speaker_msg.push(core::format::Segment::styled(
         args.to_string(),
         core::format::Color::Default,
         core::format::Color::Default,
@@ -206,17 +203,17 @@ pub fn cmd_say(
             m
         },
     ));
-    speaker_msg.push(core::format::StyledText::new("\""));
+    speaker_msg.push(core::format::Segment::new("\""));
     send_formatted(conn, &speaker_msg);
 
     // Room broadcast
-    let mut room_msg = core::format::Text::new();
-    room_msg.push(core::format::StyledText::colored(
+    let mut room_msg = core::format::RichText::new();
+    room_msg.push(core::format::Segment::colored(
         name.as_str(),
         core::format::Color::Green,
     ));
-    room_msg.push(core::format::StyledText::new(" says, \""));
-    room_msg.push(core::format::StyledText::styled(
+    room_msg.push(core::format::Segment::new(" says, \""));
+    room_msg.push(core::format::Segment::styled(
         args.to_string(),
         core::format::Color::Default,
         core::format::Color::Default,
@@ -226,9 +223,9 @@ pub fn cmd_say(
             m
         },
     ));
-    room_msg.push(core::format::StyledText::new("\""));
+    room_msg.push(core::format::Segment::new("\""));
 
-    let rendered = core::format::render(&room_msg);
+    let rendered = room_msg.render(true, true);
     let bytes = format!("{}\r\n", rendered).into_bytes();
 
     let occupants = registry.occupants(world, room);
@@ -250,15 +247,13 @@ fn send_leave_broadcast(
     dir_long: &str,
 ) {
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
-    let mut msg = core::format::Text::new();
-    msg.push(core::format::StyledText::colored(
+    let mut msg = core::format::RichText::new();
+    msg.push(core::format::Segment::colored(
         name.as_str(),
         core::format::Color::Green,
     ));
-    msg.push(core::format::StyledText::new(format!(
-        " leaves {dir_long}."
-    )));
-    let rendered = core::format::render(&msg);
+    msg.push(core::format::Segment::new(format!(" leaves {dir_long}.")));
+    let rendered = msg.render(true, true);
     let bytes = format!("{}\r\n", rendered).into_bytes();
     for &other in &registry.occupants(world, from_room) {
         if other == entity {
@@ -278,15 +273,15 @@ fn send_enter_broadcast(
     dir_long: &str,
 ) {
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
-    let mut msg = core::format::Text::new();
-    msg.push(core::format::StyledText::colored(
+    let mut msg = core::format::RichText::new();
+    msg.push(core::format::Segment::colored(
         name.as_str(),
         core::format::Color::Green,
     ));
-    msg.push(core::format::StyledText::new(format!(
+    msg.push(core::format::Segment::new(format!(
         " arrives from the {dir_long}."
     )));
-    let rendered = core::format::render(&msg);
+    let rendered = msg.render(true, true);
     let bytes = format!("{}\r\n", rendered).into_bytes();
     for &other in &registry.occupants(world, dest_room) {
         if other == entity {
