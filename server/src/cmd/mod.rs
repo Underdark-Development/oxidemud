@@ -1,7 +1,8 @@
 use crate::connection::Connection;
+use crate::registry::ConnectionRegistry;
 use mud_core::World;
 
-pub type CommandFn = fn(&mut World, &mut dyn Connection, &str);
+pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &ConnectionRegistry);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AccessLevel {
@@ -32,7 +33,13 @@ impl CommandDispatch {
         self.commands.push(command);
     }
 
-    pub fn execute(&self, world: &mut World, conn: &mut dyn Connection, input: &str) {
+    pub fn execute(
+        &self,
+        world: &mut World,
+        conn: &mut dyn Connection,
+        input: &str,
+        registry: &ConnectionRegistry,
+    ) {
         let input = input.trim();
 
         if input.is_empty() {
@@ -45,7 +52,7 @@ impl CommandDispatch {
         };
 
         if let Some(cmd) = self.find(name) {
-            (cmd.handler)(world, conn, args);
+            (cmd.handler)(world, conn, args, registry);
         } else {
             conn.send_line("Huh? Type 'help' for a list of commands.");
         }
@@ -68,12 +75,22 @@ impl Default for CommandDispatch {
 mod tests {
     use super::*;
     use crate::connection::TelnetConnection;
+    use crate::registry::ConnectionRegistry;
     use mud_core::World;
 
-    fn noop(_world: &mut World, _conn: &mut dyn Connection, _args: &str) {}
+    fn noop(_world: &mut World, _conn: &mut dyn Connection, _args: &str, _registry: &ConnectionRegistry) {}
 
-    fn test_handler(_world: &mut World, conn: &mut dyn Connection, args: &str) {
+    fn test_handler(
+        _world: &mut World,
+        conn: &mut dyn Connection,
+        args: &str,
+        _registry: &ConnectionRegistry,
+    ) {
         conn.send_line(&format!("handled: {args}"));
+    }
+
+    fn empty_registry() -> ConnectionRegistry {
+        ConnectionRegistry::new()
     }
 
     fn make_dispatch() -> CommandDispatch {
@@ -98,7 +115,8 @@ mod tests {
         let dispatch = make_dispatch();
         let mut world = World::new();
         let (mut conn, _) = TelnetConnection::new(1);
-        dispatch.execute(&mut world, &mut conn, "");
+        let registry = empty_registry();
+        dispatch.execute(&mut world, &mut conn, "", &registry);
         // No crash = pass
     }
 
@@ -107,7 +125,8 @@ mod tests {
         let dispatch = make_dispatch();
         let mut world = World::new();
         let (mut conn, _rx) = TelnetConnection::new(1);
-        dispatch.execute(&mut world, &mut conn, "bogus");
+        let registry = empty_registry();
+        dispatch.execute(&mut world, &mut conn, "bogus", &registry);
         // No crash = pass
     }
 
@@ -130,7 +149,8 @@ mod tests {
         let dispatch = make_dispatch();
         let mut world = World::new();
         let (mut conn, _rx) = TelnetConnection::new(1);
-        dispatch.execute(&mut world, &mut conn, "test hello world");
+        let registry = empty_registry();
+        dispatch.execute(&mut world, &mut conn, "test hello world", &registry);
         // "test hello world" -> name="test", args="hello world"
     }
 
@@ -139,6 +159,7 @@ mod tests {
         let dispatch = make_dispatch();
         let mut world = World::new();
         let (mut conn, _rx) = TelnetConnection::new(1);
-        dispatch.execute(&mut world, &mut conn, "test");
+        let registry = empty_registry();
+        dispatch.execute(&mut world, &mut conn, "test", &registry);
     }
 }

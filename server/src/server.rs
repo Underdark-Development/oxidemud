@@ -7,12 +7,14 @@ use tokio::sync::Mutex;
 
 use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, TelnetConnection};
+use crate::registry::ConnectionRegistry;
 use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
 use mud_core::{Entity, Name, Position, World};
 
 pub struct Server {
     bind_addr: String,
     world: Arc<Mutex<World>>,
+    registry: Arc<Mutex<ConnectionRegistry>>,
     commands: CommandDispatch,
     next_conn_id: AtomicU64,
     void_room: Entity,
@@ -23,6 +25,7 @@ impl Server {
         Server {
             bind_addr: bind_addr.into(),
             world: Arc::new(Mutex::new(world)),
+            registry: Arc::new(Mutex::new(ConnectionRegistry::new())),
             commands: CommandDispatch::new(),
             next_conn_id: AtomicU64::new(1),
             void_room,
@@ -52,6 +55,7 @@ impl Server {
         tracing::info!("Server listening on {}", self.bind_addr);
 
         let world = self.world;
+        let registry = self.registry;
         let commands = Arc::new(self.commands);
         let void_room = self.void_room;
 
@@ -68,10 +72,11 @@ impl Server {
 
                     let conn_id = self.next_conn_id.fetch_add(1, Ordering::SeqCst);
                     let world = world.clone();
+                    let registry = registry.clone();
                     let commands = commands.clone();
 
                     tokio::spawn(async move {
-                        handle_connection(conn_id, stream, world, commands, void_room).await;
+                        handle_connection(conn_id, stream, world, registry, commands, void_room).await;
                     });
                 }
             }
@@ -85,12 +90,15 @@ async fn handle_connection(
     conn_id: u64,
     stream: tokio::net::TcpStream,
     world: Arc<Mutex<World>>,
+    registry: Arc<Mutex<ConnectionRegistry>>,
     commands: Arc<CommandDispatch>,
     void_room: Entity,
 ) {
     let (reader_half, mut writer_half) = stream.into_split();
 
-    let (mut conn, mut output_rx) = TelnetConnection::new(conn_id);
+    let (tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel();
+    let registry_tx = tx.clone();
+    let mut conn = TelnetConnection::new_with_tx(conn_id, tx);
 
     let output_handle = tokio::spawn(async move {
         if let Err(e) = writer_half.write_all(&INITIAL_NEGOTIATION).await {
@@ -105,12 +113,14 @@ async fn handle_connection(
         }
     });
 
-    // Spawn player entity in the void
+    // Spawn player entity in the void and register in the connection registry
     {
         let mut w = world.lock().await;
+        let mut reg = registry.lock().await;
         let name = format!("Adventurer_{}", conn_id);
         let player = w.spawn((Position::new(void_room), Name::new(name)));
         conn.set_entity(player);
+        reg.register(player, registry_tx);
     }
 
     conn.send_line("Welcome to Mud!");
@@ -133,7 +143,9 @@ async fn handle_connection(
                 tracing::debug!("Connection {conn_id}: {trimmed}");
 
                 let mut world_lock = world.lock().await;
-                commands.execute(&mut world_lock, &mut conn, trimmed);
+                let reg = registry.lock().await;
+                commands.execute(&mut world_lock, &mut conn, trimmed, &reg);
+                drop(reg);
                 drop(world_lock);
             }
             Err(e) => {

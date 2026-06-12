@@ -4,9 +4,9 @@ mod signals;
 
 use config::Config;
 use init::init_world;
-use mud_server::{AccessLevel, Connection, Server};
+use mud_server::{AccessLevel, Connection, ConnectionRegistry, Server};
 
-fn cmd_look(world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str) {
+fn cmd_look(world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str, _registry: &ConnectionRegistry) {
     let entity = match conn.entity() {
         Some(e) => e,
         None => {
@@ -54,7 +54,7 @@ fn cmd_look(world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str)
     conn.send_line("");
 }
 
-fn cmd_say(_world: &mut mud_core::World, conn: &mut dyn Connection, args: &str) {
+fn cmd_say(_world: &mut mud_core::World, conn: &mut dyn Connection, args: &str, _registry: &ConnectionRegistry) {
     if args.is_empty() {
         conn.send_line("Say what?");
         return;
@@ -63,7 +63,7 @@ fn cmd_say(_world: &mut mud_core::World, conn: &mut dyn Connection, args: &str) 
     conn.send_line(&format!("You say, \"{}\"", args));
 }
 
-fn cmd_help(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str) {
+fn cmd_help(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str, _registry: &ConnectionRegistry) {
     conn.send_line("");
     conn.send_line("Available commands:");
     conn.send_line("  look/l          — examine your surroundings");
@@ -73,7 +73,7 @@ fn cmd_help(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str
     conn.send_line("");
 }
 
-fn cmd_quit(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str) {
+fn cmd_quit(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str, _registry: &ConnectionRegistry) {
     conn.send_line("Goodbye!");
     conn.disconnect();
 }

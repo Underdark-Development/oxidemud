@@ -84,6 +84,17 @@ impl TelnetConnection {
         };
         (conn, rx)
     }
+
+    /// Create a TelnetConnection with a pre-existing sender.
+    /// The corresponding receiver should be used by the writer task directly.
+    pub fn new_with_tx(id: u64, tx: mpsc::UnboundedSender<Output>) -> Self {
+        TelnetConnection {
+            id,
+            entity: None,
+            tx: Some(tx),
+            flags: ConnectionFlags::new(),
+        }
+    }
 }
 
 impl Connection for TelnetConnection {
