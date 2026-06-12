@@ -59,3 +59,61 @@ pub enum DamageType {
     Magic,
     True,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_health_new() {
+        let h = Health::new(100);
+        assert_eq!(h.current, 100);
+        assert_eq!(h.max, 100);
+        assert!(h.is_alive());
+        assert!(!h.is_dead());
+    }
+
+    #[test]
+    fn test_health_damage() {
+        let mut h = Health::new(100);
+        h.damage(30);
+        assert_eq!(h.current, 70);
+        assert!(h.is_alive());
+    }
+
+    #[test]
+    fn test_health_damage_clamp() {
+        let mut h = Health::new(100);
+        h.damage(200);
+        assert_eq!(h.current, 0);
+        assert!(h.is_dead());
+    }
+
+    #[test]
+    fn test_health_heal() {
+        let mut h = Health::new(100);
+        h.damage(50);
+        h.heal(20);
+        assert_eq!(h.current, 70);
+    }
+
+    #[test]
+    fn test_health_heal_clamp() {
+        let mut h = Health::new(100);
+        h.damage(10);
+        h.heal(50);
+        assert_eq!(h.current, 100);
+    }
+
+    #[test]
+    fn test_armor_total() {
+        let a = Armor { base: 10, bonus: 5 };
+        assert_eq!(a.total(), 15);
+    }
+
+    #[test]
+    fn test_armor_total_no_bonus() {
+        let a = Armor { base: 10, bonus: 0 };
+        assert_eq!(a.total(), 10);
+    }
+}

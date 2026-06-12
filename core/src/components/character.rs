@@ -84,3 +84,40 @@ impl Experience {
         (level as u64).saturating_pow(3) * 100
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_attributes_default() {
+        let a = Attributes::default();
+        assert_eq!(a.strength, 10);
+        assert_eq!(a.dexterity, 10);
+        assert_eq!(a.intelligence, 10);
+        assert_eq!(a.wisdom, 10);
+        assert_eq!(a.constitution, 10);
+        assert_eq!(a.charisma, 10);
+    }
+
+    #[test]
+    fn test_attributes_clamp() {
+        let a = Attributes::new(100, 1, 10, 10, 10, 10);
+        assert_eq!(a.strength, Attributes::MAX);
+        assert_eq!(a.dexterity, Attributes::MIN);
+    }
+
+    #[test]
+    fn test_experience_for_level() {
+        assert_eq!(Experience::for_level(1), 100);
+        assert_eq!(Experience::for_level(2), 800);
+        assert_eq!(Experience::for_level(10), 100_000);
+    }
+
+    #[test]
+    fn test_player_default_prompt() {
+        let p = Player::new(42);
+        assert_eq!(p.account_id, 42);
+        assert_eq!(p.prompt, "<%hhp %hmhp> ");
+    }
+}

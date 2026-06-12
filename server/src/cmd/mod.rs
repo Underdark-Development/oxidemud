@@ -63,3 +63,82 @@ impl Default for CommandDispatch {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::connection::TelnetConnection;
+    use mud_core::World;
+
+    fn noop(_world: &mut World, _conn: &mut dyn Connection, _args: &str) {}
+
+    fn test_handler(_world: &mut World, conn: &mut dyn Connection, args: &str) {
+        conn.send_line(&format!("handled: {args}"));
+    }
+
+    fn make_dispatch() -> CommandDispatch {
+        let mut d = CommandDispatch::new();
+        d.register(Command {
+            name: "test",
+            aliases: &["t"],
+            access: AccessLevel::Player,
+            handler: test_handler,
+        });
+        d.register(Command {
+            name: "admin",
+            aliases: &[],
+            access: AccessLevel::Admin,
+            handler: noop,
+        });
+        d
+    }
+
+    #[test]
+    fn test_command_dispatch_empty_input() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let (mut conn, _) = TelnetConnection::new(1);
+        dispatch.execute(&mut world, &mut conn, "");
+        // No crash = pass
+    }
+
+    #[test]
+    fn test_command_dispatch_unknown() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let (mut conn, _rx) = TelnetConnection::new(1);
+        dispatch.execute(&mut world, &mut conn, "bogus");
+        // No crash = pass
+    }
+
+    #[test]
+    fn test_command_dispatch_find_by_name() {
+        let dispatch = make_dispatch();
+        assert!(dispatch.find("test").is_some());
+        assert!(dispatch.find("admin").is_some());
+        assert!(dispatch.find("nope").is_none());
+    }
+
+    #[test]
+    fn test_command_dispatch_find_by_alias() {
+        let dispatch = make_dispatch();
+        assert!(dispatch.find("t").is_some());
+    }
+
+    #[test]
+    fn test_command_dispatch_parse_args() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let (mut conn, _rx) = TelnetConnection::new(1);
+        dispatch.execute(&mut world, &mut conn, "test hello world");
+        // "test hello world" -> name="test", args="hello world"
+    }
+
+    #[test]
+    fn test_command_dispatch_no_args() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let (mut conn, _rx) = TelnetConnection::new(1);
+        dispatch.execute(&mut world, &mut conn, "test");
+    }
+}

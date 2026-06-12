@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, TelnetConnection};
+use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
 use mud_core::World;
 
 pub struct Server {
@@ -74,8 +75,12 @@ async fn handle_connection(
     let (mut conn, mut output_rx) = TelnetConnection::new(conn_id);
 
     let output_handle = tokio::spawn(async move {
-        while let Some(text) = output_rx.recv().await {
-            if let Err(e) = writer_half.write_all(text.as_bytes()).await {
+        if let Err(e) = writer_half.write_all(&INITIAL_NEGOTIATION).await {
+            tracing::debug!("Connection {conn_id} write error: {e}");
+            return;
+        }
+        while let Some(bytes) = output_rx.recv().await {
+            if let Err(e) = writer_half.write_all(&bytes).await {
                 tracing::debug!("Connection {conn_id} write error: {e}");
                 break;
             }
@@ -86,7 +91,8 @@ async fn handle_connection(
     conn.send_line("Type 'help' for commands.");
     conn.send_line("");
 
-    let mut buf_reader = BufReader::new(reader_half);
+    let telnet_reader = TelnetReader::new(reader_half);
+    let mut buf_reader = BufReader::new(telnet_reader);
     let mut line = String::new();
 
     loop {

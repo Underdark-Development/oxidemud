@@ -22,6 +22,41 @@ pub mod constants {
     pub const MCCP3: u8 = 87;
 }
 
-pub fn build_iac(will_wont: u8, option: u8) -> [u8; 3] {
-    [constants::IAC, will_wont, option]
+pub mod codec;
+
+fn iac_bytes(cmd: u8, option: u8) -> [u8; 3] {
+    [constants::IAC, cmd, option]
 }
+
+pub fn negotiate_will(option: u8) -> [u8; 3] {
+    iac_bytes(constants::WILL, option)
+}
+
+pub fn negotiate_wont(option: u8) -> [u8; 3] {
+    iac_bytes(constants::WONT, option)
+}
+
+pub fn negotiate_do(option: u8) -> [u8; 3] {
+    iac_bytes(constants::DO, option)
+}
+
+pub fn negotiate_dont(option: u8) -> [u8; 3] {
+    iac_bytes(constants::DONT, option)
+}
+
+pub fn negotiate_echo() -> [u8; 3] {
+    negotiate_will(constants::ECHO)
+}
+
+pub fn negotiate_suppress_go_ahead() -> [u8; 3] {
+    negotiate_will(constants::SUPPRESS_GO_AHEAD)
+}
+
+pub const INITIAL_NEGOTIATION: [u8; 6] = [
+    constants::IAC,
+    constants::WILL,
+    constants::ECHO,
+    constants::IAC,
+    constants::WILL,
+    constants::SUPPRESS_GO_AHEAD,
+];

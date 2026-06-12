@@ -6043,6 +6043,12 @@ Pending:   NAWS (window size), CHARSET (UTF-8 detection)
 The `TelnetConnection` type handles IAC byte parsing, option negotiation,
 and encoding. All higher protocols negotiate on top of Telnet.
 
+> **Encryption note:** Plain telnet is unencrypted. For deployment, wrap
+> with [stunnel](https://www.stunnel.org/) (TLS proxy, no code changes)
+> or use an SSH tunnel. Native TLS support is not planned — stunnel is
+> simpler, battle-tested, and works with any MUD client that speaks
+> cleartext telnet.
+
 ### GMCP (Generic Mud Communication Protocol)
 
 GMCP sends structured JSON messages over the telnet subnegotiation channel.
@@ -6871,11 +6877,14 @@ AI Agent (Claude)          mcp server               Game Server (REST)
 ## Development Phases
 
 ### Phase 0 — Foundation
-- [ ] Cargo workspace & crate skeleton
-- [ ] Core types (`Room`, `Exit`, `Direction`, entity management)
-- [ ] Tokio TCP listener with telnet negotiation
-- [ ] Basic ECS world with `hecs`
-- [ ] Raw line-in/line-out to connected players
+- [x] Cargo workspace & crate skeleton
+- [x] Core types (`Room`, `Exit`, `Direction`, entity management)
+- [x] Tokio TCP listener with telnet negotiation (IAC stripping + WILL/WONT ECHO + SGA)
+- [x] Basic ECS world with `hecs`
+- [x] Raw line-in/line-out to connected players
+- [x] Resource pool components (`Stamina`, `Mana`, `Energy`, `Psi`)
+- [x] Unit tests (31 tests across core + server crates)
+- [x] Encryption deployment guide (stunnel recommendation)
 
 ### Phase 1 — World & Movement
 - [ ] Room graph with exits
