@@ -78,3 +78,46 @@ CREATE INDEX IF NOT EXISTS idx_components_exit_dest ON components_exit(dest_enti
 ";
 
 pub const VERSION: i64 = 1;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_schema_runs() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+    }
+
+    #[test]
+    fn test_schema_creates_tables() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+
+        let tables: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let expected = [
+            "entities",
+            "components_room",
+            "components_exit",
+            "components_position",
+            "components_player",
+            "components_npc",
+            "components_health",
+            "components_attributes",
+            "components_level",
+            "components_experience",
+            "attributes",
+            "schema_version",
+        ];
+        for name in &expected {
+            assert!(tables.iter().any(|t| t == name), "missing table: {name}");
+        }
+    }
+}

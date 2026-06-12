@@ -1,7 +1,12 @@
-use mud_core::{Position, Room, World};
+mod config;
+mod init;
+mod signals;
+
+use config::Config;
+use init::init_world;
 use mud_server::{AccessLevel, Connection, Server};
 
-fn cmd_look(world: &mut World, conn: &mut dyn Connection, _args: &str) {
+fn cmd_look(world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str) {
     let entity = match conn.entity() {
         Some(e) => e,
         None => {
@@ -10,7 +15,7 @@ fn cmd_look(world: &mut World, conn: &mut dyn Connection, _args: &str) {
         }
     };
 
-    let mut q_pos = match world.query_one::<&Position>(entity) {
+    let mut q_pos = match world.query_one::<&mud_core::Position>(entity) {
         Ok(q) => q,
         Err(_) => {
             conn.send_line("You are nowhere.");
@@ -26,7 +31,7 @@ fn cmd_look(world: &mut World, conn: &mut dyn Connection, _args: &str) {
         }
     };
 
-    let mut q_room = match world.query_one::<&Room>(pos.room) {
+    let mut q_room = match world.query_one::<&mud_core::Room>(pos.room) {
         Ok(q) => q,
         Err(_) => {
             conn.send_line("The void stares back.");
@@ -49,7 +54,7 @@ fn cmd_look(world: &mut World, conn: &mut dyn Connection, _args: &str) {
     conn.send_line("");
 }
 
-fn cmd_say(_world: &mut World, conn: &mut dyn Connection, args: &str) {
+fn cmd_say(_world: &mut mud_core::World, conn: &mut dyn Connection, args: &str) {
     if args.is_empty() {
         conn.send_line("Say what?");
         return;
@@ -58,7 +63,7 @@ fn cmd_say(_world: &mut World, conn: &mut dyn Connection, args: &str) {
     conn.send_line(&format!("You say, \"{}\"", args));
 }
 
-fn cmd_help(_world: &mut World, conn: &mut dyn Connection, _args: &str) {
+fn cmd_help(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str) {
     conn.send_line("");
     conn.send_line("Available commands:");
     conn.send_line("  look/l          — examine your surroundings");
@@ -68,7 +73,7 @@ fn cmd_help(_world: &mut World, conn: &mut dyn Connection, _args: &str) {
     conn.send_line("");
 }
 
-fn cmd_quit(_world: &mut World, conn: &mut dyn Connection, _args: &str) {
+fn cmd_quit(_world: &mut mud_core::World, conn: &mut dyn Connection, _args: &str) {
     conn.send_line("Goodbye!");
     conn.disconnect();
 }
@@ -77,13 +82,24 @@ fn cmd_quit(_world: &mut World, conn: &mut dyn Connection, _args: &str) {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
-    let world = World::new();
-    let mut server = Server::new("127.0.0.1:4000", world);
+    let config = Config::parse();
+    let (world, void_room) = init_world();
+
+    let mut server = Server::new(config.bind_addr(), world, void_room);
 
     server.register_command("look", &["l"], AccessLevel::Player, cmd_look);
     server.register_command("say", &[], AccessLevel::Player, cmd_say);
     server.register_command("help", &["h", "?"], AccessLevel::Player, cmd_help);
     server.register_command("quit", &["exit"], AccessLevel::Player, cmd_quit);
 
-    server.run().await
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+
+    // Spawn shutdown watcher
+    tokio::spawn(async move {
+        signals::shutdown_signal().await;
+        tracing::info!("Shutdown requested");
+        let _ = shutdown_tx.send(true);
+    });
+
+    server.run(shutdown_rx).await
 }

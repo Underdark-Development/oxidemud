@@ -460,8 +460,28 @@ attached Rhai scripts via the `on()` handler system (see Scripting & OLC).
 struct Position { room: Entity }
 struct Room { name: String, description: String }
 struct Exit { direction: Direction, dest: Entity, flags: ExitFlags }
+struct RoomExits(Vec<Exit>);        // one per room entity
+struct PortalExit { keyword: String, dest: Entity, description: String, flags: PortalFlags }
+struct RoomPortals(Vec<PortalExit>); // one per room entity
+type PortalFlags = u8;
+const PORTAL_HIDDEN: PortalFlags = 0x01;
+type RoomFlagBits = u16;
+struct RoomFlags(RoomFlagBits);      // portal/teleport permissions
+const ROOM_PORTAL_IN: RoomFlagBits = 0x0001;
+const ROOM_PORTAL_OUT: RoomFlagBits = 0x0002;
+const ROOM_NO_TELEPORT_IN: RoomFlagBits = 0x0004;
+const ROOM_NO_TELEPORT_OUT: RoomFlagBits = 0x0008;
+struct VoidRoom;                      // marker: inescapable room, blocks all movement/recall/teleport
+struct Teleportable(pub bool);       // targetable by player teleport spells
 enum Direction { North, South, East, West, Up, Down, Northeast, Northwest, Southeast, Southwest }
 ```
+
+The **void room** is a singleton inescapable room — the default spawn point before
+character creation (Phase 2). It has the `VoidRoom` marker component and zero
+exits. All movement commands, recall spells, teleport effects, and similar
+relocation mechanics must check for `VoidRoom` on the origin or destination
+and reject the action unless the actor has immortal bypass or it's an approved
+codepath (e.g. finalizing character creation).
 
 ### Character
 
@@ -479,6 +499,7 @@ struct Mana { current: u16, max: u16 }
 struct Energy { current: u16, max: u16 }
 struct Psi { current: u16, max: u16 }
 struct Immortal { incognito: bool, holylight: bool, build_mode: bool };
+struct Teleportable(pub bool); // can this entity be teleported by other players?
 ```
 
 ### Combat
@@ -1897,6 +1918,40 @@ trainer_types = ["weapon_master", "trainer"]
 The intersection of NPC trainer_types and skill trainer_types determines
 what a given NPC can teach. The `train` command without arguments shows
 a filtered menu of trainable skills for that NPC.
+
+---
+
+## Portal & Teleport Skills
+
+Skills with `skill_type = "magic"` (or other types) can create temporary portals
+or teleport entities at runtime. These are not defined as special skill types —
+they use the generic `MagicConfig` / effect system and check room flags for permission.
+
+### Portal Creation Flow
+
+1. Player activates a portal skill targeting a destination room
+2. System checks source room `RoomFlags(ROOM_PORTAL_OUT)` — fail if absent
+3. System checks destination room `RoomFlags(ROOM_PORTAL_IN)` — fail if absent
+4. Creates a `TempPortal` on the source room pointing to the destination
+5. Optionally creates a return `TempPortal` on the destination
+
+Temporary portals are added to the source room's `TempPortals` component and
+expire after a skill-defined duration. They are usable via the `enter` command,
+same as permanent template-defined portals.
+
+### Teleport Flow
+
+1. Player activates a teleport skill
+2. System checks source room `RoomFlags(ROOM_NO_TELEPORT_OUT)` — blocked if set
+3. Gathers all one-hop adjacent rooms (reachable via exits from the source room)
+4. Filters candidates by `RoomFlags(ROOM_NO_TELEPORT_IN)` — blocked rooms excluded
+5. If targeting another entity, checks target's `Teleportable` component — fail if false
+6. Picks a valid candidate at random, moves the target entity
+7. If no valid candidates, the spell fails ("You concentrate but find no suitable destination.")
+
+Range is limited to rooms directly adjacent via exit. Marked rooms use
+`Teleportable(false)` to opt out of being teleported by others (players toggle
+via `config teleport`, NPC templates set `teleportable = false`).
 
 ---
 
@@ -3444,7 +3499,9 @@ struct Command {
 | Command | Access | Description |
 |---|---|---|
 | `look` / `l` | Player | Examine room or target |
-| `n` / `s` / `e` / `w` / `u` / `d` / `ne` / ... | Player | Movement |
+| `n` / `s` / `e` / `w` / `u` / `d` / `ne` / ... | Player | Movement (direction commands) |
+| `enter` | Player | List portals in current room |
+| `enter <keyword>` | Player | Use a named portal (e.g. "enter sewer grate") |
 | `say` | Player | Speak in room |
 | `tell` / `whisper` | Player | Private message |
 | `reply` / `r` | Player | Reply to last tell |
@@ -3481,7 +3538,7 @@ struct Command {
 | `motd` | Player | Toggle MOTD display on login |
 | `help` / `?` | Player | Online help |
 | `who` | Player | List players |
-| `config` | Player | Personal settings (blink, color mode) |
+| `config` | Player | Personal settings (blink, color mode, teleportable) |
 | `@prestige` | Player | Apply for prestige class |
 | `@multi_class` | Player | Add a new base class |
 | `@area` | Builder | Area management (create, list, edit, delete, reset, save) |
@@ -3893,6 +3950,26 @@ The `TelnetConnection` implements this trait, as does a future
 `WsConnection` for WebSocket clients. Command dispatch never
 references telnet specifics — it operates on `Box<dyn Connection>`.
 
+### Connection Registry
+
+Before the event bus is fully wired (Phase 3+), room broadcasts
+(say, movement enter/leave) use a shared mapping from entity to
+output channel:
+
+```rust
+type ConnectionRegistry = Arc<Mutex<HashMap<Entity, mpsc::UnboundedSender<Vec<u8>>>>>;
+```
+
+- **Insert** on player spawn (`handle_connection` creates entity → register)
+- **Remove** on disconnect (cleanup also despawns entity)
+- **Broadcast helpers** query `Position` to find room occupants, then
+  look up each entity in the registry to forward messages
+
+This mechanism is temporary — once the event bus exists, broadcasts
+will flow through `GameEvent::PlayerSaid` / `GameEvent::PlayerMoved`
+instead. The registry stays as a lightweight fallback for commands
+that need synchronous room enumeration.
+
 ---
 
 ## Text Formatting & Color
@@ -4037,6 +4114,7 @@ Applied at content load time; re-rendered per client at display time
 | Room name | `brightwhite` bold | `Town Square` |
 | Room description | default | `A cobblestone square...` |
 | Exits header | `cyan` | `[Exits: n e s w]` |
+| Portals header | `cyan` | `[Portals: sewer grate]` |
 | Player name | `yellow` bold | `Alice is here.` |
 | Mob name | `red` bold | `A goblin is here.` |
 | Item (common) | default | `a rusty sword` |
@@ -4440,8 +4518,11 @@ content/*.toml + content/skills/**/*.toml
        ▼
   ┌────────────┐
   │  Validator │ ── Cross-reference checks (existing):
-  │            │    • Room exits point to existing room keys
-  │            │    • Mob/item references exist in registry
+│    │ • Room exits point to existing room keys
+   │            │    • Room portal dest points to valid area/room
+   │            │    • Room portal keywords are unique within a room
+   │            │    • Room flag name is valid (portal_in, portal_out, no_teleport_in, no_teleport_out)
+   │            │    • Mob/item references exist in registry
   │            │    • Script paths point to real .rhai files
   │            │    • Race.allowed_classes[i] exists in classes
   │            │    • Class.allowed_races[i] exists in races
@@ -4477,13 +4558,8 @@ content/*.toml + content/skills/**/*.toml
   │            │    • FactionDef.aggro.members[i] exists in mobs
   │            │    • ShopTemplate.npc exists in mobs
   │            │    • ShopTemplate.inventory[i].item exists in items
-  │            │    • Treasure class item entries exist in items
-  │            │    • Validation summary logged
-  │            │    • Race.racial_abilities[i] exists in skills
-  │            │    • Race.hometown room key exists in areas
-  │            │    • Affix slots reference valid EquipmentSlot names
-  │            │    • Set conditions reference valid piece_type values
-  │            │    • Validation summary logged
+   │            │    • Treasure class item entries exist in items
+   │            │    • Validation summary logged
   └────┬─────┘
        │
        ▼
@@ -4630,6 +4706,31 @@ based_on = "Original Diku Midgaard"
 | `air` | Flying creatures only |
 | `hell` | No recall, death → special respawn |
 
+### Room Flags
+
+Room-level flags control movement permission at a finer grain than area flags.
+Set via `flags` on room templates or `@set` at runtime.
+
+**Portal flags are opt-in** — absent means blocked. Teleport flags are opt-out —
+absent means allowed. Immortal commands bypass all flags.
+
+| TOML Flag | Constant | Effect | Default |
+|---|---|---|---|
+| `portal_in` | `ROOM_PORTAL_IN` | Temp portals can target this room | Blocked |
+| `portal_out` | `ROOM_PORTAL_OUT` | Temp portals can originate from this room | Blocked |
+| `no_teleport_in` | `ROOM_NO_TELEPORT_IN` | Teleport spells cannot land here | Allowed |
+| `no_teleport_out` | `ROOM_NO_TELEPORT_OUT` | Teleport spells cannot leave here | Allowed |
+
+Combined example:
+
+```toml
+[templates.room.midgaard.temple_sanctum]
+area = "midgaard"
+name = "Temple Sanctum"
+description = "..."
+flags = ["portal_in"]  # portals can target this room (party follow), but random teleports are blocked
+```
+
 ### Room → Area Linking
 
 Room templates reference their area by ID:
@@ -4642,6 +4743,13 @@ description = "A large cobblestone square at the heart of the city..."
 exits = [
     { direction = "north", target = "midgaard/temple" },
     { direction = "east", target = "midgaard/market" },
+]
+portals = [
+    { keyword = "sewer grate", dest = "midgaard/sewer01",
+      description = "A rusty iron grate set into the cobblestones leads into darkness below." },
+    { keyword = "painting", dest = "midgaard/art_gallery",
+      description = "An ornate painting of a pastoral landscape.",
+      flags = ["hidden"] },
 ]
 
 [mobs.midgaard.square]
@@ -4722,6 +4830,7 @@ struct RoomTemplate {
     name: String,
     description: String,
     exits: Vec<ExitDef>,
+    portals: Vec<PortalDef>,
     flags: Vec<String>,
     flags_to: HashMap<String, Vec<String>>,
     heal_rate: Option<u8>,
@@ -4737,6 +4846,13 @@ struct ExitDef {
     flags: Vec<String>,
     key_id: Option<String>,
     door_name: Option<String>,
+}
+
+struct PortalDef {
+    keyword: String,
+    target: String,
+    description: String,
+    flags: Vec<String>,
 }
 
 struct ExtraDesc {
@@ -5961,6 +6077,10 @@ Each command has a minimum access level and a set of parameters:
 | `@set` | Builder | `<room>.<field> = <value>` | Set room field (name, desc, flags, heal_rate, mana_rate) |
 | `@desc` | Builder | `<room>` | Enter room description editor (multi-line) |
 | `@room delete` | Builder | `<room>` | Remove room (must be unlinked first) |
+| `@portal` | Builder | `<room>` | List portals in room |
+| `@portal add` | Builder | `<room> <keyword> <dest> <description>` | Add portal exit to room |
+| `@portal remove` | Builder | `<room> <keyword>` | Remove portal from room |
+| `@portal hide` | Builder | `<room> <keyword>` | Toggle hidden flag on portal |
 
 #### Mob OLC
 
@@ -6060,7 +6180,7 @@ Negotiated by `IAC SB GMCP ... IAC SE` handshake.
 |---|---|---|---|
 | `Core` | `Hello` | Client → Server | Client identification (name, version, GMCP support) |
 | `Core` | `Supports.Set` | Server → Client | Which GMCP modules the server enables |
-| `Room` | `Info` | Server → Client | Current room (name, description, exits, area, players) |
+| `Room` | `Info` | Server → Client | Current room (name, description, exits, portals, area, players) |
 | `Char` | `Info` | Server → Client | Character stats (level, HP, max HP, XP, class, race) |
 | `Char` | `Skills` | Server → Client | Skill list with ranks |
 | `Char` | `Inventory` | Server → Client | Inventory + equipment contents (summary) |
@@ -6698,10 +6818,12 @@ Each tool follows the MCP tool schema (name, description, input JSON schema).
 | `delete_area` | Delete area + all rooms inside (`key`, `confirm`) | Yes |
 | `list_rooms` | List rooms in an area (`area_key`, optional `query`) | No |
 | `get_room` | Get full room details (`area_key`, `room_key`) | No |
-| `create_room` | Create a new room (`area_key`, `room_key`, `name`, `description`, `exits?`) | Yes |
+| `create_room` | Create a new room (`area_key`, `room_key`, `name`, `description`, `exits?`, `portals?`) | Yes |
 | `update_room` | Update room fields (optional fields) | Yes |
 | `delete_room` | Delete a room (`area_key`, `room_key`, `confirm`) | Yes |
 | `link_rooms` | Link two rooms with an exit (`from_area`, `from_room`, `direction`, `to_area`, `to_room`) | Yes |
+| `add_portal` | Add a portal exit to a room (`area_key`, `room_key`, `keyword`, `dest_area`, `dest_room`, `description`, `flags?`) | Yes |
+| `remove_portal` | Remove a portal exit (`area_key`, `room_key`, `keyword`) | Yes |
 | `list_mobs` | List mob templates (optional `query`, `area` filter) | No |
 | `get_mob` | Get mob template details by `key` | No |
 | `create_mob` | Create a mob template (`key`, `name`, `level`, attributes, equipment?, loot?, faction?) | Yes |
@@ -6883,14 +7005,25 @@ AI Agent (Claude)          mcp server               Game Server (REST)
 - [x] Basic ECS world with `hecs`
 - [x] Raw line-in/line-out to connected players
 - [x] Resource pool components (`Stamina`, `Mana`, `Energy`, `Psi`)
-- [x] Unit tests (31 tests across core + server crates)
+- [x] Unit tests (49 tests across all crates)
 - [x] Encryption deployment guide (stunnel recommendation)
+- [x] Void room (inescapable — `VoidRoom` marker, zero exits, blocks all relocation)
+- [x] CLI config (`--port`/`--host` flags)
+- [x] Graceful shutdown (SIGINT/SIGTERM via `tokio::select!`)
+- [x] Player spawn — connects into void room with `Position` component
 
 ### Phase 1 — World & Movement
-- [ ] Room graph with exits
-- [ ] `Position` component
-- [ ] `look`, `north/s/e/w`, `say` commands
-- [ ] ANSI color support
+- [ ] `ConnectionRegistry` — `HashMap<Entity, Sender<Vec<u8>>>` for room broadcasts
+- [ ] `say` — room broadcast (speaker: `You say, "..."`, others: `Player says, "..."`)
+- [ ] `look` — rooms, occupants, visible exits (`RoomExits`)
+- [ ] Movement commands — `n`/`s`/`e`/`w`/`u`/`d` + `ne`/`nw`/`se`/`sw` + long forms
+- [ ] Void room movement check — block all relocation
+- [ ] Auto-`look` on room entry + room enter/leave broadcasts
+- [ ] Player cleanup — despawn entity + registry remove on disconnect
+- [ ] `core::format` module — `Color`, `Format`, `RichText`, `render()`, `parse_tags()`
+- [ ] Connection feature flags — `Ansi`, `ExtendedColor`, `Blink`
+- [ ] ANSI color conventions (room name, exits, player name, say, etc.)
+- [ ] Unit tests — movement, void blocking, room broadcast, ANSI rendering
 
 ### Phase 2 — Character System
 - [ ] Connection state machine (pre-Playing states)
