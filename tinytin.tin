@@ -1,0 +1,10 @@
+#session mud localhost 4000
+#config {char subtitle} {MUD Engine}
+#config {auto wrap} {off}
+#config {history lines} {500}
+
+#event {SESSION CONNECTED} {
+    #delay 1 {
+        #send help
+    }
+}

@@ -1,0 +1,11 @@
+[package]
+name = "mud-data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+mud-core = { path = "../core" }
+rusqlite = { version = "0.40", features = ["bundled"] }
+tracing = "0.1"

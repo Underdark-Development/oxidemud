@@ -1,0 +1,11 @@
+[package]
+name = "mud-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+mud-core = { path = "../core" }
+tokio = { version = "1", features = ["net", "io-util", "macros", "sync"] }
+tracing = "0.1"
