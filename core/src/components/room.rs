@@ -185,6 +185,22 @@ impl Exit {
     pub fn is_hidden(&self) -> bool {
         self.flags & EXIT_HIDDEN != 0
     }
+
+    pub fn set_closed(&mut self, closed: bool) {
+        if closed {
+            self.flags |= EXIT_IS_CLOSED;
+        } else {
+            self.flags &= !EXIT_IS_CLOSED;
+        }
+    }
+
+    pub fn set_locked(&mut self, locked: bool) {
+        if locked {
+            self.flags |= EXIT_IS_LOCKED;
+        } else {
+            self.flags &= !EXIT_IS_LOCKED;
+        }
+    }
 }
 
 /// Storage component on room entities for directional exits.
