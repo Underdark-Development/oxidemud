@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, TelnetConnection};
 use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
-use mud_core::{Entity, Position, World};
+use mud_core::{Entity, Name, Position, World};
 
 pub struct Server {
     bind_addr: String,
@@ -108,7 +108,8 @@ async fn handle_connection(
     // Spawn player entity in the void
     {
         let mut w = world.lock().await;
-        let player = w.spawn((Position::new(void_room),));
+        let name = format!("Adventurer_{}", conn_id);
+        let player = w.spawn((Position::new(void_room), Name::new(name)));
         conn.set_entity(player);
     }
 

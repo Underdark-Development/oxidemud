@@ -79,6 +79,51 @@ impl Default for Level {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Experience(pub u64);
 
+#[derive(Debug, Clone)]
+pub struct Name(pub String);
+
+impl Name {
+    pub fn new(name: impl Into<String>) -> Self {
+        Name(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for Name {
+    fn default() -> Self {
+        Name("Adventurer".to_string())
+    }
+}
+
+impl std::fmt::Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::ops::Deref for Name {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for Name {
+    fn from(s: String) -> Self {
+        Name(s)
+    }
+}
+
+impl From<&str> for Name {
+    fn from(s: &str) -> Self {
+        Name(s.to_string())
+    }
+}
+
 impl Experience {
     pub fn for_level(level: u8) -> u64 {
         (level as u64).saturating_pow(3) * 100
@@ -119,5 +164,42 @@ mod tests {
         let p = Player::new(42);
         assert_eq!(p.account_id, 42);
         assert_eq!(p.prompt, "<%hhp %hmhp> ");
+    }
+
+    #[test]
+    fn test_name_new() {
+        let n = Name::new("Alice");
+        assert_eq!(n.as_str(), "Alice");
+    }
+
+    #[test]
+    fn test_name_default() {
+        let n = Name::default();
+        assert_eq!(n.as_str(), "Adventurer");
+    }
+
+    #[test]
+    fn test_name_display() {
+        let n = Name::new("Bob");
+        assert_eq!(format!("{n}"), "Bob");
+    }
+
+    #[test]
+    fn test_name_from_string() {
+        let n: Name = "Charlie".to_string().into();
+        assert_eq!(n.as_str(), "Charlie");
+    }
+
+    #[test]
+    fn test_name_from_str() {
+        let n: Name = "Diana".into();
+        assert_eq!(n.as_str(), "Diana");
+    }
+
+    #[test]
+    fn test_name_deref() {
+        let n = Name::new("Eve");
+        assert_eq!(n.len(), 3);
+        assert!(n.starts_with("E"));
     }
 }
