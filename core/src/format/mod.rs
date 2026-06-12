@@ -205,6 +205,10 @@ impl Text {
     pub fn plain(self) -> String {
         self.0.into_iter().map(|s| s.text).collect()
     }
+
+    pub fn as_plain(&self) -> String {
+        self.0.iter().map(|s| s.text.as_str()).collect()
+    }
 }
 
 impl Default for Text {
@@ -229,6 +233,11 @@ impl From<StyledText> for Text {
     fn from(seg: StyledText) -> Self {
         Text(vec![seg])
     }
+}
+
+/// Render formatted text to plain text (no ANSI codes).
+pub fn render_plain(text: &Text) -> String {
+    text.as_plain()
 }
 
 /// Render formatted text to an ANSI-escaped string.
