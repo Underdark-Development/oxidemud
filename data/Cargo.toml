@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+argon2 = "0.5"
 mud-core = { path = "../core" }
+rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 tracing = "0.1"

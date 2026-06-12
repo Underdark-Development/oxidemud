@@ -72,6 +72,33 @@ bin/        — Server binary entrypoint (main.rs)
 - **No `pub use` dep wildcards** — wrap external types (e.g. hecs `Entity`, `World`) in newtypes or facade functions.
 - **Commit generated code** — if codegen exists, commit the output and document the generation command.
 
+## Coding standards
+
+### Language best practices
+- Follow idiomatic Rust: prefer `Result`/`Option` over panics, use `thiserror` for error types, use `?` operator for propagation.
+- Adhere to `cargo clippy` — all lints enabled, zero warnings. The pre-commit hook enforces this.
+- No `unsafe` code unless absolutely necessary and documented with `// SAFETY:`.
+- Prefer iterator chains over explicit loops where clarity isn't sacrificed.
+
+### ECS architecture (hecs)
+- **Thin components** — components are data-only structs with no logic. Use newtypes for type safety (e.g. `struct Health(i32)`).
+- **Fat systems** — all logic lives in systems (functions operating on `World`). Systems are stateless; state lives in resources or components.
+- **Queries** — prefer `World::query` over `World::query_one` unless fetching a singleton. Use `With`/`Without` filters for subset queries.
+- **Events** — use the event bus for cross-system communication, not direct system coupling.
+
+### Modular design
+- **Single responsibility** — each module, type, and function does one thing. If a function needs "and" in its description, split it.
+- **Minimal `pub`** — start everything `pub(crate)`; make `pub` only when another crate needs it. Re-export the public API at `lib.rs`.
+- **Dependency injection** — pass dependencies as function parameters, not globals. Systems receive `&mut World` and `&Resources`.
+- **No circular dependencies** — the crate DAG (`core → {server, data, scripting, tui, mcp} → bin`) is enforced at build time.
+
+### Maintainability
+- **Readability over cleverness** — prefer straightforward code over fancy one-liners. Name things for the reader, not the writer.
+- **Doc comments** — all public items get doc comments (`///`). Internal items get them when the logic is non-obvious.
+- **Tests** — every system and utility function should have unit tests. Use table-driven tests for multiple cases.
+- **No magic numbers** — name constants with `const` or `enum`. Use `Default` impls for sensible defaults.
+- **Consistent formatting** — `cargo fmt` is non-negotiable. The pre-commit hook enforces it.
+
 ## Commit style
 
 Use conventional commits (`type(scope): message`).

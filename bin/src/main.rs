@@ -12,9 +12,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     let config = Config::parse();
+
+    let db = mud_data::Database::open(&config.db_path).unwrap_or_else(|e| {
+        panic!(
+            "Failed to open database at {}: {e}",
+            config.db_path.display()
+        )
+    });
+
     let (world, void_room) = init_world();
 
-    let mut server = Server::new(config.bind_addr(), world, void_room);
+    let mut server = Server::new(config.bind_addr(), world, void_room).with_database(db);
 
     server.register_command("look", &["l"], AccessLevel::Player, commands::cmd_look);
     server.register_command("say", &[], AccessLevel::Player, commands::cmd_say);

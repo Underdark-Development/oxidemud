@@ -137,7 +137,7 @@ mod tests {
 
         registry.broadcast_to_room(&world, room_a, "hello", None);
 
-        if let Some(bytes) = rx.try_recv().ok() {
+        if let Ok(bytes) = rx.try_recv() {
             let msg = String::from_utf8_lossy(&bytes).to_string();
             assert_eq!(msg, "hello");
         } else {

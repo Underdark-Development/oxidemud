@@ -1,6 +1,8 @@
+mod password;
 mod queries;
 mod schema;
 
+pub use password::*;
 pub use queries::*;
 pub use schema::*;
 

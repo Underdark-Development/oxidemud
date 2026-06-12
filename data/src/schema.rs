@@ -75,9 +75,18 @@ CREATE TABLE IF NOT EXISTS attributes (
 
 CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 CREATE INDEX IF NOT EXISTS idx_components_exit_dest ON components_exit(dest_entity_id);
+
+CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    access_level TEXT NOT NULL DEFAULT 'player',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login TEXT
+);
 ";
 
-pub const VERSION: i64 = 1;
+pub const VERSION: i64 = 2;
 
 #[cfg(test)]
 mod tests {
@@ -113,6 +122,7 @@ mod tests {
             "components_attributes",
             "components_level",
             "components_experience",
+            "accounts",
             "attributes",
             "schema_version",
         ];

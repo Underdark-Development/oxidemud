@@ -438,7 +438,7 @@ mod tests {
     use super::*;
     use mud_core as core;
     use mud_core::Exit;
-    use mud_server::ConnectionFlags;
+    use mud_server::{CharacterCreateBuffer, ConnectionFlags, ConnectionState};
     use std::cell::RefCell;
     use std::collections::VecDeque;
 
@@ -496,6 +496,24 @@ mod tests {
         }
         fn set_flags(&mut self, flags: ConnectionFlags) {
             self.flags.borrow_mut().clone_from(&flags);
+        }
+        fn state(&self) -> ConnectionState {
+            ConnectionState::Playing
+        }
+        fn set_state(&mut self, _state: ConnectionState) {}
+        fn create_buffer(&mut self) -> &mut CharacterCreateBuffer {
+            todo!()
+        }
+        fn account_id(&self) -> Option<i64> {
+            None
+        }
+        fn set_account_id(&mut self, _id: i64) {}
+        fn strikes(&self) -> u8 {
+            0
+        }
+        fn set_strikes(&mut self, _n: u8) {}
+        fn output_sender(&self) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
+            None
         }
     }
 
