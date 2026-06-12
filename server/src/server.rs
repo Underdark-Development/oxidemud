@@ -206,9 +206,9 @@ async fn handle_connection(
                 .and_then(|mut q| q.get().map(|p| p.room));
 
             if let Some(room) = room {
-                use mud_core::format::{Color, RichText, Segment};
+                use mud_core::format::{conventions, RichText, Segment};
                 let mut msg = RichText::new();
-                msg.push(Segment::colored(name.as_str(), Color::Red));
+                msg.push(conventions::player_name_segment(name.as_str()));
                 msg.push(Segment::new(" has disconnected."));
                 reg.broadcast_to_room(&w, room, &msg.render(true, true), Some(entity));
             }

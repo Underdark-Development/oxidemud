@@ -46,16 +46,13 @@ fn is_void_room(world: &World, room: core::Entity) -> bool {
         .is_ok_and(|mut q| q.get().is_some())
 }
 
-fn get_exits(world: &World, room: core::Entity) -> Vec<core::format::Segment> {
+fn get_exits(world: &World, room: core::Entity) -> Vec<&'static str> {
     let mut exits = Vec::new();
     if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
         if let Some(room_exits) = q.get() {
             for exit in &room_exits.0 {
                 if !exit.is_hidden() {
-                    exits.push(core::format::Segment::colored(
-                        exit.direction.short_name(),
-                        core::format::Color::Cyan,
-                    ));
+                    exits.push(exit.direction.short_name());
                 }
             }
         }
@@ -117,16 +114,10 @@ pub fn cmd_look(
     // Exits
     let exits = get_exits(world, room);
     if !exits.is_empty() {
-        let mut t = core::format::RichText::new();
-        t.push(section_label("[Exits: "));
-        for (i, exit) in exits.iter().enumerate() {
-            if i > 0 {
-                t.push(core::format::Segment::new(" "));
-            }
-            t.push(exit.clone());
-        }
-        t.push(section_label("]"));
-        send_formatted(conn, &t);
+        send_formatted(
+            conn,
+            &core::format::conventions::exit_dir(format!("[Exits: {}]", exits.join(" "))),
+        );
     }
 
     // Occupants
@@ -144,9 +135,8 @@ pub fn cmd_look(
                 t.push(core::format::Segment::new(", "));
             }
             if let Some(name) = get_name(world, other) {
-                t.push(core::format::Segment::colored(
+                t.push(core::format::conventions::player_name_segment(
                     name.as_str(),
-                    core::format::Color::Green,
                 ));
             }
         }
@@ -192,39 +182,15 @@ pub fn cmd_say(
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
 
     // Speaker message
-    let mut speaker_msg = core::format::RichText::new();
-    speaker_msg.push(core::format::Segment::new("You say, \""));
-    speaker_msg.push(core::format::Segment::styled(
-        args.to_string(),
-        core::format::Color::Default,
-        core::format::Color::Default,
-        {
-            let mut m = core::format::Modifier::new();
-            m.set(core::format::Modifier::ITALIC);
-            m
-        },
-    ));
-    speaker_msg.push(core::format::Segment::new("\""));
+    let speaker_msg = core::format::conventions::say_text(format!("You say, \"{args}\""));
     send_formatted(conn, &speaker_msg);
 
     // Room broadcast
     let mut room_msg = core::format::RichText::new();
-    room_msg.push(core::format::Segment::colored(
+    room_msg.push(core::format::conventions::player_name_segment(
         name.as_str(),
-        core::format::Color::Green,
     ));
-    room_msg.push(core::format::Segment::new(" says, \""));
-    room_msg.push(core::format::Segment::styled(
-        args.to_string(),
-        core::format::Color::Default,
-        core::format::Color::Default,
-        {
-            let mut m = core::format::Modifier::new();
-            m.set(core::format::Modifier::ITALIC);
-            m
-        },
-    ));
-    room_msg.push(core::format::Segment::new("\""));
+    room_msg.push(core::format::Segment::new(format!(" says, \"{args}\"")));
 
     let rendered = room_msg.render(true, true);
     let bytes = format!("{}\r\n", rendered).into_bytes();
@@ -249,9 +215,8 @@ fn send_leave_broadcast(
 ) {
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
     let mut msg = core::format::RichText::new();
-    msg.push(core::format::Segment::colored(
+    msg.push(core::format::conventions::player_name_segment(
         name.as_str(),
-        core::format::Color::Green,
     ));
     msg.push(core::format::Segment::new(format!(" leaves {dir_long}.")));
     let rendered = msg.render(true, true);
@@ -275,9 +240,8 @@ fn send_enter_broadcast(
 ) {
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
     let mut msg = core::format::RichText::new();
-    msg.push(core::format::Segment::colored(
+    msg.push(core::format::conventions::player_name_segment(
         name.as_str(),
-        core::format::Color::Green,
     ));
     msg.push(core::format::Segment::new(format!(
         " arrives from the {dir_long}."
