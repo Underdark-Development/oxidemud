@@ -12,14 +12,14 @@ pub(crate) fn color_from_name(name: &str) -> Option<Color> {
         "magenta" => Some(Color::Magenta),
         "cyan" => Some(Color::Cyan),
         "white" => Some(Color::White),
-        "bright-black" | "grey" | "gray" => Some(Color::BrightBlack),
-        "bright-red" => Some(Color::BrightRed),
-        "bright-green" => Some(Color::BrightGreen),
-        "bright-yellow" => Some(Color::BrightYellow),
-        "bright-blue" => Some(Color::BrightBlue),
-        "bright-magenta" => Some(Color::BrightMagenta),
-        "bright-cyan" => Some(Color::BrightCyan),
-        "bright-white" => Some(Color::BrightWhite),
+        "bright-black" | "brightblack" | "grey" | "gray" => Some(Color::BrightBlack),
+        "bright-red" | "brightred" => Some(Color::BrightRed),
+        "bright-green" | "brightgreen" => Some(Color::BrightGreen),
+        "bright-yellow" | "brightyellow" => Some(Color::BrightYellow),
+        "bright-blue" | "brightblue" => Some(Color::BrightBlue),
+        "bright-magenta" | "brightmagenta" => Some(Color::BrightMagenta),
+        "bright-cyan" | "brightcyan" => Some(Color::BrightCyan),
+        "bright-white" | "brightwhite" => Some(Color::BrightWhite),
         _ => None,
     }
 }
@@ -41,9 +41,10 @@ pub(crate) fn modifier_from_name(name: &str) -> Option<u8> {
 /// Parse markup tags into formatted text.
 ///
 /// Supported tags:
-/// - `{color}` — set foreground color (`red`, `green`, `blue`, `bright-red`, etc.)
+/// - `{color}` — set foreground color (`red`, `brightblue`, `bright-blue`, etc.)
 /// - `{bg:color}` — set background color
 /// - `{modifier}` — set modifier (`bold`, `italic`, `underline`, etc.)
+/// - `{color modifier ...}` — multiple attributes in one tag (`{yellow bold}`)
 /// - `{/}` — reset all formatting
 /// - `{/modifier}` — clear a specific modifier
 /// - `{{` — literal `{`
@@ -105,13 +106,15 @@ pub fn parse_tags(input: &str) -> RichText {
                 });
                 buf.clear();
             }
-            if let Some(color) = color_from_name(&tag) {
-                fg = color;
-            } else if let Some(bits) = modifier_from_name(&tag) {
-                modifiers.set(bits);
-            } else if let Some(bg_tag) = tag.strip_prefix("bg:") {
-                if let Some(color) = color_from_name(bg_tag) {
-                    bg = color;
+            for token in tag.split_whitespace() {
+                if let Some(color) = color_from_name(token) {
+                    fg = color;
+                } else if let Some(bits) = modifier_from_name(token) {
+                    modifiers.set(bits);
+                } else if let Some(bg_tag) = token.strip_prefix("bg:") {
+                    if let Some(color) = color_from_name(bg_tag) {
+                        bg = color;
+                    }
                 }
             }
             continue;
@@ -216,6 +219,33 @@ mod tests {
         assert_eq!(t.segments().len(), 1);
         assert_eq!(t.segments()[0].text, "hello");
         assert_eq!(t.segments()[0].fg, Color::Default);
+    }
+
+    #[test]
+    fn test_parse_tags_bright_no_hyphen() {
+        let t = parse_tags("{brightblue}magic item");
+        assert_eq!(t.segments().len(), 1);
+        assert_eq!(t.segments()[0].fg, Color::BrightBlue);
+
+        let hyphen = parse_tags("{bright-blue}magic item");
+        assert_eq!(hyphen.segments()[0].fg, Color::BrightBlue);
+    }
+
+    #[test]
+    fn test_parse_tags_multi_attribute() {
+        let t = parse_tags("{yellow bold}critical hit!{/}");
+        assert_eq!(t.segments().len(), 1);
+        assert_eq!(t.segments()[0].fg, Color::Yellow);
+        assert!(t.segments()[0].modifiers.has(Modifier::BOLD));
+        assert_eq!(t.segments()[0].text, "critical hit!");
+    }
+
+    #[test]
+    fn test_parse_tags_multi_attribute_with_bg() {
+        let t = parse_tags("{green italic bg:black}system");
+        assert_eq!(t.segments()[0].fg, Color::Green);
+        assert_eq!(t.segments()[0].bg, Color::Black);
+        assert!(t.segments()[0].modifiers.has(Modifier::ITALIC));
     }
 
     #[test]

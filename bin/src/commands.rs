@@ -4,7 +4,8 @@ use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
     let ansi = conn.flags().has(ConnectionFlag::Ansi);
-    conn.send_line(&text.render(ansi, true));
+    let blink = conn.flags().has(ConnectionFlag::Blink);
+    conn.send_line(&text.render(ansi, blink));
 }
 
 fn section_label(text: &str) -> core::format::Segment {
