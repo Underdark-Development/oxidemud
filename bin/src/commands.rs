@@ -1,5 +1,5 @@
 use mud_core as core;
-use mud_core::{Name, Position, Room, RoomExits, VoidRoom, World};
+use mud_core::{Direction, Name, Position, Room, RoomExits, VoidRoom, World};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::Text) {
@@ -66,6 +66,7 @@ fn get_exits(world: &World, room: core::Entity) -> Vec<core::format::StyledText>
 pub fn cmd_look(
     world: &mut World,
     conn: &mut dyn Connection,
+    _name: &str,
     _args: &str,
     registry: &ConnectionRegistry,
 ) {
@@ -157,6 +158,7 @@ pub fn cmd_look(
 pub fn cmd_say(
     world: &mut World,
     conn: &mut dyn Connection,
+    _name: &str,
     args: &str,
     registry: &ConnectionRegistry,
 ) {
@@ -237,9 +239,166 @@ pub fn cmd_say(
     }
 }
 
+fn send_leave_broadcast(
+    world: &World,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    from_room: core::Entity,
+    dir_long: &str,
+) {
+    let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
+    let mut msg = core::format::Text::new();
+    msg.push(core::format::StyledText::colored(
+        name.as_str(),
+        core::format::Color::Green,
+    ));
+    msg.push(core::format::StyledText::new(format!(" leaves {dir_long}.")));
+    let rendered = core::format::render(&msg);
+    let bytes = format!("{}\r\n", rendered).into_bytes();
+    for &other in &registry.occupants(world, from_room) {
+        if other == entity {
+            continue;
+        }
+        if let Some(tx) = registry.sender(other) {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+}
+
+fn send_enter_broadcast(
+    world: &World,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    dest_room: core::Entity,
+    dir_long: &str,
+) {
+    let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
+    let mut msg = core::format::Text::new();
+    msg.push(core::format::StyledText::colored(
+        name.as_str(),
+        core::format::Color::Green,
+    ));
+    msg.push(core::format::StyledText::new(format!(
+        " arrives from the {dir_long}."
+    )));
+    let rendered = core::format::render(&msg);
+    let bytes = format!("{}\r\n", rendered).into_bytes();
+    for &other in &registry.occupants(world, dest_room) {
+        if other == entity {
+            continue;
+        }
+        if let Some(tx) = registry.sender(other) {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+}
+
+fn direction_from_name(name: &str) -> Option<Direction> {
+    Direction::from_short(name).or_else(|| Direction::from_long(name))
+}
+
+fn move_player(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    direction: Direction,
+) {
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    if is_void_room(world, room) {
+        conn.send_line("You cannot move in the void.");
+        return;
+    }
+
+    // Find the exit
+    let dest = match world.query_one::<&RoomExits>(room) {
+        Ok(mut q) => q.get().and_then(|exits| {
+            exits
+                .0
+                .iter()
+                .find(|e| e.direction == direction)
+                .map(|e| e.dest)
+        }),
+        Err(_) => None,
+    };
+
+    let dest = match dest {
+        Some(d) => d,
+        None => {
+            conn.send_line("You cannot go that way.");
+            return;
+        }
+    };
+
+    // Check exit flags
+    if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits.0.iter().find(|e| e.direction == direction) {
+                if exit.is_closed() {
+                    conn.send_line("That exit is closed.");
+                    return;
+                }
+                if exit.is_locked() {
+                    conn.send_line("That exit is locked.");
+                    return;
+                }
+            }
+        }
+    }
+
+    // Move the player
+    let _ = world.insert(entity, (Position::new(dest),));
+
+    // Broadcast leave
+    let dir_long = direction.long_name();
+    let opposite = direction.opposite();
+    let opp_long = opposite.long_name();
+    send_leave_broadcast(world, registry, entity, room, dir_long);
+
+    // Broadcast enter
+    send_enter_broadcast(world, registry, entity, dest, opp_long);
+
+    // Auto-look
+    cmd_look(world, conn, "", "", registry);
+}
+
+pub fn cmd_move(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let direction = match direction_from_name(name) {
+        Some(d) => d,
+        None => {
+            conn.send_line("Huh?");
+            return;
+        }
+    };
+
+    move_player(world, conn, registry, entity, direction);
+}
+
 pub fn cmd_help(
     _world: &mut World,
     conn: &mut dyn Connection,
+    _name: &str,
     _args: &str,
     _registry: &ConnectionRegistry,
 ) {
@@ -261,6 +420,7 @@ pub fn cmd_help(
 pub fn cmd_quit(
     _world: &mut World,
     conn: &mut dyn Connection,
+    _name: &str,
     _args: &str,
     _registry: &ConnectionRegistry,
 ) {

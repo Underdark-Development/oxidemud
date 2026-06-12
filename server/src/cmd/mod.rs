@@ -2,7 +2,7 @@ use crate::connection::Connection;
 use crate::registry::ConnectionRegistry;
 use mud_core::World;
 
-pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &ConnectionRegistry);
+pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &str, &ConnectionRegistry);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AccessLevel {
@@ -52,7 +52,7 @@ impl CommandDispatch {
         };
 
         if let Some(cmd) = self.find(name) {
-            (cmd.handler)(world, conn, args, registry);
+            (cmd.handler)(world, conn, name, args, registry);
         } else {
             conn.send_line("Huh? Type 'help' for a list of commands.");
         }
@@ -78,11 +78,19 @@ mod tests {
     use crate::registry::ConnectionRegistry;
     use mud_core::World;
 
-    fn noop(_world: &mut World, _conn: &mut dyn Connection, _args: &str, _registry: &ConnectionRegistry) {}
+    fn noop(
+        _world: &mut World,
+        _conn: &mut dyn Connection,
+        _name: &str,
+        _args: &str,
+        _registry: &ConnectionRegistry,
+    ) {
+    }
 
     fn test_handler(
         _world: &mut World,
         conn: &mut dyn Connection,
+        _name: &str,
         args: &str,
         _registry: &ConnectionRegistry,
     ) {

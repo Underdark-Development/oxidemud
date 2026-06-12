@@ -21,6 +21,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
     server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
 
+    // Movement commands
+    server.register_command("north", &["n"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("south", &["s"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("east", &["e"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("west", &["w"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("up", &["u"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("down", &["d"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("northeast", &["ne"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("northwest", &["nw"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("southeast", &["se"], AccessLevel::Player, commands::cmd_move);
+    server.register_command("southwest", &["sw"], AccessLevel::Player, commands::cmd_move);
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     tokio::spawn(async move {
