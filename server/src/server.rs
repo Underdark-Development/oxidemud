@@ -163,9 +163,13 @@ async fn handle_connection(
         }
     });
 
-    // Send initial welcome — will be followed by login prompt
-    conn.send_line("Welcome to Mud!");
-    conn.send_line("");
+    // Show server banner + MOTD + stats, then prompt for login — all before read loop
+    {
+        let reg = registry.lock().await;
+        send_server_greeting(&mut conn, &reg);
+    }
+    conn.send_line("Enter your username:");
+    conn.set_state(ConnectionState::Username);
 
     let telnet_reader = TelnetReader::new(reader_half);
     let mut buf_reader = BufReader::new(telnet_reader);
@@ -186,6 +190,7 @@ async fn handle_connection(
                     let mut world_lock = world.lock().await;
                     let reg = registry.lock().await;
                     commands.execute(&mut world_lock, &mut conn, trimmed, &reg);
+                    conn.send("> ");
                     drop(reg);
                     drop(world_lock);
                 } else {
@@ -282,7 +287,9 @@ async fn handle_login(
     let state = conn.state();
     match state {
         ConnectionState::Connected => {
-            conn.send_line("Enter your username (3-20 letters, numbers, hyphens, underscores):");
+            // State is set to Username before the read loop; this arm should not be reached.
+            // If reached, treat as a no-op and prompt again.
+            conn.send_line("Enter your username:");
             conn.set_state(ConnectionState::Username);
             Ok(())
         }
@@ -296,13 +303,7 @@ async fn handle_login(
                 return Ok(());
             }
 
-            let db = match db {
-                Some(d) => d,
-                None => {
-                    skip_login(conn, world, registry, void_room);
-                    return Ok(());
-                }
-            };
+            let db = db.ok_or_else(|| "Server error: database unavailable.".to_string())?;
 
             let db_guard = db.lock().await;
             let existing = mud_data::get_account_by_username(db_guard.conn(), username)
@@ -335,14 +336,7 @@ async fn handle_login(
                 return Ok(());
             }
 
-            let db = match db {
-                Some(d) => d,
-                None => {
-                    set_echo(conn, false);
-                    skip_login(conn, world, registry, void_room);
-                    return Ok(());
-                }
-            };
+            let db = db.ok_or_else(|| "Server error: database unavailable.".to_string())?;
 
             let db_guard = db.lock().await;
             let account = mud_data::get_account_by_username(db_guard.conn(), username)
@@ -391,9 +385,7 @@ async fn handle_login(
                     conn.set_state(ConnectionState::AccountCreatePassword);
                 }
                 "n" | "no" => {
-                    conn.send_line(
-                        "Enter your username (3-20 letters, numbers, hyphens, underscores):",
-                    );
+                    conn.send_line("Enter your username:");
                     conn.set_state(ConnectionState::Username);
                 }
                 _ => {
@@ -449,14 +441,7 @@ async fn handle_login(
                 return Ok(());
             }
 
-            let db = match db {
-                Some(d) => d,
-                None => {
-                    set_echo(conn, false);
-                    skip_login(conn, world, registry, void_room);
-                    return Ok(());
-                }
-            };
+            let db = db.ok_or_else(|| "Server error: database unavailable.".to_string())?;
 
             let hash = mud_data::hash_password(stored_password.as_deref().unwrap())
                 .map_err(|e| format!("Hashing error: {e}"))?;
@@ -493,13 +478,7 @@ async fn handle_login(
         // -----------------------------------------------------------------------
         ConnectionState::CharacterSelect => {
             let input = input.trim();
-            let db = match db {
-                Some(d) => d,
-                None => {
-                    skip_login(conn, world, registry, void_room);
-                    return Ok(());
-                }
-            };
+            let db = db.ok_or_else(|| "Server error: database unavailable.".to_string())?;
 
             let account_id = match conn.account_id() {
                 Some(id) => id,
@@ -553,13 +532,7 @@ async fn handle_login(
                 return Ok(());
             }
 
-            let db = match db {
-                Some(d) => d,
-                None => {
-                    conn.send_line("No database available for character creation.");
-                    return Ok(());
-                }
-            };
+            let db = db.ok_or_else(|| "Server error: database unavailable.".to_string())?;
 
             let db_guard = db.lock().await;
             let existing = mud_data::get_character_by_name(db_guard.conn(), name)
@@ -803,12 +776,9 @@ async fn finalize_character(
         }
     };
 
-    let db_con = match db {
-        Some(d) => d,
-        None => {
-            skip_login(conn, world, registry, void_room);
-            return;
-        }
+    let Some(db_con) = db else {
+        conn.send_line("Server error: database unavailable.");
+        return;
     };
 
     // Compute final attributes: race base + class mods
@@ -896,8 +866,14 @@ async fn finalize_character(
         registry.register(player, tx);
     }
 
-    send_server_greeting(conn, registry);
+    conn.send_line("");
+    conn.send_line("--- Character Score ---");
+    conn.send_line(&format!("  Name:       {name}"));
+    conn.send_line("  Level:      1");
+    conn.send_line(&format!("  HP:         {hp} / {hp}"));
+    conn.send_line("");
     conn.send_line(&format!("Welcome, {name}! Your adventure begins."));
+    conn.send("> ");
     conn.set_state(ConnectionState::Playing);
 }
 
@@ -1002,6 +978,10 @@ fn load_character(
         .map(|x| mud_core::Experience(x as u64))
         .unwrap_or_default();
 
+    let hp_current = hp.current;
+    let hp_max = hp.max;
+    let level_val = level.0;
+
     let player = world.spawn((
         Position::new(void_room),
         Name::new(char_row.name.clone()),
@@ -1018,25 +998,14 @@ fn load_character(
         registry.register(player, tx);
     }
 
+    conn.send_line("");
+    conn.send_line("--- Character Score ---");
+    conn.send_line(&format!("  Name:       {}", char_row.name));
+    conn.send_line(&format!("  Level:      {level_val}"));
+    conn.send_line(&format!("  HP:         {hp_current} / {hp_max}"));
+    conn.send_line("");
     conn.send_line(&format!("Welcome back, {}!", char_row.name));
-    send_server_greeting(conn, registry);
-    conn.set_state(ConnectionState::Playing);
-}
-
-/// Skip login and spawn a guest player in the void.
-fn skip_login(
-    conn: &mut dyn Connection,
-    world: &mut World,
-    registry: &mut ConnectionRegistry,
-    void_room: Entity,
-) {
-    let name = format!("Adventurer_{}", conn.id());
-    let player = world.spawn((Position::new(void_room), Name::new(name)));
-    conn.set_entity(player);
-    if let Some(tx) = conn.output_sender() {
-        registry.register(player, tx);
-    }
-    send_server_greeting(conn, registry);
+    conn.send("> ");
     conn.set_state(ConnectionState::Playing);
 }
 
