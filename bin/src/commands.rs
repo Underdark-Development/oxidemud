@@ -371,6 +371,8 @@ pub fn cmd_help(
     conn.send_line("Available commands:");
     conn.send_line("  look/l         — examine your surroundings");
     conn.send_line("  say <text>     — speak in the room");
+    conn.send_line("  score          — display your character stats");
+    conn.send_line("  motd           — show message of the day");
     conn.send_line("  north/n        — move north");
     conn.send_line("  south/s        — move south");
     conn.send_line("  east/e         — move east");
@@ -379,6 +381,7 @@ pub fn cmd_help(
     conn.send_line("  down/d         — move down");
     conn.send_line("  help           — this help");
     conn.send_line("  quit           — disconnect");
+    conn.send_line("  @award <xp>    — grant XP (builder)");
     conn.send_line("");
 }
 
@@ -391,6 +394,151 @@ pub fn cmd_quit(
 ) {
     conn.send_line("Goodbye!");
     conn.disconnect();
+}
+
+pub fn cmd_score(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let name = world
+        .query_one::<&core::Name>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.to_string()))
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let level = world
+        .query_one::<&core::Level>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::Level(1));
+
+    let xp = world
+        .query_one::<&core::Experience>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::Experience(0));
+
+    let attrs = world
+        .query_one::<&core::Attributes>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    let hp = world
+        .query_one::<&core::Health>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or(core::Health::new(20));
+
+    let xp_to_next = xp.to_next_level(level.0);
+
+    conn.send_line("");
+    conn.send_line("--- Character Score ---");
+    conn.send_line(&format!("  Name:       {name}"));
+    conn.send_line(&format!("  Level:      {}", level.0));
+    conn.send_line(&format!(
+        "  Experience: {} / {} ({} to next level)",
+        xp.0,
+        core::Experience::for_level(level.0 + 1),
+        xp_to_next
+    ));
+    conn.send_line(&format!("  HP:         {} / {}", hp.current, hp.max));
+    conn.send_line("");
+    conn.send_line("  Attributes:");
+    conn.send_line(&format!("    Strength:     {}", attrs.strength));
+    conn.send_line(&format!("    Dexterity:    {}", attrs.dexterity));
+    conn.send_line(&format!("    Intelligence: {}", attrs.intelligence));
+    conn.send_line(&format!("    Wisdom:      {}", attrs.wisdom));
+    conn.send_line(&format!("    Constitution: {}", attrs.constitution));
+    conn.send_line(&format!("    Charisma:    {}", attrs.charisma));
+    conn.send_line("");
+}
+
+pub fn cmd_motd(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    conn.send_line("");
+    conn.send_line(mud_server::get_motd());
+    conn.send_line("");
+}
+
+pub fn cmd_award(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let amount: u64 = match args.trim().parse() {
+        Ok(n) => n,
+        Err(_) => {
+            conn.send_line("Usage: @award <xp_amount>");
+            return;
+        }
+    };
+
+    let new_xp = {
+        let mut q = match world.query_one::<&mut core::Experience>(entity) {
+            Ok(q) => q,
+            Err(_) => {
+                conn.send_line("You have no experience component.");
+                return;
+            }
+        };
+        match q.get() {
+            Some(xp) => {
+                xp.0 = xp.0.saturating_add(amount);
+                xp.0
+            }
+            None => {
+                conn.send_line("You have no experience component.");
+                return;
+            }
+        }
+    };
+
+    conn.send_line(&format!(
+        "You gain {amount} experience points! (Total: {new_xp})"
+    ));
+
+    // Check for level-ups
+    mud_server::award_xp(world, entity);
+
+    // Report new level
+    let level = world
+        .query_one::<&core::Level>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::Level(1));
+    let xp = world
+        .query_one::<&core::Experience>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::Experience(0));
+    conn.send_line(&format!("You are now level {} with {} XP.", level.0, xp.0));
 }
 
 #[cfg(test)]

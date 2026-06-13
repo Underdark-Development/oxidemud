@@ -44,8 +44,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     server.register_command("look", &["l"], AccessLevel::Player, commands::cmd_look);
     server.register_command("say", &[], AccessLevel::Player, commands::cmd_say);
+    server.register_command("score", &[], AccessLevel::Player, commands::cmd_score);
+    server.register_command("motd", &[], AccessLevel::Player, commands::cmd_motd);
     server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
     server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
+
+    // Builder commands
+    server.register_command("@award", &[], AccessLevel::Builder, commands::cmd_award);
 
     // Movement commands
     server.register_command("north", &["n"], AccessLevel::Player, commands::cmd_move);

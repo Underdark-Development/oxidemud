@@ -128,6 +128,10 @@ impl Experience {
     pub fn for_level(level: u8) -> u64 {
         (level as u64).saturating_pow(3) * 100
     }
+
+    pub fn to_next_level(&self, level: u8) -> u64 {
+        Self::for_level(level + 1).saturating_sub(self.0)
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +161,19 @@ mod tests {
         assert_eq!(Experience::for_level(1), 100);
         assert_eq!(Experience::for_level(2), 800);
         assert_eq!(Experience::for_level(10), 100_000);
+    }
+
+    #[test]
+    fn test_experience_to_next_level() {
+        let xp = Experience(0);
+        assert_eq!(xp.to_next_level(1), 800); // 800 - 0
+        let xp = Experience(400);
+        assert_eq!(xp.to_next_level(1), 400); // 800 - 400
+        let xp = Experience(100);
+        assert_eq!(xp.to_next_level(1), 700); // 800 - 100
+                                              // Already past threshold
+        let xp = Experience(900);
+        assert_eq!(xp.to_next_level(1), 0); // saturated at 0
     }
 
     #[test]

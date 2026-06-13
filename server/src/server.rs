@@ -18,6 +18,8 @@ use mud_core::{Entity, Name, Position, World};
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
 static MOTD: OnceLock<String> = OnceLock::new();
+static DB: OnceLock<Arc<Mutex<mud_data::Database>>> = OnceLock::new();
+static TEMPLATES: OnceLock<Arc<TemplateRegistry>> = OnceLock::new();
 
 pub struct Server {
     bind_addr: String,
@@ -47,12 +49,16 @@ impl Server {
     }
 
     pub fn with_database(mut self, db: mud_data::Database) -> Self {
-        self.db = Some(Arc::new(Mutex::new(db)));
+        let db = Arc::new(Mutex::new(db));
+        let _ = DB.set(db.clone());
+        self.db = Some(db);
         self
     }
 
     pub fn with_templates(mut self, templates: TemplateRegistry) -> Self {
-        self.templates = Some(Arc::new(templates));
+        let templates = Arc::new(templates);
+        let _ = TEMPLATES.set(templates.clone());
+        self.templates = Some(templates);
         self
     }
 
@@ -492,15 +498,16 @@ async fn handle_login(
                 let db_guard = db.lock().await;
                 let chars = mud_data::get_characters_by_account(db_guard.conn(), account_id)
                     .map_err(|e| format!("DB error: {e}"))?;
-                drop(db_guard);
 
                 if idx == 0 || idx > chars.len() {
+                    drop(db_guard);
                     conn.send_line("Invalid selection. Pick a number from the list, or type 'c' to create a new character.");
                     return Ok(());
                 }
 
                 let char_row = &chars[idx - 1];
-                load_character(conn, world, registry, void_room, char_row);
+                load_character(conn, world, registry, void_room, char_row, &db_guard);
+                drop(db_guard);
                 return Ok(());
             }
 
@@ -850,6 +857,8 @@ async fn finalize_character(
         mud_core::Player::new(account_id),
         attrs,
         mud_core::Health::new(hp),
+        mud_core::Level::default(),
+        mud_core::Experience::default(),
         skills,
         mud_core::DbId::new(entity_id),
     ));
@@ -927,14 +936,53 @@ fn load_character(
     registry: &mut ConnectionRegistry,
     void_room: Entity,
     char_row: &mud_data::CharacterRow,
+    db: &mud_data::Database,
 ) {
-    // For now, spawn in void room with basic components.
-    // Full entity persistence (Chunk 4) will load all saved components.
+    let conn_db = db.conn();
+    let entity_id = char_row.entity_id;
+
+    let attrs = mud_data::load_attributes_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|a| {
+            mud_core::Attributes::new(
+                a.strength,
+                a.dexterity,
+                a.intelligence,
+                a.wisdom,
+                a.constitution,
+                a.charisma,
+            )
+        })
+        .unwrap_or_default();
+
+    let hp = mud_data::load_health_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|(current, max)| mud_core::Health { current, max })
+        .unwrap_or_else(|| mud_core::Health::new(20));
+
+    let level = mud_data::load_level_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|l| mud_core::Level(l as u8))
+        .unwrap_or_default();
+
+    let xp = mud_data::load_experience_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|x| mud_core::Experience(x as u64))
+        .unwrap_or_default();
+
     let player = world.spawn((
         Position::new(void_room),
         Name::new(char_row.name.clone()),
         mud_core::Player::new(char_row.account_id),
-        mud_core::DbId::new(char_row.entity_id),
+        attrs,
+        hp,
+        level,
+        xp,
+        mud_core::DbId::new(entity_id),
     ));
 
     conn.set_entity(player);
@@ -1008,6 +1056,125 @@ fn send_server_greeting(conn: &mut dyn Connection, registry: &ConnectionRegistry
 }
 
 // ---------------------------------------------------------------------------
+// XP and Level-up
+// ---------------------------------------------------------------------------
+
+/// Grant XP to a player entity, checking for level-ups.
+pub fn award_xp(world: &mut World, entity: Entity) {
+    let level = get_level(world, entity);
+    let xp = get_experience(world, entity);
+
+    let threshold = mud_core::Experience::for_level(level + 1);
+    if xp < threshold {
+        return;
+    }
+
+    let db = DB.get().and_then(|d| d.try_lock().ok());
+    let conn_db = db.as_ref().map(|g| g.conn());
+
+    let mut messages: Vec<String> = Vec::new();
+
+    loop {
+        let current_level = get_level(world, entity);
+        let current_xp = get_experience(world, entity);
+        let next_threshold = mud_core::Experience::for_level(current_level + 1);
+        if current_xp < next_threshold {
+            break;
+        }
+
+        let new_level = current_level + 1;
+        let excess = current_xp - next_threshold;
+
+        // HP gain: hit die + CON mod
+        let attrs = get_attributes(world, entity);
+        let con_mod = (attrs.constitution as i32 - 10) / 2;
+        let hit_die = get_hit_die();
+
+        // Update components
+        if let Ok(mut q) = world.query_one::<&mut mud_core::Health>(entity) {
+            if let Some(health) = q.get() {
+                let hp_gain = (hit_die + con_mod).max(1);
+                health.max += hp_gain;
+                health.current = health.max; // Full heal on level-up
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&mut mud_core::Level>(entity) {
+            if let Some(level) = q.get() {
+                level.0 = new_level;
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&mut mud_core::Experience>(entity) {
+            if let Some(xp) = q.get() {
+                xp.0 = excess;
+            }
+        }
+
+        // Persist to DB
+        if let Some(conn_db) = conn_db {
+            if let Ok(mut q) = world.query_one::<&mud_core::DbId>(entity) {
+                if let Some(db_id) = q.get() {
+                    let _ = mud_data::save_level_component(conn_db, db_id.0, new_level as i64);
+                    let _ = mud_data::save_experience_component(conn_db, db_id.0, excess as i64);
+                }
+            }
+        }
+
+        // Attribute point every 5 levels
+        let attr_msg = if new_level % 5 == 0 {
+            " You gain an attribute point!"
+        } else {
+            ""
+        };
+
+        messages.push(format!(
+            "You advance to level {new_level}! HP increased by {}.{attr_msg}",
+            (hit_die + con_mod).max(1),
+        ));
+    }
+
+    if !messages.is_empty() {
+        if let Ok(mut q) = world.query_one::<&mut mud_core::Health>(entity) {
+            if let Some(health) = q.get() {
+                health.current = health.max; // Ensure full heal
+            }
+        }
+    }
+}
+
+fn get_level(world: &World, entity: Entity) -> u8 {
+    world
+        .query_one::<&mud_core::Level>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|l| l.0))
+        .unwrap_or(1)
+}
+
+fn get_experience(world: &World, entity: Entity) -> u64 {
+    world
+        .query_one::<&mud_core::Experience>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|x| x.0))
+        .unwrap_or(0)
+}
+
+fn get_attributes(world: &World, entity: Entity) -> mud_core::Attributes {
+    world
+        .query_one::<&mud_core::Attributes>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default()
+}
+
+fn get_hit_die() -> i32 {
+    TEMPLATES
+        .get()
+        .and_then(|t| t.classes.values().next().map(|c| c.hit_die as i32))
+        .unwrap_or(8)
+}
+
+// ---------------------------------------------------------------------------
 // MOTD loading
 // ---------------------------------------------------------------------------
 
@@ -1025,6 +1192,11 @@ pub fn load_motd(path: Option<&Path>) {
         }
         "Welcome to the MUD. A world awaits.".to_string()
     });
+}
+
+/// Returns the message of the day text.
+pub fn get_motd() -> &'static str {
+    MOTD.get_or_init(|| "Welcome to the MUD. A world awaits.".to_string())
 }
 
 fn check_strikes(conn: &mut dyn Connection) {
