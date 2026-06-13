@@ -290,6 +290,10 @@ impl RoomFlags {
 #[derive(Debug, Clone, Copy)]
 pub struct Teleportable(pub bool);
 
+/// Items lying on the room floor.
+#[derive(Debug, Clone, Default)]
+pub struct FloorItems(pub Vec<crate::Entity>);
+
 impl Default for Teleportable {
     fn default() -> Self {
         Teleportable(true)

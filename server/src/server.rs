@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, Notify};
 
 use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, ConnectionState, TelnetConnection};
+use crate::game_loop::spawn_game_loop;
 use crate::registry::ConnectionRegistry;
 use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
 use mud_core::templates::TemplateRegistry;
@@ -91,6 +92,10 @@ impl Server {
         let db = self.db;
         let templates = self.templates;
         let shutdown_complete = self.shutdown_complete;
+
+        // Spawn the game loop for combat/AI/corpse pulses
+        let server_shutdown_rx = shutdown.clone();
+        spawn_game_loop(world.clone(), db.clone(), server_shutdown_rx);
 
         loop {
             tokio::select! {

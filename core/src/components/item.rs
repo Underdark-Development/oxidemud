@@ -1,3 +1,7 @@
+use std::str::FromStr;
+
+use crate::dice::DiceRoll;
+use crate::DamageType;
 use crate::Entity;
 
 #[derive(Debug, Clone)]
@@ -43,6 +47,29 @@ pub enum EquipmentSlot {
     Ammo,
     Back,
     Waist,
+}
+
+impl FromStr for EquipmentSlot {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "head" => Ok(EquipmentSlot::Head),
+            "neck" => Ok(EquipmentSlot::Neck),
+            "torso" => Ok(EquipmentSlot::Torso),
+            "arms" => Ok(EquipmentSlot::Arms),
+            "hands" => Ok(EquipmentSlot::Hands),
+            "finger" => Ok(EquipmentSlot::Finger),
+            "legs" => Ok(EquipmentSlot::Legs),
+            "feet" => Ok(EquipmentSlot::Feet),
+            "weapon" => Ok(EquipmentSlot::Weapon),
+            "shield" => Ok(EquipmentSlot::Shield),
+            "ammo" => Ok(EquipmentSlot::Ammo),
+            "back" => Ok(EquipmentSlot::Back),
+            "waist" => Ok(EquipmentSlot::Waist),
+            _ => Err(()),
+        }
+    }
 }
 
 impl EquipmentSlot {
@@ -93,5 +120,50 @@ impl Equipment {
 impl Default for Equipment {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponRange {
+    Melee,
+    Ranged,
+    Reach,
+    Thrown,
+}
+
+#[derive(Debug, Clone)]
+pub struct Weapon {
+    pub damage_dice: DiceRoll,
+    pub damage_type: DamageType,
+    pub speed: f32,
+    pub range: WeaponRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct Durability {
+    pub current: u16,
+    pub max: u16,
+    pub decay_rate: f32,
+}
+
+impl Durability {
+    pub fn new(max: u16) -> Self {
+        Durability {
+            current: max,
+            max,
+            decay_rate: 1.0,
+        }
+    }
+
+    pub fn is_broken(&self) -> bool {
+        self.current == 0
+    }
+
+    pub fn damage(&mut self, amount: u16) {
+        self.current = self.current.saturating_sub(amount);
+    }
+
+    pub fn repair(&mut self, amount: u16) {
+        self.current = (self.current + amount).min(self.max);
     }
 }

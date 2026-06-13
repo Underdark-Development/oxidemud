@@ -8,5 +8,5 @@ license.workspace = true
 [dependencies]
 mud-core = { path = "../core" }
 mud-data = { path = "../data" }
-tokio = { version = "1", features = ["net", "io-util", "macros", "sync"] }
+tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "time"] }
 tracing = "0.1"

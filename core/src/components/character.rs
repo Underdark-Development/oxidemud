@@ -79,6 +79,11 @@ impl Default for Level {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Experience(pub u64);
 
+#[derive(Debug, Clone, Default)]
+pub struct Golds {
+    pub copper: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct Name(pub String);
 

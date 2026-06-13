@@ -49,6 +49,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
     server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
 
+    // Phase 3 — Combat
+    server.register_command("kill", &[], AccessLevel::Player, commands::cmd_kill);
+    server.register_command(
+        "inventory",
+        &["inv", "i"],
+        AccessLevel::Player,
+        commands::cmd_inventory,
+    );
+    server.register_command(
+        "equipment",
+        &["eq"],
+        AccessLevel::Player,
+        commands::cmd_equipment,
+    );
+    server.register_command("wear", &[], AccessLevel::Player, commands::cmd_wear);
+    server.register_command("wield", &[], AccessLevel::Player, commands::cmd_wield);
+    server.register_command("remove", &[], AccessLevel::Player, commands::cmd_remove);
+    server.register_command(
+        "examine",
+        &["exa"],
+        AccessLevel::Player,
+        commands::cmd_examine,
+    );
+    server.register_command("get", &["take"], AccessLevel::Player, commands::cmd_get);
+    server.register_command("drop", &[], AccessLevel::Player, commands::cmd_drop);
+    server.register_command("put", &[], AccessLevel::Player, commands::cmd_put);
+    server.register_command("give", &[], AccessLevel::Player, commands::cmd_give);
+    server.register_command("loot", &[], AccessLevel::Player, commands::cmd_loot);
+    server.register_command("stance", &[], AccessLevel::Player, commands::cmd_stance);
+    server.register_command("train", &[], AccessLevel::Player, commands::cmd_train);
+
     // Builder commands
     server.register_command("@award", &[], AccessLevel::Builder, commands::cmd_award);
 

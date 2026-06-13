@@ -66,6 +66,65 @@ CREATE TABLE IF NOT EXISTS components_experience (
     xp INTEGER NOT NULL DEFAULT 0
 );
 
+-- Phase 3 tables
+CREATE TABLE IF NOT EXISTS components_item (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    template_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_durability (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    current INTEGER NOT NULL DEFAULT 100,
+    max INTEGER NOT NULL DEFAULT 100,
+    decay_rate REAL NOT NULL DEFAULT 1.0
+);
+
+CREATE TABLE IF NOT EXISTS components_weapon (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    damage_dice TEXT NOT NULL,
+    damage_type TEXT NOT NULL,
+    speed REAL NOT NULL DEFAULT 1.0,
+    weapon_range TEXT NOT NULL DEFAULT 'melee'
+);
+
+CREATE TABLE IF NOT EXISTS components_armor (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    base INTEGER NOT NULL DEFAULT 0,
+    bonus INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS components_combat_stats (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    base_attack_bonus INTEGER NOT NULL DEFAULT 0,
+    fort_save INTEGER NOT NULL DEFAULT 0,
+    ref_save INTEGER NOT NULL DEFAULT 0,
+    will_save INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS components_golds (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    copper INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS components_equipment (
+    entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    slot TEXT NOT NULL,
+    item_entity_id INTEGER NOT NULL REFERENCES entities(id),
+    PRIMARY KEY (entity_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS components_inventory_items (
+    entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    item_entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    slot INTEGER NOT NULL,
+    PRIMARY KEY (entity_id, item_entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS components_stance (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    stance_id TEXT
+);
+
 CREATE TABLE IF NOT EXISTS attributes (
     entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     key TEXT NOT NULL,
@@ -73,9 +132,13 @@ CREATE TABLE IF NOT EXISTS attributes (
     PRIMARY KEY (entity_id, key)
 );
 
+-- indexes
 CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(type);
 CREATE INDEX IF NOT EXISTS idx_components_exit_dest ON components_exit(dest_entity_id);
+CREATE INDEX IF NOT EXISTS idx_components_equipment_item ON components_equipment(item_entity_id);
+CREATE INDEX IF NOT EXISTS idx_components_inventory_item ON components_inventory_items(item_entity_id);
 
+-- existing tables
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
@@ -103,7 +166,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 4;
+pub const VERSION: i64 = 5;
 
 #[cfg(test)]
 mod tests {
@@ -129,19 +192,28 @@ mod tests {
             .collect();
 
         let expected = [
-            "entities",
-            "components_room",
-            "components_exit",
-            "components_position",
-            "components_player",
-            "components_npc",
-            "components_health",
-            "components_attributes",
-            "components_level",
-            "components_experience",
             "accounts",
             "attributes",
             "characters",
+            "components_armor",
+            "components_attributes",
+            "components_combat_stats",
+            "components_durability",
+            "components_equipment",
+            "components_exit",
+            "components_experience",
+            "components_golds",
+            "components_health",
+            "components_inventory_items",
+            "components_item",
+            "components_level",
+            "components_npc",
+            "components_player",
+            "components_position",
+            "components_room",
+            "components_stance",
+            "components_weapon",
+            "entities",
             "schema_version",
         ];
         for name in &expected {

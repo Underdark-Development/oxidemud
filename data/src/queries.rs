@@ -473,6 +473,268 @@ pub fn update_last_login(conn: &Connection, account_id: i64) -> Result<(), rusql
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3 — Item / Equipment / Inventory queries
+// ---------------------------------------------------------------------------
+
+pub fn save_item_component(
+    conn: &Connection,
+    entity_id: i64,
+    template_id: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_item (entity_id, template_id) VALUES (?1, ?2)",
+        params![entity_id, template_id],
+    )?;
+    Ok(())
+}
+
+pub fn load_item_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT template_id FROM components_item WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_durability_component(
+    conn: &Connection,
+    entity_id: i64,
+    current: u16,
+    max: u16,
+    decay_rate: f64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_durability (entity_id, current, max, decay_rate) VALUES (?1, ?2, ?3, ?4)",
+        params![entity_id, current, max, decay_rate],
+    )?;
+    Ok(())
+}
+
+pub fn load_durability_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<(u16, u16, f64)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT current, max, decay_rate FROM components_durability WHERE entity_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))),
+        None => Ok(None),
+    }
+}
+
+pub fn save_weapon_component(
+    conn: &Connection,
+    entity_id: i64,
+    damage_dice: &str,
+    damage_type: &str,
+    speed: f64,
+    weapon_range: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_weapon (entity_id, damage_dice, damage_type, speed, weapon_range) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![entity_id, damage_dice, damage_type, speed, weapon_range],
+    )?;
+    Ok(())
+}
+
+pub fn load_weapon_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<(String, String, f64, String)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT damage_dice, damage_type, speed, weapon_range FROM components_weapon WHERE entity_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))),
+        None => Ok(None),
+    }
+}
+
+pub fn save_armor_component(
+    conn: &Connection,
+    entity_id: i64,
+    base: i32,
+    bonus: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_armor (entity_id, base, bonus) VALUES (?1, ?2, ?3)",
+        params![entity_id, base, bonus],
+    )?;
+    Ok(())
+}
+
+pub fn load_armor_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<(i32, i32)>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT base, bonus FROM components_armor WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?))),
+        None => Ok(None),
+    }
+}
+
+pub fn save_combat_stats_component(
+    conn: &Connection,
+    entity_id: i64,
+    bab: i32,
+    fort: i32,
+    ref_: i32,
+    will: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_combat_stats (entity_id, base_attack_bonus, fort_save, ref_save, will_save) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![entity_id, bab, fort, ref_, will],
+    )?;
+    Ok(())
+}
+
+pub fn load_combat_stats_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<(i32, i32, i32, i32)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT base_attack_bonus, fort_save, ref_save, will_save FROM components_combat_stats WHERE entity_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))),
+        None => Ok(None),
+    }
+}
+
+pub fn save_golds_component(
+    conn: &Connection,
+    entity_id: i64,
+    copper: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_golds (entity_id, copper) VALUES (?1, ?2)",
+        params![entity_id, copper],
+    )?;
+    Ok(())
+}
+
+pub fn load_golds_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<i64>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT copper FROM components_golds WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_equipment_slot(
+    conn: &Connection,
+    entity_id: i64,
+    slot: &str,
+    item_entity_id: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_equipment (entity_id, slot, item_entity_id) VALUES (?1, ?2, ?3)",
+        params![entity_id, slot, item_entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_equipment_slot(
+    conn: &Connection,
+    entity_id: i64,
+    slot: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM components_equipment WHERE entity_id = ?1 AND slot = ?2",
+        params![entity_id, slot],
+    )?;
+    Ok(())
+}
+
+pub fn load_equipment(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Vec<(String, i64)>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT slot, item_entity_id FROM components_equipment WHERE entity_id = ?1")?;
+    let rows = stmt.query_map(params![entity_id], |row| {
+        let slot = row.get(0)?;
+        let item_id: i64 = row.get(1)?;
+        Ok((slot, item_id))
+    })?;
+    rows.collect()
+}
+
+pub fn add_inventory_item(
+    conn: &Connection,
+    entity_id: i64,
+    item_entity_id: i64,
+    slot: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_inventory_items (entity_id, item_entity_id, slot) VALUES (?1, ?2, ?3)",
+        params![entity_id, item_entity_id, slot],
+    )?;
+    Ok(())
+}
+
+pub fn remove_inventory_item(
+    conn: &Connection,
+    entity_id: i64,
+    item_entity_id: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM components_inventory_items WHERE entity_id = ?1 AND item_entity_id = ?2",
+        params![entity_id, item_entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn load_inventory(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Vec<(i64, i32)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT item_entity_id, slot FROM components_inventory_items WHERE entity_id = ?1 ORDER BY slot",
+    )?;
+    let rows = stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    rows.collect()
+}
+
+pub fn save_stance_component(
+    conn: &Connection,
+    entity_id: i64,
+    stance_id: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_stance (entity_id, stance_id) VALUES (?1, ?2)",
+        params![entity_id, stance_id],
+    )?;
+    Ok(())
+}
+
+pub fn load_stance_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<Option<String>>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT stance_id FROM components_stance WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get::<_, Option<String>>(0)?)),
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

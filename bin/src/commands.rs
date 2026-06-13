@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use mud_core as core;
 use mud_core::{Direction, Name, Position, Room, RoomExits, VoidRoom, World};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
@@ -539,6 +541,753 @@ pub fn cmd_award(
         .and_then(|mut q| q.get().copied())
         .unwrap_or(core::Experience(0));
     conn.send_line(&format!("You are now level {} with {} XP.", level.0, xp.0));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Combat commands
+// ---------------------------------------------------------------------------
+
+pub fn cmd_kill(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    if args.trim().is_empty() {
+        conn.send_line("Kill what?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    // Find target in the same room by name
+    let target_name = args.trim().to_lowercase();
+    let target = {
+        let mut q = world.query::<(&core::Name, &core::Position, &core::Health)>();
+        q.iter()
+            .map(|(raw, (name, pos, _))| {
+                (core::Entity::from(raw), name.as_str().to_lowercase(), pos)
+            })
+            .find(|(e, n, pos)| pos.room == room && n == &target_name && *e != entity)
+            .map(|(e, _, _)| e)
+    };
+
+    let target = match target {
+        Some(t) => t,
+        None => {
+            conn.send_line("They aren't here.");
+            return;
+        }
+    };
+
+    // Verify target is alive
+    if let Ok(mut q) = world.query_one::<&core::Health>(target) {
+        if q.get().is_some_and(|h| h.is_dead()) {
+            conn.send_line("They are already dead.");
+            return;
+        }
+    }
+
+    // Check target isn't already a player in combat with someone
+    // (no PvP flag check yet — simplified)
+    if world.query_one::<&core::Player>(target).is_ok() {
+        conn.send_line("You cannot attack other players yet.");
+        return;
+    }
+
+    let _ = world.insert(entity, (core::CombatTarget(target),));
+    conn.send_line("You attack!");
+}
+
+// ---------------------------------------------------------------------------
+// Inventory / Equipment commands
+// ---------------------------------------------------------------------------
+
+pub fn cmd_inventory(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let inv = match world.query_one::<&core::Inventory>(entity) {
+        Ok(mut q) => q.get().map(|inv| inv.0.clone()).unwrap_or_default(),
+        Err(_) => {
+            conn.send_line("You are carrying nothing.");
+            return;
+        }
+    };
+
+    if inv.is_empty() {
+        conn.send_line("You are carrying nothing.");
+        return;
+    }
+
+    conn.send_line("");
+    conn.send_line("You are carrying:");
+
+    for (i, item) in inv.iter().enumerate() {
+        let name = world
+            .query_one::<&core::Name>(*item)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.to_string()))
+            .unwrap_or_else(|| format!("item_{}", item.id()));
+
+        conn.send_line(&format!("  {}. {name}", i + 1));
+    }
+}
+
+pub fn cmd_equipment(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let eq = match world.query_one::<&core::Equipment>(entity) {
+        Ok(mut q) => q.get().map(|eq| eq.slots.clone()).unwrap_or_default(),
+        Err(_) => {
+            conn.send_line("You have no equipment.");
+            return;
+        }
+    };
+
+    if eq.is_empty() {
+        conn.send_line("You are not wearing anything.");
+        return;
+    }
+
+    conn.send_line("");
+    conn.send_line("Equipment:");
+
+    for (slot, item) in &eq {
+        let name = world
+            .query_one::<&core::Name>(*item)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.to_string()))
+            .unwrap_or_else(|| format!("item_{}", item.id()));
+
+        conn.send_line(&format!("  {:?}: {name}", slot));
+    }
+}
+
+fn find_item_in_inventory(
+    world: &World,
+    entity: core::Entity,
+    query: &str,
+) -> Option<core::Entity> {
+    let inv = world
+        .query_one::<&core::Inventory>(entity)
+        .ok()?
+        .get()?
+        .0
+        .clone();
+
+    // Try by number first
+    if let Ok(idx) = query.parse::<usize>() {
+        if idx > 0 && idx <= inv.len() {
+            return Some(inv[idx - 1]);
+        }
+    }
+
+    // Try by name
+    let query_lower = query.to_lowercase();
+    for item in &inv {
+        let name = world
+            .query_one::<&core::Name>(*item)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase()))
+            .unwrap_or_default();
+        if name == query_lower {
+            return Some(*item);
+        }
+    }
+
+    None
+}
+
+pub fn cmd_wear(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Wear what?");
+        return;
+    }
+
+    let item = match find_item_in_inventory(world, entity, item_name) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that item.");
+            return;
+        }
+    };
+
+    // Check if it's armor (has Armor component) or general wearable
+    let has_armor = world.query_one::<&core::Armor>(item).is_ok();
+    let slot = if has_armor {
+        // Determine slot from item's template or name
+        // Default to Torso for armor items
+        core::EquipmentSlot::Torso
+    } else {
+        conn.send_line("You can't wear that.");
+        return;
+    };
+
+    // Remove from inventory
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(inv) = q.get() {
+            inv.0.retain(|e| *e != item);
+        }
+    }
+
+    // Equip
+    if let Ok(mut q) = world.query_one::<&mut core::Equipment>(entity) {
+        if let Some(eq) = q.get() {
+            // Unequip existing item in same slot
+            if let Some(old) = eq.unequip(&slot) {
+                // Put old item back in inventory
+                if let Ok(mut iq) = world.query_one::<&mut core::Inventory>(entity) {
+                    if let Some(inv) = iq.get() {
+                        inv.0.push(old);
+                    }
+                }
+            }
+            eq.equip(slot, item);
+            conn.send_line("You wear it.");
+        }
+    }
+}
+
+pub fn cmd_wield(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Wield what?");
+        return;
+    }
+
+    let item = match find_item_in_inventory(world, entity, item_name) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that item.");
+            return;
+        }
+    };
+
+    // Check if it's a weapon
+    let has_weapon = world.query_one::<&core::Weapon>(item).is_ok();
+    if !has_weapon {
+        conn.send_line("You can't wield that.");
+        return;
+    }
+
+    // Remove from inventory
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(inv) = q.get() {
+            inv.0.retain(|e| *e != item);
+        }
+    }
+
+    // Equip to Weapon slot
+    if let Ok(mut q) = world.query_one::<&mut core::Equipment>(entity) {
+        if let Some(eq) = q.get() {
+            if let Some(old) = eq.unequip(&core::EquipmentSlot::Weapon) {
+                if let Ok(mut iq) = world.query_one::<&mut core::Inventory>(entity) {
+                    if let Some(inv) = iq.get() {
+                        inv.0.push(old);
+                    }
+                }
+            }
+            eq.equip(core::EquipmentSlot::Weapon, item);
+            conn.send_line("You wield it.");
+        }
+    }
+}
+
+pub fn cmd_remove(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let slot_name = args.trim().to_lowercase();
+    if slot_name.is_empty() {
+        conn.send_line("Remove what?");
+        return;
+    }
+
+    let slot = match core::EquipmentSlot::from_str(&slot_name).ok() {
+        Some(s) => s,
+        None => {
+            conn.send_line("Unknown slot. Try: head, neck, torso, arms, hands, finger, legs, feet, weapon, shield, back, waist.");
+            return;
+        }
+    };
+
+    if let Ok(mut q) = world.query_one::<&mut core::Equipment>(entity) {
+        if let Some(eq) = q.get() {
+            if let Some(item) = eq.unequip(&slot) {
+                if let Ok(mut iq) = world.query_one::<&mut core::Inventory>(entity) {
+                    if let Some(inv) = iq.get() {
+                        inv.0.push(item);
+                    }
+                }
+                conn.send_line("You remove it.");
+            } else {
+                conn.send_line("You aren't wearing anything there.");
+            }
+        }
+    }
+}
+
+pub fn cmd_examine(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Examine what?");
+        return;
+    }
+
+    // Search inventory first, then room floor
+    let item = find_item_in_inventory(world, entity, item_name).or_else(|| {
+        let room = get_pos_room(world, entity)?;
+        let mut floor_q = world.query_one::<&core::FloorItems>(room).ok()?;
+        let floor = floor_q.get()?;
+        let query = item_name.to_lowercase();
+        if let Ok(idx) = query.parse::<usize>() {
+            if idx > 0 && idx <= floor.0.len() {
+                return Some(floor.0[idx - 1]);
+            }
+        }
+        for item in &floor.0 {
+            let name = world
+                .query_one::<&core::Name>(*item)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase()))
+                .unwrap_or_default();
+            if name == query {
+                return Some(*item);
+            }
+        }
+        None
+    });
+
+    let item = match item {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't see that here.");
+            return;
+        }
+    };
+
+    conn.send_line("");
+
+    let name = world
+        .query_one::<&core::Name>(item)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.to_string()))
+        .unwrap_or_else(|| "Unknown item".to_string());
+
+    conn.send_line(&format!("--- {name} ---"));
+
+    // Item info
+    if let Ok(mut q) = world.query_one::<&core::Item>(item) {
+        if let Some(item_comp) = q.get() {
+            conn.send_line(&format!("Template: {}", item_comp.template_id));
+        }
+    }
+
+    // Weapon info
+    if let Ok(mut q) = world.query_one::<&core::Weapon>(item) {
+        if let Some(wep) = q.get() {
+            conn.send_line(&format!(
+                "Weapon: {} {:?} damage, Range: {:?}",
+                wep.damage_dice, wep.damage_type, wep.range
+            ));
+        }
+    }
+
+    // Armor info
+    if let Ok(mut q) = world.query_one::<&core::Armor>(item) {
+        if let Some(armor) = q.get() {
+            conn.send_line(&format!("Armor: base {} bonus {}", armor.base, armor.bonus));
+        }
+    }
+
+    // Durability
+    if let Ok(mut q) = world.query_one::<&core::Durability>(item) {
+        if let Some(dur) = q.get() {
+            conn.send_line(&format!("Durability: {}/{}", dur.current, dur.max));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Item manipulation commands
+// ---------------------------------------------------------------------------
+
+pub fn cmd_get(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Get what?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    // Find item on the floor
+    let item = {
+        let mut q = world.query_one::<&mut core::FloorItems>(room);
+        match q.as_mut().ok().and_then(|q| q.get()) {
+            Some(floor) => {
+                let query = item_name.to_lowercase();
+                let idx = if let Ok(n) = query.parse::<usize>() {
+                    if n > 0 && n <= floor.0.len() {
+                        Some(n - 1)
+                    } else {
+                        None
+                    }
+                } else {
+                    floor.0.iter().position(|e| {
+                        world
+                            .query_one::<&core::Name>(*e)
+                            .ok()
+                            .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase() == query))
+                            .unwrap_or(false)
+                    })
+                };
+
+                idx.map(|i| floor.0.remove(i))
+            }
+            None => None,
+        }
+    };
+
+    let item = match item {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't see that here.");
+            return;
+        }
+    };
+
+    // Add to inventory
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(inv) = q.get() {
+            inv.0.push(item);
+            conn.send_line("You pick it up.");
+        }
+    }
+}
+
+pub fn cmd_drop(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Drop what?");
+        return;
+    }
+
+    let item = match find_item_in_inventory(world, entity, item_name) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that item.");
+            return;
+        }
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    // Remove from inventory
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(inv) = q.get() {
+            inv.0.retain(|e| *e != item);
+        }
+    }
+
+    // Add to room floor
+    if let Ok(mut q) = world.query_one::<&mut core::FloorItems>(room) {
+        if let Some(floor) = q.get() {
+            floor.0.push(item);
+            conn.send_line("You drop it.");
+        }
+    }
+}
+
+pub fn cmd_put(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    // Simplified placeholder — no container support yet
+    conn.send_line("Containers are not yet implemented.");
+}
+
+pub fn cmd_give(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    // Simplified placeholder
+    conn.send_line("Giving items is not yet implemented.");
+}
+
+pub fn cmd_loot(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let corpse_name = args.trim();
+    if corpse_name.is_empty() {
+        conn.send_line("Loot what?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    // Find corpse in room
+    let corpse = {
+        let mut q = world.query::<(&core::Corpse, &core::Position, &core::Name)>();
+        q.iter()
+            .map(|(raw, (_, pos, name))| (core::Entity::from(raw), name.clone(), pos))
+            .find(|(_, _, pos)| pos.room == room)
+            .and_then(|(e, name, _)| {
+                let name_lower = corpse_name.to_lowercase();
+                if name.as_str().to_lowercase() == name_lower {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+    };
+
+    let corpse = match corpse {
+        Some(c) => c,
+        None => {
+            conn.send_line("You don't see a corpse here.");
+            return;
+        }
+    };
+
+    // Transfer items from corpse inventory to player inventory
+    let items = world
+        .query_one::<&core::Inventory>(corpse)
+        .ok()
+        .and_then(|mut q| q.get().map(|inv| inv.0.clone()))
+        .unwrap_or_default();
+
+    if items.is_empty() {
+        conn.send_line("The corpse has nothing.");
+        return;
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(inv) = q.get() {
+            let count = items.len();
+            inv.0.extend(items);
+            conn.send_line(&format!("You loot {count} item(s) from the corpse."));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stance command
+// ---------------------------------------------------------------------------
+
+pub fn cmd_stance(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let stance_name = args.trim().to_lowercase();
+    if stance_name.is_empty() {
+        // Show current stance
+        let current = world
+            .query_one::<&core::ActiveStance>(entity)
+            .ok()
+            .and_then(|mut q| q.get().and_then(|s| s.0.clone()))
+            .unwrap_or_else(|| "normal".to_string());
+        conn.send_line(&format!("Your current stance is: {current}"));
+        conn.send_line("Available: normal, defensive, aggressive, berserk");
+        return;
+    }
+
+    let valid = ["normal", "defensive", "aggressive", "berserk"];
+    if !valid.contains(&stance_name.as_str()) {
+        conn.send_line("Unknown stance. Available: normal, defensive, aggressive, berserk");
+        return;
+    }
+
+    let new_stance = if stance_name == "normal" {
+        None
+    } else {
+        Some(stance_name.clone())
+    };
+
+    let _ = world.insert(entity, (core::ActiveStance(new_stance),));
+    conn.send_line(&format!("You adopt a {stance_name} stance."));
+}
+
+// ---------------------------------------------------------------------------
+// Train command (placeholder)
+// ---------------------------------------------------------------------------
+
+pub fn cmd_train(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    conn.send_line("Training is not yet implemented.");
 }
 
 #[cfg(test)]

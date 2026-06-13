@@ -1,9 +1,11 @@
 #![allow(ambiguous_glob_reexports)]
 
 mod components;
+pub mod dice;
 mod events;
 pub mod format;
 mod resources;
+pub mod systems;
 pub mod templates;
 
 pub use components::*;

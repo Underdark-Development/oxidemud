@@ -1,4 +1,4 @@
-use crate::Entity;
+use crate::{Entity, EquipmentSlot};
 
 #[derive(Debug, Clone)]
 pub enum GameEvent {
@@ -21,6 +21,10 @@ pub enum GameEvent {
         attacker: Entity,
         target: Entity,
     },
+    MobAttacked {
+        attacker: Entity,
+        target: Entity,
+    },
     PlayerDied {
         victim: Entity,
         killer: Option<Entity>,
@@ -37,9 +41,33 @@ pub enum GameEvent {
         player: Entity,
         item: Entity,
     },
+    ItemWorn {
+        player: Entity,
+        item: Entity,
+        slot: EquipmentSlot,
+    },
+    ItemRemoved {
+        player: Entity,
+        item: Entity,
+        slot: EquipmentSlot,
+    },
     RoomEntered {
         actor: Entity,
         room: Entity,
+    },
+    PlayerLeveled {
+        entity: Entity,
+        old_level: u8,
+        new_level: u8,
+    },
+    CorpseDecayed {
+        corpse: Entity,
+        room: Entity,
+    },
+    SetBonusChanged {
+        player: Entity,
+        set_id: String,
+        active_tiers: Vec<u8>,
     },
     ScriptTrigger {
         entity: Entity,

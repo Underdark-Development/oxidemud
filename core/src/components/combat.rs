@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+use std::str::FromStr;
+
+use crate::dice::DiceRoll;
 use crate::Entity;
 
 #[derive(Debug, Clone)]
@@ -46,7 +50,7 @@ impl Armor {
 #[derive(Debug, Clone)]
 pub struct CombatTarget(pub Entity);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DamageType {
     Slash,
     Pierce,
@@ -58,6 +62,118 @@ pub enum DamageType {
     Poison,
     Magic,
     True,
+}
+
+impl FromStr for DamageType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "slash" => Ok(DamageType::Slash),
+            "pierce" => Ok(DamageType::Pierce),
+            "bludgeon" => Ok(DamageType::Bludgeon),
+            "fire" => Ok(DamageType::Fire),
+            "cold" => Ok(DamageType::Cold),
+            "lightning" => Ok(DamageType::Lightning),
+            "acid" => Ok(DamageType::Acid),
+            "poison" => Ok(DamageType::Poison),
+            "magic" => Ok(DamageType::Magic),
+            "true" => Ok(DamageType::True),
+            _ => Err(()),
+        }
+    }
+}
+
+impl DamageType {
+    pub fn name(&self) -> &'static str {
+        match self {
+            DamageType::Slash => "slash",
+            DamageType::Pierce => "pierce",
+            DamageType::Bludgeon => "bludgeon",
+            DamageType::Fire => "fire",
+            DamageType::Cold => "cold",
+            DamageType::Lightning => "lightning",
+            DamageType::Acid => "acid",
+            DamageType::Poison => "poison",
+            DamageType::Magic => "magic",
+            DamageType::True => "true",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CombatStats {
+    pub base_attack_bonus: i32,
+    pub fort_save: i32,
+    pub ref_save: i32,
+    pub will_save: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveStance(pub Option<String>);
+
+/// Damage type → multiplier. 1.0 = normal, 2.0 = vulnerable,
+/// 0.5 = resistant, 0.0 = immune, -1.0 = absorbed (healed).
+#[derive(Debug, Clone)]
+pub struct Resistance(pub HashMap<DamageType, f32>);
+
+impl Resistance {
+    pub fn multiplier(&self, dt: &DamageType) -> f32 {
+        self.0.get(dt).copied().unwrap_or(1.0)
+    }
+
+    pub fn apply(&self, amount: i32, dt: &DamageType) -> i32 {
+        let mult = self.multiplier(dt);
+        if mult == 0.0 {
+            return 0;
+        }
+        if mult < 0.0 {
+            // Absorbed — heal instead
+            return (amount as f32 * -mult) as i32;
+        }
+        (amount as f32 * mult).round() as i32
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Corpse {
+    pub owner: Option<Entity>,
+    pub created_at: std::time::Instant,
+    pub decay_secs: u64,
+    pub lootable_by: LootRule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LootRule {
+    Public,
+    GroupOnly,
+    OwnerOnly,
+    Faction,
+}
+
+/// Damage dice + type — uses standard dice notation via `DiceRoll`.
+#[derive(Debug, Clone)]
+pub struct DamageDice {
+    pub dice: DiceRoll,
+    pub damage_type: DamageType,
+}
+
+impl DamageDice {
+    pub fn new(dice: DiceRoll, damage_type: DamageType) -> Self {
+        DamageDice { dice, damage_type }
+    }
+
+    pub fn roll(&self) -> i32 {
+        self.dice.roll()
+    }
+
+    pub fn min(&self) -> i32 {
+        self.dice.min()
+    }
+
+    pub fn max(&self) -> i32 {
+        self.dice.max()
+    }
 }
 
 #[cfg(test)]
