@@ -57,6 +57,11 @@ impl ConnectionRegistry {
         }
     }
 
+    /// Number of currently connected players.
+    pub fn player_count(&self) -> usize {
+        self.map.len()
+    }
+
     /// Return all connected player entities in the given room.
     pub fn occupants(&self, world: &World, room: Entity) -> Vec<Entity> {
         let mut q = world.query::<(&mud_core::Position,)>();

@@ -12,6 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     let config = Config::parse();
+    mud_server::load_motd(config.motd_path.as_deref());
 
     let db = mud_data::Database::open(&config.db_path).unwrap_or_else(|e| {
         panic!(

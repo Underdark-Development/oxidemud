@@ -65,7 +65,7 @@ mud/
 ├── tui/                    # spade — builder TUI & MUD client
 │   ├── Cargo.toml
 │   └── src/
-│       ├── main.rs         # Entry: --mode, crossterm init, start App
+│       ├── main.rs         # Entry: --mode, --content-path, crossterm init, start App
 │       ├── app.rs          # App: state machine, event loop, screen router
 │       ├── ui/
 │       │   ├── mod.rs      # render() dispatch by active screen
@@ -122,7 +122,7 @@ mud/
 ├── mcp/                    # MCP server — AI agent world-building
 │   ├── Cargo.toml
 │   └── src/
-│       ├── main.rs         # Entry: --mode, --port, start McpServer
+│       ├── main.rs         # Entry: --mode, --port, --content-path, start McpServer
 │       ├── server.rs       # McpServer: stdio transport, request dispatch
 │       ├── tools/
 │       │   ├── mod.rs      # Tool registry (list/handle/discover)
@@ -157,6 +157,7 @@ mud/
         ├── signals.rs      # Signal handling (SIGTERM, SIGINT)
         ├── commands.rs     # register_all_commands() — all built-in commands
         └── config.rs       # CliArgs + mud.toml merge → Config
+                             #   (--content-path, MUD_CONTENT, game.content_dir)
 ```
 
 ---
@@ -4477,7 +4478,9 @@ backup_retention_weekly = 4
 
 All game content (areas, mobs, items, races, classes, skills, help,
 affixes, sets, languages, socials) is defined in TOML files under
-`content/`. At startup, the `content` crate scans the directory tree
+`content/` (configurable via `game.content_dir` in `mud.toml`, `--content-path`
+CLI flag, or `MUD_CONTENT` env var). At startup, the `content` crate scans the
+directory tree
 and loads every `.toml` file into a registry:
 
 ```rust
@@ -4614,6 +4617,8 @@ the registry is fully populated. **Runtime hot-reload** is non-blocking —
 players experience zero interruption.
 
 ### Template File Organization
+
+All paths below are relative to the content root (`game.content_dir`, default `content/`):
 
 ```
 content/
@@ -4900,7 +4905,7 @@ enum InitPhase {
     CliParse,          // clap --port, --config, --db
     ConfigLoad,        // mud.toml → Config resource
     LoggingInit,       // tracing_subscriber from config
-    ContentLoad,       // scan content/ → TemplateRegistry
+    ContentLoad,       // scan content_dir/ → TemplateRegistry
     Validation,        // cross-ref checks on templates
     DatabaseOpen,      // SQLite connect, WAL mode, migrations
     WorldCreate,       // World::new(), insert resources
@@ -4927,7 +4932,7 @@ bin::main()
   │   (filter level from logging.level in Config)
   │
   ├── mud_content::Loader::load(content_dir)  → TemplateRegistry
-  │   (scan content/ subdirs, deserialize every .toml)
+  │   (scan content_dir/ subdirs, deserialize every .toml)
   ├── mud_content::Validator::validate(&registry) → Vec<Diagnostic>
   │   (42 cross-reference checks; abort on errors, warn on warnings)
   │
@@ -5089,6 +5094,9 @@ bin/
     ├── signals.rs       # Signal handling (SIGTERM, SIGINT, ctrl-c)
     ├── commands.rs      # register_all_commands() — all built-in commands
     └── config.rs        # CliArgs + mud.toml merge → Config resource
+                         #   CliArgs: --port, --host, --config, --content-path
+                         #   Env:     MUD_PORT, MUD_HOST, MUD_CONFIG, MUD_CONTENT
+                         #   Config:  Config { server, database, game, combat, ... }
 ```
 
 ### Startup Sequence (init.rs)
@@ -5234,6 +5242,7 @@ new_player_start_room = "limbo/starting_room"
 max_level = 100
 start_race = "human"
 start_class = "warrior"
+content_dir = "content"               # path to game data (areas/, mobs/, items/, etc.)
 
 [combat]
 base_attack_cooldown_secs = 2
@@ -5265,6 +5274,10 @@ level = "info"           # trace | debug | info | warn | error
 2. **Environment variables** (`MUD_PORT=5000`) — `MUD_` prefix + uppercase key
 3. **Config file** (`mud.toml`) — on-disk TOML
 4. **Built-in defaults** — hardcoded in source
+
+Key │ Flag │ Env │ Config file │ Default
+---|---|---|---|---
+Content path │ `--content-path` │ `MUD_CONTENT` │ `game.content_dir` │ `"content"`
 
 ### Runtime Configuration
 
@@ -5618,7 +5631,7 @@ Connected → Negotiating → Banner → Username → Password → CharacterSele
 |---|---|
 | `Connected` | TCP accepted, begin telnet negotiation |
 | `Negotiating` | Telnet option negotiation (echo, NAWS, etc.) |
-| `Banner` | Send `content/banner.txt` + MOTD from DB config |
+| `Banner` | Send `<content_dir>/banner.txt` + MOTD from DB config |
 | `Username` | Prompt "Enter your username:" |
 | `Password` | Prompt "Password:" (no echo), argon2 verify |
 | `CharacterSelect` | Show account's characters + "Create new" |
@@ -5631,7 +5644,7 @@ Failed input at any pre-Playing step counts toward a per-connection strike limit
 ### Login Flow
 
 1. **Connected** — telnet negotiation completes, then:
-   - Read `content/banner.txt`, send to client
+   - Read `<content_dir>/banner.txt`, send to client
    - Query MOTD from SQLite `config` table, send to client
    - Send "Enter your username:"
 2. **Username lookup** — case-insensitive match in `accounts` table
@@ -5854,7 +5867,7 @@ script = "goblin_alert.rhai"
 ```
 [Startup]
   ┌────────────────────┐
-  │  Scan content/     │ ── Walk scripts/ dir, index all .rhai paths
+  │  Scan scripts/     │ ── Walk scripts/ dir, index all .rhai paths
   └────────┬───────────┘
            ▼
   ┌────────────────────┐
@@ -6018,13 +6031,13 @@ on("hit", |ctx| {
 });
 ```
 
-Module resolution path: `content/scripts/` → relative path from `import`.
+Module resolution path: `<content_dir>/scripts/` → relative path from `import`.
 Modules are AST-cached at startup (hot-reload watch). Cyclic imports
 are detected at parse time by Rhai's module resolver.
 
 ### Script Hot-Reload
 
-The `notify` watcher (same as TOML hot-reload) monitors `content/scripts/`:
+The `notify` watcher (same as TOML hot-reload) monitors `<content_dir>/scripts/`:
 
 1. File change detected → re-parse into AST
 2. Update the `ScriptTriggerSystem`'s binding map for all templates
@@ -6060,7 +6073,7 @@ echo_entity(entity, msg)  → void
 |---|---|
 | Infinite loops | `max_operations` = 50k, `max_call_levels` = 32 |
 | Memory exhaustion | `max_string_size` = 10k, `max_dynamic_arrays` = 100, `max_map_size` = 50 |
-| File access | Sandboxed — resolver only reads `content/scripts/` |
+| File access | Sandboxed — resolver only reads `<content_dir>/scripts/` |
 | Network access | No socket bindings registered |
 | World corruption | Script runs under `World` lock; mutations are synchronous |
 | CPU starvation | Script runs inline but is limited to ~1ms at 50k ops |
@@ -6313,7 +6326,7 @@ Named after the `@dig` OLC command — a spade is what you dig with.
 
 | Mode | Invocation | Description |
 |---|---|---|
-| Builder (offline) | `spade` (default) or `spade --mode offline` | TOML editor, world tree, validator, file browser |
+| Builder (offline) | `spade` (default) or `spade --mode offline` (add `--content-path <dir>`) | TOML editor, world tree, validator, file browser |
 | MUD client (online) | `spade --mode online` | Full MUD client with scrollable output, ANSI rendering, clickable names |
 | Split | `spade --mode split` (F9 at runtime) | Builder tools left, MUD client right (50/50) |
 | Connection profile | `spade connect <host> <port>` or `spade --profile <name>` | Quick-connect to a known server with saved profile |
@@ -6808,8 +6821,8 @@ game world data via natural language — accelerating content creation.
 ### Modes
 
 | Mode | Trigger | Data Source | Write Path |
-|---|---|---|---|
-| Offline | `mcp` (default) | TOML files in `content/` | Atomic write (temp + rename) |
+|---|---|---|---|---|
+| Offline | `mcp` (default) | TOML files in `content/` (override with `--content-path`) | Atomic write (temp + rename) |
 | Online | `mcp --db <path>` | SQLite DB | REST bridge to game server |
 
 Offline mode is primary — AI agents edit TOML files directly, validation
@@ -6909,7 +6922,7 @@ Prompt templates that guide agents through common content creation:
 mcp/
 ├── Cargo.toml
 └── src/
-    ├── main.rs         # Entry: --mode, --port, start McpServer
+    ├── main.rs         # Entry: --mode, --port, --content-path, start McpServer
     ├── server.rs       # McpServer: stdio transport, request dispatch
     ├── tools/          # Tool implementations by content type
     │   ├── mod.rs
@@ -6976,7 +6989,7 @@ Key features used:
 AI Agent (Claude)          mcp server               Filesystem
        │                       │                       │
        │── list_areas() ──────>│                       │
-       │                       │── read content/areas/ │
+       │                       │── read <content_dir>/areas/ │
        │                       │<── file list ─────────│
        │<── response ──────────│                       │
        │                       │                       │

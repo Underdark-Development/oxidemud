@@ -5,6 +5,7 @@ pub struct Config {
     pub host: String,
     pub port: u16,
     pub db_path: PathBuf,
+    pub motd_path: Option<PathBuf>,
 }
 
 impl Config {
@@ -13,6 +14,7 @@ impl Config {
         let mut host = "127.0.0.1".to_string();
         let mut port = 4000u16;
         let mut db_path = PathBuf::from("data/mud.db");
+        let mut motd_path = Some(PathBuf::from("content/motd.txt"));
 
         let mut i = 1;
         while i < args.len() {
@@ -35,6 +37,12 @@ impl Config {
                         db_path = PathBuf::from(val);
                     }
                 }
+                "--motd-path" | "-m" => {
+                    i += 1;
+                    if let Some(val) = args.get(i) {
+                        motd_path = Some(PathBuf::from(val));
+                    }
+                }
                 _ => {}
             }
             i += 1;
@@ -44,6 +52,7 @@ impl Config {
             host,
             port,
             db_path,
+            motd_path,
         }
     }
 

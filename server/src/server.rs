@@ -1,5 +1,9 @@
+use std::fs;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -10,6 +14,9 @@ use crate::connection::{Connection, ConnectionState, TelnetConnection};
 use crate::registry::ConnectionRegistry;
 use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
 use mud_core::{Entity, Name, Position, World};
+
+static SERVER_START: OnceLock<Instant> = OnceLock::new();
+static MOTD: OnceLock<String> = OnceLock::new();
 
 pub struct Server {
     bind_addr: String,
@@ -455,7 +462,7 @@ fn skip_login(
     if let Some(tx) = conn.output_sender() {
         registry.register(player, tx);
     }
-    conn.send_line("You are in the void. Type 'help' for commands.");
+    send_server_greeting(conn, registry);
     conn.set_state(ConnectionState::Playing);
 }
 
@@ -464,6 +471,59 @@ fn go_to_character_select(conn: &mut dyn Connection) {
     conn.send_line("Character selection is not yet implemented.");
     conn.send_line("Type 'help' for commands (playing as guest).");
     conn.set_state(ConnectionState::CharacterSelect);
+}
+
+// ---------------------------------------------------------------------------
+// Server greeting — banner, uptime, player count
+// ---------------------------------------------------------------------------
+
+fn format_uptime() -> String {
+    let elapsed = SERVER_START.get_or_init(Instant::now).elapsed();
+    let total_secs = elapsed.as_secs();
+    let days = total_secs / 86400;
+    let hours = (total_secs % 86400) / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    format!("Uptime: {days}d {hours}h {minutes}m {seconds}s")
+}
+
+fn send_server_greeting(conn: &mut dyn Connection, registry: &ConnectionRegistry) {
+    conn.send_line("");
+    conn.send_line(" __  __ _   _ ____");
+    conn.send_line("|  \\/  | | | |  _ \\");
+    conn.send_line("| |\\/| | | | | | | |");
+    conn.send_line("| |  | | |_| | |_| |");
+    conn.send_line("|_|  |_|\\___/|____/");
+    conn.send_line("");
+    let motd = MOTD.get_or_init(|| "Welcome to the MUD. A world awaits.".to_string());
+    conn.send_line(motd);
+    conn.send_line("");
+    conn.send_line(&format!(
+        "{}  |  Players connected: {}",
+        format_uptime(),
+        registry.player_count()
+    ));
+    conn.send_line("");
+}
+
+// ---------------------------------------------------------------------------
+// MOTD loading
+// ---------------------------------------------------------------------------
+
+/// Load the message-of-the-day from a file, or fall back to the built-in
+/// default. Safe to call multiple times — only the first call takes effect.
+pub fn load_motd(path: Option<&Path>) {
+    let _ = MOTD.get_or_init(|| {
+        if let Some(path) = path {
+            if let Ok(text) = fs::read_to_string(path) {
+                let trimmed = text.trim().to_string();
+                if !trimmed.is_empty() {
+                    return trimmed;
+                }
+            }
+        }
+        "Welcome to the MUD. A world awaits.".to_string()
+    });
 }
 
 fn check_strikes(conn: &mut dyn Connection) {
