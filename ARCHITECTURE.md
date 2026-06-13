@@ -164,292 +164,96 @@ mud/
 
 ## Game Loop & Scheduler
 
-Not a fixed tick loop. Event-driven with subscription-based timing.
+Event-driven loop using `tokio::select!` — no fixed tick. The server
+acquires a write lock on `World` for each branch (pulse, event, input).
 
-### Main Loop
-
-The server task owns `World` behind an `Arc<RwLock<World>>`. Pulse systems
-acquire a write lock; command handlers acquire a write lock in response to
-player input; event dispatch acquires a write lock (mutations are common
-enough that a read-write split is not worth the complexity until profiling
-says otherwise).
-
+![diagram]
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  tokio::select! {                                               │
-│                                                                 │
-│    ◄── shutdown_signal ─── flush + WAL checkpoint + exit       │
-│                                                                 │
-│    ◄── scheduler.next ─── run_system_phase(phase)              │
-│                           (write lock World, iterate systems)   │
-│                                                                 │
-│    ◄── event_bus.recv ─── dispatch_event(event)                │
-│                           (write lock World, fan-out to subs)   │
-│                                                                 │
-│    ◄── player_input ───── commands.execute(world, conn, line)  │
-│         (per-connection   (write lock World)                    │
-│          mpsc channel)                                          │
-│  }                                                              │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-```rust
-loop {
-    select! {
-        biased;
-
-        _ = shutdown_signal() => {
-            flush_dirty(&mut world.write());
-            world.write().clear();
-            break;
-        }
-
-        pulse = scheduler.next() => {
-            let mut w = world.write();
-            let phase = pulse.phase;
-            for system in systems.by_phase(phase) {
-                system.run(&mut w);
-            }
-        }
-
-        event = event_rx.recv() => {
-            let mut w = world.write();
-            for system in systems.subscribed_to(event.tag()) {
-                if system.handle_event(&mut w, &event) {
-                    break; // consumed
-                }
-            }
-        }
-
-        (id, line) = input_rx.recv() => {
-            let mut w = world.write();
-            if let Some(conn) = connections.get_mut(id) {
-                commands.execute(&mut w, conn.as_mut(), &line);
-            }
-        }
-    }
+tokio::select! {
+    ◄─ shutdown_signal ── flush + WAL checkpoint + exit
+    ◄─ scheduler.next  ── run_system_phase(phase)
+    ◄─ event_bus.recv  ── dispatch_event(event)
+    ◄─ player_input    ── commands.execute(world, conn, line)
 }
 ```
 
 ### Scheduler
 
-The `Scheduler` resource maintains a set of named intervals. Each interval
-produces a `Pulse` on a shared mpsc channel when it fires.
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Phase {
-    Movement,
-    Combat,
-    Regeneration,
-    Weather,
-    DirtyFlush,
-}
-```
-
-```rust
-struct Scheduler {
-    intervals: Vec<(Phase, Interval)>,
-    tx: mpsc::Sender<Pulse>,
-}
-
-impl Scheduler {
-    fn register(&mut self, phase: Phase, duration: Duration);
-    async fn next(&mut self) -> Pulse;
-}
-```
-
-Default intervals:
+Singleton resource maintaining named intervals, each producing a `Pulse`
+on an mpsc channel:
 
 | Phase | Interval | Description |
 |---|---|---|
-| `Movement` | 100ms | Process queued movement commands |
+| `Movement` | 100ms | Queued movement commands |
 | `Combat` | 2s | Combat round tick |
-| `Regeneration` | 6s | HP/mana regen tick |
+| `Regeneration` | 6s | HP/mana regen |
 | `Weather` | 5m | Zone weather updates |
-| `DirtyFlush` | 5s | Persist dirty entities to SQLite |
+| `DirtyFlush` | 5s | Persist dirty entities |
 
-The scheduler wraps `tokio::time::interval` per phase. There is no global
-heartbeat — most of the time the server is idle, waiting for input.
-
-### Run Phase
-
-`run_system_phase()` iterates systems registered for the pulse's phase,
-sorted by priority (lower runs first). Each system receives `&mut World`
-and performs its logic.
-
-Phases are independent — `Combat` and `Regeneration` can fire concurrently
-in different select iterations.
+Phases are independent and fire concurrently. Each iterates registered
+systems sorted by priority (lower runs first) with `&mut World`.
 
 ---
 
 ## Systems Architecture
 
-Game logic is organized into systems. Each system implements the `System`
-trait and is registered with the server at startup.
-
-### System Trait
-
-```rust
-/// A unit of game logic. Can be pulse-driven, event-driven, or both.
-trait System: Send + Sync {
-    /// Which phase(s) this system participates in. Empty for event-only.
-    fn phases(&self) -> Vec<Phase>;
-
-    /// Called on every matching pulse. World is write-locked.
-    fn run(&mut self, world: &mut World);
-
-    /// Called when a subscribed event is dispatched.
-    /// Return true to consume the event (prevent further dispatch).
-    fn handle_event(&mut self, world: &mut World, event: &GameEvent) -> bool {
-        false
-    }
-
-    /// Event types this system wants to receive.
-    fn subscribed_events(&self) -> Vec<EventTag> {
-        vec![]
-    }
-
-    /// Priority within a phase. Lower values run first.
-    fn priority(&self) -> u8 {
-        100
-    }
-}
-```
+Game logic is organized into systems implementing the `System` trait
+(run on pulse, handle_event on subscribed events, priority-sorted within phases).
 
 ### Built-in Systems
 
-| System | Phase(s) | Events | Priority | Responsibility |
-|---|---|---|---|---|---|
-| `MovementSystem` | Movement | — | 10 | Process queued direction commands, update `Position`, emit `PlayerMoved` |
-| `FollowSystem` | Movement | `PlayerMoved` | 20 | Move followers behind leader, pause in combat |
+| System | Phase(s) | Subscribes | Pri | Responsibility |
+|---|---|---|---|---|
+| `MovementSystem` | Movement | — | 10 | Process direction commands, update `Position`, emit `PlayerMoved` |
+| `FollowSystem` | Movement | `PlayerMoved` | 20 | Move followers behind leader |
 | `EchoSystem` | — | `PlayerSaid`, `PlayerMoved`, `PlayerDied`, `ItemDropped` | 10 | Broadcast messages to room occupants |
 | `CombatSystem` | Combat | `PlayerAttacked` | 20 | Combat round: hit, damage, death |
-| `StanceSystem` | Combat | — | 15 | Apply stance modifiers to combat calculations |
-| `AISystem` | Combat | — | 30 | NPC behavior state machine (idle, wander, patrol, aggro, flee) |
-| `FormationSystem` | Combat | — | 25 | Apply formation bonuses to group members in same room |
-| `RegenSystem` | Regeneration | — | 10 | Regen HP/mana/resource pools for all entities |
+| `StanceSystem` | Combat | — | 15 | Apply stance modifiers |
+| `AISystem` | Combat | — | 30 | NPC state machine (idle/wander/patrol/aggro/flee) |
+| `FormationSystem` | Combat | — | 25 | Apply formation bonuses to group |
+| `RegenSystem` | Regeneration | — | 10 | Regen HP/mana/resource pools |
 | `EffectExpirySystem` | Regeneration | — | 20 | Tick down active effect durations |
-| `PassiveApplicationSystem` | Regeneration | `PlayerLeveled` | 30 | Apply/remove class passives on login and level-up |
+| `PassiveApplicationSystem` | Regeneration | `PlayerLeveled` | 30 | Apply/remove class passives on login/level-up |
 | `WeatherSystem` | Weather | — | 10 | Update zone weather states |
 | `DirtyFlushSystem` | DirtyFlush | — | 50 | Flush dirty entities to SQLite |
-| `SkillRequirementSystem` | DirtyFlush | — | 40 | Check skill gates on equipped items, auto-remove on failure |
-| `GroupCleanupSystem` | DirtyFlush | — | 45 | Sweep stale followers and disconnected members |
-| `CorpseSystem` | DirtyFlush | — | 60 | Decay expired corpses, transfer contents to room |
-| `AreaResetSystem` | DirtyFlush | — | 70 | Trigger area resets for zones past their interval |
+| `SkillRequirementSystem` | DirtyFlush | — | 40 | Check skill gates on equipped items, auto-remove |
+| `GroupCleanupSystem` | DirtyFlush | — | 45 | Sweep stale followers/disconnected members |
+| `CorpseSystem` | DirtyFlush | — | 60 | Decay expired corpses, transfer contents |
+| `AreaResetSystem` | DirtyFlush | — | 70 | Area resets past interval |
 | `SetBonusSystem` | — | `ItemWorn`, `ItemRemoved` | 10 | Evaluate item set bonuses on equip/unequip |
-| `QuestProgressSystem` | — | `MobDied`, `ItemPickedUp`, `SkillUsed` | 20 | Update quest objective counters on relevant events |
-| `CraftingSystem` | — | `SkillUsed` (craft type) | 20 | Execute crafting: check materials, roll success, consume/spawn |
+| `QuestProgressSystem` | — | `MobDied`, `ItemPickedUp`, `SkillUsed` | 20 | Update quest objectives |
+| `CraftingSystem` | — | `SkillUsed` (craft) | 20 | Execute crafting flow |
 | `ScriptTriggerSystem` | — | `ScriptTrigger` | 100 | Evaluate attached Rhai scripts |
 
-### Registration
-
-```rust
-server.add_system(Box::new(MovementSystem::new()));
-server.add_system(Box::new(CombatSystem::new()));
-```
-
-Systems are stored in a `PhaseMap<Vec<Box<dyn System>>>` sorted by priority
-at registration time.
-
-### World Access
-
-All pulse and event dispatch acquires a **write lock** on `World`. This is
-deliberate — most mutations happen during ticks, and contention is low
-(hundreds of short-lived ticks per minute, not thousands). A read-write
-split can be introduced later if profiling shows contention.
+Systems are stored `PhaseMap<Vec<Box<dyn System>>>`, priority-sorted at
+registration. All dispatch acquires a **write lock** on `World` (read-write
+split deferred until profiling warrants it).
 
 ---
 
 ## Event Bus
 
-### Topology
+Events dispatch over a `tokio::sync::broadcast` channel (single sender,
+one receiver per subscribed system). Each event carries an `EventEnvelope`
+with `id`, `tag`, `timestamp`, and a `GameEvent` payload.
 
-Events are dispatched over a `tokio::sync::broadcast` channel. The channel
-has a single sender (owned by the server task) and one receiver per
-subscribed system.
+### Event Tags
 
 ```
-                  ┌─────────────────┐
-                  │   Event Bus tx  │
-                  │  (broadcast)    │
-                  └────────┬────────┘
-                           │
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-   ┌──────────┐    ┌──────────┐    ┌──────────────┐
-   │EchoSystem│    │CombatSys │    │ScriptTrigger │
-   └──────────┘    └──────────┘    └──────────────┘
+PlayerSaid | PlayerMoved | PlayerAttacked | PlayerDied | PlayerLeveled
+MobDied | MobKilled | ItemPickedUp | ItemDropped | ItemWorn | ItemRemoved
+SkillUsed | SkillTrained | RoomEntered | QuestUpdated | QuestCompleted
+FactionChanged | SetBonusChanged | CorpseDecayed | ContentReloaded
+ScriptTrigger | Pulse(Phase)
 ```
 
-### Event Envelope
+### Dispatch
 
-All events carry a metadata header for routing and debugging:
-
-```rust
-#[derive(Debug, Clone)]
-struct EventEnvelope {
-    id: u64,            // monotonic counter
-    tag: EventTag,      // discriminator for fast filtering
-    timestamp: Instant,
-    payload: GameEvent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum EventTag {
-    PlayerSaid,
-    PlayerMoved,
-    PlayerAttacked,
-    PlayerDied,
-    PlayerLeveled,
-    MobDied,
-    MobKilled,
-    ItemPickedUp,
-    ItemDropped,
-    ItemWorn,
-    ItemRemoved,
-    SkillUsed,
-    SkillTrained,
-    RoomEntered,
-    QuestUpdated,
-    QuestCompleted,
-    FactionChanged,
-    SetBonusChanged,
-    CorpseDecayed,
-    ContentReloaded,
-    ScriptTrigger,
-    Pulse(Phase),
-}
-```
-
-### Subscription & Dispatch
-
-Systems declare interest via `subscribed_events()`. On dispatch, the
-event bus iterates systems whose tags match and calls `handle_event()`
-in priority order. If a system returns `true`, the event is consumed
-and no further systems receive it. Scripts always run last (priority 100).
-
-**In-band** (default): dispatched synchronously inside the main `select!`
-branch. World lock is held for the full dispatch.
-
-**Out-of-band** (opt-in for expensive handlers): spawned as a separate
-tokio task. Used for logging, analytics, or database writes.
-
-```rust
-trait System {
-    fn dispatch_mode(&self) -> DispatchMode { DispatchMode::InBand }
-}
-
-enum DispatchMode {
-    InBand,
-    OutOfBand,
-}
-```
-
-### Script Events
-
-The `ScriptTriggerSystem` receives `ScriptTrigger` events and evaluates
-attached Rhai scripts via the `on()` handler system (see Scripting & OLC).
+Systems declare interest via `subscribed_events()`. Dispatched in priority
+order; `handle_event()` returning `true` consumes the event (no further
+dispatch). ScriptTriggers always run last (priority 100). Default is
+**in-band** (synchronous under World lock); opt-in **out-of-band**
+(spawned as tokio task for logging/analytics).
 
 ---
 
@@ -457,25 +261,17 @@ attached Rhai scripts via the `on()` handler system (see Scripting & OLC).
 
 ### Spatial
 
-```rust
-struct Position { room: Entity }
-struct Room { name: String, description: String }
-struct Exit { direction: Direction, dest: Entity, flags: ExitFlags }
-struct RoomExits(Vec<Exit>);        // one per room entity
-struct PortalExit { keyword: String, dest: Entity, description: String, flags: PortalFlags }
-struct RoomPortals(Vec<PortalExit>); // one per room entity
-type PortalFlags = u8;
-const PORTAL_HIDDEN: PortalFlags = 0x01;
-type RoomFlagBits = u16;
-struct RoomFlags(RoomFlagBits);      // portal/teleport permissions
-const ROOM_PORTAL_IN: RoomFlagBits = 0x0001;
-const ROOM_PORTAL_OUT: RoomFlagBits = 0x0002;
-const ROOM_NO_TELEPORT_IN: RoomFlagBits = 0x0004;
-const ROOM_NO_TELEPORT_OUT: RoomFlagBits = 0x0008;
-struct VoidRoom;                      // marker: inescapable room, blocks all movement/recall/teleport
-struct Teleportable(pub bool);       // targetable by player teleport spells
-enum Direction { North, South, East, West, Up, Down, Northeast, Northwest, Southeast, Southwest }
-```
+- `Position { room: Entity }` — references a room entity
+- `Room { name, description }` — room metadata
+- `Exit { direction, dest, flags }` — room exit
+- `RoomExits(Vec<Exit>)` — one per room entity
+- `PortalExit { keyword, dest, description, flags }` — keyword-based portal exit
+- `RoomPortals(Vec<PortalExit>)` — one per room entity
+- `PortalFlags` bitmask: `PORTAL_HIDDEN`
+- `RoomFlags` bitmask: `PORTAL_IN`, `PORTAL_OUT`, `NO_TELEPORT_IN`, `NO_TELEPORT_OUT`
+- `VoidRoom` — marker: inescapable room, blocks all movement/recall/teleport
+- `Teleportable(bool)` — targetable by player teleport spells
+- `Direction`: North, South, East, West, Up, Down, NE, NW, SE, SW
 
 The **void room** is a singleton inescapable room — the default spawn point before
 character creation (Phase 2). It has the `VoidRoom` marker component and zero
@@ -486,146 +282,59 @@ codepath (e.g. finalizing character creation).
 
 ### Character
 
-```rust
-struct Player { account_id: i64 }
-struct Npc { template_id: String }
-struct Attributes { str: u8, dex: u8, int: u8, wis: u8, con: u8, cha: u8 }
-struct Health { current: i32, max: i32 }
-struct Level(u8);
-struct Experience(u64);
-
-/// Resource pools (not all used for every character — depends on class/skill access)
-struct Stamina { current: u16, max: u16 }
-struct Mana { current: u16, max: u16 }
-struct Energy { current: u16, max: u16 }
-struct Psi { current: u16, max: u16 }
-struct Immortal { incognito: bool, holylight: bool, build_mode: bool };
-struct Teleportable(pub bool); // can this entity be teleported by other players?
-```
+- `Player { account_id }` — player entity
+- `Npc { template_id }` — NPC entity
+- `Attributes { str, dex, int, wis, con, cha }` — 6 core stats (u8)
+- `Health { current, max }` — hit points (i32)
+- `Level(u8)` / `Experience(u64)` — character level and XP
+- `Stamina`, `Mana`, `Energy`, `Psi` — resource pools `{ current, max }` (u16), gated by class/skill access
+- `Immortal { incognito, holylight, build_mode }` — immortal status flags
+- `Teleportable(bool)` — can this entity be teleported by other players?
 
 ### Combat
 
-```rust
-struct CombatTarget(Entity);
-struct Damage(i32);
-struct Armor { base: i32, bonus: i32 }
-```
+- `CombatTarget(Entity)` — current target
+- `Damage(i32)` — damage value
+- `Armor { base, bonus }` — base + bonus armor
 
 ### Items
 
-```rust
-struct Item { template_id: String, flags: ItemFlags }
-struct Inventory(Vec<Entity>);
-enum EquipmentSlot { Head, Neck, Torso, Arms, Hands, Finger, Legs, Feet, Weapon, Shield }
-```
+- `Item { template_id, flags }` — item instance
+- `Inventory(Vec<Entity>)` — item list on a character
+- `EquipmentSlot`: Head, Neck, Torso, Arms, Hands, Finger, Legs, Feet, Weapon, Shield
 
 ### Flexible / OLC
 
-```rust
-struct Attributes(HashMap<String, String>);  // KV store for builder-defined data
-```
+- `Attributes(HashMap<String, String>)` — KV store for builder-defined data
 
 ### Persistence
 
-```rust
-struct Dirty;    // Marker: entity needs DB write
-struct DbId(i64); // Maps entity to SQLite row
-```
+- `Dirty` — marker: entity needs DB write
+- `DbId(i64)` — maps entity to SQLite row
 
 ### Character & Progression
 
-```rust
-struct Name(String);
-struct Description(String);
-struct Alignment(String);
-struct Wallet(u64);
-
-struct CombatStats {
-    base_attack_bonus: i8,
-    fort_save: i8,
-    ref_save: i8,
-    will_save: i8,
-}
-
-struct ActiveStance(Option<String>);
-
-struct PassiveEffect {
-    id: String,
-    effect: EffectTemplate,
-}
-
-struct LearnedSkills {
-    skills: HashMap<String, SkillRank>,
-    cooldowns: HashMap<String, Instant>,
-}
-
-struct SkillRank(u16);
-
-struct MultiClassInfo {
-    classes: Vec<ClassEntry>,
-}
-
-struct ClassEntry {
-    class_id: String,
-    level: u8,
-    is_favored: bool,
-}
-
-struct FactionStanding {
-    standings: HashMap<String, i32>,
-}
-
-struct QuestLog {
-    active: HashMap<String, QuestProgress>,
-    completed: Vec<String>,
-}
-
-struct QuestProgress {
-    quest_id: String,
-    objectives: Vec<ObjectiveState>,
-    started_at: Instant,
-}
-
-struct ObjectiveState {
-    objective_index: usize,
-    current: u32,
-    completed: bool,
-}
-
-struct LearnedRecipes {
-    recipes: Vec<String>,
-}
-```
+- `Name(String)`, `Description(String)`, `Alignment(String)`, `Wallet(u64)`
+- `CombatStats { base_attack_bonus, fort_save, ref_save, will_save }`
+- `ActiveStance(Option<String>)` — name of active stance
+- `PassiveEffect { id, effect }` — applied passive bonus
+- `LearnedSkills { skills, cooldowns }` — map of skill ID → SkillRank
+- `SkillRank(u16)` — rank in a skill
+- `MultiClassInfo { classes: Vec<ClassEntry> }` — multi-class tracking
+- `ClassEntry { class_id, level, is_favored }`
+- `FactionStanding { standings: HashMap<String, i32> }` — faction → standing
+- `QuestLog { active, completed }` — active quest progress + completed quest IDs
+- `QuestProgress { quest_id, objectives, started_at }`
+- `ObjectiveState { objective_index, current, completed }`
+- `LearnedRecipes { recipes: Vec<String> }`
 
 ### Item Progression
 
-```rust
-struct SetTracker {
-    active_sets: HashMap<String, ActiveSet>,
-}
-
-struct ActiveSet {
-    template_id: String,
-    counts: HashMap<String, u16>,   // piece_type → count
-    equipped: Vec<String>,           // item template IDs
-    active_tiers: Vec<usize>,        // indices into set.bonuses
-}
-
-struct ItemTriggers {
-    on_hit: Vec<TriggerEffect>,
-    on_wear: Vec<TriggerEffect>,
-    on_remove: Vec<TriggerEffect>,
-    on_use: Vec<TriggerEffect>,
-}
-
-struct TriggerEffect {
-    chance: u8,          // 0–100
-    skill_id: String,    // skill to execute
-    target: TriggerTarget, // self | attacker | room | random
-}
-
-enum TriggerTarget { Self, Attacker, Room, Random }
-```
+- `SetTracker { active_sets }` — map of active item sets
+- `ActiveSet { template_id, counts, equipped, active_tiers }` — piece tracking + earned bonuses
+- `ItemTriggers { on_hit, on_wear, on_remove, on_use }` — trigger effects per event
+- `TriggerEffect { chance, skill_id, target }` — trigger skill execution
+- `TriggerTarget`: Self, Attacker, Room, Random
 
 ---
 
@@ -633,504 +342,116 @@ enum TriggerTarget { Self, Attacker, Room, Random }
 
 ### Components
 
-```rust
-struct CombatTarget(Entity);           // set by `kill` command
-struct Damage(i32);                     // raw damage for current round
-struct Armor { base: i32, bonus: i32 } // damage reduction
-enum DamageType { Slash, Pierce, Bludgeon, Fire, Cold, Lightning, Acid, Poison, Magic, True }
-```
+- `CombatTarget(Entity)` — current target
+- `Damage(i32)` — damage value
+- `Armor { base, bonus }` — base + bonus armor
+- `DamageType`: Slash, Pierce, Bludgeon, Fire, Cold, Lightning, Acid, Poison, Magic, True
 
-`Health`, `Attributes`, `Level` components are defined in ECS Component Design.
+### Attack Flow (Combat pulse every 2s)
 
-### Attack Flow
+1. Check same room (melee) or line-of-sight (ranged)
+2. Hit: `d20 + level + str_mod ≥ AC` (melee) / `d20 + level + dex_mod ≥ AC` (ranged)
+   — Natural 1 auto miss; Natural 20 auto crit (×2 damage)
+3. Damage: `weapon_damage + str_mod + level/5`
+4. Apply damage, emit `PlayerAttacked` / `MobAttacked`
+5. If target dead: emit death event, grant XP (`victim.level² × 50`),
+   spawn corpse, clear combat
 
-```
-kill <target>
-    │
-    ▼
-Set CombatTarget on attacker
-    │
-    ▼
-[Combat pulse every 2s] ─── for each entity with CombatTarget:
-    │
-    ├── Check same room (melee) or line-of-sight (ranged)
-    ├── Hit roll: d20 + attacker.level + attacker.str_mod ≥ target AC
-    │   ├── Natural 1 → automatic miss
-    │   └── Natural 20 → automatic crit (damage × 2)
-    ├── Damage roll: weapon.dice + attacker.str_mod
-    ├── Apply damage: target.health.current -= damage
-    ├── Emit PlayerAttacked / MobAttacked event
-    │
-    └── If target dead:
-        ├── Emit PlayerDied / MobDied event
-        ├── Grant XP to killer (XP = target.level² × 50)
-        ├── Create corpse entity at room (inventory transfer)
-        ├── Remove target from combat (clear CombatTarget)
-        └── Respawn NPC after delay (configurable per template)
-```
-
-### Hit & Damage Formulas
-
-```
-AC = 10 + level + dex_mod + armor.total()
-
-Hit:    d20 + level + str_mod ≥ AC     (melee)
-        d20 + level + dex_mod ≥ AC     (ranged)
-Crit:   natural 20 → double all dice
-Miss:   natural 1  → no damage + lose next round
-
-Damage: weapon_damage + str_mod
-        + level / 5 (bonus per 5 levels)
-```
+**Defense:** `AC = 10 + level + dex_mod + armor.total()`
 
 ### NPC AI
 
-Each NPC has a state machine updated each combat pulse:
-
-```
-                   kill command / aggro
-    ┌──────┐       ──────────────────►  ┌────────┐
-    │ Idle │                             │ Combat │
-    └──────┘◄──────────────────────────  └────────┘
-              target dead / fled             │
-                                             │ flee condition
-                                             ▼
-                                        ┌────────┐
-                                        │ Flee   │
-                                        └────────┘
-                                              │
-                                     flee to adjacent room,
-                                     then → Idle
-```
-
-```rust
-enum NpcState {
-    Idle,
-    Wander { dest: Option<Entity> },
-    Combat { target: Entity, threat_table: Vec<(Entity, i32)> },
-    Flee,
-}
-```
-
-- **Wander:** NPC picks a random exit every 3–5 pulses and moves there.
-- **Aggro:** NPC detects player within aggro range (configurable per template).
-  Sets `CombatTarget` and moves to engage.
-- **Threat table:** Updated by damage dealt, healing done, taunt effects.
-  NPC attacks highest-threat target.
-
-### Death Processing
-
-1. Emit `PlayerDied` or `MobDied` event
-2. Calculate XP grant: `killer.experience += victim.level² × 50`
-3. Spawn corpse entity with victim's inventory (all `Inventory` items transferred)
-4. Remove `Inventory` from victim, set `Health.current = 0`
-5. Player: prompt "Return to bind point? (y/n)" → teleport or stay ghost
-6. NPC: despawn immediately, respawn after `respawn_delay` (from template)
-
-### Combat Log
-
-Each round outputs a formatted combat message to the attacker and target
-(and optionally to the room):
-
-```
-You hit goblin for 12 damage!
-goblin dodges your attack!
-Critical hit! You smash the orc for 34 damage!
-```
+State machine per NPC: `Idle → Combat → Flee → Idle`. Wander (random exit
+every 3–5 pulses), aggro (configurable range), threat table (damage/heal/taunt
+→ attacks highest threat).
 
 ### Damage Types & Resistances
 
-The `DamageType` enum covers all damage forms:
+Resistances are multipliers from race, class, equipment, buffs (stacked
+multiplicatively). Configured via TOML: `resistances = { fire = 0.5 }`
+on templates or `[effect] type = "buff" stat = "resistance"` on skills.
 
-```rust
-enum DamageType { Slash, Pierce, Bludgeon, Fire, Cold, Lightning, Acid, Poison, Magic, True }
-```
-
-Each entity can have resistances and vulnerabilities defined across
-multiple sources (race template, class template, equipment, active
-buffs). Resistances are multipliers applied to incoming damage:
-
-```rust
-struct DamageResistances {
-    entries: HashMap<DamageType, f32>,
-}
-```
-
-| Multiplier | Meaning |
+| Mult | Meaning |
 |---|---|
-| `2.0` | Vulnerable — double damage |
-| `1.0` | Normal — no modifier |
-| `0.5` | Resistant — half damage |
-| `0.0` | Immune — no damage |
-| `-1.0` | Absorbed — healed instead of damaged |
-
-**Source stacking:** Resistances from different sources multiply.
-A character with `fire = 0.5` from race and `fire = 0.5` from
-equipment receives `0.5 × 0.5 = 0.25` (75% reduction).
-
-**TOML definition in templates:**
-
-```toml
-# content/mobs/fire_elemental.toml
-resistances = { fire = -1.0, cold = 2.0, physical = 0.5 }
-
-# content/items/flame_sword.toml
-[weapon]
-damage = { count = 1, sides = 8, type = "fire" }
-
-# content/races/dwarf.toml
-resistances = { poison = 0.5 }
-```
-
-**Damage formula with resistances:**
-
-```
-base_damage = roll(weapon.dice) + str_mod + level_bonus
-for each damage_type on the attack:
-    multiplier = target.resistances.get(damage_type).unwrap_or(1.0)
-    final_damage += base_damage × multiplier
-```
-
-If the weapon does multiple damage types (e.g. `1d8 slash + 1d6 fire`),
-each type is rolled separately and multiplied by its own resistance.
-
-**Resistance from buffs:**
-
-```toml
-# content/skills/magic/resist_fire.toml
-[effect]
-type = "buff"
-stat = "resistance"
-subtype = "fire"
-amount = 0.5           # +50% fire resistance
-duration_secs = 300
-```
+| `2.0` | Vulnerable |
+| `1.0` | Normal |
+| `0.5` | Resistant |
+| `0.0` | Immune |
+| `-1.0` | Absorbed (healed) |
 
 ### Weapon Styles
 
-**Two-handed weapons:**
-
-Weapons with `hands = "two"` in their template get:
-
-- **Damage:** 1.5 × STR modifier (rounded down, minimum +1)
-- **Speed:** Base weapon speed × 1.2 (slower swings)
-- **Shield incompatible:** Cannot equip a shield while wielding
-- **Two-handed grip:** Can also wield a one-handed weapon in two hands
-  for 1.5× STR but no shield
-
-```toml
-# content/items/greatsword.toml
-[weapon]
-hands = "two"
-damage = { count = 2, sides = 6, type = "slash" }
-speed = 3.0
-```
-
-**Dual-wielding:**
-
-Equipping weapons in both `Weapon` and `OffHand` slots:
-
-| Slot | Penalty (without feat) | Penalty (with `ambidexterity` feat) |
-|---|---|---|
-| Primary | −4 to hit | −2 to hit |
-| Off-hand | −8 to hit, 0.5 × STR mod to damage | −4 to hit, full STR mod to damage |
-
-```rust
-enum EquipmentSlot {
-    // ...existing slots...
-    OffHand,   // used by both shields and second weapons
-}
-```
-
-**Rules:**
-- Dual-wielding requires both weapons to be one-handed (`hands = "one"`)
-- Off-hand weapon speed must be ≤ primary weapon speed (off-hand
-  follows the primary's swing timer)
-- Shields occupy `OffHand` — cannot dual-wield with a shield
-- Dual-wielding grants an extra attack roll each round (off-hand)
-- Feats and skills can reduce penalties (see `ambidexterity` skill in
-  `content/skills/combat/`)
-
-**Template field:**
-
-```toml
-[weapon]
-hands = "one"        # "one" (default) | "two"
-```
+- **Two-handed:** 1.5× STR mod damage, 1.2× speed, no shield
+- **Dual-wield:** Primary −4 hit, off-hand −8 hit + 0.5× STR; penalties halved
+  with `ambidexterity` feat. Off-hand grants extra attack roll each round.
 
 ---
 
 ## Corpse & Loot
 
-### Corpse Creation
-
-On death, a corpse entity is spawned with the following structure:
-
-```rust
-struct Corpse {
-    owner: Option<Entity>,
-    created_at: Instant,
-    decay_secs: u32,
-    lootable_by: LootRule,
-}
-
-enum LootRule {
-    Public,
-    GroupOnly,
-    OwnerOnly,
-    Faction,
-}
-```
-
-- **Name:** "corpse of <name>"
-- **Container:** Contains all items from victim's `Inventory` + `Equipment`
-- **Player corpses:** `GroupOnly` by default, 10-minute decay
-- **NPC corpses:** `Public` by default, 5-minute decay
-
-### Looting
+On death, a corpse entity spawns containing the victim's `Inventory` +
+`Equipment`. Player corpses: `GroupOnly` loot rule, 10min decay. NPC
+corpses: `Public`, 5min decay. `CorpseSystem` (DirtyFlush phase) sweeps
+expired corpses, transfers remaining items to room floor, emits
+`CorpseDecayed`. Corpses are transient (no SQL persistence).
 
 ```
-loot <corpse>                  — show contents
-loot <corpse> <item>           — take specific item
-loot <corpse> all              — take all items
-loot <corpse> all.coin         — take all currency
-get <item> corpse              — alias shortcut
+loot <corpse>              — show contents
+loot <corpse> <item>       — take item
+loot <corpse> all          — take all
+get <item> corpse          — alias
 ```
 
-Checking contents (`loot` without `all`/item) is always allowed. Taking
-items respects `LootRule`.
-
-### Corpse Decay
-
-A `CorpseSystem` runs on each `DirtyFlush` phase:
-
-1. Query all entities with `Corpse` component
-2. Check `Instant::now() - created_at >= Duration::from_secs(decay_secs)`
-3. Expired corpses: transfer remaining items to room floor, despawn corpse
-4. Emit `CorpseDecayed { corpse }` event
-
-Corpses are purely in-memory — no SQL persistence (transient).
+- `Corpse { owner, created_at, decay_secs, lootable_by }` — spawned on death with inventory transfer
+- `LootRule`: Public, GroupOnly, OwnerOnly, Faction
 
 ---
 
 ## Group & Party
 
-### Group Structure
+### Structure
 
-```rust
-struct Group {
-    leader: Entity,
-    members: Vec<Entity>,
-    loot_mode: LootMode,
-    formation: Formation,
-}
+Groups are managed by a `GroupManager` resource. Each group has a leader,
+members, loot mode, and formation.
 
-enum LootMode {
-    FreeForAll,
-    RoundRobin { next_index: usize },
-    MasterLooter(Entity),
-}
-
-enum Formation {
-    Default,
-    Line,
-    Scattered,
-}
-```
-
-Groups are managed by a singleton resource:
-
-```rust
-struct GroupManager {
-    groups: Vec<Group>,
-    invites: Vec<GroupInvite>,
-}
-
-struct GroupInvite {
-    inviter: Entity,
-    target: Entity,
-    expires_at: Instant,
-}
-```
-
-### Components
-
-```rust
-struct GroupMember {
-    group_id: u64,
-    role: GroupRole,
-}
-
-enum GroupRole { Leader, Member }
-
-struct Following {
-    target: Entity,          // entity being followed
-    autofollow: bool,        // auto-follow on room entry
-}
-```
+- `Group { leader, members, loot_mode (LootMode), formation (Formation) }`
+- `GroupManager { groups, invites }` — resource
+- `GroupInvite { inviter, target, expires_at }`
+- `GroupMember { group_id, role (GroupRole) }`
+- `Following { target, autofollow }`
+- `LootMode`: FreeForAll, RoundRobin(next_index), MasterLooter(Entity)
+- `Formation`: Default, Line, Scattered (others defined in TOML)
+- `GroupRole`: Leader, Member
 
 ### Commands
 
 ```
-group invite <player>       — invite player
-group accept                — accept pending invite
-group decline               — decline pending invite
-group leave                 — leave group
-group kick <player>         — remove member (leader only)
-group disband               — disband group (leader only)
-group loot <mode>           — change loot mode (leader only)
-group status                — show group members + health
-group chat <message>        — send message to all group members
-follow <player>             — start following a player
-follow stop                 — stop following
+group invite/accept/decline/leave/kick/disband/loot/status/chat/formation
+follow <player> / follow stop
 ```
 
-### Invite Flow
+Invites expire after 30s (one pending per player). Follow uses 1-tick delay,
+pauses during combat, prevents chained teleport. XP bonus: +10% per member
+(max +50%). Group chat prefixed `[Group]`.
 
-```
-> group invite bob
-You invite bob to join your group.
-[Bob receives:] Alice invites you to join a group. (group accept / group decline)
-```
+### Formations
 
-Invites expire after 30 seconds. A player can only have one pending invite.
-
-### Follow System
-
-Players can follow other players, automatically moving through rooms
-behind them:
-
-```
-> follow alice
-You start following Alice.
-[Alice:] Bob is now following you.
-
-> follow stop
-You stop following Alice.
-[Alice:] Bob stops following you.
-```
-
-**Follow movement:** When an entity with `Following` moves to a new room,
-the follower's `Position` is also updated (1-tick delay to prevent
-synchronization issues on fast movement). If the follower is in combat,
-the follow is paused until combat ends.
-
-**Auto-follow:** If `autofollow = true` (default), the follower
-automatically targets the leader's new room on any movement event.
-If `autofollow = false`, only explicit `follow` commands queue movement.
-
-**Chained follow:** If A follows B and B follows C, only B moves on
-C's movement. A does not move until B moves (next tick). This prevents
-teleport chaining.
-
-### Formation Bonuses
-
-Formations modify combat stats for all group members in the same room:
-
-| Formation | Effect | Activates at |
+| Formation | Effect | Min size |
 |---|---|---|
-| `Default` | None | Always available |
-| `Line` | +1 AC per member (front rank), −1 AC per member (back rank) | Group size ≥ 2 |
-| `Scattered` | −2 AC, +10% dodge chance per member | Group size ≥ 2 |
-| `Column` | +1 damage per member on first hit | Group size ≥ 3 |
-| `Wedge` | +2 attack, −4 AC for leader | Group size ≥ 3 |
-| `Shield Wall` | +2 AC for all, −2 attack for all | Requires shield + group ≥ 2 |
+| `Line` | +1 AC front / −1 AC back | 2 |
+| `Scattered` | −2 AC, +10% dodge | 2 |
+| `Column` | +1 damage first hit | 3 |
+| `Wedge` | +2 attack, −4 AC leader | 3 |
+| `Shield Wall` | +2 AC, −2 attack (shield req) | 2 |
 
-```
-> group formation line
-You form a line formation.
-Members gain +1 AC (front) / −1 AC (back).
-```
+Applied by `FormationSystem` (Combat phase) as `ActiveEffect` components.
 
-Formation bonuses are applied as `ActiveEffect` components on each
-member by a `FormationSystem` (Combat phase). Bonuses update when
-formation changes or members enter/leave the room.
+### Group Skills & Shared Credit
 
-### Group Skills & Buffs
-
-Certain skills can target the entire group:
-
-```toml
-# content/skills/magic/group_heal.toml
-[effect]
-type = "heal"
-dice_count = 2
-dice_sides = 6
-targeting = "group"          # affects all group members in room
-```
-
-Group-targeting skills pulse to all `GroupMember` entities sharing the
-same `group_id` within the caster's room. Out-of-room members do not
-receive the effect.
-
-**Persistent group buffs** (e.g. "Bless Group") apply a `PassiveEffect`
-with `scope = "group"`. The `PassiveApplicationSystem` checks group
-membership at application time and re-applies on member join.
-
-### Shared Quest Credit
-
-Group kills and gathers increment quest objectives for all members in
-the same room (configurable per quest):
-
-```toml
-# content/quests/goblin_problem.toml
-share_kills = true      # group kills count for all members
-share_gather = false    # only the looter gets credit
-```
-
-The `QuestProgressSystem` listens to `MobDied` and `ItemPickedUp`
-events. If the source is in a group, it iterates members in the same
-room and updates each qualifying `QuestLog`.
-
-### Loot Distribution
-
-| Mode | Behavior |
-|---|---|
-| `FreeForAll` | Anyone can loot any corpse (default) |
-| `RoundRobin` | Each kill cycles to the next player in order. Only that player may loot the corpse for the first 30s; after that, it opens to all. |
-| `MasterLooter` | Only the designated looter may loot. They distribute via `give`. |
-
-```rust
-enum LootMode {
-    FreeForAll,
-    RoundRobin { next_index: usize },
-    MasterLooter(Entity),
-}
-```
-
-`RoundRobin` tracking: each kill increments `next_index` (wrapping).
-The selected player sees: "You are next to loot goblin's corpse."
-Others see: "Bob is next to loot goblin's corpse."
-
-### Disconnect Handling
-
-When a group member disconnects:
-
-1. **Leader disconnect:** Leader role transfers to the longest-standing
-   member. Disconnected leader reconnects as a regular member.
-2. **Member disconnect:** The member is removed from the group after a
-   60-second grace period (configurable). If they reconnect within the
-   grace period, auto-rejoin.
-3. **Solo player disconnect:** No action (group already empty).
-4. **Follower disconnect:** Following entity is removed; follower
-   remains in their last known room until timeout.
-
-A `GroupCleanupSystem` (DirtyFlush phase) sweeps stale followers and
-disconnected members past their grace period.
-
-### Group Chat
-
-```
-> group chat Anyone seen the blacksmith?
-[Group] You say, "Anyone seen the blacksmith?"
-[Group | Bob]: "Over by the forge."
-```
-
-Group messages are prefixed with `[Group]` and only reach group members
-(currently online). Offline members do not receive backlog (channels
-are real-time only).
-
-+10% XP per member, capped at +50% (full group of 5).
+Skills with `targeting = "group"` affect all members in the caster's room.
+Quest kills/gathers can be shared (per-quest `share_kills` / `share_gather`).
+Disconnect: leader transfers to longest-standing member; 60s grace period for
+auto-rejoin; `GroupCleanupSystem` (DirtyFlush) sweeps stale entries.
 
 ---
 
@@ -1149,93 +470,16 @@ This means:
 - One command (`use`) invokes any skill; `cast` is syntactic sugar that gates on `skill_type == Magic`
 - New skill-like systems (tech, psionics, martial arts) add a `SkillType` variant + config struct — zero new infrastructure
 
-```rust
-#[derive(Deserialize)]
-#[serde(tag = "type")]
-enum SkillTypeConfig {
-    Combat,
-    Magic(MagicConfig),
-    Tech(TechConfig),
-    Psionics(PsionicsConfig),
-    Craft(CraftConfig),
-    Social,
-    General,
-}
-
-struct MagicConfig {
-    school: MagicSchool,          // Abjuration, Conjuration, Divination, Enchantment, Evocation, Illusion, Necromancy, Transmutation
-    sub_school: Option<String>,
-    casting_time_secs: u8,
-    concentration: bool,
-    components: Vec<SpellComponent>,  // Verbal, Somatic, Material
-    material_component: Option<MaterialComponent>,
-}
-
-struct TechConfig {
-    skill_prereqs: HashMap<String, u8>,  // skill_id → minimum level
-    hardware_required: Option<String>,    // item template required as focus
-}
-
-struct PsionicsConfig {
-    discipline: String,
-    power_source: String,
-    risk: PsionicRisk,
-}
-
-struct CraftConfig {
-    station: String,            // e.g. "anvil", "alchemy_table"
-    materials: Vec<CraftMaterial>,
-    difficulty: u8,
-}
-
-struct SkillDef {
-    id: String,
-    name: String,
-    skill_type: SkillTypeConfig,
-    level_requirement: u8,
-    cooldown_secs: u32,
-    targeting: Targeting,
-    cost: ResourceCost,
-    effect: EffectTemplate,
-    script: Option<String>,
-
-    // Constraints (data-driven; never hardcoded)
-    allowed_classes: Vec<AllowedClassEntry>,
-    allowed_races: Vec<String>,
-    requires_skill: Vec<SkillPrereq>,
-    must_train: bool,
-    trainer_types: Vec<String>,
-    use_while_fighting: bool,
-    use_while_sitting: bool,
-}
-
-enum ResourceCost {
-    None,
-    Stamina(u16),
-    Mana(u16),
-    Energy(u16),
-    Psi(u16),
-    Gold(u64),
-    Xp(u64),
-}
-
-struct AllowedClassEntry {
-    class: String,          // class key
-    spell_level: Option<u8>, // for magic skills: which circle/level this class gets it at
-}
-
-struct SkillPrereq {
-    id: String,
-    level: u8,              // minimum skill rank
-}
-
-enum Targeting {
-    Self,
-    Single { range: u8 },
-    Room,
-    Area { radius: u8 },
-}
-```
+- `SkillTypeConfig`: Combat, Magic(MagicConfig), Tech(TechConfig), Psionics(PsionicsConfig), Craft(CraftConfig), Social, General
+- `MagicConfig`: school, sub_school, casting_time_secs, concentration, components, material_component
+- `TechConfig`: skill_prereqs, hardware_required
+- `PsionicsConfig`: discipline, power_source, risk
+- `CraftConfig`: station, materials, difficulty
+- `SkillDef`: id, name, skill_type, level_requirement, cooldown_secs, targeting, cost, effect, script, allowed_classes, allowed_races, requires_skill, must_train, trainer_types, use_while_fighting, use_while_sitting
+- `ResourceCost`: None, Stamina(u16), Mana(u16), Energy(u16), Psi(u16), Gold(u64), Xp(u64)
+- `AllowedClassEntry`: class, spell_level
+- `SkillPrereq`: id, level
+- `Targeting`: Self, Single(range), Room, Area(radius)
 
 ### Mana & Resource Components
 
@@ -1244,12 +488,7 @@ character has depends on class/race — a warrior has `Stamina`, a mage has
 `Mana`, a psion has `Psi`. Resources are depleted on skill use and
 regenerated each Regeneration pulse.
 
-```rust
-struct Stamina { current: u16, max: u16 }
-struct Mana { current: u16, max: u16 }
-struct Energy { current: u16, max: u16 }
-struct PsiPool { current: u16, max: u16 }
-```
+Resource pool components: `Stamina { current, max }`, `Mana { current, max }`, `Energy { current, max }`, `PsiPool { current, max }` — all u16.
 
 **Regen:** `current += max / 20` per Regeneration pulse (5% per 6s = ~100% in 2min), applied to all resource pools present on the entity.
 
@@ -1257,14 +496,8 @@ struct PsiPool { current: u16, max: u16 }
 
 Characters track which skills they know and when they're on cooldown:
 
-```rust
-struct LearnedSkills {
-    skills: HashMap<String, SkillRank>,   // skill_id → current rank
-    cooldowns: HashMap<String, Instant>,
-}
-
-struct SkillRank(u16);  // proficiency level in the skill (0 = untrained)
-```
+- `LearnedSkills { skills: HashMap<skill_id, SkillRank>, cooldowns: HashMap<skill_id, Instant> }`
+- `SkillRank(u16)` — proficiency level (0 = untrained)
 
 **Auto-learn:** On level-up, scan class definition for `auto_skills` where
 `level_requirement <= new_level` and the character does not already
@@ -1303,36 +536,9 @@ that rejects non-Magic skills.
 
 Effects are the runtime representation of a skill's action:
 
-```rust
-enum EffectTemplate {
-    Damage { dice_count: u8, dice_sides: u8, damage_type: DamageType },
-    Heal { dice_count: u8, dice_sides: u8 },
-    Buff { stat: Stat, amount: i8, duration_secs: u32 },
-    Debuff { stat: Stat, amount: i8, duration_secs: u32 },
-    Teleport { target_room: String },
-    Script { script_id: String },
-    Spawn { mob_id: String, count: u8 },
-    Aura { aura_id: String, radius: u8 },   // persistent area effect
-}
-
-enum Stat {
-    Strength,
-    Dexterity,
-    Intelligence,
-    Wisdom,
-    Constitution,
-    Charisma,
-}
-```
-
-**Duration tracking:**
-
-```rust
-struct ActiveEffect {
-    effect: EffectTemplate,
-    remaining_secs: u32,
-}
-```
+- `EffectTemplate`: Damage(dice_count, dice_sides, damage_type), Heal(dice_count, dice_sides), Buff(stat, amount, duration_secs), Debuff, Teleport(target_room), Script(script_id), Spawn(mob_id, count), Aura(aura_id, radius)
+- `Stat`: Strength, Dexterity, Intelligence, Wisdom, Constitution, Charisma
+- `ActiveEffect { effect, remaining_secs }` — applied effect with expiry timer
 
 `EffectExpirySystem` (Regeneration phase) decrements `remaining_secs` and
 removes expired effects.
@@ -1553,37 +759,11 @@ creation. Additional languages can be learned via the `learn` command
 social skills, lore checks, and identification attempts against the
 target race. For example, a dwarf gets +2 on checks involving orcs.
 
-### Rust Struct
+### Data Structures
 
-```rust
-struct RaceTemplate {
-    id: String,
-    name: String,
-    description: String,
-    attributes: Attributes,
-    size: Size,
-    speed: u8,
-    allowed_classes: Vec<String>,
-    languages: Vec<String>,
-    hometown: Option<String>,
-    traits: HashMap<String, RaceTraitValue>,
-    racial_abilities: Vec<String>,
-    familiarity: HashMap<String, i8>,
-    alignment_tendencies: HashMap<String, u8>,
-}
-
-enum RaceTraitValue {
-    Bool(bool),
-    Int(i32),
-}
-
-struct LanguageDef {
-    id: String,
-    name: String,
-    script: Option<String>,
-    speakers: Vec<String>,
-}
-```
+- `RaceTemplate { id, name, description, attributes, size, speed, allowed_classes, languages, hometown, traits, racial_abilities, familiarity, alignment_tendencies }`
+- `RaceTraitValue`: Bool(bool), Int(i32)
+- `LanguageDef { id, name, script, speakers }`
 
 The `LanguageDef` struct is loaded from `content/languages.toml` and stored
 in `TemplateRegistry.languages`.
@@ -1699,30 +879,10 @@ A skill not listed in any category for the character's class is **unavailable**
 
 ### BAB & Save Progressions
 
-```rust
-struct ClassProgression {
-    base_attack_bonus: f32,      // multiplied by level, then floored
-    fort_save: SaveProgression,
-    ref_save: SaveProgression,
-    will_save: SaveProgression,
-}
+- `ClassProgression`: base_attack_bonus (f32 × level, floored), fort_save, ref_save, will_save (SaveProgression)
+- `SaveProgression`: Good (+2 + level × 0.5), Poor (level × 0.33)
 
-enum SaveProgression {
-    Good,   // +2 + level * 0.5
-    Poor,   // level * 0.33
-}
-```
-
-Computed at level-up and stored on the character:
-
-```rust
-struct CombatStats {
-    base_attack_bonus: i8,
-    fort_save: i8,
-    ref_save: i8,
-    will_save: i8,
-}
-```
+Computed at level-up and stored on `CombatStats { base_attack_bonus, fort_save, ref_save, will_save }`.
 
 ### Alignment Restrictions
 
@@ -1737,11 +897,7 @@ loss at the admin's discretion (defined in per-class Rhai script).
 
 Stances are toggleable combat modes defined in the class template. A
 character can have exactly one active stance at a time (activating a new
-stance deactivates the previous one). Stances are tracked via:
-
-```rust
-struct ActiveStance(Option<String>);
-```
+stance deactivates the previous one). Tracked via `ActiveStance(Option<String>)`.
 
 Activation: `stance <name>` command. Deactivation: `stance default`.
 Stances cannot be changed while in combat unless the stance explicitly
@@ -1752,375 +908,92 @@ allows it.
 Passives are always-on class bonuses. They are applied as components
 on level-up (or on class grant for multi-classed characters) and
 removed if the class is lost. Passives can reference scripts for
-complex effects.
-
-```rust
-struct PassiveEffect {
-    id: String,
-    effect: EffectTemplate,
-}
-```
+complex effects. Stored as `PassiveEffect { id, effect }`.
 
 A `PassiveApplicationSystem` runs at login and level-up: it queries all
 character class components, resolves the class template's `[passives]` list,
 and ensures the matching `PassiveEffect` components exist on the entity.
 
-### Rust Struct
+### Data Structures
 
-```rust
-struct ClassTemplate {
-    id: String,
-    name: String,
-    description: String,
-    attribute_mods: Attributes,
-    hit_die: u8,
-    base_attack_bonus: f32,
-    skill_ranks_per_level: u8,
-    fort_save: SaveProgression,
-    ref_save: SaveProgression,
-    will_save: SaveProgression,
-    prestige: bool,
-    prestige_gate: Option<PrestigeGate>,
-    allowed_races: Vec<String>,
-    allowed_alignments: Vec<String>,
-    class_skills: Vec<SkillAccessEntry>,
-    cross_class_skills: Vec<SkillAccessEntry>,
-    exclusive_skills: Vec<SkillAccessEntry>,
-    auto_skills: Vec<AutoSkillEntry>,
-    auto_spells: Vec<AutoSkillEntry>,
-    stances: Vec<StanceDef>,
-    passives: Vec<PassiveDef>,
-    multi_classing: MultiClassingConfig,
-}
-
-struct SkillAccessEntry {
-    id: String,
-    max_rank: String,                  // formula like "level+3"
-}
-
-struct AutoSkillEntry {
-    id: String,
-    level: u8,
-}
-
-struct StanceDef {
-    id: String,
-    name: String,
-    ac_bonus: i8,
-    attack_penalty: i8,
-    damage_bonus: i8,
-    ac_penalty: i8,
-    min_level: u8,
-}
-
-struct PassiveDef {
-    id: String,
-    name: String,
-    description: String,
-    effect: EffectTemplate,
-    min_level: u8,
-}
-
-struct MultiClassingConfig {
-    favored: bool,
-}
-```
+- `ClassTemplate`: id, name, description, attribute_mods, hit_die, base_attack_bonus, skill_ranks_per_level, fort/ref/will save, prestige(bool + gate), allowed_races, allowed_alignments, class/cross_class/exclusive_skills, auto_skills, auto_spells, stances, passives, multi_classing
+- `SkillAccessEntry`: id, max_rank (formula string like "level+3")
+- `AutoSkillEntry`: id, level
+- `StanceDef`: id, name, ac_bonus, attack_penalty, damage_bonus, ac_penalty, min_level
+- `PassiveDef`: id, name, description, effect, min_level
+- `MultiClassingConfig`: favored
 
 ---
 
-## Skill Caps & Training
+## Portal, Teleport & Transport Mechanics
 
-### Skill Category System
+Portal and teleport skills use the generic `MagicConfig` / effect system
+and check room flags for permission. Room flags are defined in the Room
+Components section. Portals create a `TempPortal` component on the room
+that expires after a skill-defined duration; usable via `enter` command.
+Teleport checks `ROOM_NO_TELEPORT_OUT` (source) and `ROOM_NO_TELEPORT_IN`
+(destination), targets one-hop adjacent rooms, and checks the target's
+`Teleportable` component. `Teleportable(false)` opts out.
 
-Every class template defines three skill access categories — `class_skills`,
-`cross_class_skills`, and `exclusive_skills`. These determine the maximum
-rank a character can achieve in each skill at a given level.
+### Skill Caps & Training
 
-```rust
-fn max_rank(skill_id: &str, class: &ClassTemplate, level: u8) -> u16 {
-    if class.exclusive_skills.iter().any(|s| s.id == skill_id) {
-        level + 3
-    } else if class.class_skills.iter().any(|s| s.id == skill_id) {
-        level + 3
-    } else if class.cross_class_skills.iter().any(|s| s.id == skill_id) {
-        (level + 3) / 2
-    } else {
-        0  // unavailable
-    }
-}
-```
-
-The formula string (e.g. `"level+3"`, `"(level+3)/2"`) is stored in the
-template and evaluated at runtime. Custom formulas are possible through
-Rhai scripts (e.g. `"min(level+5, 50)"`).
-
-### Training Cost
-
-Skills are trained via the `train` command at a trainer NPC:
-
-```
-train <skill>
-```
-
-Cost formula (defined in `mud.toml`):
-
-```toml
-[training]
-base_cost = 100                          # gp at level 1, skill rank 0
-cost_per_level = 50                      # additional gp per character level
-cost_per_rank = 25                       # additional gp per skill rank
-cost_multiplier = 1.0                    # global multiplier (e.g., 2.0 for prestige skills)
-```
+Every class template defines three skill access categories determining
+max rank: `class_skills` (level+3), `cross_class_skills` ((level+3)/2),
+`exclusive_skills` (per-class max). Skills unlisted in any category are
+unavailable. Training cost from `mud.toml`:
 
 ```
 total_gold = (base_cost + level * cost_per_level + current_rank * cost_per_rank) * cost_multiplier
 ```
 
-### Skill Tree Prerequisites
+Skills can require prerequisites (`requires_skill` DAG, validated for
+circular deps at load). Trainer NPCs match via `trainer_types`
+intersection — the `train` command shows a filtered menu.
 
-Skills can require other skills at minimum ranks before they can be trained:
+### Stances & Passives
 
-```toml
-# content/skills/combat/shield_bash.toml
-requires_skill = [{ id = "bash", level = 3 }]
-```
-
-The engine resolves the skill prerequisite DAG at training time:
-
-```
-train shield_bash
-  → check: bash rank >= 3?
-  → if no: "You need Bash (rank 3) to train Shield Bash."
-  → if yes: show training cost, proceed
-```
-
-The validator checks for circular prerequisites at content load time:
-
-- Walk each skill's `requires_skill` chain
-- If any skill appears twice in the same chain, log error and skip
-
-### Trainer NPCs
-
-Trainer NPCs have a `trainer_types` field in their template that lists
-which skill categories or specific skills they can teach:
-
-```toml
-# content/mobs/weapon_master.toml
-trainer_types = ["weapon_master", "trainer"]
-```
-
-A skill's `trainer_types` field lists which trainer types can teach it:
-
-```toml
-# content/skills/combat/shield_bash.toml
-trainer_types = ["weapon_master", "trainer"]
-```
-
-The intersection of NPC trainer_types and skill trainer_types determines
-what a given NPC can teach. The `train` command without arguments shows
-a filtered menu of trainable skills for that NPC.
+**Stances** are toggleable combat modes defined in class templates
+(trade-off bonuses/penalties). One active at a time, applied by
+`StanceSystem` (Combat phase). **Passives** are always-on class bonuses
+applied by `PassiveApplicationSystem` on login/level-up (checks
+`min_level`, idempotent, stacks across classes unless `stackable = false`).
+Both defined in the Classes section.
 
 ---
 
-## Portal & Teleport Skills
+## Prestige & Multi-Classing
 
-Skills with `skill_type = "magic"` (or other types) can create temporary portals
-or teleport entities at runtime. These are not defined as special skill types —
-they use the generic `MagicConfig` / effect system and check room flags for permission.
+### Multi-Classing
 
-### Portal Creation Flow
+Characters track multiple classes via `MultiClassInfo { classes: Vec<ClassEntry> }`.
+Each `ClassEntry` has `class_id`, `level`, `is_favored`. Total character level
+is the sum of all class entry levels.
 
-1. Player activates a portal skill targeting a destination room
-2. System checks source room `RoomFlags(ROOM_PORTAL_OUT)` — fail if absent
-3. System checks destination room `RoomFlags(ROOM_PORTAL_IN)` — fail if absent
-4. Creates a `TempPortal` on the source room pointing to the destination
-5. Optionally creates a return `TempPortal` on the destination
+**XP penalty:** `(non_favored_classes - 1) × 20%` (capped at 80%, configurable
+in `mud.toml`). Favored class (from class template `[multi_classing] favored = true`)
+does not count toward penalty. One favored class at a time.
 
-Temporary portals are added to the source room's `TempPortals` component and
-expire after a skill-defined duration. They are usable via the `enter` command,
-same as permanent template-defined portals.
+**Adding a class:** `@multi_class <class>` — checks race/alignment gates, no
+duplicates, inserts as level 1. **Leveling:** player chooses which class to
+advance each level-up; that class's hit die, skill points, and auto-learns apply.
 
-### Teleport Flow
+**Alignment violations:** Warning on change, no new levels until restored.
+Features remain active (script can strip them at admin discretion).
 
-1. Player activates a teleport skill
-2. System checks source room `RoomFlags(ROOM_NO_TELEPORT_OUT)` — blocked if set
-3. Gathers all one-hop adjacent rooms (reachable via exits from the source room)
-4. Filters candidates by `RoomFlags(ROOM_NO_TELEPORT_IN)` — blocked rooms excluded
-5. If targeting another entity, checks target's `Teleportable` component — fail if false
-6. Picks a valid candidate at random, moves the target entity
-7. If no valid candidates, the spell fails ("You concentrate but find no suitable destination.")
+### Prestige Classes
 
-Range is limited to rooms directly adjacent via exit. Marked rooms use
-`Teleportable(false)` to opt out of being teleported by others (players toggle
-via `config teleport`, NPC templates set `teleportable = false`).
-
----
-
-## Stances & Passives
-
-### Stances
-
-Stances are toggleable combat modes defined in class templates. They
-provide trade-offs: a bonus to one stat at the cost of a penalty to another.
-
-**Template definition:**
-
-```toml
-[[stances]]
-id = "defensive"
-name = "Defensive Stance"
-ac_bonus = 2
-attack_penalty = -2
-min_level = 1
-
-[[stances]]
-id = "offensive"
-name = "Offensive Stance"
-damage_bonus = 2
-ac_penalty = -2
-min_level = 3
-```
-
-**Runtime:**
-
-```rust
-struct ActiveStance(Option<String>);
-```
-
-| Command | Effect |
-|---|---|
-| `stance` | Show current stance and available stances |
-| `stance <name>` | Activate stance (deactivates previous) |
-| `stance default` | Return to default (no stance mods) |
-
-**Rules:**
-- One active stance at a time
-- Cannot change stance while in combat unless the stance's `combat_switch = true`
-- Stance effects are applied immediately on activation, removed on deactivation
-- A `StanceSystem` (runs on Combat phase) applies modifiers to combat calculations
-
-### Passives
-
-Passives are always-on class bonuses applied as ECS components at login,
-level-up, or class grant.
-
-**Template definition:**
-
-```toml
-[[passives]]
-id = "warrior_strength"
-name = "Warrior's Strength"
-description = "Adds +1 damage per 4 levels."
-effect = { type = "script", script_id = "warrior_strength.rhai" }
-min_level = 1
-```
-
-**Runtime:**
-
-```rust
-struct PassiveEffect {
-    id: String,
-    effect: EffectTemplate,
-}
-```
-
-A `PassiveApplicationSystem` (runs on login and level-up):
-
-1. Query entities with `MultiClassInfo` (or `Level` + single class)
-2. For each class entry, load class template's `[passives]`
-3. Check `min_level` against current level
-4. Add missing `PassiveEffect` components, remove expired ones
-5. Skip passives already present (idempotent)
-
-Passives stack across classes for multi-classed characters unless the
-passive has `stackable = false`.
-
----
-
-## Prestige Classes
-
-### Definition
-
-Prestige classes are specialized class templates with a `prestige = true`
-flag and a `[prestige_gate]` block that defines the requirements to enter
-them. They are defined in `content/classes/` alongside base classes.
-
-```toml
-# content/classes/assassin.toml
-name = "Assassin"
-description = "A shadowy killer."
-attribute_mods = { str = 1, dex = 3, int = 1, wis = -1, con = 0, cha = 0 }
-hit_die = 6
-prestige = true
-
-[prestige_gate]
-requires_class = "thief"
-requires_level = 5
-requires_skills = [
-    { id = "sneak", rank = 50 },
-    { id = "backstab", rank = 30 },
-]
-requires_race = "human"
-requires_alignment = "evil"
-requires_quest = "assassins_guild_initiation"
-requires_faction = { id = "assassins_guild", standing = 100 }
-```
-
-### Prestige Gate Fields
-
-| Field | Type | Description |
-|---|---|---|
-| `requires_class` | String | Base class the character must have levels in |
-| `requires_level` | u8 | Minimum character level |
-| `requires_skills` | `[{id, rank}]` | Minimum skill ranks in specific skills |
-| `requires_race` | String (optional) | Racial requirement |
-| `requires_alignment` | String (optional) | Alignment requirement |
-| `requires_quest` | String (optional) | Quest that must be completed |
-| `requires_faction` | `{id, standing}` (optional) | Faction standing requirement |
-
-### Prestige Flow
+Class templates with `prestige = true` + `[prestige_gate]` defining
+requirements (base class, level, skills, race, alignment, quest, faction
+standing). Granted via `@prestige <class>` or Rhai `grant_prestige()`.
 
 ```
-@prestige <class>
-  → validate prestige_gate:
-      • character has requires_class in MultiClassInfo
-      • character.level >= requires_level
-      • all requires_skills met (LearnedSkills rank >= required)
-      • race matches (if specified)
-      • alignment matches (if specified)
-      • quest completed (if specified, checked against QuestLog)
-      • faction standing >= required (if specified, checked against FactionStanding)
-  → if all pass:
-      • add class to MultiClassInfo.classes
-      • apply prestige class's auto_skills/auto_spells
-      • apply prestige class's passives
-      • add prestige class's stances to available list
-      → "You have taken the path of the Assassin!"
-  → if any fail:
-      → "You do not meet the requirements: [list all failures]"
+@prestige <class> → validate all gates → add class entry, apply auto_skills/passives/stances
 ```
 
-Prestige classes can also be gained through roleplay triggers (quest
-completion, faction achievement) via Rhai scripts:
+Multiple prestige classes allowed, levels count toward total, stacking with
+base class grants. If requirements lost, keep existing levels but cannot gain more.
 
-```rust
-// grant prestige class via script
-world.call_fn::<_, ()>("grant_prestige", (entity_id, "assassin"))?;
-```
-
-### Rules
-
-- A character can have multiple prestige classes (subject to DM discretion)
-- Prestige class levels count toward total character level
-- Prestige class `auto_skills` and `auto_spells` stack with base class grants
-- If a prestige class's requirements are lost (alignment change, faction
-  drop), the character keeps existing levels but cannot gain more until
-  requirements are restored
-
-### Rust Struct
-
-```rust
-struct PrestigeGate {
+- `PrestigeGate`: requires_class, requires_skills (list of SkillPrereq), requires_race, requires_alignment, requires_quest, requires_faction, requires_level
     requires_class: Vec<String>,
     requires_level: u8,
     requires_skills: Vec<PrerequisiteSkill>,
@@ -2129,125 +1002,9 @@ struct PrestigeGate {
     requires_quest: Vec<String>,
     requires_faction: Vec<PrerequisiteFaction>,
 }
-
-struct PrerequisiteSkill {
-    id: String,
-    rank: u8,
-}
-
-struct PrerequisiteFaction {
-    id: String,
-    standing: i32,
-}
+struct PrerequisiteSkill { id: String, rank: u8 }
+struct PrerequisiteFaction { id: String, standing: i32 }
 ```
-
----
-
-## Multi-Classing
-
-### Overview
-
-Multi-classing allows a character to gain levels in multiple classes.
-Each class is tracked independently in `MultiClassInfo`:
-
-```rust
-struct MultiClassInfo {
-    classes: Vec<ClassEntry>,
-}
-
-struct ClassEntry {
-    class_id: String,
-    level: u8,
-    is_favored: bool,
-}
-```
-
-### XP Penalty Formula
-
-XP penalty discourages unfocused class combinations. Formula (defined in
-`mud.toml`):
-
-```toml
-[multi_classing]
-xp_penalty_pct_per_class = 20      # 20% penalty per non-favored class
-xp_penalty_max = 80                 # cap at 80% penalty
-favored_class_empty_slot = true     # empty favored class slot waives penalty
-```
-
-```
-penalty = (non_favored_class_count - 1) * xp_penalty_pct_per_class
-if penalty > xp_penalty_max, penalty = xp_penalty_max
-effective_xp = base_xp * (100 - penalty) / 100
-```
-
-- A character with 1 non-favored class (2 total, 1 non-favored): 0% penalty
-  (only the second class counts)
-- A character with 2 non-favored classes: 20% penalty
-- A character with 4 non-favored classes: 60% penalty
-- A character with 5 non-favored classes: 80% penalty (capped)
-
-### Favored Class
-
-Each race-class combination can mark a class as `favored`:
-
-```toml
-# In class template:
-[multi_classing]
-favored = true
-```
-
-If the race also defines a favored class through `allowed_classes`
-ordering, the first listed class is considered "culturally favored."
-The `is_favored` flag on `ClassEntry` is set at creation time based on
-the class template's `favored` field.
-
-A character can have exactly one favored class at a time. If they have
-levels in their favored class, it does not count toward the penalty.
-
-### Alignment Restrictions
-
-Changing alignment to one not in a class's `allowed_alignments` list:
-
-1. Immediate warning: `"Your alignment no longer suits the warrior path."`
-2. No new levels can be gained in that class until alignment is restored
-3. Class features (stances, passives) remain active (no feature loss —
-   at admin discretion, a Rhai script can strip features on violation)
-
-### Gaining a New Class
-
-```
-@multi_class <class>
-  → check: not already in MultiClassInfo (no duplicates)
-  → check: class.allowed_races contains character's race
-  → check: character's alignment is in class.allowed_alignments
-  → check: if prestige, run prestige_gate validation
-  → if all pass:
-      • add ClassEntry { class_id, level: 1, is_favored }
-      • apply class's auto_skills for level 1
-      • apply class's passives for level 1
-      → "You have begun your training as a Mage."
-```
-
-### Multi-Class Leveling
-
-On level-up, the player chooses which class to advance:
-
-```
-You have enough XP to level!
-Pick a class to advance:
-  [1] Warrior (level 5)
-  [2] Mage (level 3)
-> 2
-
-You gain a level as a Mage!
-  +4 HP (d4 + con_mod)
-  +1 mana (d4 + int_mod)
-  New skill: magic_missile
-```
-
-The chosen class's hit die, skill points, and auto-learns are applied.
-The class entry's `level` increments. Total character level is the sum
-of all class entry levels.
 
 ---
 
@@ -2303,24 +1060,8 @@ Death penalty can never de-level below `current_level`. XP floor is
 
 ### Components
 
-```rust
-struct Experience(u64);
-
-impl Experience {
-    fn for_level(level: u8) -> u64 { (level as u64).pow(3) * 100 }
-    fn to_next_level(&self, level: u8) -> u64 {
-        Self::for_level(level + 1).saturating_sub(self.0)
-    }
-}
-
-struct LevelUpReward {
-    new_level: u8,
-    hp_gain: i32,
-    mana_gain: i32,
-    unlocked_skills: Vec<String>,
-    attribute_points: u8,
-}
-```
+- `Experience(u64)` — cumulative XP. Formula: `for_level(level) = level³ × 100`. Method `to_next_level()` returns XP remaining.
+- `LevelUpReward`: new_level, hp_gain, mana_gain, unlocked_skills, attribute_points
 
 ### SQL
 
@@ -2440,13 +1181,7 @@ weight = 50
 
 ### Durability & Repair
 
-```rust
-struct Durability {
-    current: u16,
-    max: u16,
-    decay_rate: f32,
-}
-```
+- `Durability { current, max, decay_rate }` — u16 current/max, f32 decay rate
 
 Weapons lose durability on hit. Armor loses durability on being hit.
 At `current == 0`, the item is **broken** (no stats) until repaired.
@@ -2454,31 +1189,11 @@ Repair via NPC blacksmith (`repair <item>`) or the `repair` skill.
 
 ### Extra Components
 
-```rust
-struct Weapon {
-    damage: DamageDice,
-    speed: f32,
-    range: WeaponRange,
-}
-
-enum WeaponRange { Melee, Ranged, Reach, Thrown }
-
-struct Armor {
-    ac_bonus: i32,
-    slot: EquipmentSlot,
-    material: Material,
-    skill_penalty: i32,
-}
-
-struct Container {
-    capacity_weight: f32,
-    capacity_items: u16,
-    lock_id: Option<String>,
-    is_locked: bool,
-}
-
-enum Material { Cloth, Leather, Metal, Mithril, Adamantium, Dragonhide, Wood }
-```
+- `Weapon { damage (DamageDice), speed (f32), range (WeaponRange) }`
+- `WeaponRange`: Melee, Ranged, Reach, Thrown
+- `Armor { ac_bonus, slot, material, skill_penalty }`
+- `Container { capacity_weight, capacity_items, lock_id, is_locked }`
+- `Material`: Cloth, Leather, Metal, Mithril, Adamantium, Dragonhide, Wood
 
 ### Item Restrictions
 
@@ -2619,18 +1334,8 @@ piece_type = "armor"
 
 Runtime tracking uses `SetTracker` component:
 
-```rust
-struct SetTracker {
-    active_sets: HashMap<String, ActiveSet>,
-}
-
-struct ActiveSet {
-    template_id: String,
-    counts: HashMap<String, u16>,   // piece_type → count
-    equipped: HashSet<String>,       // item template IDs (prevent double-count)
-    active_tiers: Vec<usize>,        // indices into set.bonuses
-}
-```
+- `SetTracker { active_sets: HashMap<set_id, ActiveSet> }`
+- `ActiveSet { template_id, counts (piece_type → count), equipped (template IDs), active_tiers }`
 
 **Flow on wear/remove:**
 
@@ -2680,115 +1385,22 @@ CREATE TABLE components_affixes (
 );
 ```
 
-### Rust Structs
+### Data Structures
 
-```rust
-struct ItemTemplate {
-    id: String,
-    name: String,
-    description: String,
-    item_type: String,
-    subtype: String,
-    quality: String,
-    level_requirement: u8,
-    weight: f32,
-    value: u64,
-    flags: Vec<String>,
-    attributes: HashMap<String, u8>,
-    allowed_classes: Vec<String>,
-    allowed_races: Vec<String>,
-    allowed_alignments: Vec<String>,
-    requires_skill: Option<SkillRequirement>,
-    weapon: Option<WeaponDef>,
-    equipment: Option<EquipmentDef>,
-    triggers: Vec<TriggerDef>,
-    affixes: Vec<AffixRef>,
-    loot: Option<LootParams>,
-    set: Option<SetMembership>,
-}
-
-struct SkillRequirement { id: String, level: u8 }
-
-struct WeaponDef {
-    damage: DamageDice,
-    speed: f32,
-    range: String,
-}
-
-struct DamageDice {
-    count: u8,
-    sides: u8,
-    damage_type: String,
-}
-
-struct EquipmentDef {
-    slot: String,
-}
-
-struct TriggerDef {
-    event: String,
-    chance: u8,
-    cast: String,
-    target: String,
-}
-
-struct AffixRef {
-    affix_type: String,
-    element: Option<String>,
-    stat: Option<String>,
-    amount: String,
-}
-
-struct LootParams {
-    min_quality: String,
-    max_quality: String,
-    min_affixes: u8,
-    max_affixes: u8,
-    weight: u8,
-}
-
-struct SetMembership {
-    id: String,
-    piece_type: String,
-}
-
-struct AffixDef {
-    id: String,
-    name: String,
-    description: String,
-    affix_type: String,
-    element: Option<String>,
-    amount: String,
-    quality_min: String,
-    slot: Vec<String>,
-    weight: u8,
-}
-
-struct SetDef {
-    id: String,
-    name: String,
-    bonuses: Vec<SetBonus>,
-}
-
-struct SetBonus {
-    min_pieces: u8,
-    conditions: Vec<SetCondition>,
-    effects: Vec<SetEffect>,
-}
-
-struct SetCondition {
-    piece_type: String,
-    min: u8,
-}
-
-struct SetEffect {
-    effect_type: String,
-    stat: Option<String>,
-    amount: Option<i32>,
-    aura_id: Option<String>,
-    radius: Option<u8>,
-}
-```
+- `ItemTemplate`: id, name, description, item_type, subtype, quality, level_requirement, weight, value, flags, attributes, class/race/alignment/skill gates, weapon, equipment, triggers, affixes, loot, set
+- `SkillRequirement`: id, level
+- `WeaponDef`: damage (DamageDice), speed, range
+- `DamageDice`: count, sides, damage_type
+- `EquipmentDef`: slot
+- `TriggerDef`: event, chance, cast, target
+- `AffixRef`: affix_type, element, stat, amount
+- `LootParams`: min/max_quality, min/max_affixes, weight
+- `SetMembership`: id, piece_type
+- `AffixDef`: id, name, description, affix_type, element, amount, quality_min, slot, weight
+- `SetDef`: id, name, bonuses (Vec<SetBonus>)
+- `SetBonus`: min_pieces, conditions, effects
+- `SetCondition`: piece_type, min
+- `SetEffect`: effect_type, stat, amount, aura_id, radius
 
 ---
 
@@ -2875,78 +1487,17 @@ event = "enter"
 script = "goblin_alert.rhai"
 ```
 
-### Rust Struct
+### Data Structures
 
-```rust
-struct MobTemplate {
-    id: String,
-    name: String,
-    description: String,
-    level: u8,
-    attributes: Attributes,
-    health: HealthBounds,
-    armor: i32,
-    damage: DamageDice,
-    race: Option<String>,
-    size: Size,
-    equipment: Vec<MobEquipment>,
-    xp_value: u64,
-    loot: Option<LootTable>,
-    ai_mode: AiMode,
-    aggro_range: u8,
-    aggro_players: bool,
-    aggro_race: Vec<String>,
-    faction: Option<String>,
-    faction_standing: i32,
-    trainer_types: Vec<String>,
-    languages: Vec<String>,
-    skills: Vec<MobSkill>,
-    scripts: Vec<ScriptHook>,
-}
-
-struct HealthBounds {
-    current: i32,
-    max: i32,
-}
-
-struct MobEquipment {
-    template_id: String,
-    slot: EquipmentSlot,
-}
-
-struct LootTable {
-    entries: Vec<LootEntry>,
-}
-
-struct LootEntry {
-    item: String,
-    count: Option<CountRange>,
-    chance: u8,
-    loot_params: Option<LootQualityParams>,
-}
-
-struct CountRange {
-    min: u32,
-    max: u32,
-}
-
-enum AiMode {
-    Idle,
-    Wander,
-    Patrol,
-    Stationary,
-}
-
-struct MobSkill {
-    id: String,
-    level: u8,
-}
-
-struct ScriptHook {
-    event: String,
-    script: String,
-}
-```
+- `MobTemplate`: id, name, description, level, attributes, health (HealthBounds), armor, damage (DamageDice), race, size, equipment, xp_value, loot, ai_mode, aggro_range, aggro_players, aggro_race, faction, faction_standing, trainer_types, languages, skills, scripts
+- `HealthBounds { current, max }`
+- `MobEquipment { template_id, slot }`
+- `LootTable { entries: Vec<LootEntry> }`
+- `LootEntry { item, count (CountRange), chance, loot_params }`
+- `CountRange { min, max }`
+- `AiMode`: Idle, Wander, Patrol, Stationary
+- `MobSkill { id, level }`
+- `ScriptHook { event, script }`
 
 ### Loot System
 
@@ -3011,34 +1562,14 @@ Three-tier decimal system tracked in copper pieces (`Wallet` component):
 | Silver (sp) | 100 cp |
 | Gold (gp) | 10,000 cp (100 sp) |
 
-```rust
-struct Wallet {
-    copper: u64,
-    banked_copper: u64,
-}
-```
+`Wallet { copper, banked_copper }` — both u64.
 
 ### NPC Shops
 
 Shops are entities with a `Shop` component:
 
-```rust
-struct Shop {
-    name: String,
-    buy_rate: f32,
-    sell_rate: f32,
-    inventory: Vec<ShopItem>,
-    currency: u64,
-    restock_secs: u32,
-}
-
-struct ShopItem {
-    template_id: String,
-    count: u32,
-    price_override: Option<u64>,
-    unlimited: bool,
-}
-```
+- `Shop { name, buy_rate, sell_rate, inventory (Vec<ShopItem>), currency, restock_secs }`
+- `ShopItem { template_id, count, price_override, unlimited }`
 
 ### Shop Commands
 
@@ -3131,25 +1662,8 @@ unlimited = true
 price_override = 50
 ```
 
-```rust
-struct ShopTemplate {
-    id: String,
-    name: String,
-    npc: String,                      // mob template ID
-    buy_rate: f32,
-    sell_rate: f32,
-    currency: u64,
-    restock_secs: u32,
-    inventory: Vec<ShopInventoryEntry>,
-}
-
-struct ShopInventoryEntry {
-    item: String,                     // item template ID
-    count: u32,
-    price_override: Option<u64>,
-    unlimited: bool,
-}
-```
+- `ShopTemplate { id, name, npc, buy_rate, sell_rate, currency, restock_secs, inventory: Vec<ShopInventoryEntry> }`
+- `ShopInventoryEntry { item, count, price_override, unlimited }`
 
 **Instantiation flow:** On server start (or area load), for each `ShopTemplate`
 whose `npc` mob is present in the loaded area, a `Shop` ECS component is
@@ -3191,27 +1705,13 @@ max_quality = "rare"
 script = "craft_iron_sword.rhai"
 ```
 
-### Rust Struct
+### Data Structures
 
-```rust
-struct RecipeDef {
-    id: String,
-    name: String,
-    station: String,
-    skill: RecipeSkill,
-    difficulty: u8,
-    materials: Vec<CraftMaterial>,
-    result: CraftResult,
-    success_chance: u8,
-    quality_scaling: Option<QualityScaling>,
-    script: Option<String>,
-}
-
-struct RecipeSkill { id: String, level: u8 }
-struct CraftMaterial { item: String, count: u32 }
-struct CraftResult { item: String, count: u32, quality: String }
-struct QualityScaling { margin_per_point: u8, max_quality: String }
-```
+- `RecipeDef { id, name, station, skill (RecipeSkill), difficulty, materials, result (CraftResult), success_chance, quality_scaling, script }`
+- `RecipeSkill { id, level }`
+- `CraftMaterial { item, count }`
+- `CraftResult { item, count, quality }`
+- `QualityScaling { margin_per_point, max_quality }`
 
 ### Crafting Flow
 
@@ -3232,17 +1732,11 @@ craft <recipe>
           → All materials consumed
 ```
 
-Stations are room flags (`room_flags = ["station:anvil"]`) or entities with:
-
-```rust
-struct Station { station_type: String, quality_bonus: i8 }
-```
+Stations are room flags (`room_flags = ["station:anvil"]`) or entities with `Station { station_type, quality_bonus }`.
 
 ### Known Recipes
 
-```rust
-struct LearnedRecipes { recipes: Vec<String> }
-```
+Tracked via `LearnedRecipes { recipes: Vec<recipe_id> }`.
 
 Recipes are learned from auto-grant, trainer NPCs, recipe scroll drops, or
 Rhai `grant_recipe()`.
@@ -3301,52 +1795,12 @@ on_accept = "goblin_accept.rhai"
 on_complete = "goblin_complete.rhai"
 ```
 
-### Rust Struct
+### Data Structures
 
-```rust
-struct QuestDef {
-    id: String,
-    name: String,
-    description: String,
-    level_requirement: u8,
-    repeatable: bool,
-    auto_complete: bool,
-    giver_npc: Option<String>,
-    turn_in_npc: Option<String>,
-    prerequisites: Vec<QuestPrerequisite>,
-    objectives: Vec<QuestObjective>,
-    rewards: Vec<QuestReward>,
-    scripts: HashMap<String, String>,
-}
-
-enum QuestPrerequisite {
-    Level(u8),
-    Quest(String),
-    Faction { id: String, standing: i32 },
-    Skill { id: String, rank: u8 },
-    Item { id: String, count: u32 },
-}
-
-enum QuestObjective {
-    Kill { mob: String, count: u32, room_area: Option<String> },
-    Gather { item: String, count: u32 },
-    Deliver { item: String, target_npc: String },
-    Explore { room: String },
-    Talk { npc: String },
-    Escort { npc: String, destination: String },
-    Craft { item: String, count: u32, station: Option<String> },
-    Use { skill: String, count: u32 },
-}
-
-enum QuestReward {
-    Xp(u64),
-    Gold(u64),
-    Item { id: String, count: u32 },
-    Faction { id: String, standing: i32 },
-    Skill { id: String, rank: u8 },
-    Recipe(String),
-}
-```
+- `QuestDef { id, name, description, level_requirement, repeatable, auto_complete, giver_npc, turn_in_npc, prerequisites (Vec<QuestPrerequisite>), objectives (Vec<QuestObjective>), rewards (Vec<QuestReward>), scripts }`
+- `QuestPrerequisite`: Level(u8), Quest(String), Faction(id, standing), Skill(id, rank), Item(id, count)
+- `QuestObjective`: Kill(mob, count, room_area), Gather(item, count), Deliver(item, target_npc), Explore(room), Talk(npc), Escort(npc, destination), Craft(item, count, station), Use(skill, count)
+- `QuestReward`: Xp(u64), Gold(u64), Item(id, count), Faction(id, standing), Skill(id, rank), Recipe(String)
 
 ### Objective Types
 
@@ -3363,24 +1817,9 @@ enum QuestReward {
 
 ### Quest Runtime
 
-```rust
-struct QuestLog {
-    active: HashMap<String, QuestProgress>,
-    completed: Vec<String>,
-}
-
-struct QuestProgress {
-    quest_id: String,
-    objectives: Vec<ObjectiveState>,
-    started_at: Instant,
-}
-
-struct ObjectiveState {
-    objective_index: usize,
-    current: u32,
-    completed: bool,
-}
-```
+- `QuestLog { active: HashMap<quest_id, QuestProgress>, completed: Vec<quest_id> }`
+- `QuestProgress { quest_id, objectives: Vec<ObjectiveState>, started_at }`
+- `ObjectiveState { objective_index, current, completed }`
 
 **Flow:** NPC offers → accept → progress tracked via events → all objectives
 done → auto-complete or turn-in → rewards delivered → `on_complete` script.
@@ -3431,30 +1870,11 @@ threshold = -500
 members = ["guard", "townsfolk"]
 ```
 
-### Rust Struct
+### Data Structures
 
-```rust
-struct FactionDef {
-    id: String,
-    name: String,
-    description: String,
-    starting_standing: i32,
-    min_standing: i32,
-    max_standing: i32,
-    ranks: BTreeMap<i32, String>,
-    relationships: HashMap<String, f32>,
-    aggro: Option<FactionAggro>,
-}
-
-struct FactionAggro {
-    threshold: i32,
-    members: Vec<String>,
-}
-
-struct FactionStanding {
-    standings: HashMap<String, i32>,
-}
-```
+- `FactionDef { id, name, description, starting_standing, min/max_standing, ranks, relationships, aggro }`
+- `FactionAggro { threshold, members }`
+- `FactionStanding { standings: HashMap<faction_id, i32> }`
 
 ### Standing Changes
 
@@ -3486,14 +1906,7 @@ faction <name>            — show faction details + current rank
 
 Commands are prefix-matched via a trie. Each command:
 
-```rust
-struct Command {
-    name: &'static str,
-    aliases: &[&'static str],
-    access: AccessLevel,
-    handler: fn(&mut World, &mut Connection, args: &str) -> CommandResult,
-}
-```
+- `Command { name, aliases, access (AccessLevel), handler: fn(&mut World, &mut Connection, args) -> CommandResult }`
 
 **Built-in commands (by access level):**
 
@@ -3586,96 +1999,31 @@ struct Command {
 
 ### Channels
 
-Channels are named communication streams. Each channel has:
-
-```rust
-struct Channel {
-    name: String,
-    color: Option<&'static str>,
-    min_level: u8,
-    min_access: AccessLevel,
-    history: Vec<String>,
-}
-```
-
-Built-in channels:
-
-| Channel | Access | Scope | Notes |
-|---|---|---|---|
-| `say` | Player | Same room | Automatic on `say <text>` |
-| `tell` | Player | Specific player | `tell <name> <message>` |
-| `reply` / `r` | Player | Same as incoming tell | Replies to last tell |
-| `whisper` | Player | Same room target | `whisper <name> <message>` |
-| `shout` | Player | Same zone | Higher aggro chance |
-| `yell` | Player | Same area | Between shout and say |
-| `emote` / `:` | Player | Same room | Third-person action |
-| `gossip` | Player | Global | Newbie help channel |
-| `auction` | Player | Global | Buy/sell announcements |
-| `ooc` | Player | Global | Out-of-character chat |
-| `gtell` | Immortal | All immortals | Staff discussion |
-| `admin` | Admin | All admins | Admin-only discussion |
-
-### Channel Commands
+Named communication streams, each with name, color, min level, min access,
+and history. Built-in channels: `say` (room), `tell`/`reply` (player),
+`whisper` (room-private), `shout` (zone), `yell` (area), `emote` (room),
+`gossip`/`auction`/`ooc` (global), `gtell` (immortal), `admin` (admin).
 
 ```
-tell <name> <message>    — private message
-reply <message>          — reply to last tell
-whisper <name> <msg>     — room-private message
-emote smiles warmly      — third person action
-; smiles warmly          — shortcut (; prefix)
-channels                 — list available channels
-channel <name> <on|off>  — toggle channel subscription
+tell/reply/whisper/emote/; /channels /channel <name> <on|off>
 ```
 
-### Socials / Emotions
+### Socials & Emotions
 
-Predefined socials defined in `content/socials.toml`:
-
-```toml
-# content/socials.toml
-[socials.smile]
-no_target = ["You smile.", "$n smiles."]
-with_target = ["You smile at $N.", "$n smiles at you.", "$n smiles at $N."]
-
-[socials.wave]
-no_target = ["You wave.", "$n waves."]
-with_target = ["You wave at $N.", "$n waves at you.", "$n waves at $N."]
-```
-
-Each social has three message forms: self, target, and room:
-
-```rust
-struct SocialDef {
-    name: String,
-    no_target: (String, String),          // (self_msg, room_msg)
-    with_target: (String, String, String), // (self, target, room)
-}
-```
-
-Built-in socials: `smile`, `wave`, `nod`, `glare`, `poke`, `hug`, `frown`,
-`grin`, `wince`, `cough`, `sigh`, `laugh`, `bow`, `curtsey`, `shrug`,
-`applaud`, `sniff`, `salute`, `shiver`.
+TOML-defined in `content/socials.toml` with three message forms (self, target, room).
+Built-in: `smile`, `wave`, `nod`, `glare`, `poke`, `hug`, `frown`, `grin`, `wince`,
+`cough`, `sigh`, `laugh`, `bow`, `curtsey`, `shrug`, `applaud`, `sniff`, `salute`, `shiver`.
 
 ### Resting States
 
-```rust
-enum RestState {
-    Standing,
-    Sitting,
-    Resting,
-    Sleeping,
-    Unconscious,
-    Dead,
-}
-```
-
-| State | Regen Bonus | Dodge Penalty | Input |
+`RestState`: Standing, Sitting, Resting, Sleeping, Unconscious, Dead
+| State | Regen | Dodge | Input |
 |---|---|---|---|
 | Standing | 0% | 0% | Full |
-| Sitting | 0% | -20% | Full (except combat) |
-| Resting | +50% | -40% | Chat only |
-| Sleeping | +100% | — | Only tell/say wakes you |
-| Unconscious | +50% | — | Forced at 0 HP, auto-wake at HP > 0 |
+| Sitting | 0% | -20% | Full (no combat) |
+| Resting | +50% | -40% | Chat |
+| Sleeping | +100% | — | Tell/say wakes |
+| Unconscious | +50% | — | 0 HP, auto-wake |
 
 Commands: `sit`, `rest`, `sleep`, `wake`, `stand`.
 
@@ -3683,505 +2031,70 @@ Commands: `sit`, `rest`, `sleep`, `wake`, `stand`.
 
 ## Time & Weather
 
-### MUD Time System
+Game time is independent of real time (default 1:60 ratio — 1 min = 1 game hour).
+Persisted in SQLite via `game_time` table; on startup, fast-forwards from stored
+`raw_seconds`. Seasons (`Spring/Summer/Autumn/Winter`) affect daylight hours,
+weather tables, temperature, visuals, and mob spawns.
 
-The game maintains its own calendar and clock, independent of real time.
-
-```rust
-struct GameTimeResource {
-    year: u16,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    is_daytime: bool,
-    season: Season,
-    raw_seconds: u64,
-}
-```
-
-**Time ratios:**
-
-| Real time | Game time | Ratio |
-|---|---|---|
-| 1 minute | 1 hour | 1:60 (default) |
-| 24 minutes | 1 day | 1:60 |
-| 720 minutes (12h) | 1 month | 1:60 |
-| 144 hours (6 days) | 1 year | 1:60 |
-
-### Season & Day/Night
-
-```rust
-enum Season { Spring, Summer, Autumn, Winter }
-```
-
-Each season affects:
-- **Daylight hours:** Summer has longer days, winter longer nights
-- **Weather tables:** Different precipitation probabilities per season
-- **Temperature:** Modifies zone base temperature
-- **Visual:** Room descriptions can reference the season
-- **Gameplay:** Some mobs only spawn in certain seasons
-
-### Weather System
-
-Weather is tracked per `weather_zone` (from area definition). The `WeatherSystem`
-updates weather each `Weather` phase pulse.
-
-```rust
-struct WeatherState {
-    zone: String,
-    condition: WeatherCondition,
-    temperature: i8,
-    wind: WindLevel,
-    visibility: u8,
-    remaining_secs: u32,
-}
-
-enum WeatherCondition {
-    Clear, Cloudy, Overcast, Fog,
-    LightRain, HeavyRain, Storm,
-    Snow, Blizzard,
-}
-
-enum WindLevel { Calm, Light, Moderate, Strong, Gale }
-```
-
-Weather effects on gameplay:
+Weather tracked per `weather_zone` (from area definition). Updated by
+`WeatherSystem` on each Weather phase pulse.
 
 | Condition | Effect |
 |---|---|
-| Rain/Storm | -2 fire damage, +2 lightning damage |
-| Fog | -25% visibility to ranged combat |
-| Snow/Blizzard | -1 DEX, tracks show in snow |
-| Strong wind | -2 ranged attacks, extinguishes open flames |
+| Rain/Storm | −2 fire damage, +2 lightning damage |
+| Fog | −25% ranged visibility |
+| Snow/Blizzard | −1 DEX |
+| Strong wind | −2 ranged attacks |
 
-### Commands
-
-```
-time       — show current game time and date
-weather    — show current weather in your zone
-```
-
-### SQL
-
-```sql
-CREATE TABLE game_time (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    year INTEGER NOT NULL DEFAULT 0,
-    month INTEGER NOT NULL DEFAULT 1,
-    day INTEGER NOT NULL DEFAULT 1,
-    hour INTEGER NOT NULL DEFAULT 8,
-    minute INTEGER NOT NULL DEFAULT 0,
-    raw_seconds INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-```
-
-On first startup, game time starts at `Year 0, Month 1, Day 1, 08:00`
-(spring morning). On subsequent startups, `raw_seconds` is read from DB
-and the server fast-forwards to catch up.
+Commands: `time` (show game time), `weather` (show zone weather).
 
 ---
 
 ## Telnet Protocol
 
-### IAC Structure
+IAC byte parser (`0xFF` escape) with state machine: `Data → IAC → Will/Wont/Do/Dont/Subneg`.
+Each connection gets a `TelnetConnection` wrapping `TcpStream`, implementing the
+`Connection` trait (transport-agnostic — `WsConnection` for WebSocket dispatches the same way).
 
-Telnet commands use the Interpret-as-Command (IAC) escape byte `0xFF`:
+### Feature Detection
 
-```rust
-const IAC: u8  = 0xFF;  // interpret as command
-const WILL: u8 = 0xFB;  // willingness to perform option
-const WONT: u8 = 0xFC;  // refusal to perform option
-const DO: u8   = 0xFD;  // request peer to perform option
-const DONT: u8 = 0xFE;  // demand peer to stop performing option
-const SB: u8   = 0xFA;  // subnegotiation begin
-const SE: u8   = 0xF0;  // subnegotiation end
-const NOP: u8  = 0xF1;  // no operation (keepalive)
-```
+`Feature`: Ansi, ExtendedColor, Naws, Mccp, Gmcp, Mxp, Mssp, Blink, Html, Utf8
 
-A literal `0xFF` in the data stream is sent as `IAC IAC` (double 0xFF)
-by both sides.
+Negotiation sequence: `WILL ECHO` + `DO NAWS` + `DO TERMINAL-TYPE` →
+client replies → capability set built. 256-color/GMCP/MXP negotiated only
+if terminal type supports it (MTTS detection).
 
-### State Machine
+### Keepalive
 
-The telnet byte parser transitions between states on each incoming byte:
-
-```
-Data ───── IAC (0xFF) ───→ IAC
-  │                          │
-  │                          ├── WILL ──→ Will
-  │                          ├── WONT ──→ Wont
-  │                          ├── DO   ──→ Do
-  │                          ├── DONT ──→ Dont
-  │                          ├── SB   ──→ Subneg ── IAC ──→ SubnegIac
-  │                          │                           │
-  │                          │                    SE (0xF0) → emit subneg
-  │                          │                    IAC (0xFF) → literal 0xFF in buffer
-  │                          ├── IAC  ──→ emit literal 0xFF
-  │                          └── NOP  ──→ keepalive (no-op)
-```
-
-```rust
-enum TelnetState {
-    Data,
-    IAC,        // received 0xFF, waiting for command byte
-    Will,       // received WILL, waiting for option byte
-    Wont,       // received WONT, waiting for option byte
-    Do,         // received DO, waiting for option byte
-    Dont,       // received DONT, waiting for option byte
-    Subneg,     // inside subnegotiation (collecting until IAC SE)
-    SubnegIac,  // received IAC inside subneg — next byte is SE or literal 0xFF
-}
-```
-
-### TelnetConnection
-
-Each connected client gets a `TelnetConnection` wrapping a `TcpStream`:
-
-```rust
-struct TelnetConnection {
-    stream: TcpStream,
-    read_buf: Vec<u8>,
-    write_buf: Vec<u8>,
-    state: TelnetState,
-    subneg_buf: Vec<u8>,           // bytes accumulated during subnegotiation
-    options: HashMap<TelnetOption, OptionState>,
-    capabilities: HashSet<Feature>,
-    last_activity: Instant,
-}
-
-struct OptionState {
-    local: bool,    // server is performing this option
-    remote: bool,   // client is performing this option
-}
-```
-
-The read path: raw bytes from `TcpStream` → IAC state machine →
-parsed text lines + option events. The write path: text + ANSI →
-write buffer → flushed after each `send()`.
-
-### Option Handlers
-
-Options are parsed by a dispatch table registered at startup:
-
-```rust
-fn handle_option(opt: TelnetOption, action: OptionAction, data: &[u8]) -> OptionResponse {
-    match opt {
-        TelnetOption::Echo => handle_echo(action),
-        TelnetOption::Naws => handle_naws(action, data),
-        TelnetOption::TerminalType => handle_termtype(action, data),
-        TelnetOption::Mccp => handle_mccp(action),
-        TelnetOption::Gmcp => handle_gmcp(action, data),
-        TelnetOption::Mxp => handle_mxp(action),
-        _ => OptionResponse::Reject,  // unsupported → WONT/DONT
-    }
-}
-```
-
-**Default negotiation sequence at connect:**
-
-```
-Server → IAC WILL ECHO          (server offers to handle echo)
-Server → IAC DO NAWS            (server requests window size)
-Server → IAC DO TERMINAL-TYPE   (server requests terminal info)
-Client → IAC DO ECHO            (client accepts)
-Client → IAC WILL NAWS          (client sends window size)
-Client → SB NAWS <w><h> SE      (client reports w×h)
-Client → SB TERMINAL-TYPE SEND SE → Server → SB TERMINAL-TYPE IS "xterm-256color" SE
-```
-
-After the initial handshake, the server builds the client's
-capability set and negotiates higher protocols only if the terminal
-type indicates support (MTTS detection for 256-color, GMCP, MXP).
-
-### Feature Enum
-
-```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Feature {
-    Ansi,             // 16-color ANSI codes supported
-    ExtendedColor,    // 256-color mode supported
-    Naws,             // client reports window size
-    Mccp,             // ZLIB compression active
-    Gmcp,             // GMCP messages supported
-    Mxp,              // MXP tag rendering supported
-    Mssp,             // MUD server listing protocol
-    Blink,            // blink formatting allowed (user opt-in)
-    Html,             // WebSocket bridge, HTML output
-    Utf8,             // UTF-8 character encoding
-}
-```
-
-Features are stored per-connection in `capabilities` and consulted
-by the `Connection` trait's `supports()` method.
-
-### Keepalive & Disconnect
-
-A periodic `IAC NOP` (every 60s) checks connectivity:
-
-1. `TelnetConnection.send_raw(&[IAC, NOP])` on each `Pulse` phase
-2. If `last_activity` exceeds 60s without any incoming data, send NOP
-3. If `last_activity` exceeds 120s (2 missed NOPs), treat as disconnect
-4. Emit `PlayerDisconnected` event, clean up entity
-
-`last_activity` is updated on every received byte (including NOP
-responses). Disconnect detection runs in a lightweight `KeepaliveSystem`
-(DirtyFlush phase).
-
-### Transport-Agnostic Layer
-
-The `Connection` trait abstracts telnet, WebSocket, and future transports:
-
-```rust
-trait Connection: Send {
-    fn send(&mut self, text: &str);
-    fn send_line(&mut self, text: &str);
-    fn send_rich(&mut self, text: &RichText);
-    fn supports(&self, feature: Feature) -> bool;
-    fn id(&self) -> u64;
-    fn entity(&self) -> Option<Entity>;
-    fn set_entity(&mut self, entity: Entity);
-    fn disconnect(&mut self);
-    fn last_activity(&self) -> Instant;
-}
-```
-
-The `TelnetConnection` implements this trait, as does a future
-`WsConnection` for WebSocket clients. Command dispatch never
-references telnet specifics — it operates on `Box<dyn Connection>`.
+`IAC NOP` every 60s; 120s inactivity = disconnect. Detected by
+`KeepaliveSystem` (DirtyFlush phase). Emits `PlayerDisconnected`.
 
 ### Connection Registry
 
-Before the event bus is fully wired (Phase 3+), room broadcasts
-(say, movement enter/leave) use a shared mapping from entity to
-output channel:
-
-```rust
-type ConnectionRegistry = Arc<Mutex<HashMap<Entity, mpsc::UnboundedSender<Vec<u8>>>>>;
-```
-
-- **Insert** on player spawn (`handle_connection` creates entity → register)
-- **Remove** on disconnect (cleanup also despawns entity)
-- **Broadcast helpers** query `Position` to find room occupants, then
-  look up each entity in the registry to forward messages
-
-This mechanism is temporary — once the event bus exists, broadcasts
-will flow through `GameEvent::PlayerSaid` / `GameEvent::PlayerMoved`
-instead. The registry stays as a lightweight fallback for commands
-that need synchronous room enumeration.
+`Arc<Mutex<HashMap<Entity, mpsc::UnboundedSender<Vec<u8>>>>>` — temporary
+broadcast mechanism for room messages before event bus is fully wired.
 
 ---
 
 ## Text Formatting & Color
 
-### Color & Format Types
+Color types: 16 ANSI + `Indexed(u8)` (256-color). `Modifier(u8)` bitmask
+(BOLD|DIM|ITALIC|UNDERLINE|BLINK|REVERSE|HIDDEN|STRIKE). `RichText(Vec<Segment>)`
+with `Segment { text, fg, bg, modifiers }`. `Color::Default` replaces `Option<Color>`.
 
-```rust
-enum Color {
-    // Terminal default (no explicit color)
-    Default,
-    // 16 standard ANSI colors
-    Black,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-    BrightBlack,
-    BrightRed,
-    BrightGreen,
-    BrightYellow,
-    BrightBlue,
-    BrightMagenta,
-    BrightCyan,
-    BrightWhite,
-    // Extended (256-color mode)
-    Indexed(u8),
-}
+Render respects client capability (16-color fallback for `Indexed`) and user
+preference (`blink_enabled` per-account in `accounts.blink_enabled`).
 
-/// Bitmask of text modifiers (replaces the earlier `Format` bool-struct
-/// design — more compact, supports more attributes).
-struct Modifier(u8); // BOLD | DIM | ITALIC | UNDERLINE | BLINK | REVERSE | HIDDEN | STRIKE
-
-impl Color {
-    /// Nearest 16-color equivalent for basic-ANSI clients.
-    fn fallback_16(self) -> Self;
-}
+Tag syntax for content files:
+```
+{red}text{/}  {brightblue}item{/}  {yellow bold}critical!{/}
+{bg:color} sets background, {/modifier} clears one, {{ emits literal brace.
 ```
 
-`Color::Default` plays the role of "no color set" (instead of
-`Option<Color>`), so every `Segment` carries a concrete fg/bg.
+Parser at `core/src/format/tag.rs::parse_tags(&str) -> RichText`.
 
-### RichText Builder
-
-```rust
-struct RichText(Vec<Segment>);
-
-struct Segment {
-    text: String,
-    fg: Color,
-    bg: Color,
-    modifiers: Modifier,
-}
-
-impl Segment {
-    fn new(text: impl Into<String>) -> Self;                     // default fg/bg, no modifiers
-    fn colored(text: impl Into<String>, fg: Color) -> Self;
-    fn styled(text: impl Into<String>, fg: Color, bg: Color, modifiers: Modifier) -> Self;
-}
-
-impl RichText {
-    fn new() -> Self;
-    fn push(&mut self, segment: Segment);
-    fn is_empty(&self) -> bool;
-    fn segments(&self) -> &[Segment];
-    fn plain(self) -> String;       // strip formatting, consume
-    fn as_plain(&self) -> String;   // strip formatting, borrow
-    /// Render to ANSI string if `ansi=true`, else plain text.
-    /// `allow_blink` gates blink output (client or user preference).
-    fn render(&self, ansi: bool, allow_blink: bool) -> String;
-}
-```
-
-### Color Mode
-
-Two-axis model — client capability × user preference:
-
-| Mode | Client supports | User prefers | Behavior |
-|---|---|---|---|
-| `Off` | — | No color | Strip all ANSI |
-| `Basic` | 16-color | Default | 16 standard colors; `Indexed` falls back to nearest 16 |
-| `Extended` | 256-color | Opt-in | Full 256-color palette |
-
-Detection: Phase 0 assumes basic ANSI. Later phases detect 256-color via
-terminal-type or MTTS (GMCP). User preference persisted per-account.
-
-Fallback mapping (`Indexed(n)` → nearest 16):
-
-```
-0–7     → Black, Red, Green, Yellow, Blue, Magenta, Cyan, White
-8–15    → Bright variants of 0–7
-16–231  → cube colors: weighted nearest to one of the 16
-232–255 → grayscale: nearest to Black or White
-```
-
-### Blink Gating
-
-Blink is gated by **both** client support and user preference. Default off.
-User toggles via `config blink on` / `config blink off`. Value stored in
-`accounts.blink_enabled`.
-
-### Connection Trait Additions
-
-```rust
-trait Connection: Send {
-    fn send(&mut self, text: &str);
-    fn send_line(&mut self, text: &str);
-    fn send_rich(&mut self, text: &RichText);
-    fn send_rich_line(&mut self, text: &RichText);
-    fn supports(&self, feature: Feature) -> bool;
-    fn id(&self) -> u64;
-}
-```
-
-Default `send_rich` impl:
-
-```rust
-fn send_rich(&mut self, text: &RichText) {
-    let ansi = self.supports(Feature::Ansi);
-    let blink = self.supports(Feature::Blink);
-    self.send(&text.render(ansi, blink));
-}
-```
-
-### Inline Tag Syntax (Content Files)
-
-Verbose color names, terse reset:
-
-```
-{red}this text is red{/}
-{brightblue}magic item name{/}
-{yellow bold}critical hit!{/}
-{green italic}system message{/}
-```
-
-Bright colors also accept hyphenated aliases (`{bright-blue}` ==
-`{brightblue}`), plus `{grey}`/`{gray}` for `brightblack`. Additional
-forms: `{bg:color}` sets background, `{/modifier}` clears a single
-modifier, `{{` emits a literal brace.
-
-Parser in `core/src/format/tag.rs`:
-
-```rust
-fn parse_tags(input: &str) -> RichText;
-```
-
-Applied at content load time; re-rendered per client at display time
-(respecting their color mode).
-
-### Color Conventions
-
-| Context | Format | Example |
-|---|---|---|
-| Room name | `brightwhite` bold | `Town Square` |
-| Room description | default | `A cobblestone square...` |
-| Exits header | `cyan` | `[Exits: n e s w]` |
-| Portals header | `cyan` | `[Portals: sewer grate]` |
-| Player name | `yellow` bold | `Alice is here.` |
-| Mob name | `red` bold | `A goblin is here.` |
-| Item (common) | default | `a rusty sword` |
-| Item (magic) | `brightblue` | `a glowing blade` |
-| Item (rare) | `brightyellow` | `a runed mithril axe` |
-| Item (legendary) | `brightmagenta` | `The Starforge Hammer` |
-| Say | default | `Alice says, "Hello!"` |
-| Tell / whisper | `magenta` | `Alice tells you, "Hi"` |
-| Shout | `brightred` | `Alice shouts, "FIRE!"` |
-| Channel name | `green` | `[Gossip]` |
-| Combat hit (you) | `brightgreen` | `You hit goblin for 12!` |
-| Combat hit (on you) | `brightred` | `goblin hits you for 5!` |
-| Critical hit | `yellow` bold | `Critical hit!` |
-| Combat miss | default | `You miss the goblin.` |
-| Death | `red` bold | `You have been slain!` |
-| XP gain | `brightcyan` | `You gain 250 experience.` |
-| Level up | `brightyellow` bold | `You have reached level 5!` |
-| Prompt (normal) | default | `<100hp 100m>` |
-| Prompt (low HP) | `red` | `<15hp 100m>` |
-| Prompt (critical) | `red` bold blink | `<5hp 100m>` |
-| Error | `brightred` | `You can't do that.` |
-| Immortal title | `brightmagenta` | `[Immortal] Alice` |
-| Builder output | `yellow` | `Room created.` |
-| Help header | `cyan` bold | `Usage:` |
-
-### Content File Embedding
-
-TOML templates use tag syntax for colored text:
-
-```toml
-# content/items/flame_sword.toml
-name = "{brightred}Flame Sword{/} of the {yellow}Sun King{/}"
-
-# content/mobs/goblin.toml
-description = "A {green}green-skinned{/} goblin."
-```
-
-### Module Layout
-
-| Path | Contents |
-|---|---|
-| `core/src/format/mod.rs` | Re-exports |
-| `core/src/format/color.rs` | `Color`, `fallback_16()` |
-| `core/src/format/rich_text.rs` | `RichText`, `Segment`, `Modifier` |
-| `core/src/format/tag.rs` | `parse_tags()` |
-| `core/src/format/conventions.rs` | Color convention helpers (room name, player name, exits, ...) |
-
-### Schema Addition
-
-```sql
-ALTER TABLE accounts ADD COLUMN blink_enabled INTEGER NOT NULL DEFAULT 0;
-```
+Conventions table — see inline in this section for color-by-context mapping
+(room name=brightwhite, player=yellow, mob=red, say=default, etc.).
 
 ---
 
@@ -4224,467 +2137,62 @@ CREATE TABLE attributes (
 
 ### Dirty Tracking
 
-Components that mutate during gameplay (e.g. `Health`, `Position`, `Inventory`)
-mark the entity `Dirty` on write. The `DirtyFlushSystem` queries all entities
-with `&Dirty`, serializes their components to SQLite, then removes `Dirty`.
-
-```rust
-fn system(world: &mut World) {
-    let mut flush_queue: Vec<(DbId, WriteBatch)> = vec![];
-    for (db_id, dirty, ..) in &mut world.query::<(&DbId, &Dirty, ..)>() {
-        flush_queue.push((*db_id, collect_components(world, db_id)));
-    }
-    // batch write to SQLite
-    for (db_id, batch) in &flush_queue {
-        db.write_components(*db_id, batch);
-        world.remove_one::<Dirty>(db_id.entity());
-    }
-}
-```
+Components that mutate during gameplay mark the entity `Dirty` on write.
+`DirtyFlushSystem` queries `(&Dirty, ..)`, serializes components to SQLite,
+removes `Dirty`. Runs every 5s.
 
 ### Full Flush on Shutdown
 
-On `shutdown_signal`:
-1. Steal the `Scheduler` (prevent new pulses)
-2. Disconnect all players with "Server shutting down."
-3. Flush all dirty entities (same as DirtyFlushSystem logic)
-4. Execute `PRAGMA wal_checkpoint(TRUNCATE)`
-5. Close database
+1. Steal `Scheduler` (prevent new pulses), disconnect players, flush all dirty
+2. `PRAGMA wal_checkpoint(TRUNCATE)`, close DB
 
 ### Schema Migrations
 
-The `data` crate manages schema versioning via a `schema_version` pragma
-and a `migrations` table:
-
-```rust
-const SCHEMA_VERSION: u8 = 1;
-
-// The `migrations` table tracks which versions have been applied:
-// CREATE TABLE migrations (version INTEGER PRIMARY KEY, applied_at TEXT);
-```
-
-Each migration is a function returning the SQL statement(s) for that
-version bump:
-
-```rust
-fn migrate_0_to_1() -> &'static str {
-    "
-    CREATE TABLE entities (id INTEGER PRIMARY KEY, type TEXT NOT NULL);
-    CREATE TABLE components_position (...);
-    CREATE TABLE components_health (...);
-    -- ... all initial tables
-    "
-}
-```
-
-**Startup flow:**
-
-1. `PRAGMA user_version` → get current DB version (0 = fresh)
-2. If `current < SCHEMA_VERSION`, iterate `current..SCHEMA_VERSION`:
-   - Execute migration SQL in a transaction
-   - Insert row into `migrations` table
-   - `PRAGMA user_version = new_version`
-3. Log applied migrations (`info!("Migration 0→1 applied")`)
-4. If any migration fails, log `error!` and abort startup
+`data` crate manages version via `PRAGMA user_version` + `migrations` table.
+Startup: iterate `current..SCHEMA_VERSION`, apply migration SQL in transaction.
 
 ### Entity Serialization
 
-The `collect_components()` function builds a `WriteBatch` — a set of
-table-value pairs for a single entity:
-
-```rust
-struct WriteBatch {
-    entity_id: i64,
-    entity_type: String,
-    components: Vec<ComponentRow>,
-}
-
-enum ComponentRow {
-    Position { room_id: i64 },
-    Health { current: i32, max: i32 },
-    Attributes { str: u8, dex: u8, int: u8, wis: u8, con: u8, cha: u8 },
-    Level(u8),
-    Experience(u64),
-    Wallet(u64),
-    LearnedSkills(String),        // JSON: { skill_id → rank, cooldowns }
-    Equipment(String),            // JSON: { slot → item_entity_id }
-    Inventory(String),            // JSON: [item_entity_id, ...]
-    ActiveEffects(String),        // JSON: [{ effect_id, remaining_secs }]
-    MultiClassInfo(String),       // JSON: [{ class_id, level, is_favored }]
-    SetTracker(String),           // JSON: { active_sets }
-    QuestLog(String),             // JSON: { active, completed }
-    FactionStanding(String),      // JSON: { faction_id → standing }
-    LearnedRecipes(String),       // JSON: [recipe_id, ...]
-    Dirty,                        // transient — never flushed
-}
-```
-
-**Per-type SQL tables** mirror each variant:
-
-```sql
-CREATE TABLE components_skills (
-    entity_id INTEGER PRIMARY KEY REFERENCES entities(id),
-    data TEXT NOT NULL                   -- JSON blob
-);
-
-CREATE TABLE components_equipment (
-    entity_id INTEGER PRIMARY KEY REFERENCES entities(id),
-    data TEXT NOT NULL                   -- JSON mapping slot → item_entity_id
-);
-
-CREATE TABLE components_inventory (
-    entity_id INTEGER PRIMARY KEY REFERENCES entities(id),
-    data TEXT NOT NULL                   -- JSON array of item_entity_ids
-);
-
-CREATE TABLE components_wallet (
-    entity_id INTEGER PRIMARY KEY REFERENCES entities(id),
-    copper INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE components_level (
-    entity_id INTEGER PRIMARY KEY REFERENCES entities(id),
-    level INTEGER NOT NULL DEFAULT 1,
-    experience INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE components_attrs (
-    entity_id INTEGER PRIMARY KEY REFERENCES entities(id),
-    str INTEGER NOT NULL DEFAULT 10,
-    dex INTEGER NOT NULL DEFAULT 10,
-    int INTEGER NOT NULL DEFAULT 10,
-    wis INTEGER NOT NULL DEFAULT 10,
-    con INTEGER NOT NULL DEFAULT 10,
-    cha INTEGER NOT NULL DEFAULT 10
-);
-
-CREATE TABLE components_json (
-    entity_id INTEGER NOT NULL REFERENCES entities(id),
-    key TEXT NOT NULL,                   -- "skills" | "equipment" | "inventory" | "effects" | etc.
-    value TEXT NOT NULL,
-    PRIMARY KEY (entity_id, key)
-);
-```
-
-The `components_json` catch-all table stores any component that doesn't
-warrant its own table — `LearnedSkills`, `Equipment`, `Inventory`,
-`SetTracker`, `QuestLog`, `FactionStanding`, `LearnedRecipes`. Each
-entity has one row per key, stored as a JSON string.
-
-### Entity Deserialization (Startup Load)
-
-On startup, the `data` crate rebuilds the ECS world from SQLite:
-
-```
-1. SELECT id, type FROM entities          → create ECS entity for each
-2. SELECT * FROM components_position      → insert Position component
-3. SELECT * FROM components_health        → insert Health component
-4. SELECT * FROM components_json WHERE key = "skills"
-5. ... repeat for each component table
-6. SELECT entity_id FROM components_json  → find entities with no components
-   WHERE entity_id NOT IN (all above)     → these are stale — DELETE FROM entities
-```
-
-Stale entities (in DB but with no component rows after all tables are
-scanned) are deleted. This happens when a template file is removed and
-the entity was never cleaned up — the startup sweep garbage-collects it.
+`WriteBatch { entity_id, entity_type, components: Vec<ComponentRow> }` mirrors
+component types. SQL tables per component (e.g. `components_position`,
+`components_health`, `components_json` catch-all). On startup, the `data` crate
+rebuilds ECS: `SELECT id, type FROM entities` → create entities, then populate
+components. Stale entities (no rows in any component table) are deleted.
 
 ### WAL Configuration
 
-```rust
-fn open_db(path: &str) -> Result<Connection> {
-    let conn = Connection::open(path)?;
-    conn.execute_batch("
-        PRAGMA journal_mode = WAL;
-        PRAGMA foreign_keys = ON;
-        PRAGMA busy_timeout = 5000;
-        PRAGMA synchronous = NORMAL;
-    ")?;
-    Ok(conn)
-}
-```
-
-The connection is wrapped in `Arc<parking_lot::Mutex<Connection>>` and
-shared across all systems that need DB access. Contention is low —
-flushes happen every 5s and queries are rare (login, character select,
-admin commands).
+`PRAGMA journal_mode = WAL, foreign_keys = ON, busy_timeout = 5000, synchronous = NORMAL`.
+Connection in `Arc<parking_lot::Mutex<Connection>>` shared across systems.
 
 ### Type-Safe Query Wrappers
 
-The `data/src/queries.rs` module exposes typed functions that hide SQL:
-
-```rust
-// accounts
-fn get_account(username: &str) -> Result<Option<Account>>;
-fn create_account(username: &str, password_hash: &str) -> Result<i64>;
-fn set_access_level(account_id: i64, level: AccessLevel) -> Result<()>;
-
-// characters
-fn get_characters(account_id: i64) -> Result<Vec<CharacterRow>>;
-fn create_character(account_id: i64, name: &str, race: &str, class: &str) -> Result<i64>;
-fn delete_character(character_id: i64) -> Result<()>;
-
-// persistence
-fn save_components(batch: &WriteBatch) -> Result<()>;
-fn load_all_entities() -> Result<Vec<EntityRow>>;
-fn load_component(entity_id: i64, component: &str) -> Result<Option<String>>;
-
-// admin
-fn get_admin_log(limit: u32) -> Result<Vec<AdminLogEntry>>;
-fn write_admin_log(entry: &AdminLogEntry) -> Result<()>;
-```
+`data/src/queries.rs` exposes typed functions: `get_account`, `create_account`,
+`save_components`, `load_all_entities`, etc.
 
 ### Backup Strategy
 
-Hot backup uses SQLite's online backup API, which works safely with WAL:
-
-```rust
-fn backup_db(source: &Connection, dest_path: &Path) -> Result<()> {
-    let mut dest = Connection::open(dest_path)?;
-    let backup = backup::Backup::new(source, &mut dest)?;
-    backup.run_to_completion(100, Duration::from_millis(250), None)?;
-    Ok(())
-}
-```
-
-Scheduled by a `BackupSystem` (DirtyFlush phase, once per hour):
-
-```rust
-fn run(world: &mut World) {
-    let db = world.get_resource::<DbConnection>();
-    let backup_path = format!("data/backups/mud_{}.db", chrono::Local::now().format("%Y%m%d_%H%M%S"));
-    info!(target: "data", path = %backup_path, "Starting hourly backup");
-    backup_db(&db.lock(), Path::new(&backup_path));
-}
-```
-
-Backups are stored in `data/backups/` and pruned by retention policy
-(default: keep 7 daily + 4 weekly). The backup path is configurable
-in `mud.toml`:
-
-```toml
-[database]
-backup_enabled = true
-backup_dir = "data/backups"
-backup_retention_days = 7
-backup_retention_weekly = 4
-```
+Hot backup via SQLite online backup API. Scheduled hourly by `BackupSystem`.
+Stored in `data/backups/`, retain 7 daily + 4 weekly (configurable).
 
 ---
 
 ## Content Loading & Hot-Reload
 
-### Template Registry
+All game content defined in TOML under `content/` (configurable path). The
+`content` crate scans the tree at startup, loads every `.toml`,
+deserializes via serde, cross-references (room exits point to valid rooms,
+mob/item refs exist, script paths are real, etc.), builds derived indices
+(class→skills, race→classes, trainer→skills, set→items, etc.), and inserts
+into `TemplateRegistry` (behind `Arc<RwLock<...>>`).
 
-All game content (areas, mobs, items, races, classes, skills, help,
-affixes, sets, languages, socials) is defined in TOML files under
-`content/` (configurable via `game.content_dir` in `mud.toml`, `--content-path`
-CLI flag, or `MUD_CONTENT` env var). At startup, the `content` crate scans the
-directory tree
-and loads every `.toml` file into a registry:
-
-```rust
-struct TemplateRegistry {
-    areas: HashMap<String, AreaTemplate>,
-    rooms: HashMap<String, RoomTemplate>,
-    mobs: HashMap<String, MobTemplate>,
-    items: HashMap<String, ItemTemplate>,
-    races: HashMap<String, RaceTemplate>,
-    classes: HashMap<String, ClassTemplate>,
-    skills: HashMap<String, SkillDef>,          // unified: combat, magic, racial, tech, psi, etc.
-    help: HashMap<String, HelpEntry>,
-    affixes: HashMap<String, AffixDef>,          // from content/affixes.toml
-    sets: HashMap<String, SetDef>,               // from content/sets.toml
-    languages: HashMap<String, LanguageDef>,      // from content/languages.toml
-    socials: HashMap<String, SocialDef>,          // from content/socials.toml
-    recipes: HashMap<String, RecipeDef>,          // from content/recipes/*.toml
-    quests: HashMap<String, QuestDef>,            // from content/quests/*.toml
-    factions: HashMap<String, FactionDef>,        // from content/factions/*.toml
-    shops: HashMap<String, ShopTemplate>,         // from content/shops/*.toml
-    treasure_classes: HashMap<String, LootTable>, // from content/treasure_classes.toml
-
-    // Derived indices (built after validation)
-    class_skill_index: HashMap<String, Vec<String>>,
-    race_class_index: HashMap<String, Vec<String>>,
-    class_spell_index: HashMap<String, Vec<(String, u8)>>,
-    prestige_index: HashMap<String, PrestigeGate>,
-    trainer_skill_index: HashMap<String, Vec<String>>,
-    set_item_index: HashMap<String, Vec<String>>,
-    recipe_station_index: HashMap<String, Vec<String>>,
-    quest_giver_index: HashMap<String, Vec<String>>,
-    faction_member_index: HashMap<String, Vec<String>>,
-}
-```
-
-### Loading Pipeline
+Hot-reload uses `notify` crate (platform-native file watcher). On change:
+re-parse, validate, atomic-swap entry in registry, emit `ContentReloaded`
+event. Startup blocks; hot-reload is non-blocking.
 
 ```
-content/*.toml + content/skills/**/*.toml
-      │
-      ▼
-  ┌──────────┐
-  │  Scanner  │ ── Walk directory tree, collect .toml files
-  │           │    (recursive scan of content/skills/)
-  └────┬─────┘
-       │
-       ▼
-  ┌──────────┐
-  │  Parser  │ ── serde deserialize into template structs
-  │           │    (single SkillDef for all skill types)
-  └────┬─────┘
-       │
-       ▼
-  ┌────────────┐
-  │  Validator │ ── Cross-reference checks (existing):
-│    │ • Room exits point to existing room keys
-   │            │    • Room portal dest points to valid area/room
-   │            │    • Room portal keywords are unique within a room
-   │            │    • Room flag name is valid (portal_in, portal_out, no_teleport_in, no_teleport_out)
-   │            │    • Mob/item references exist in registry
-  │            │    • Script paths point to real .rhai files
-  │            │    • Race.allowed_classes[i] exists in classes
-  │            │    • Class.allowed_races[i] exists in races
-  │            │    • Class.auto_skills[i].id exists in skills
-  │            │    • Skill.allowed_classes[i].class exists in classes
-  │            │    • Skill.requires_skill[i].id exists in skills, no circular deps
-  │            │    • Item.allowed_classes[i] exists in classes
-  │            │    • Item.allowed_races[i] exists in races
-  │            │    • Item.allowed_alignments[i] is valid alignment
-  │            │    • Item.requires_skill.id exists in skills
-  │            │    • Item.set.id exists in sets (if present)
-  │            │    • Item.cast trigger skill_id exists and skill_type == Magic
-  │            │    • Prestige gate requires_class exists in classes
-  │            │    • Prestige gate requires_skills[i].id exists in skills
-  │            │    • Race.racial_abilities[i] exists in skills
-  │            │    • Race.hometown room key exists in areas
-  │            │    • Affix slots reference valid EquipmentSlot names
-  │            │    • Set conditions reference valid piece_type values
-  │            │    • MobTemplate.equipment[i].template_id exists in items
-  │            │    • MobTemplate.loot.entries[i].item exists in items
-  │            │    • MobTemplate.faction exists in factions (if set)
-  │            │    • MobTemplate.skills[i].id exists in skills
-  │            │    • RecipeDef.skill.id exists in skills
-  │            │    • RecipeDef.materials[i].item exists in items
-  │            │    • RecipeDef.result.item exists in items
-  │            │    • RecipeDef.station is valid station type
-  │            │    • QuestDef.prerequisites reference valid quest IDs (Quest type)
-  │            │    • QuestDef.prerequisites reference valid faction IDs (Faction type)
-  │            │    • QuestDef.objectives reference valid mob/item IDs
-  │            │    • QuestDef.giver_npc / turn_in_npc exist in mobs
-  │            │    • QuestDef.rewards reference valid items/factions/skills
-  │            │    • FactionDef.relationships key exists in factions
-  │            │    • FactionDef.aggro.members[i] exists in mobs
-  │            │    • ShopTemplate.npc exists in mobs
-  │            │    • ShopTemplate.inventory[i].item exists in items
-   │            │    • Treasure class item entries exist in items
-   │            │    • Validation summary logged
-  └────┬─────┘
-       │
-       ▼
-  ┌─────────────┐
-  │  Indexer    │ ── Build derived indices from validated registry:
-  │             │    • class_skill_index:      class_id → [skill_ids in auto_skills]
-  │             │    • race_class_index:       race_id → [class_ids from allowed_classes]
-  │             │    • class_spell_index:      class_id → [(spell_id, spell_level) from skills where skill_type == Magic]
-  │             │    • prestige_index:         class_id → PrestigeGate (only prestiges)
-  │             │    • trainer_skill_index:    trainer_tag → [skill_ids with matching trainer_types]
-  │             │    • set_item_index:         set_id → [item_template_ids that reference it]
-  │             │    • recipe_station_index:   station_type → [recipe_ids using it]
-  │             │    • quest_giver_index:      npc_id → [quest_ids they give]
-  │             │    • faction_member_index:   mob_id → faction_id (for aggro lookups)
-  └────┬─────┘
-       │
-       ▼
-  ┌──────────┐
-  │ Registry │ ── Insert into TemplateRegistry (Arc<RwLock<...>>)
-  └──────────┘
-```
-
-### Hot-Reload Mechanism
-
-The content directory is watched by the `notify` crate (inotify on Linux,
-FSEvents on macOS, ReadDirectoryChanges on Windows). On file change:
-
-1. Re-parse the changed file
-2. Validate in isolation (parse errors → log warning, keep old template)
-3. Cross-validate with existing registry (removed references → log warning)
-4. Rebuild affected derived indices
-5. Atomic swap: lock `TemplateRegistry` write handle, swap single entry
-6. Emit `ContentReloaded { template_type, id }` event for affected systems
-
-**Startup eager-load** blocks the server from accepting connections until
-the registry is fully populated. **Runtime hot-reload** is non-blocking —
-players experience zero interruption.
-
-### Template File Organization
-
-All paths below are relative to the content root (`game.content_dir`, default `content/`):
-
-```
-content/
-├── areas/
-│   ├── midgaard.toml
-│   └── forest.toml
-├── mobs/
-│   ├── goblin.toml
-│   └── deer.toml
-├── items/
-│   ├── rusty_sword.toml
-│   ├── leather_armor.toml
-│   ├── templar_helm.toml
-│   └── templar_sword.toml
-├── races/
-│   ├── human.toml
-│   ├── elf.toml
-│   └── dwarf.toml
-├── classes/
-│   ├── warrior.toml
-│   ├── mage.toml
-│   ├── rogue.toml
-│   ├── paladin.toml
-│   └── assassin.toml          # prestige class
-├── skills/
-│   ├── combat/
-│   │   ├── power_attack.toml
-│   │   └── shield_bash.toml
-│   ├── magic/
-│   │   ├── fireball.toml
-│   │   └── bless.toml
-│   ├── craft/
-│   │   └── smithing.toml
-│   ├── racial/
-│   │   ├── taunt.toml
-│   │   └── stone_form.toml
-│   └── general/
-│       ├── sneak.toml
-│       └── swim.toml
-├── scripts/
-│   ├── goblin_guard.rhai
-│   ├── deer.rhai
-│   ├── divine_grace.rhai
-│   └── taunt.rhai
-├── recipes/
-│   ├── iron_sword.toml
-│   ├── healing_potion.toml
-│   └── leather_armor.toml
-├── quests/
-│   ├── goblin_problem.toml
-│   └── lost_heirloom.toml
-├── factions/
-│   ├── village.toml
-│   ├── goblin_tribe.toml
-│   └── merchant_guild.toml
-├── shops/
-│   └── blacksmith.toml
-├── help/
-│   ├── look.toml
-│   ├── say.toml
-│   └── combat.toml
-├── affixes.toml
-├── sets.toml
-├── languages.toml
-├── socials.toml
-└── treasure_classes.toml
+content/{areas, mobs, items, races, classes, skills, scripts, recipes,
+         quests, factions, shops, help} + affixes.toml, sets.toml,
+         languages.toml, socials.toml, treasure_classes.toml
 ```
 
 ---
@@ -4828,66 +2336,16 @@ CREATE TABLE room_spawns (
 );
 ```
 
-### Rust Structs
+### Data Structures
 
-```rust
-struct AreaTemplate {
-    id: String,
-    name: String,
-    description: String,
-    level_range: LevelRange,
-    flags: Vec<String>,
-    weather_zone: String,
-    reset_interval_secs: u32,
-    credits: HashMap<String, String>,
-}
-
-struct LevelRange { min: u8, max: u8 }
-
-struct RoomTemplate {
-    id: String,
-    area: String,
-    name: String,
-    description: String,
-    exits: Vec<ExitDef>,
-    portals: Vec<PortalDef>,
-    flags: Vec<String>,
-    flags_to: HashMap<String, Vec<String>>,
-    heal_rate: Option<u8>,
-    mana_rate: Option<u8>,
-    teleport_dest: Option<String>,
-    extra_descriptions: Vec<ExtraDesc>,
-    content: RoomContent,
-}
-
-struct ExitDef {
-    direction: String,
-    target: String,
-    flags: Vec<String>,
-    key_id: Option<String>,
-    door_name: Option<String>,
-}
-
-struct PortalDef {
-    keyword: String,
-    target: String,
-    description: String,
-    flags: Vec<String>,
-}
-
-struct ExtraDesc {
-    keyword: String,
-    text: String,
-}
-
-struct RoomContent {}
-
-struct MobSpawnDef {
-    mob: String,
-    count: u8,
-    respawn_secs: u32,
-}
-```
+- `AreaTemplate { id, name, description, level_range (LevelRange), flags, weather_zone, reset_interval_secs, credits }`
+- `LevelRange { min, max }`
+- `RoomTemplate { id, area, name, description, exits (Vec<ExitDef>), portals (Vec<PortalDef>), flags, flags_to, heal_rate, mana_rate, teleport_dest, extra_descriptions, content }`
+- `ExitDef { direction, target, flags, key_id, door_name }`
+- `PortalDef { keyword, target, description, flags }`
+- `ExtraDesc { keyword, text }`
+- `RoomContent {}`
+- `MobSpawnDef { mob, count, respawn_secs }`
 
 ---
 
@@ -4895,327 +2353,47 @@ struct MobSpawnDef {
 
 ### Startup Phases
 
-The server initializes in a fixed sequence. Each phase logs `info!` on
-entry and either advances to the next or aborts with a fatal error —
-no partial startup is possible.
-
-```rust
-#[derive(Copy, Clone, Debug, Display)]
-enum InitPhase {
-    CliParse,          // clap --port, --config, --db
-    ConfigLoad,        // mud.toml → Config resource
-    LoggingInit,       // tracing_subscriber from config
-    ContentLoad,       // scan content_dir/ → TemplateRegistry
-    Validation,        // cross-ref checks on templates
-    DatabaseOpen,      // SQLite connect, WAL mode, migrations
-    WorldCreate,       // World::new(), insert resources
-    StateSeed,         // load persistent entities from DB
-    SystemRegister,    // scheduler init, all systems registered
-    ScriptingInit,     // Rhai engine, load scripts, bind events
-    EventBusInit,      // subscriber tables built
-    CommandTrie,       // register all built-in + content commands
-    ListenerBind,      // TcpListener::bind, accept loop
-    BackgroundTasks,   // spawn flush timer, hot-reload watcher
-    Ready,             // log "ready", enter main loop
-}
+```
+CliParse → ConfigLoad → LoggingInit → ContentLoad → Validation →
+DatabaseOpen → WorldCreate → StateSeed → SystemRegister →
+ScriptingInit → EventBusInit → CommandTrie → ListenerBind →
+BackgroundTasks → Ready
 ```
 
-### Wire Diagram
+Wire diagram:
 
 ```
 bin::main()
-  │
   ├── clap::parse()                        → CliArgs
   ├── mud_core::Config::from_file(args)    → Config resource
-  │
-  ├── tracing_subscriber::fmt().with_env_filter().init()
-  │   (filter level from logging.level in Config)
-  │
-  ├── mud_content::Loader::load(content_dir)  → TemplateRegistry
-  │   (scan content_dir/ subdirs, deserialize every .toml)
-  ├── mud_content::Validator::validate(&registry) → Vec<Diagnostic>
-  │   (42 cross-reference checks; abort on errors, warn on warnings)
-  │
-  ├── mud_data::Database::open(config.database.path) → Connection
-  ├── mud_data::migrate::run(&conn) → schema version
-  │   (migration table + PRAGMA user_version, sequential migration fns)
-  │
-  ├── mud_core::World::new()               → hecs::World
-  ├── World.insert(Config)
-  ├── World.insert(TemplateRegistry)
-  ├── World.insert(EventBus::new())
-  ├── World.insert(ScriptEngine::new())
-  ├── World.insert(Scheduler::new())
-  ├── World.insert(Systems::new())
-  │
-  ├── mud_data::loader::load_world(&mut world, &conn)
-  │   (re-hydrate persistent entity state from DB into ECS)
-  │
-  ├── mud_core::systems::register_all(&mut world)
-  │   (register all 16 built-in systems with scheduler phases)
-  │
-  ├── mud_scripting::Engine::init(&mut world)
-  │   (compile scripts, build AST cache, wire event→script bindings)
-  │
-  ├── mud_server::cmd::CommandTrie::register_all(&mut world)
-  │   (built-in commands + content-derived meta-commands)
-  │
-  ├── mud_server::Listener::bind(config.server.host, config.server.port)
-  │
-  ├── tokio::spawn(flush_daemon)           → every 5s flush
-  ├── tokio::spawn(hot_reload_watcher)     → notify events
-  ├── tokio::spawn(area_reset_timer)       → configurable interval
-  │
-  └── MainLoop::run(world, listener).await
-```
-
-### Main Loop
-
-Expands the existing `tokio::select!` loop with all concurrent channels:
-
-```rust
-use tokio::{select, signal};
-use std::time::Duration;
-
-struct MainLoop {
-    world: Arc<RwLock<World>>,
-    scheduler: Scheduler,
-    event_bus: EventBus,
-    listener: Listener,
-    connections: ConnectionMap,
-    flush_timer: tokio::time::Interval,
-}
-
-impl MainLoop {
-    async fn run(mut self) {
-        let mut shutdown_signal = signal::unix::signal(
-            signal::unix::SignalKind::terminate(),
-        ).unwrap();
-
-        loop {
-            select! {
-                biased;
-
-                _ = shutdown_signal.recv() => {
-                    self.shutdown().await;
-                    break;
-                },
-
-                _ = tokio::signal::ctrl_c() => {
-                    self.shutdown().await;
-                    break;
-                },
-
-                pulse = self.scheduler.next() => {
-                    let mut w = self.world.write().await;
-                    let phase = pulse.phase;
-                    for system in w.get_resource_mut::<Systems>()
-                        .unwrap().by_phase(phase)
-                    {
-                        system.run(&mut w);
-                    }
-                },
-
-                event = self.event_bus.recv() => {
-                    let mut w = self.world.write().await;
-                    EventBus::dispatch(&mut w, event);
-                },
-
-                Some((conn_id, line)) = self.listener.next_line() => {
-                    let mut w = self.world.write().await;
-                    let cmd = CommandTrie::resolve(&line);
-                    if let Some(cmd) = cmd {
-                        let access = self.connections[conn_id].access_level();
-                        if access >= cmd.access {
-                            (cmd.handler)(&mut w, &mut self.connections[conn_id], &cmd.args);
-                        } else {
-                            self.connections[conn_id]
-                                .send_line("Permission denied.");
-                        }
-                    }
-                },
-
-                _ = self.flush_timer.tick() => {
-                    let mut w = self.world.write().await;
-                    flush_dirty(&mut w);
-                },
-
-                _ = self.hot_reload_watcher.changed() => {
-                    let mut w = self.world.write().await;
-                    hot_reload(&mut w);
-                },
-            }
-        }
-    }
-
-    async fn shutdown(&mut self) {
-        // 1. Stop listener — no new connections
-        self.listener.close();
-
-        // 2. Notify players
-        {
-            let w = self.world.read().await;
-            for (_, conn) in &self.connections {
-                conn.send_line("\n\x1b[31mServer shutting down...\x1b[0m");
-            }
-        }
-
-        // 3. Drain in-flight commands (200ms grace period)
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // 4. Final flush + WAL checkpoint
-        {
-            let mut w = self.world.write().await;
-            flush_all_dirty(&mut w);
-            if let Some(db) = w.get_resource::<Database>() {
-                db.conn.checkpoint(CheckpointMode::Full).ok();
-            }
-        }
-
-        // 5. Disconnect all players
-        for (_, conn) in &mut self.connections {
-            conn.disconnect();
-        }
-
-        info!("Server shutdown complete.");
-    }
-}
-```
-
-### bin/src/ Module Layout
-
-```
-bin/
-├── Cargo.toml
-└── src/
-    ├── main.rs          # #[tokio::main] → initialize() → MainLoop::run()
-    ├── init.rs          # initialize() — runs all init phases, returns MainLoop
-    ├── main_loop.rs     # MainLoop struct, run(), shutdown() handler
-    ├── signals.rs       # Signal handling (SIGTERM, SIGINT, ctrl-c)
-    ├── commands.rs      # register_all_commands() — all built-in commands
-    └── config.rs        # CliArgs + mud.toml merge → Config resource
-                         #   CliArgs: --port, --host, --config, --content-path
-                         #   Env:     MUD_PORT, MUD_HOST, MUD_CONFIG, MUD_CONTENT
-                         #   Config:  Config { server, database, game, combat, ... }
-```
-
-### Startup Sequence (init.rs)
-
-```rust
-async fn initialize() -> Result<MainLoop> {
-    let phase = |p| info!("startup: {p}");
-
-    phase(InitPhase::CliParse);
-    let args = CliArgs::parse();
-
-    phase(InitPhase::ConfigLoad);
-    let config = Config::from_args(&args);
-
-    phase(InitPhase::LoggingInit);
-    init_logging(&config);
-
-    phase(InitPhase::ContentLoad);
-    let registry = TemplateRegistry::load(&config.game.content_dir)?;
-
-    phase(InitPhase::Validation);
-    let diagnostics = registry.validate();
-    for d in &diagnostics {
-        match d.severity {
-            Severity::Error => error!("{d}"),
-            Severity::Warning => warn!("{d}"),
-        }
-    }
-    if diagnostics.iter().any(|d| d.severity == Severity::Error) {
-        bail!("content validation failed — aborting");
-    }
-
-    phase(InitPhase::DatabaseOpen);
-    let mut db = Database::open(&config.database.path)?;
-    db.run_migrations()?;
-
-    phase(InitPhase::WorldCreate);
-    let world = Arc::new(RwLock::new(World::new()));
-    {
-        let mut w = world.write().await;
-        w.insert(config);
-        w.insert(registry);
-        w.insert(EventBus::new());
-        w.insert(ScriptEngine::new());
-        w.insert(Scheduler::new());
-        w.insert(Systems::new());
-        w.insert(db);
-
-        phase(InitPhase::StateSeed);
-        load_world_state(&mut w)?;
-
-        phase(InitPhase::SystemRegister);
-        systems::register_all(&mut w)?;
-
-        phase(InitPhase::ScriptingInit);
-        scripting::Engine::init(&mut w)?;
-
-        phase(InitPhase::CommandTrie);
-        cmd::CommandTrie::register_all(&mut w)?;
-    }
-
-    phase(InitPhase::ListenerBind);
-    let listener = Listener::bind(
-        config.server.host,
-        config.server.port,
-    ).await?;
-
-    phase(InitPhase::BackgroundTasks);
-    let flush_timer = tokio::time::interval(Duration::from_secs(5));
-    let hot_reload_watcher = start_hot_reload_watcher()?;
-
-    phase(InitPhase::Ready);
-    info!("Server ready — listening on {}:{}",
-        config.server.host, config.server.port);
-
-    Ok(MainLoop {
-        world,
-        listener,
-        flush_timer,
-        hot_reload_watcher,
-        // ... other fields
-    })
-}
+  ├── tracing_subscriber init
+  ├── mud_content::Loader::load()          → TemplateRegistry
+  ├── mud_content::Validator::validate()   → Vec<Diagnostic>
+  ├── mud_data::Database::open() → Connection; migrate
+  ├── mud_core::World::new() + insert all resources
+  ├── mud_data::loader::load_world()       → load persistent entities
+  ├── mud_core::systems::register_all()
+  ├── mud_scripting::Engine::init()
+  ├── mud_server::cmd::CommandTrie::register_all()
+  ├── mud_server::Listener::bind()
+  ├── tokio::spawn(flush_daemon)
+  ├── tokio::spawn(hot_reload_watcher)
+  ├── tokio::spawn(area_reset_timer)
+  └── MainLoop::run().await
 ```
 
 ### Shutdown Sequence
 
 | Step | Action | Timeout |
 |---|---|---|
-| 1 | Close listener (stop accepting) | Immediate |
-| 2 | Notify players: `Server shutting down...` | Immediate |
+| 1 | Close listener | Immediate |
+| 2 | Notify players | Immediate |
 | 3 | Drain in-flight commands | 200ms |
-| 4 | Flush all dirty entities to SQLite | ∞ |
+| 4 | Flush all dirty entities | ∞ |
 | 5 | WAL checkpoint (FULL) | 5s |
 | 6 | Disconnect all players | Immediate |
-| 7 | Exit process | — |
 
-The shutdown is triggered by:
-- **SIGTERM** — standard daemon stop
-- **SIGINT (Ctrl+C)** — interactive stop
-- **`shutdown` command** — admin command in-game
-- **Fatal error** — panic or unrecoverable state (logs first, then exits)
-
-### bin/Cargo.toml Dependencies
-
-```toml
-[dependencies]
-mud-core = { path = "../core" }
-mud-server = { path = "../server" }
-mud-data = { path = "../data" }
-mud-scripting = { path = "../scripting" }
-mud-content = { path = "../content" }
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-clap = { version = "4", features = ["derive"] }
-anyhow = "1"
-thiserror = "2"
-```
+Triggers: SIGTERM, SIGINT, `shutdown` command, fatal error.
 
 ---
 
@@ -5296,20 +2474,7 @@ on next startup. Server section changes (`host`, `port`) require a restart.
 At startup, the parsed configuration is stored as a `Config` resource in
 the ECS world, available to all systems:
 
-```rust
-struct Config {
-    pub server: ServerConfig,
-    pub database: DatabaseConfig,
-    pub game: GameConfig,
-    pub combat: CombatConfig,
-    pub training: TrainingConfig,
-    pub multi_classing: MultiClassingConfig,
-    pub item_sets: ItemSetConfig,
-    pub logging: LoggingConfig,
-}
-
-impl Resource for Config {}
-```
+- `Config { server, database, game, combat, training, multi_classing, item_sets, logging }` — implements `Resource`
 
 Systems access config via `world.get_resource::<Config>()`.
 
@@ -5320,55 +2485,12 @@ Systems access config via `world.get_resource::<Config>()`.
 ### Error Types
 
 Each crate defines its own error enum with `Display + std::error::Error`
-(using `thiserror` for convenience) and a crate-level `Result` alias:
+(using `thiserror`) and a crate-level `Result` alias:
 
-```rust
-// mud_core::error
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("entity {0} not found")]
-    EntityNotFound(Entity),
-    #[error("component {0} missing on entity")]
-    ComponentMissing(&'static str),
-    #[error("invalid direction: {0}")]
-    InvalidDirection(String),
-}
-
-// mud_server::error
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("telnet error: {0}")]
-    Telnet(String),
-    #[error("command not found: {0}")]
-    CommandNotFound(String),
-    #[error("insufficient access: {0} < {1}")]
-    InsufficientAccess(AccessLevel, AccessLevel),
-}
-
-// mud_data::error
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("database error: {0}")]
-    Db(#[from] rusqlite::Error),
-    #[error("entity {0} not found in database")]
-    EntityNotFound(i64),
-    #[error("migration failed: {0}")]
-    MigrationFailed(String),
-}
-
-// mud_scripting::error
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("rhai error: {0}")]
-    Rhai(#[from] rhai::EvalAltResult),
-    #[error("binding not found: {0}")]
-    BindingNotFound(String),
-    #[error("script not found: {0}")]
-    ScriptNotFound(String),
-}
-```
+- `core::Error`: EntityNotFound(Entity), ComponentMissing(name), InvalidDirection
+- `server::Error`: Io(std::io), Telnet(String), CommandNotFound, InsufficientAccess
+- `data::Error`: Db(rusqlite), EntityNotFound(i64), MigrationFailed
+- `scripting::Error`: Rhai(rhai), BindingNotFound, ScriptNotFound
 
 Errors are **composed**, not boxed. Use `From` impls to convert between
 crate error types where appropriate (e.g. `data::Error::from(rusqlite::Error)`).
@@ -5389,16 +2511,8 @@ Logging uses `tracing` for structured, async-aware diagnostics:
 
 All destructive admin actions are logged with `tracing::warn!`:
 
-```rust
-warn!(
-    target: "audit",
-    action = "purge",
-    executor = %conn.entity().unwrap(),
-    target = %args,
-    // timestamp added automatically by tracing-subscriber
-    "Admin action"
-);
-```
+All destructive admin actions are logged with `tracing::warn!` (target: "audit",
+action, executor, target, timestamp auto-added by tracing-subscriber).
 
 An optional `admin_log` SQLite table (Phase 2+) persists these for review
 via the `audit` command:
@@ -5486,16 +2600,9 @@ CREATE TABLE help (
 );
 ```
 
-### Rust Struct
+### Data Structure
 
-```rust
-struct HelpEntry {
-    id: String,
-    aliases: Vec<String>,
-    title: String,
-    text: String,
-}
-```
+- `HelpEntry { id, aliases, title, text }`
 
 ---
 
@@ -5513,32 +2620,13 @@ Account-level permission means any character on an admin account inherits that t
 
 ### Immortal Component
 
-```rust
-struct Immortal {
-    incognito: bool,   // wizin — hidden from who/room
-    holylight: bool,   // see hidden exits/rooms
-    build_mode: bool,  // walk unlinked exits, technical info
-}
-```
+- `Immortal { incognito, holylight, build_mode }` — added to entity if account's access_level > Player. Per-session flags (default false on reconnect).
 
 Added to a character entity at spawn if the account's `access_level > Player`. Flags are per-session (default false on reconnect).
 
 ### Connection Changes
 
-```rust
-trait Connection: Send {
-    fn send(&mut self, text: &str);
-    fn send_line(&mut self, text: &str);
-    fn id(&self) -> u64;
-    fn entity(&self) -> Option<Entity>;
-    fn set_entity(&mut self, entity: Entity);
-    fn disconnect(&mut self);
-    fn access_level(&self) -> AccessLevel;
-    fn set_access_level(&mut self, level: AccessLevel);
-    fn has_immortal(&self) -> bool;
-    fn immortal_flag(&self, flag: ImmortalFlag) -> bool;
-}
-```
+- `Connection` trait additions: `access_level()`, `set_access_level()`, `has_immortal()`, `immortal_flag()` — gate commands via `conn.access_level() < cmd.access`
 
 ### Permission Checking
 
@@ -5603,22 +2691,7 @@ Between telnet negotiation and gameplay input, each connection traverses a state
 machine. Input routes to `handle_login()` instead of the command trie while
 `conn.state() != Playing`.
 
-```rust
-enum ConnectionState {
-    Connected,
-    Negotiating,
-    Banner,
-    Username,
-    Password,
-    CharacterSelect,
-    CharacterCreateName,
-    CharacterCreateRace,
-    CharacterCreateClass,
-    CharacterCreateAttributes,
-    CharacterCreateConfirm,
-    Playing,
-}
-```
+`ConnectionState`: Connected, Negotiating, Banner, Username, Password, CharacterSelect, CharacterCreate{Name,Race,Class,Attributes,Confirm}, Playing
 
 **Transitions:**
 
@@ -5777,21 +2850,8 @@ ALTER TABLE accounts ADD COLUMN show_motd INTEGER NOT NULL DEFAULT 1;
 
 ### Connection Trait Additions
 
-```rust
-trait Connection: Send {
-    // ...existing methods...
-    fn state(&self) -> &ConnectionState;
-    fn set_state(&mut self, state: ConnectionState);
-    fn create_buffer(&mut self) -> &mut CharacterCreateBuffer;
-}
-
-struct CharacterCreateBuffer {
-    name: Option<String>,
-    race: Option<String>,
-    class: Option<String>,
-    attributes: Option<Attributes>,
-}
-```
+- `state()`, `set_state()`, `create_buffer()` methods on Connection trait
+- `CharacterCreateBuffer { name, race, class, attributes }` — holds in-progress creation state
 
 ### Implementation Order
 
@@ -5822,32 +2882,7 @@ rich Rust API; nothing is baked into Rhai that can't be changed per-file.
 A sandboxed `rhai::Engine` is created per-script-execution to limit damage
 from buggy or abusive scripts:
 
-```rust
-struct ScriptEngine {
-    engine: rhai::Engine,
-    module_resolver: FileModuleResolver,
-}
-
-impl ScriptEngine {
-    fn new(script_dir: &Path) -> Self {
-        let mut engine = rhai::Engine::new();
-
-        // Sandbox — no filesystem, no network, no process spawn
-        engine.set_max_modules(8);
-        engine.set_max_call_levels(32);
-        engine.set_max_operations(50_000);
-        engine.set_max_string_size(10_000);
-        engine.set_max_dynamic_arrays(100);
-        engine.set_max_map_size(50);
-
-        // Register all Rust types + methods (see below)
-        Self::register_types(&mut engine);
-
-        let resolver = FileModuleResolver::new(script_dir);
-        Self { engine, module_resolver: resolver }
-    }
-}
-```
+- `ScriptEngine { engine, module_resolver }` — wraps rhai::Engine. Sandbox limits: 8 modules, 32 call levels, 50k operations, 10k string size, 100 dynamic arrays, 50 maps.
 
 ### Script Lifecycle
 
@@ -5905,92 +2940,28 @@ script = "goblin_alert.rhai"
 
 ### Script Context
 
-```rust
-struct ScriptCtx {
-    entity: EntityHandle,       // the entity this script is attached to
-    actor: Option<EntityHandle>, // triggering entity (attacker, user, etc.)
-    target: Option<EntityHandle>, // secondary target (if applicable)
-    world: WorldGuard,           // &mut World in scope for the call
-}
-```
-
-`EntityHandle` is a thin wrapper around `hecs::Entity` that exposes methods
-to Rhai. It is NOT serializable and is invalidated after the script returns.
+- `ScriptCtx { entity (EntityHandle), actor (Option<EntityHandle>), target (Option<EntityHandle>), world (WorldGuard) }` — context passed to each script invocation. EntityHandle is a thin wrapper over `hecs::Entity`, invalidated after script returns.
 
 ### Rhai Type Bindings — EntityHandle
 
-```rust
-// the entity the script is attached to
-ctx.entity.name()           → String
-ctx.entity.id()             → i64 (DbId, 0 if transient)
-ctx.entity.room()           → RoomHandle
-ctx.entity.has_flag(f)      → Bool
-ctx.entity.has_comp(name)   → Bool         // component exists?
-ctx.entity.health()         → Int (current HP)
-ctx.entity.max_health()     → Int
-ctx.entity.level()          → Int
-ctx.entity.race()           → String
-ctx.entity.classes()        → Array        // list of class strings
-ctx.entity.is_player()      → Bool
-ctx.entity.is_npc()         → Bool
-ctx.entity.say(msg)         → void         // speak in room
-ctx.entity.emote(msg)       → void         // perform emote
-ctx.entity.echo(msg)        → void         // send to player only
-ctx.entity.get_attr(name)   → Dynamic      // get KV attribute (OLC)
-ctx.entity.set_attr(k, v)   → void         // set KV attribute
-```
+Methods exposed to Rhai on the attached entity: `name()`, `id()`, `room()`, `has_flag(f)`, `has_comp(name)`, `health()`, `max_health()`, `level()`, `race()`, `classes()`, `is_player()`, `is_npc()`, `say(msg)`, `emote(msg)`, `echo(msg)`, `get_attr(name)`, `set_attr(k, v)`.
 
 ### Rhai Type Bindings — RoomHandle
 
-```rust
-ctx.entity.room().name()          → String
-ctx.entity.room().echo(msg)       → void   // broadcast to room
-ctx.entity.room().entities()      → Array  // list of EntityHandle
-ctx.entity.room().players()       → Array  // player entities only
-ctx.entity.room().exits()         → Array  // exit direction strings
-ctx.entity.room().has_mob(id)     → Bool   // mob template present?
-ctx.entity.room().has_item(id)    → Bool   // item template present?
-```
+`room().name()`, `.echo(msg)`, `.entities()`, `.players()`, `.exits()`, `.has_mob(id)`, `.has_item(id)`.
 
 ### Rhai Type Bindings — WorldHandle
 
-```rust
-ctx.world.spawn_mob(template_id, room)      → EntityHandle
-ctx.world.spawn_item(template_id, room, count) → void
-ctx.world.remove_entity(entity)             → void
-ctx.world.echo_room(room_id, msg)           → void
-ctx.world.echo_zone(zone_id, msg)           → void
-ctx.world.echo_world(msg)                   → void
-ctx.world.grant_xp(entity, amount)          → void
-ctx.world.grant_recipe(entity, recipe_id)   → void
-ctx.world.grant_quest(entity, quest_id)     → void
-ctx.world.advance_quest(entity, quest_id, objective_index, amount) → void
-ctx.world.set_faction(entity, faction_id, standing) → void
-ctx.world.mod_faction(entity, faction_id, delta)    → void
-ctx.world.has_entity(entity_id)             → Bool
-```
+`ctx.world.spawn_mob()`, `.spawn_item()`, `.remove_entity()`, `.echo_room()`, `.echo_zone()`, `.echo_world()`, `.grant_xp()`, `.grant_recipe()`, `.grant_quest()`, `.advance_quest()`, `.set_faction()`, `.mod_faction()`, `.has_entity()`.
 
 ### Event Registration
 
 Scripts use the `on()` function to register handlers. The runtime
 maps event names to `EventTag` values:
 
-```rust
-// Built-in events a script can subscribe to:
-on("death",      |ctx| { ... })   // entity died
-on("enter",      |ctx| { ... })   // someone entered entity's room
-on("leave",      |ctx| { ... })   // someone left entity's room
-on("hit",        |ctx| { ... })   // entity was hit in combat
-on("kill",       |ctx| { ... })   // entity killed someone
-on("say",        |ctx| { ... })   // someone said something in room
-on("use",        |ctx| { ... })   // entity used a skill
-on("damage",     |ctx| { ... })   // entity took damage
-on("tick",       |ctx| { ... })   // every regen pulse (combat only)
-on("spawn",      |ctx| { ... })   // entity was just spawned
-on("reset",      |ctx| { ... })   // area reset
-on("quest_done", |ctx| { ... })   // quest completed by entity
-on("custom",     |ctx| { ... })   // dispatched by other scripts
-```
+Scripts use the `on()` function to register handlers. Built-in events:
+`death`, `enter`, `leave`, `hit`, `kill`, `say`, `use`, `damage`, `tick`,
+`spawn`, `reset`, `quest_done`, `custom`.
 
 The `[[scripts]]` TOML entries are loaded once at startup and cached.
 At runtime, the `ScriptTriggerSystem` uses a `HashMap<(Entity, EventTag), Ast>` lookup.
@@ -6014,22 +2985,9 @@ script calls — all state is ephemeral within the `run_ast()` call.
 
 Scripts can import shared logic via Rhai modules:
 
-```toml
-# content/scripts/lib/combat_helpers.rhai
-export function calculate_damage(level, base) {
-    return base + level * 2;
-}
-```
-
-```rust
-// content/scripts/goblin_guard.rhai
-import "lib/combat_helpers" as combat;
-
-on("hit", |ctx| {
-    let extra = combat::calculate_damage(ctx.entity.level(), 5);
-    ctx.entity.echo(`Extra damage: ${extra}`);
-});
-```
+A library module exports utility functions (e.g. `calculate_damage(level, base)`).
+A per-mob script imports it and registers event handlers via `on("hit", |ctx| ...)`,
+with access to `ctx.entity` methods and string interpolation.
 
 Module resolution path: `<content_dir>/scripts/` → relative path from `import`.
 Modules are AST-cached at startup (hot-reload watch). Cyclic imports
@@ -6049,23 +3007,12 @@ The `notify` watcher (same as TOML hot-reload) monitors `<content_dir>/scripts/`
 
 Helper functions available to all scripts without import:
 
-```rust
-// In-Game utility
-rng(min, max)             → Int    // uniform random
-clamp(val, min, max)      → Int    // numeric clamp
-roll(dice, sides)         → Int    // 3d6 style roll
-capitalize(s)             → String
-
-// Lookup (reads from TemplateRegistry)
-template(id, type)        → Map    // get template by ID + type
-item_template(id)         → Map    // shortcut for item
-mob_template(id)          → Map    // shortcut for mob
-skill_template(id)        → Map    // shortcut for skill
-
-// Messaging (access via ctx.world)
-echo_room(room_id, msg)   → void
-echo_entity(entity, msg)  → void
-```
+- `rng(min, max)` → uniform Int
+- `clamp(val, min, max)` → numeric clamp
+- `roll(dice, sides)` → dice roll (e.g. 3d6)
+- `capitalize(s)` → String
+- `template(id, type)`, `item_template(id)`, `mob_template(id)`, `skill_template(id)` → lookup from TemplateRegistry
+- `echo_room(room_id, msg)`, `echo_entity(entity, msg)` — messaging via ctx.world
 
 ### Security Model
 
@@ -6426,22 +3373,8 @@ Default builder layout:
 
 Collapsible sections with clickable command buttons:
 
-```rust
-struct SidebarSection {
-    name: &'static str,
-    commands: Vec<SidebarCommand>,
-    collapsed: bool,
-}
-
-struct SidebarCommand {
-    label: &'static str,
-    command: &'static str,    // what to send
-    takes_args: bool,         // focus input bar with prefix typed
-    confirm: bool,            // show confirmation dialog first
-    access: AccessLevel,      // minimum level to display
-    icon: Option<char>,       // optional glyph
-}
-```
+- `SidebarSection { name, commands: Vec<SidebarCommand>, collapsed }`
+- `SidebarCommand { label, command, takes_args, confirm, access, icon }`
 
 Default sections:
 
@@ -6497,31 +3430,10 @@ actions (clicking `stat` sends `stat Alice` if Alice was last clicked).
 
 #### Output Window
 
-```rust
-struct OutputWindow {
-    buffer: VecDeque<OutputLine>,   // last 5000 lines
-    scroll: ScrollState,
-    ansi_parser: AnsiParser,
-    clickable_ranges: Vec<ClickableSpan>,
-}
-
-struct OutputLine {
-    segments: Vec<StyledSegment>,
-    timestamp: Instant,
-}
-
-struct StyledSegment {
-    text: String,
-    style: Style,
-    clickable: Option<EntityRef>,
-}
-
-enum EntityRef {
-    Player { name: String },
-    Mob { template_id: String },
-    Item { template_id: String },
-}
-```
+- `OutputWindow { buffer: VecDeque<OutputLine>(5000 lines), scroll, ansi_parser, clickable_ranges }`
+- `OutputLine { segments: Vec<StyledSegment>, timestamp }`
+- `StyledSegment { text, style, clickable: Option<EntityRef> }`
+- `EntityRef`: Player(name), Mob(template_id), Item(template_id)
 
 Features:
 - ANSI escape codes → ratatui `Style` (16-color, 256-color, bold/italic/underline)
@@ -6566,23 +3478,7 @@ Status bar shows `[Mouse: On]` / `[Mouse: Off]`, toggle with Ctrl+M.
 
 ### Scroll Support
 
-Every scrollable pane manages its own scroll state:
-
-```rust
-struct ScrollState {
-    offset: usize,
-    visible_lines: usize,
-    total_lines: usize,
-}
-
-impl ScrollState {
-    fn scroll_up(&mut self);
-    fn scroll_down(&mut self);
-    fn page_up(&mut self);
-    fn page_down(&mut self);
-    fn percent(&self) -> f32;
-}
-```
+Every scrollable pane manages its own scroll state: `ScrollState { offset, visible_lines, total_lines }` with methods `scroll_up()`, `scroll_down()`, `page_up()`, `page_down()`, `percent()`.
 
 Scrollbar rendered on the right edge of each pane:
 ```
@@ -6652,20 +3548,7 @@ Dismissed by Escape.
 ╚════════════════════════════════════════════════════════════╝
 ```
 
-Help content is data-driven — a static `Vec<HelpSection>` struct so new
-keybindings can be added without layout code changes:
-
-```rust
-struct HelpSection {
-    title: &'static str,
-    entries: Vec<HelpEntry>,
-}
-
-struct HelpEntry {
-    key: &'static str,      // "Ctrl+H" / "Tab" / "F5"
-    description: &'static str,
-}
-```
+Help content is data-driven — a static struct so new keybindings can be added without layout code changes: `HelpSection { title, entries: Vec<HelpEntry> }`, `HelpEntry { key, description }`.
 
 ### UI Design Principles
 
@@ -6691,26 +3574,8 @@ struct HelpEntry {
 
 ### Session Management (MUD Mode)
 
-```rust
-enum SessionState {
-    Disconnected,
-    Connecting { host: String, port: u16 },
-    Negotiating,                       // telnet IAC handshake
-    LoggingIn { attempts: u8 },
-    Playing,
-}
-
-struct MudSession {
-    state: SessionState,
-    transport: Transport,       // Telnet | WebSocket
-    connection: Box<dyn Connection>,
-    output: OutputWindow,
-    input_history: Vec<String>,
-    last_target: Option<EntityRef>,
-    known_players: HashMap<String, EntityRef>,
-    gmcp_modules: HashSet<String>,
-}
-```
+- `SessionState`: Disconnected, Connecting(host, port), Negotiating, LoggingIn(attempts), Playing
+- `MudSession { state, transport, connection, output, input_history, last_target, known_players, gmcp_modules }`
 
 **Connection profiles** stored in `~/.config/spade/profiles.toml`:
 
