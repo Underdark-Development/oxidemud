@@ -13,7 +13,7 @@ use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, ConnectionState, TelnetConnection};
 use crate::game_loop::spawn_game_loop;
 use crate::registry::ConnectionRegistry;
-use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
+use crate::telnet::{codec::TelnetReader, negotiate_echo, negotiate_no_echo, INITIAL_NEGOTIATION};
 use mud_core::templates::TemplateRegistry;
 use mud_core::{Entity, Name, Position, World};
 
@@ -258,6 +258,18 @@ async fn handle_connection(
 // Login handler — state machine for pre-game flows
 // ---------------------------------------------------------------------------
 
+/// Send IAC WILL/WONT ECHO to enable or disable server-side echoing.
+/// WILL ECHO = server echoes (client hides input) — used for passwords.
+/// WONT ECHO = client does local echo — used for normal gameplay.
+fn set_echo(conn: &mut dyn Connection, echo_on: bool) {
+    let bytes = if echo_on {
+        negotiate_echo()
+    } else {
+        negotiate_no_echo()
+    };
+    conn.send_raw(&bytes);
+}
+
 async fn handle_login(
     conn: &mut dyn Connection,
     input: &str,
@@ -297,6 +309,7 @@ async fn handle_login(
                 .map_err(|e| format!("DB error: {e}"))?;
 
             if let Some(_account) = existing {
+                set_echo(conn, true);
                 conn.send_line("Password:");
                 let stored_username = Box::leak(username.to_string().into_boxed_str());
                 conn.set_state(ConnectionState::Password {
@@ -325,6 +338,7 @@ async fn handle_login(
             let db = match db {
                 Some(d) => d,
                 None => {
+                    set_echo(conn, false);
                     skip_login(conn, world, registry, void_room);
                     return Ok(());
                 }
@@ -339,6 +353,7 @@ async fn handle_login(
                 .map_err(|e| format!("Password verify error: {e}"))?;
 
             if valid {
+                set_echo(conn, false);
                 mud_data::update_last_login(db_guard.conn(), account.id)
                     .map_err(|e| format!("DB error: {e}"))?;
                 drop(db_guard);
@@ -371,6 +386,7 @@ async fn handle_login(
                     if let ConnectionState::AccountCreateConfirm { username } = conn.state() {
                         conn.create_buffer().name = Some(username.to_string());
                     }
+                    set_echo(conn, true);
                     conn.send_line("Choose a password (minimum 8 characters):");
                     conn.set_state(ConnectionState::AccountCreatePassword);
                 }
@@ -396,12 +412,14 @@ async fn handle_login(
 
             let username = conn.create_buffer().name.as_deref().map(|s| s.to_string());
             if username.is_none() {
+                set_echo(conn, false);
                 conn.send_line("Session error. Starting over. Enter your username:");
                 conn.set_state(ConnectionState::Username);
                 return Ok(());
             }
 
             conn.create_buffer().password = Some(password.to_string());
+            set_echo(conn, true);
             conn.send_line("Confirm password:");
             conn.set_state(ConnectionState::AccountCreateConfirmPassword);
             Ok(())
@@ -417,12 +435,14 @@ async fn handle_login(
             let username = conn.create_buffer().name.as_deref().map(|s| s.to_string());
 
             if stored_password.is_none() || username.is_none() {
+                set_echo(conn, false);
                 conn.send_line("Session error. Starting over. Enter your username:");
                 conn.set_state(ConnectionState::Username);
                 return Ok(());
             }
 
             if confirm != stored_password.as_deref().unwrap() {
+                // Stay in echo-on mode — AccountCreatePassword also expects WILL ECHO
                 conn.send_line("Passwords do not match. Try again.");
                 conn.send_line("Choose a password (minimum 8 characters):");
                 conn.set_state(ConnectionState::AccountCreatePassword);
@@ -432,6 +452,7 @@ async fn handle_login(
             let db = match db {
                 Some(d) => d,
                 None => {
+                    set_echo(conn, false);
                     skip_login(conn, world, registry, void_room);
                     return Ok(());
                 }
@@ -446,6 +467,7 @@ async fn handle_login(
                 .map_err(|e| format!("DB error: {e}"))?;
 
             if existing.is_some() {
+                set_echo(conn, false);
                 conn.send_line("That username was taken while you were choosing a password. Starting over. Enter your username:");
                 conn.set_state(ConnectionState::Username);
                 conn.create_buffer().name = None;
@@ -460,6 +482,7 @@ async fn handle_login(
             conn.create_buffer().name = None;
             conn.create_buffer().password = None;
 
+            set_echo(conn, false);
             conn.send_line("Account created! Please log in.");
             conn.set_state(ConnectionState::Username);
             Ok(())

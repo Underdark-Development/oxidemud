@@ -3,6 +3,10 @@
 #config {auto wrap} {off}
 #config {history lines} {500}
 
+#nop Telnet echo is controlled by server via IAC WILL/WONT ECHO.
+#nop Normal gameplay: server sends WONT ECHO → TinTin++ shows what you type.
+#nop Password prompts: server sends WILL ECHO → TinTin++ hides input.
+
 #event {SESSION CONNECTED} {
     #delay 1 {
         #send help

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::Result;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -25,6 +26,7 @@ pub struct TelnetReader<R> {
     pending: [u8; 4096],
     pending_len: usize,
     pending_pos: usize,
+    negotiations: VecDeque<Negotiation>,
 }
 
 impl<R: AsyncRead + Unpin> TelnetReader<R> {
@@ -35,7 +37,13 @@ impl<R: AsyncRead + Unpin> TelnetReader<R> {
             pending: [0u8; 4096],
             pending_len: 0,
             pending_pos: 0,
+            negotiations: VecDeque::new(),
         }
+    }
+
+    /// Drain all buffered client negotiations received since the last call.
+    pub fn take_negotiations(&mut self) -> Vec<Negotiation> {
+        self.negotiations.drain(..).collect()
     }
 
     fn process_byte(&mut self, b: u8) {
@@ -65,10 +73,24 @@ impl<R: AsyncRead + Unpin> TelnetReader<R> {
                     _ => self.state = State::Normal,
                 }
             }
-            State::GotWill | State::GotWont | State::GotDo | State::GotDont => {
-                // We received IAC WILL/WONT/DO/DONT <option>
-                // For Phase 0, we just acknowledge/refuse appropriately
-                // Store as pending negotiation response
+            State::GotWill => {
+                let action = NegotiationAction::Will(b);
+                self.negotiations.push_back(Negotiation { action });
+                self.state = State::Normal;
+            }
+            State::GotWont => {
+                let action = NegotiationAction::Wont(b);
+                self.negotiations.push_back(Negotiation { action });
+                self.state = State::Normal;
+            }
+            State::GotDo => {
+                let action = NegotiationAction::Do(b);
+                self.negotiations.push_back(Negotiation { action });
+                self.state = State::Normal;
+            }
+            State::GotDont => {
+                let action = NegotiationAction::Dont(b);
+                self.negotiations.push_back(Negotiation { action });
                 self.state = State::Normal;
             }
             State::Subneg => {

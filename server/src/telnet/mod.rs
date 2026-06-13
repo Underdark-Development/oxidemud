@@ -48,13 +48,19 @@ pub fn negotiate_echo() -> [u8; 3] {
     negotiate_will(constants::ECHO)
 }
 
+pub fn negotiate_no_echo() -> [u8; 3] {
+    negotiate_wont(constants::ECHO)
+}
+
 pub fn negotiate_suppress_go_ahead() -> [u8; 3] {
     negotiate_will(constants::SUPPRESS_GO_AHEAD)
 }
 
+/// Sent to every new connection: server won't echo (local echo on),
+/// server will suppress go-ahead (line-at-a-time mode).
 pub const INITIAL_NEGOTIATION: [u8; 6] = [
     constants::IAC,
-    constants::WILL,
+    constants::WONT,
     constants::ECHO,
     constants::IAC,
     constants::WILL,
