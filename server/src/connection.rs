@@ -20,6 +20,10 @@ pub enum ConnectionState {
     AccountCreatePassword,
     AccountCreateConfirmPassword,
     CharacterSelect,
+    CharacterCreateName,
+    CharacterCreateRace,
+    CharacterCreateClass,
+    CharacterCreateConfirm,
     Playing,
 }
 
@@ -35,6 +39,7 @@ pub struct CharacterCreateBuffer {
     pub name: Option<String>,
     pub race: Option<String>,
     pub class: Option<String>,
+    pub password: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

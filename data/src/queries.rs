@@ -70,6 +70,7 @@ pub struct CharacterRow {
     pub class: String,
     pub level: i64,
     pub experience: i64,
+    pub entity_id: i64,
     pub room_id: i64,
     pub created_at: String,
     pub last_seen: Option<String>,
@@ -80,7 +81,7 @@ pub fn get_characters_by_account(
     account_id: i64,
 ) -> Result<Vec<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, level, experience, room_id, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, level, experience, entity_id, room_id, created_at, last_seen \
          FROM characters WHERE account_id = ?1 ORDER BY created_at",
     )?;
     let rows = stmt.query_map(params![account_id], |row| {
@@ -92,9 +93,10 @@ pub fn get_characters_by_account(
             class: row.get(4)?,
             level: row.get(5)?,
             experience: row.get(6)?,
-            room_id: row.get(7)?,
-            created_at: row.get(8)?,
-            last_seen: row.get(9)?,
+            entity_id: row.get(7)?,
+            room_id: row.get(8)?,
+            created_at: row.get(9)?,
+            last_seen: row.get(10)?,
         })
     })?;
     rows.collect()
@@ -105,7 +107,7 @@ pub fn get_character_by_name(
     name: &str,
 ) -> Result<Option<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, level, experience, room_id, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, level, experience, entity_id, room_id, created_at, last_seen \
          FROM characters WHERE name = ?1",
     )?;
     let mut rows = stmt.query(params![name])?;
@@ -118,9 +120,10 @@ pub fn get_character_by_name(
             class: row.get(4)?,
             level: row.get(5)?,
             experience: row.get(6)?,
-            room_id: row.get(7)?,
-            created_at: row.get(8)?,
-            last_seen: row.get(9)?,
+            entity_id: row.get(7)?,
+            room_id: row.get(8)?,
+            created_at: row.get(9)?,
+            last_seen: row.get(10)?,
         })),
         None => Ok(None),
     }
@@ -132,11 +135,12 @@ pub fn create_character(
     name: &str,
     race: &str,
     class: &str,
+    entity_id: i64,
     room_id: i64,
 ) -> Result<i64, rusqlite::Error> {
     conn.execute(
-        "INSERT INTO characters (account_id, name, race, class, room_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![account_id, name, race, class, room_id],
+        "INSERT INTO characters (account_id, name, race, class, entity_id, room_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![account_id, name, race, class, entity_id, room_id],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -577,8 +581,11 @@ mod tests {
         let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "charowner", &hash).unwrap();
-        let char_id =
-            create_character(&conn, account_id, "Aragorn", "human", "warrior", room_id).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let char_id = create_character(
+            &conn, account_id, "Aragorn", "human", "warrior", eid, room_id,
+        )
+        .unwrap();
         assert!(char_id > 0);
     }
 
@@ -588,7 +595,8 @@ mod tests {
         let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "owner", &hash).unwrap();
-        create_character(&conn, account_id, "Legolas", "elf", "ranger", room_id).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        create_character(&conn, account_id, "Legolas", "elf", "ranger", eid, room_id).unwrap();
 
         let char_row = get_character_by_name(&conn, "Legolas")
             .unwrap()
@@ -612,8 +620,13 @@ mod tests {
         let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "multiowner", &hash).unwrap();
-        create_character(&conn, account_id, "Char1", "human", "warrior", room_id).unwrap();
-        create_character(&conn, account_id, "Char2", "elf", "mage", room_id).unwrap();
+        let eid1 = insert_entity(&conn, "player").unwrap();
+        let eid2 = insert_entity(&conn, "player").unwrap();
+        create_character(
+            &conn, account_id, "Char1", "human", "warrior", eid1, room_id,
+        )
+        .unwrap();
+        create_character(&conn, account_id, "Char2", "elf", "mage", eid2, room_id).unwrap();
 
         let chars = get_characters_by_account(&conn, account_id).unwrap();
         assert_eq!(chars.len(), 2);
@@ -634,8 +647,11 @@ mod tests {
         let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "delowner", &hash).unwrap();
-        let char_id =
-            create_character(&conn, account_id, "DeleteMe", "human", "warrior", room_id).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let char_id = create_character(
+            &conn, account_id, "DeleteMe", "human", "warrior", eid, room_id,
+        )
+        .unwrap();
         delete_character(&conn, char_id).unwrap();
 
         let result = get_character_by_name(&conn, "DeleteMe").unwrap();
@@ -650,8 +666,13 @@ mod tests {
         let hash2 = hash_password("pass2");
         let account1 = create_account(&conn, "unique1", &hash1).unwrap();
         let account2 = create_account(&conn, "unique2", &hash2).unwrap();
-        create_character(&conn, account1, "SameName", "human", "warrior", room_id).unwrap();
-        let result = create_character(&conn, account2, "SameName", "elf", "mage", room_id);
+        let eid1 = insert_entity(&conn, "player").unwrap();
+        let eid2 = insert_entity(&conn, "player").unwrap();
+        create_character(
+            &conn, account1, "SameName", "human", "warrior", eid1, room_id,
+        )
+        .unwrap();
+        let result = create_character(&conn, account2, "SameName", "elf", "mage", eid2, room_id);
         assert!(result.is_err());
     }
 
@@ -661,8 +682,11 @@ mod tests {
         let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "levelowner", &hash).unwrap();
-        let char_id =
-            create_character(&conn, account_id, "Leveler", "human", "warrior", room_id).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let char_id = create_character(
+            &conn, account_id, "Leveler", "human", "warrior", eid, room_id,
+        )
+        .unwrap();
         update_character_level(&conn, char_id, 5, 5000).unwrap();
 
         let char_row = get_character_by_name(&conn, "Leveler").unwrap().unwrap();
@@ -677,8 +701,11 @@ mod tests {
         let room2 = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "posowner", &hash).unwrap();
-        let char_id =
-            create_character(&conn, account_id, "Wanderer", "human", "warrior", room1).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let char_id = create_character(
+            &conn, account_id, "Wanderer", "human", "warrior", eid, room1,
+        )
+        .unwrap();
         update_character_position(&conn, char_id, room2).unwrap();
 
         let char_row = get_character_by_name(&conn, "Wanderer").unwrap().unwrap();
@@ -691,8 +718,11 @@ mod tests {
         let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "seenowner", &hash).unwrap();
-        let char_id =
-            create_character(&conn, account_id, "SeenMe", "human", "warrior", room_id).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let char_id = create_character(
+            &conn, account_id, "SeenMe", "human", "warrior", eid, room_id,
+        )
+        .unwrap();
         assert!(get_character_by_name(&conn, "SeenMe")
             .unwrap()
             .unwrap()

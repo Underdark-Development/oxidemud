@@ -131,7 +131,7 @@ async fn handle_connection(
     commands: Arc<CommandDispatch>,
     void_room: Entity,
     db: Option<Arc<Mutex<mud_data::Database>>>,
-    _templates: Option<Arc<TemplateRegistry>>,
+    templates: Option<Arc<TemplateRegistry>>,
 ) {
     let (reader_half, mut writer_half) = stream.into_split();
 
@@ -185,6 +185,7 @@ async fn handle_connection(
                         &mut conn,
                         trimmed,
                         db.as_deref(),
+                        templates.as_deref(),
                         &mut w,
                         &mut reg,
                         void_room,
@@ -250,6 +251,7 @@ async fn handle_login(
     conn: &mut dyn Connection,
     input: &str,
     db: Option<&Mutex<mud_data::Database>>,
+    templates: Option<&TemplateRegistry>,
     world: &mut World,
     registry: &mut ConnectionRegistry,
     void_room: Entity,
@@ -355,8 +357,6 @@ async fn handle_login(
         ConnectionState::AccountCreateConfirm { .. } => {
             match input.trim().to_lowercase().as_str() {
                 "y" | "yes" => {
-                    // Username is already stored in the state variant for the confirm step,
-                    // but we need it in subsequent steps too. Store it in the create buffer.
                     if let ConnectionState::AccountCreateConfirm { username } = conn.state() {
                         conn.create_buffer().name = Some(username.to_string());
                     }
@@ -390,8 +390,7 @@ async fn handle_login(
                 return Ok(());
             }
 
-            // Store plaintext password temporarily in the buffer for confirmation step
-            conn.create_buffer().race = Some(password.to_string());
+            conn.create_buffer().password = Some(password.to_string());
             conn.send_line("Confirm password:");
             conn.set_state(ConnectionState::AccountCreateConfirmPassword);
             Ok(())
@@ -399,7 +398,11 @@ async fn handle_login(
 
         ConnectionState::AccountCreateConfirmPassword => {
             let confirm = input.trim();
-            let stored_password = conn.create_buffer().race.as_deref().map(|s| s.to_string());
+            let stored_password = conn
+                .create_buffer()
+                .password
+                .as_deref()
+                .map(|s| s.to_string());
             let username = conn.create_buffer().name.as_deref().map(|s| s.to_string());
 
             if stored_password.is_none() || username.is_none() {
@@ -415,7 +418,6 @@ async fn handle_login(
                 return Ok(());
             }
 
-            // Passwords match — hash and create account
             let db = match db {
                 Some(d) => d,
                 None => {
@@ -436,7 +438,7 @@ async fn handle_login(
                 conn.send_line("That username was taken while you were choosing a password. Starting over. Enter your username:");
                 conn.set_state(ConnectionState::Username);
                 conn.create_buffer().name = None;
-                conn.create_buffer().race = None;
+                conn.create_buffer().password = None;
                 return Ok(());
             }
 
@@ -445,20 +447,504 @@ async fn handle_login(
             drop(db_guard);
 
             conn.create_buffer().name = None;
-            conn.create_buffer().race = None;
+            conn.create_buffer().password = None;
 
             conn.send_line("Account created! Please log in.");
             conn.set_state(ConnectionState::Username);
             Ok(())
         }
 
+        // -----------------------------------------------------------------------
+        // Character selection — show existing characters or option to create
+        // -----------------------------------------------------------------------
         ConnectionState::CharacterSelect => {
-            skip_login(conn, world, registry, void_room);
+            let input = input.trim();
+            let db = match db {
+                Some(d) => d,
+                None => {
+                    skip_login(conn, world, registry, void_room);
+                    return Ok(());
+                }
+            };
+
+            let account_id = match conn.account_id() {
+                Some(id) => id,
+                None => {
+                    conn.send_line("Session error. Please log in again.");
+                    conn.set_state(ConnectionState::Username);
+                    return Ok(());
+                }
+            };
+
+            if input == "c" || input == "C" {
+                conn.create_buffer().name = None;
+                conn.create_buffer().race = None;
+                conn.create_buffer().class = None;
+                conn.send_line("");
+                conn.send_line("--- Create a New Character ---");
+                conn.send_line("Enter your character's name (3-16 letters, hyphens, apostrophes):");
+                conn.set_state(ConnectionState::CharacterCreateName);
+                return Ok(());
+            }
+
+            // Try to parse as a number (character selection)
+            if let Ok(idx) = input.parse::<usize>() {
+                let db_guard = db.lock().await;
+                let chars = mud_data::get_characters_by_account(db_guard.conn(), account_id)
+                    .map_err(|e| format!("DB error: {e}"))?;
+                drop(db_guard);
+
+                if idx == 0 || idx > chars.len() {
+                    conn.send_line("Invalid selection. Pick a number from the list, or type 'c' to create a new character.");
+                    return Ok(());
+                }
+
+                let char_row = &chars[idx - 1];
+                load_character(conn, world, registry, void_room, char_row);
+                return Ok(());
+            }
+
+            conn.send_line("Type a number to pick a character, or 'c' to create a new one.");
+            Ok(())
+        }
+
+        // -----------------------------------------------------------------------
+        // Character creation wizard
+        // -----------------------------------------------------------------------
+        ConnectionState::CharacterCreateName => {
+            let name = input.trim();
+            if !is_valid_character_name(name) {
+                conn.send_line("Invalid name. Use 3-16 letters, hyphens, or apostrophes.");
+                return Ok(());
+            }
+
+            let db = match db {
+                Some(d) => d,
+                None => {
+                    conn.send_line("No database available for character creation.");
+                    return Ok(());
+                }
+            };
+
+            let db_guard = db.lock().await;
+            let existing = mud_data::get_character_by_name(db_guard.conn(), name)
+                .map_err(|e| format!("DB error: {e}"))?;
+            drop(db_guard);
+
+            if existing.is_some() {
+                conn.send_line("That name is already taken. Please choose another.");
+                return Ok(());
+            }
+
+            conn.create_buffer().name = Some(name.to_string());
+            show_character_race_prompt(conn, templates);
+            Ok(())
+        }
+
+        ConnectionState::CharacterCreateRace => {
+            let templates = match templates {
+                Some(t) => t,
+                None => {
+                    conn.send_line("No race templates available. Cannot create character.");
+                    return Ok(());
+                }
+            };
+
+            let input = input.trim();
+            let races: Vec<&str> = templates.races.keys().map(|s| s.as_str()).collect();
+
+            match input.parse::<usize>() {
+                Ok(idx) if idx > 0 && idx <= races.len() => {
+                    let race_id = races[idx - 1].to_string();
+                    conn.create_buffer().race = Some(race_id);
+                    show_character_class_prompt(conn, templates);
+                }
+                _ => {
+                    conn.send_line(&format!("Pick a race by number (1-{}):", races.len()));
+                }
+            }
+            Ok(())
+        }
+
+        ConnectionState::CharacterCreateClass => {
+            let templates = match templates {
+                Some(t) => t,
+                None => {
+                    conn.send_line("No class templates available. Cannot create character.");
+                    return Ok(());
+                }
+            };
+
+            let race_id = match conn.create_buffer().race.as_deref() {
+                Some(r) => r.to_string(),
+                None => {
+                    conn.send_line("Session error. Starting over.");
+                    conn.set_state(ConnectionState::CharacterCreateName);
+                    return Ok(());
+                }
+            };
+
+            let available = templates.available_classes_for_race(&race_id);
+            let input = input.trim();
+
+            match input.parse::<usize>() {
+                Ok(idx) if idx > 0 && idx <= available.len() => {
+                    let class_id = available[idx - 1].id.clone();
+                    conn.create_buffer().class = Some(class_id);
+                    show_character_confirm(conn, templates, &race_id);
+                }
+                _ => {
+                    conn.send_line(&format!("Pick a class by number (1-{}):", available.len()));
+                }
+            }
+            Ok(())
+        }
+
+        ConnectionState::CharacterCreateConfirm => {
+            match input.trim().to_lowercase().as_str() {
+                "y" | "yes" => {
+                    finalize_character(conn, db, world, registry, void_room, templates).await;
+                }
+                "n" | "no" => {
+                    conn.create_buffer().name = None;
+                    conn.create_buffer().race = None;
+                    conn.create_buffer().class = None;
+                    conn.send_line("Character creation cancelled.");
+                    go_to_character_select(conn);
+                }
+                _ => {
+                    conn.send_line("Type 'y' to accept or 'n' to cancel.");
+                }
+            }
             Ok(())
         }
 
         ConnectionState::Playing => Ok(()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Character creation helpers
+// ---------------------------------------------------------------------------
+
+fn show_character_race_prompt(conn: &mut dyn Connection, templates: Option<&TemplateRegistry>) {
+    let templates = match templates {
+        Some(t) => t,
+        None => {
+            conn.send_line("No race templates available. Cannot create character.");
+            return;
+        }
+    };
+
+    conn.send_line("");
+    conn.send_line("--- Choose a Race ---");
+    let mut races: Vec<(&str, &mud_core::templates::RaceTemplate)> = templates
+        .races
+        .iter()
+        .map(|(k, v)| (k.as_str(), v))
+        .collect();
+    races.sort_by(|a, b| a.0.cmp(b.0));
+
+    for (i, (_id, race)) in races.iter().enumerate() {
+        conn.send_line(&format!("{}. {} — {}", i + 1, race.name, race.description));
+    }
+    conn.send_line(&format!("Pick a race by number (1-{}):", races.len()));
+    conn.set_state(ConnectionState::CharacterCreateRace);
+}
+
+fn show_character_class_prompt(conn: &mut dyn Connection, templates: &TemplateRegistry) {
+    let race_id = conn.create_buffer().race.as_deref().unwrap_or("");
+    let available = templates.available_classes_for_race(race_id);
+
+    conn.send_line("");
+    conn.send_line("--- Choose a Class ---");
+
+    for (i, class) in available.iter().enumerate() {
+        conn.send_line(&format!(
+            "{}. {} — {}",
+            i + 1,
+            class.name,
+            class.description
+        ));
+    }
+    conn.send_line(&format!("Pick a class by number (1-{}):", available.len()));
+    conn.set_state(ConnectionState::CharacterCreateClass);
+}
+
+fn show_character_confirm(conn: &mut dyn Connection, templates: &TemplateRegistry, race_id: &str) {
+    let (name, class_id) = {
+        let buf = conn.create_buffer();
+        (
+            buf.name.clone().unwrap_or_else(|| "?".to_string()),
+            buf.class.clone().unwrap_or_else(|| "?".to_string()),
+        )
+    };
+
+    let race = templates.get_race(race_id);
+    let class = templates.get_class(&class_id);
+
+    let default_attrs = mud_core::templates::RaceAttributes::default();
+    let default_mods = mud_core::templates::ClassAttributeMods::default();
+
+    let (race_name, race_attrs) = race
+        .map(|r| (r.name.as_str(), &r.attributes))
+        .unwrap_or(("?", &default_attrs));
+
+    let (class_name, class_mods) = class
+        .map(|c| (c.name.as_str(), &c.attribute_mods))
+        .unwrap_or(("?", &default_mods));
+
+    let str = (race_attrs.strength as i16 + class_mods.strength as i16) as u8;
+    let dex = (race_attrs.dexterity as i16 + class_mods.dexterity as i16) as u8;
+    let int = (race_attrs.intelligence as i16 + class_mods.intelligence as i16) as u8;
+    let wis = (race_attrs.wisdom as i16 + class_mods.wisdom as i16) as u8;
+    let con = (race_attrs.constitution as i16 + class_mods.constitution as i16) as u8;
+    let cha = (race_attrs.charisma as i16 + class_mods.charisma as i16) as u8;
+
+    conn.send_line("");
+    conn.send_line("--- Character Summary ---");
+    conn.send_line(&format!("  Name:       {name}"));
+    conn.send_line(&format!("  Race:       {race_name}"));
+    conn.send_line(&format!("  Class:      {class_name}"));
+    conn.send_line(&format!(
+        "  Attributes: STR {str}, DEX {dex}, INT {int}, WIS {wis}, CON {con}, CHA {cha}"
+    ));
+    if let Some(r) = race {
+        if !r.racial_abilities.is_empty() {
+            conn.send_line(&format!("  Abilities:  {}", r.racial_abilities.join(", ")));
+        }
+    }
+    if let Some(c) = class {
+        if !c.auto_skills.is_empty() {
+            conn.send_line(&format!("  Skills:     {}", c.auto_skills.join(", ")));
+        }
+    }
+    conn.send_line("");
+    conn.send_line("Accept this character? (y/n)");
+    conn.set_state(ConnectionState::CharacterCreateConfirm);
+}
+
+async fn finalize_character(
+    conn: &mut dyn Connection,
+    db: Option<&Mutex<mud_data::Database>>,
+    world: &mut World,
+    registry: &mut ConnectionRegistry,
+    void_room: Entity,
+    templates: Option<&TemplateRegistry>,
+) {
+    let name = match conn.create_buffer().name.as_deref() {
+        Some(n) => n.to_string(),
+        None => {
+            conn.send_line("Session error. Starting over.");
+            go_to_character_select(conn);
+            return;
+        }
+    };
+
+    let race_id = match conn.create_buffer().race.as_deref() {
+        Some(r) => r.to_string(),
+        None => {
+            conn.send_line("Session error. Starting over.");
+            go_to_character_select(conn);
+            return;
+        }
+    };
+
+    let class_id = match conn.create_buffer().class.as_deref() {
+        Some(c) => c.to_string(),
+        None => {
+            conn.send_line("Session error. Starting over.");
+            go_to_character_select(conn);
+            return;
+        }
+    };
+
+    let account_id = match conn.account_id() {
+        Some(id) => id,
+        None => {
+            conn.send_line("Session error. Starting over.");
+            go_to_character_select(conn);
+            return;
+        }
+    };
+
+    let db_con = match db {
+        Some(d) => d,
+        None => {
+            skip_login(conn, world, registry, void_room);
+            return;
+        }
+    };
+
+    // Compute final attributes: race base + class mods
+    let (attrs, hp, skills) = compute_character_stats(templates, &race_id, &class_id);
+
+    // Persist to database
+    let db_guard = db_con.lock().await;
+    let conn_db = db_guard.conn();
+
+    let entity_id = match mud_data::insert_entity(conn_db, "player") {
+        Ok(id) => id,
+        Err(e) => {
+            conn.send_line(&format!("Error creating character: {e}"));
+            return;
+        }
+    };
+
+    if let Err(e) = mud_data::save_player_component(conn_db, entity_id, account_id, "<%hhp %hmhp> ")
+    {
+        conn.send_line(&format!("Error saving character: {e}"));
+        return;
+    }
+
+    if let Err(e) = mud_data::save_attributes_component(
+        conn_db,
+        entity_id,
+        &mud_data::AttributesRow {
+            strength: attrs.strength,
+            dexterity: attrs.dexterity,
+            intelligence: attrs.intelligence,
+            wisdom: attrs.wisdom,
+            constitution: attrs.constitution,
+            charisma: attrs.charisma,
+        },
+    ) {
+        conn.send_line(&format!("Error saving attributes: {e}"));
+        return;
+    }
+
+    if let Err(e) = mud_data::save_health_component(conn_db, entity_id, hp, hp) {
+        conn.send_line(&format!("Error saving health: {e}"));
+        return;
+    }
+
+    if let Err(e) = mud_data::save_level_component(conn_db, entity_id, 1) {
+        conn.send_line(&format!("Error saving level: {e}"));
+        return;
+    }
+
+    if let Err(e) = mud_data::save_experience_component(conn_db, entity_id, 0) {
+        conn.send_line(&format!("Error saving experience: {e}"));
+        return;
+    }
+
+    // Save position (0 = void room for now)
+    if let Err(e) = mud_data::save_position_component(conn_db, entity_id, 0) {
+        conn.send_line(&format!("Error saving position: {e}"));
+        return;
+    }
+
+    if let Err(e) = mud_data::create_character(
+        conn_db, account_id, &name, &race_id, &class_id, entity_id, 0,
+    ) {
+        conn.send_line(&format!("Error saving character: {e}"));
+        return;
+    }
+
+    drop(db_guard);
+
+    // Spawn ECS entity
+    let player = world.spawn((
+        Position::new(void_room),
+        Name::new(name.clone()),
+        mud_core::Player::new(account_id),
+        attrs,
+        mud_core::Health::new(hp),
+        skills,
+        mud_core::DbId::new(entity_id),
+    ));
+
+    conn.set_entity(player);
+    if let Some(tx) = conn.output_sender() {
+        registry.register(player, tx);
+    }
+
+    send_server_greeting(conn, registry);
+    conn.send_line(&format!("Welcome, {name}! Your adventure begins."));
+    conn.set_state(ConnectionState::Playing);
+}
+
+fn compute_character_stats(
+    templates: Option<&TemplateRegistry>,
+    race_id: &str,
+    class_id: &str,
+) -> (mud_core::Attributes, i32, mud_core::LearnedSkills) {
+    let mut skills = mud_core::LearnedSkills::new();
+
+    let (base_str, base_dex, base_int, base_wis, base_con, base_cha) = templates
+        .and_then(|t| t.get_race(race_id))
+        .map(|r| {
+            for ability in &r.racial_abilities {
+                skills.grant(ability);
+            }
+            (
+                r.attributes.strength as i16,
+                r.attributes.dexterity as i16,
+                r.attributes.intelligence as i16,
+                r.attributes.wisdom as i16,
+                r.attributes.constitution as i16,
+                r.attributes.charisma as i16,
+            )
+        })
+        .unwrap_or((10, 10, 10, 10, 10, 10));
+
+    let (mod_str, mod_dex, mod_int, mod_wis, mod_con, mod_cha, hit_die) = templates
+        .and_then(|t| t.get_class(class_id))
+        .map(|c| {
+            for skill_id in &c.auto_skills {
+                skills.grant(skill_id);
+            }
+            (
+                c.attribute_mods.strength,
+                c.attribute_mods.dexterity,
+                c.attribute_mods.intelligence,
+                c.attribute_mods.wisdom,
+                c.attribute_mods.constitution,
+                c.attribute_mods.charisma,
+                c.hit_die,
+            )
+        })
+        .unwrap_or((0, 0, 0, 0, 0, 0, 8));
+
+    let attrs = mud_core::Attributes::new(
+        (base_str + mod_str as i16).clamp(3, 50) as u8,
+        (base_dex + mod_dex as i16).clamp(3, 50) as u8,
+        (base_int + mod_int as i16).clamp(3, 50) as u8,
+        (base_wis + mod_wis as i16).clamp(3, 50) as u8,
+        (base_con + mod_con as i16).clamp(3, 50) as u8,
+        (base_cha + mod_cha as i16).clamp(3, 50) as u8,
+    );
+
+    let hp = hit_die as i32 + (attrs.constitution as i32 - 10) / 2;
+
+    (attrs, hp.max(1), skills)
+}
+
+/// Load a saved character from the database and spawn them into the world.
+fn load_character(
+    conn: &mut dyn Connection,
+    world: &mut World,
+    registry: &mut ConnectionRegistry,
+    void_room: Entity,
+    char_row: &mud_data::CharacterRow,
+) {
+    // For now, spawn in void room with basic components.
+    // Full entity persistence (Chunk 4) will load all saved components.
+    let player = world.spawn((
+        Position::new(void_room),
+        Name::new(char_row.name.clone()),
+        mud_core::Player::new(char_row.account_id),
+        mud_core::DbId::new(char_row.entity_id),
+    ));
+
+    conn.set_entity(player);
+    if let Some(tx) = conn.output_sender() {
+        registry.register(player, tx);
+    }
+
+    conn.send_line(&format!("Welcome back, {}!", char_row.name));
+    send_server_greeting(conn, registry);
+    conn.set_state(ConnectionState::Playing);
 }
 
 /// Skip login and spawn a guest player in the void.
@@ -480,8 +966,11 @@ fn skip_login(
 
 fn go_to_character_select(conn: &mut dyn Connection) {
     conn.send_line("");
-    conn.send_line("Character selection is not yet implemented.");
-    conn.send_line("Type 'help' for commands (playing as guest).");
+    conn.send_line("--- Character Selection ---");
+
+    // We can't query DB from here (no db access in this fn), so show generic prompt.
+    // The DB query happens in the CharacterSelect handler when the user presses enter.
+    conn.send_line("Press Enter to see your characters.");
     conn.set_state(ConnectionState::CharacterSelect);
 }
 
