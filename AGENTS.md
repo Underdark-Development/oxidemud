@@ -139,7 +139,7 @@ Append `!` after type/scope when the commit introduces a SemVer-breaking change:
 - Database schema migrations that drop/rename columns
 - Rhai binding changes that require script updates
 
-`feat!(persistence): migrate from rusqlite to sqlx`
+`feat(persistence)!: migrate from rusqlite to sqlx`
 
 ### Scope
 
@@ -169,7 +169,7 @@ Optional. Wrap at 72 chars. Imperative mood.
 ```
 feat(telnet): implement NAWS window negotiation
 fix(combat): clamp health to [0, max] on damage
-refactor!(persistence): switch from rusqlite to sqlx
+refactor(persistence)!: switch from rusqlite to sqlx
 chore(meta): pin Rust to 1.85.0 in rust-toolchain.toml
 chore(hooks): add lefthook, cocogitto, and justfile tasks
 docs: add commit type rules and decision flowchart
