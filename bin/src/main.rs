@@ -2,10 +2,12 @@ mod commands;
 mod config;
 mod init;
 mod signals;
+mod templates;
 
 use config::Config;
 use init::init_world;
 use mud_server::{AccessLevel, Server};
+use std::path::Path;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +25,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (world, void_room) = init_world();
 
-    let mut server = Server::new(config.bind_addr(), world, void_room).with_database(db);
+    let content_path = config
+        .motd_path
+        .as_ref()
+        .and_then(|p| Path::new(p).parent())
+        .unwrap_or_else(|| Path::new("content"));
+
+    let templates = templates::load_templates(content_path);
+    tracing::info!(
+        "Loaded {} race(s), {} class(es)",
+        templates.races.len(),
+        templates.classes.len()
+    );
+
+    let mut server = Server::new(config.bind_addr(), world, void_room)
+        .with_database(db)
+        .with_templates(templates);
 
     server.register_command("look", &["l"], AccessLevel::Player, commands::cmd_look);
     server.register_command("say", &[], AccessLevel::Player, commands::cmd_say);

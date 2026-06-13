@@ -4,6 +4,7 @@ mod components;
 mod events;
 pub mod format;
 mod resources;
+pub mod templates;
 
 pub use components::*;
 pub use events::*;

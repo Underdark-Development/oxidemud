@@ -13,6 +13,7 @@ use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, ConnectionState, TelnetConnection};
 use crate::registry::ConnectionRegistry;
 use crate::telnet::{codec::TelnetReader, INITIAL_NEGOTIATION};
+use mud_core::templates::TemplateRegistry;
 use mud_core::{Entity, Name, Position, World};
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
@@ -26,6 +27,7 @@ pub struct Server {
     next_conn_id: AtomicU64,
     void_room: Entity,
     db: Option<Arc<Mutex<mud_data::Database>>>,
+    templates: Option<Arc<TemplateRegistry>>,
     shutdown_complete: Arc<Notify>,
 }
 
@@ -39,12 +41,18 @@ impl Server {
             next_conn_id: AtomicU64::new(1),
             void_room,
             db: None,
+            templates: None,
             shutdown_complete: Arc::new(Notify::new()),
         }
     }
 
     pub fn with_database(mut self, db: mud_data::Database) -> Self {
         self.db = Some(Arc::new(Mutex::new(db)));
+        self
+    }
+
+    pub fn with_templates(mut self, templates: TemplateRegistry) -> Self {
+        self.templates = Some(Arc::new(templates));
         self
     }
 
@@ -75,6 +83,7 @@ impl Server {
         let commands = Arc::new(self.commands);
         let void_room = self.void_room;
         let db = self.db;
+        let templates = self.templates;
         let shutdown_complete = self.shutdown_complete;
 
         loop {
@@ -94,8 +103,9 @@ impl Server {
                     let commands = commands.clone();
                     let db = db.clone();
 
+                    let templates = templates.clone();
                     tokio::spawn(async move {
-                        handle_connection(conn_id, stream, world, registry, commands, void_room, db).await;
+                        handle_connection(conn_id, stream, world, registry, commands, void_room, db, templates).await;
                     });
                 }
             }
@@ -112,6 +122,7 @@ impl Server {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     conn_id: u64,
     stream: tokio::net::TcpStream,
@@ -120,6 +131,7 @@ async fn handle_connection(
     commands: Arc<CommandDispatch>,
     void_room: Entity,
     db: Option<Arc<Mutex<mud_data::Database>>>,
+    _templates: Option<Arc<TemplateRegistry>>,
 ) {
     let (reader_half, mut writer_half) = stream.into_split();
 

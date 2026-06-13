@@ -11,5 +11,6 @@ mud-server = { path = "../server" }
 mud-data = { path = "../data" }
 mud-scripting = { path = "../scripting" }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "signal"] }
+toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = "0.3"
