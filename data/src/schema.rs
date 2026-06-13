@@ -82,11 +82,27 @@ CREATE TABLE IF NOT EXISTS accounts (
     password_hash TEXT NOT NULL,
     access_level TEXT NOT NULL DEFAULT 'player',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_login TEXT
+    last_login TEXT,
+    show_motd INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS characters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL UNIQUE,
+    race TEXT NOT NULL,
+    class TEXT NOT NULL,
+    level INTEGER NOT NULL DEFAULT 1,
+    experience INTEGER NOT NULL DEFAULT 0,
+    room_id INTEGER NOT NULL REFERENCES entities(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 2;
+pub const VERSION: i64 = 3;
 
 #[cfg(test)]
 mod tests {
@@ -124,6 +140,7 @@ mod tests {
             "components_experience",
             "accounts",
             "attributes",
+            "characters",
             "schema_version",
         ];
         for name in &expected {
