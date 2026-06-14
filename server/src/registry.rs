@@ -57,6 +57,11 @@ impl ConnectionRegistry {
         }
     }
 
+    /// Return all connected player entities.
+    pub fn connected_entities(&self) -> Vec<Entity> {
+        self.map.keys().copied().collect()
+    }
+
     /// Number of currently connected players.
     pub fn player_count(&self) -> usize {
         self.map.len()

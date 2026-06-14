@@ -8,6 +8,8 @@ pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &str, &Connection
 pub enum AccessLevel {
     Player,
     Builder,
+    Immortal,
+    God,
     Admin,
 }
 

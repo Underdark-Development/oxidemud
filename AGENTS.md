@@ -2,7 +2,7 @@
 
 ## Project state
 
-This is a **pre-initialization** Rust project. The repo has exactly two files: `.git` (fresh) and `ARCHITECTURE.md` (~7000 lines). No `Cargo.toml`, no source code, no dependencies, no CI, no tests. **Start any work session by reading `ARCHITECTURE.md`** — it is the sole design spec and must be treated as ground truth.
+This is a Rust project with working source code across 5 workspace crates + TOML content templates. `ARCHITECTURE.md` (~2000 lines) is the design spec — read it first each session.
 
 ## Planned stack
 
@@ -18,7 +18,7 @@ This is a **pre-initialization** Rust project. The repo has exactly two files: `
 
 ## Planned workspace layout
 
-Eight crates under a root `Cargo.toml` workspace:
+Eight crates under a root `Cargo.toml` workspace (5 exist, 2 planned):
 
 ```
 core/       — ECS components, systems, events, resources
@@ -26,8 +26,8 @@ server/     — Network layer (telnet, command dispatch, connection state)
 data/       — Persistence (SQLite schema, type-safe queries)
 scripting/  — Rhai engine setup + Rust↔Rhai bindings
 content/    — Game data (TOML area/mob/item templates + Rhai scripts)
-tui/        — spade: builder TUI & MUD client (ratatui + crossterm)
-mcp/        — MCP server for AI agent world-building
+tui/        — spade: builder TUI & MUD client (ratatui + crossterm) — Phase 5
+mcp/        — MCP server for AI agent world-building — Phase 5
 bin/        — Server binary entrypoint (main.rs)
 ```
 
@@ -36,8 +36,8 @@ bin/        — Server binary entrypoint (main.rs)
 - **Event-driven game loop** — no fixed tick. Uses `tokio::select!` over player input, scheduler pulses, and event bus. Systems register for intervals (combat 2s, regen 6s, weather 5m).
 - **Driver/mudlib separation** — engine provides networking, ECS, persistence, scripting. Game content (combat, spells, quests) lives in data files and scripts, not engine code.
 - **Two-tier persistence** — in-memory ECS world + SQLite on disk. Dirty tracking (`Dirty` marker component), background flush every 5s, full flush + WAL checkpoint on shutdown.
-- **Command dispatch** — prefix-matched trie. Commands are `fn(&mut World, &mut Connection, &str)` with access levels.
-- **Connection trait** — abstracts telnet, WebSocket, REST. Transport-agnostic command layer.
+- **Command dispatch** — linear `Vec<Command>` prefix search (trie planned). Commands are `fn(&mut World, &mut Connection, &str)` with access levels.
+- **Connection trait** — abstracts telnet, WebSocket, REST. Transport-agnostic command layer. Login state machine runs in `server/src/login/` as a standalone `LoginFlow` struct (not on the connection).
 - **MCP server** — exposes world-editing tools to AI agents (Claude). Works offline
   (direct TOML/DB reads) or online (REST bridge to game server). Tools cover full CRUD
   for areas, rooms, mobs, items, quests, and content validation.
@@ -62,10 +62,12 @@ bin/        — Server binary entrypoint (main.rs)
 - Test with `cargo test` (per-crate or workspace-wide). No test framework preference specified.
 - Format with `cargo fmt`; lint with `cargo clippy`.
 - No CI, no pre-commit hooks, no release workflow yet.
+- **No code examples** — avoid inline code blocks in docs unless the pattern is genuinely non-obvious or easily misused. Prefer concise prose over example code.
+- **Compact sections** — keep sections tight. Omit exhaustive enumerations when the pattern is clear (e.g. "all LoginState variants" → just name the pattern). Summarize feature completeness tables rather than listing every row.
 
 ## Modular development
 
-- **Dependency DAG** — `core` depends on nothing else. `server`, `data`, `scripting`, `tui`, `mcp` depend on `core` only. `bin` depends on `core`, `server`, `data`, `scripting`. No circular deps.
+- **Dependency DAG** — `core` depends on nothing else. `server` depends on `core` and `data`. `data`, `scripting`, `tui`, `mcp` depend on `core` only. `bin` depends on `core`, `server`, `data`, `scripting`. No circular deps.
 - **Minimal `pub`** — prefer `pub(crate)` within a crate; re-export key types at `lib.rs`.
 - **Feature gates** — Cargo features for optional pieces (e.g. `mccp`), not `cfg` checks.
 - **Module tree** — mirror `ARCHITECTURE.md` `src/` layout exactly; one file per component/system type.
@@ -164,6 +166,36 @@ Append `!` after type/scope when the commit introduces a SemVer-breaking change:
 
 Optional. Wrap at 72 chars. Imperative mood.
 
+## Security mindset
+
+This project exposes a networked, multi-user game server to the public internet. Treat every input byte as hostile.
+
+### Login path
+- **Read timeouts** — pre-auth connections get a 60s per-line timeout. No infinite waits.
+- **Max line length** — pre-auth lines capped at 256 bytes. Prevents buffer-bloating attacks.
+- **Argon2 outside DB lock** — password hashing is CPU-intensive and must never block other connections. Fetch the hash from SQLite, release the lock, then verify.
+- **No `Box::leak`** — never leak memory to obtain a `&'static` lifetime for user-controlled strings. Use `Arc<str>` instead.
+- **Strike tracking** — failed login attempts increment a strike counter. At 3+ strikes per state (Username, Password), the connection is dropped.
+
+### Memory safety
+- **Zero `unsafe`** — this project uses no `unsafe` code. If you need it, document with `// SAFETY:` and expect scrutiny.
+- **No heap-leaking user data** — `String` → `Box::leak()` patterns are banned. User-controlled strings live in `Arc<str>` or owned `String`s.
+- **Bounded allocations** — line buffers are reused per-loop (`.clear()`), not reallocated.
+
+### Concurrency
+- **Mutex scoping** — hold `Mutex` locks as briefly as possible. Narrow scopes with blocks (`{ let g = m.lock().await; ... }`).
+- **Cancel safety** — `tokio::select!` branches should handle cancellation gracefully. Prefer `tokio::time::timeout` over raw `select!` for timeouts.
+- **No `tokio::spawn` on untrusted input handlers** — connection handlers are top-level tasks; spawn no further tasks for user input.
+
+### Database
+- **Parameterised queries** — never interpolate user input into SQL strings. Use `rusqlite`'s `?` / `?N` / `:name` bindings exclusively.
+- **WAL mode** — enables concurrent reads during writes. Schema migration awareness required.
+
+### Network
+- **Prefix-matched command dispatch** — no eval of user input as code. Commands are pre-registered `fn` pointers.
+- **Telnet negotiation first** — NAWS, terminal type, and echo negotiation happens before any login prompt. Telnet IAC bytes are parsed by a dedicated reader, not raw `read_line`.
+- **Transport-agnostic commands** — the `Connection` trait abstracts telnet, WebSocket, and future transports. No transport-specific assumptions in game logic.
+
 ### Examples
 
 ```
@@ -174,3 +206,35 @@ chore(meta): pin Rust to 1.85.0 in rust-toolchain.toml
 chore(hooks): add lefthook, cocogitto, and justfile tasks
 docs: add commit type rules and decision flowchart
 ```
+
+## State Machine Refactoring Tasks
+
+These areas have partial/implicit state machines that should be formalized
+to match the pattern documented in `ARCHITECTURE.md#state-machine-pattern`:
+
+### NPC AI (`core/src/systems/ai.rs`)
+`AiState` is already an enum with variants (`Idle`, `Wander`, `Aggro`, `Combat`,
+`Flee`, `Patrol`, `Return`) but transitions are ad-hoc. Refactor:
+- Define a transition matrix (valid next states per state + trigger conditions)
+- Emit `AiStateChanged { entity, from, to }` on every transition
+- Move transition logic into a single `tick_ai(state, context) -> AiState` function
+
+### Combat (`core/src/systems/combat.rs`, `core/src/components/combat.rs`)
+Replace `CombatTarget(Entity)` newtype with `CombatState` enum:
+- `NotInCombat` — default, no engagement
+- `Engaged { target: Entity, round_started: Instant }` — active combat
+- `Fleeing { target: Entity, attempts: u8 }` — fleeing
+- `CombatSystem` dispatches on `CombatState` to determine pulse behavior
+- Merge stance info: `Engaged { target, stance }` referencing `ActiveStance`
+
+### Resting / Player Activity
+- `RestState` (Standing, Sitting, Resting, Sleeping, Unconscious, Dead) exists
+  in the design doc but is not yet implemented as a component.
+- Embed it in `PlayerState::Resting(RestState)` when implementing.
+- Add `PlayerState::Stunned { remaining_ms }` and `PlayerState::Casting { .. }`
+  variants for other activity gating.
+
+### Equipment Skill Gates (`SkillRequirementSystem`)
+`SkillRequirementSystem` continuously checks skills vs equipped items.
+This is an implied state machine per equipped item (gated ↔ ungated).
+Formalize as needed when item durability/curse systems are implemented.

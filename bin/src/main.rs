@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod console;
 mod init;
 mod signals;
 mod templates;
@@ -47,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server.register_command("score", &[], AccessLevel::Player, commands::cmd_score);
     server.register_command("motd", &[], AccessLevel::Player, commands::cmd_motd);
     server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
+    server.register_command("who", &["w"], AccessLevel::Player, commands::cmd_who);
     server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
 
     // Phase 3 — Combat
@@ -117,11 +119,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
+    // Spawn OS signal handler
+    let signal_shutdown = shutdown_tx.clone();
     tokio::spawn(async move {
         signals::shutdown_signal().await;
         tracing::info!("Shutdown requested");
-        let _ = shutdown_tx.send(true);
+        let _ = signal_shutdown.send(true);
     });
 
-    server.run(shutdown_rx).await
+    // Spawn server console (stdin reader)
+    let console_shutdown = shutdown_tx.clone();
+    tokio::spawn(async move {
+        console::run_console(console_shutdown).await;
+    });
+
+    let _ = server.run(shutdown_rx).await;
+
+    // Exit explicitly to kill residual blocking threads (e.g. stdin reader in
+    // the console task). All graceful cleanup (connections, DB flush) already
+    // happened inside Server::run().
+    std::process::exit(0);
 }

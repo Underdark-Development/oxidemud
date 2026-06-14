@@ -2,45 +2,7 @@ use tokio::sync::mpsc;
 
 use mud_core::Entity;
 
-// ---------------------------------------------------------------------------
-// Connection State Machine
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnectionState {
-    Connected,
-    Username,
-    Password {
-        username: &'static str,
-        attempts: u8,
-    },
-    AccountCreateConfirm {
-        username: &'static str,
-    },
-    AccountCreatePassword,
-    AccountCreateConfirmPassword,
-    CharacterSelect,
-    CharacterCreateName,
-    CharacterCreateRace,
-    CharacterCreateClass,
-    CharacterCreateConfirm,
-    Playing,
-}
-
-impl ConnectionState {
-    pub fn is_playing(&self) -> bool {
-        matches!(self, ConnectionState::Playing)
-    }
-}
-
-/// Temporary buffer for character creation wizard data.
-#[derive(Debug, Clone, Default)]
-pub struct CharacterCreateBuffer {
-    pub name: Option<String>,
-    pub race: Option<String>,
-    pub class: Option<String>,
-    pub password: Option<String>,
-}
+use crate::telnet::{negotiate_echo, negotiate_no_echo};
 
 // ---------------------------------------------------------------------------
 // Connection Flags
@@ -97,7 +59,7 @@ impl Default for ConnectionFlags {
 }
 
 // ---------------------------------------------------------------------------
-// Connection Trait
+// Connection Trait — pure transport
 // ---------------------------------------------------------------------------
 
 pub trait Connection: Send {
@@ -111,14 +73,17 @@ pub trait Connection: Send {
     fn flags(&self) -> ConnectionFlags;
     fn set_flags(&mut self, flags: ConnectionFlags);
 
-    // Login state machine
-    fn state(&self) -> ConnectionState;
-    fn set_state(&mut self, state: ConnectionState);
-    fn create_buffer(&mut self) -> &mut CharacterCreateBuffer;
-    fn account_id(&self) -> Option<i64>;
-    fn set_account_id(&mut self, id: i64);
-    fn strikes(&self) -> u8;
-    fn set_strikes(&mut self, n: u8);
+    /// Enable or disable server-side echo via telnet IAC WILL/WONT ECHO.
+    /// WILL ECHO = server echoes (client hides input) — used for passwords.
+    /// WONT ECHO = client does local echo — used for normal gameplay.
+    fn set_echo(&mut self, echo_on: bool) {
+        let bytes = if echo_on {
+            negotiate_echo()
+        } else {
+            negotiate_no_echo()
+        };
+        self.send_raw(&bytes);
+    }
 
     /// Returns a clone of the output sender, if available.
     fn output_sender(&self) -> Option<mpsc::UnboundedSender<Vec<u8>>>;
@@ -135,10 +100,6 @@ pub struct TelnetConnection {
     entity: Option<Entity>,
     tx: Option<mpsc::UnboundedSender<Output>>,
     flags: ConnectionFlags,
-    state: ConnectionState,
-    create_buf: CharacterCreateBuffer,
-    conn_account_id: Option<i64>,
-    conn_strikes: u8,
 }
 
 impl TelnetConnection {
@@ -149,10 +110,6 @@ impl TelnetConnection {
             entity: None,
             tx: Some(tx),
             flags: ConnectionFlags::new(),
-            state: ConnectionState::Connected,
-            create_buf: CharacterCreateBuffer::default(),
-            conn_account_id: None,
-            conn_strikes: 0,
         };
         (conn, rx)
     }
@@ -163,10 +120,6 @@ impl TelnetConnection {
             entity: None,
             tx: Some(tx),
             flags: ConnectionFlags::new(),
-            state: ConnectionState::Connected,
-            create_buf: CharacterCreateBuffer::default(),
-            conn_account_id: None,
-            conn_strikes: 0,
         }
     }
 }
@@ -216,34 +169,6 @@ impl Connection for TelnetConnection {
         self.flags = flags;
     }
 
-    fn state(&self) -> ConnectionState {
-        self.state
-    }
-
-    fn set_state(&mut self, state: ConnectionState) {
-        self.state = state;
-    }
-
-    fn create_buffer(&mut self) -> &mut CharacterCreateBuffer {
-        &mut self.create_buf
-    }
-
-    fn account_id(&self) -> Option<i64> {
-        self.conn_account_id
-    }
-
-    fn set_account_id(&mut self, id: i64) {
-        self.conn_account_id = Some(id);
-    }
-
-    fn strikes(&self) -> u8 {
-        self.conn_strikes
-    }
-
-    fn set_strikes(&mut self, n: u8) {
-        self.conn_strikes = n;
-    }
-
     fn output_sender(&self) -> Option<mpsc::UnboundedSender<Vec<u8>>> {
         self.tx.clone()
     }
@@ -254,16 +179,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_connection_state_default() {
+    fn test_connection_entity_default() {
         let (conn, _) = TelnetConnection::new(1);
-        assert_eq!(conn.state(), ConnectionState::Connected);
-    }
-
-    #[test]
-    fn test_connection_state_transition() {
-        let (mut conn, _) = TelnetConnection::new(1);
-        conn.set_state(ConnectionState::Username);
-        assert_eq!(conn.state(), ConnectionState::Username);
+        assert!(conn.entity().is_none());
     }
 
     #[test]
@@ -291,37 +209,5 @@ mod tests {
         flags.set(ConnectionFlag::ExtendedColor, true);
         conn.set_flags(flags);
         assert!(conn.flags().has(ConnectionFlag::ExtendedColor));
-    }
-
-    #[test]
-    fn test_create_buffer() {
-        let (mut conn, _) = TelnetConnection::new(1);
-        let buf = conn.create_buffer();
-        assert!(buf.name.is_none());
-        buf.name = Some("Test".to_string());
-        assert_eq!(conn.create_buffer().name.as_deref(), Some("Test"));
-    }
-
-    #[test]
-    fn test_account_id() {
-        let (mut conn, _) = TelnetConnection::new(1);
-        assert!(conn.account_id().is_none());
-        conn.set_account_id(42);
-        assert_eq!(conn.account_id(), Some(42));
-    }
-
-    #[test]
-    fn test_strikes() {
-        let (mut conn, _) = TelnetConnection::new(1);
-        assert_eq!(conn.strikes(), 0);
-        conn.set_strikes(2);
-        assert_eq!(conn.strikes(), 2);
-    }
-
-    #[test]
-    fn test_is_playing() {
-        assert!(!ConnectionState::Connected.is_playing());
-        assert!(!ConnectionState::Username.is_playing());
-        assert!(ConnectionState::Playing.is_playing());
     }
 }

@@ -465,6 +465,64 @@ pub fn update_entity_type(
     Ok(())
 }
 
+pub fn set_account_access_level(
+    conn: &Connection,
+    account_id: i64,
+    access_level: &str,
+) -> Result<(), rusqlite::Error> {
+    let valid = ["player", "builder", "immortal", "god", "admin"];
+    if !valid.contains(&access_level) {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "Invalid access level '{access_level}'. Valid: {}",
+            valid.join(", ")
+        )));
+    }
+    conn.execute(
+        "UPDATE accounts SET access_level = ?1 WHERE id = ?2",
+        params![access_level, account_id],
+    )?;
+    Ok(())
+}
+
+pub fn set_account_password_hash(
+    conn: &Connection,
+    account_id: i64,
+    password_hash: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE accounts SET password_hash = ?1 WHERE id = ?2",
+        params![password_hash, account_id],
+    )?;
+    Ok(())
+}
+
+pub fn set_character_field(
+    conn: &Connection,
+    character_id: i64,
+    field: &str,
+    value: &str,
+) -> Result<(), rusqlite::Error> {
+    match field {
+        "level" | "experience" | "xp" => {
+            let val: i64 = value
+                .parse()
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            let sql = format!("UPDATE characters SET {field} = ?1 WHERE id = ?2");
+            conn.execute(&sql, params![val, character_id])?;
+        }
+        "name" | "race" | "class" => {
+            let sql = format!("UPDATE characters SET {field} = ?1 WHERE id = ?2");
+            conn.execute(&sql, params![value, character_id])?;
+        }
+        _ => {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "Unknown character field '{field}'. Valid: level, xp, name, race, class"
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub fn update_last_login(conn: &Connection, account_id: i64) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE accounts SET last_login = datetime('now') WHERE id = ?1",
