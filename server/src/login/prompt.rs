@@ -205,6 +205,44 @@ pub fn show_character_confirm(flow: &mut LoginFlow, templates: &TemplateRegistry
     lines
 }
 
+/// Return the spawn-selection prompt as a vector of output lines.
+pub fn show_spawn_prompt(flow: &LoginFlow, templates: &TemplateRegistry) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    let race_id = flow.create_buffer.race.as_deref().unwrap_or("unknown");
+    let class_id = flow.create_buffer.class.as_deref().unwrap_or("unknown");
+
+    let available = templates.available_spawns(race_id, class_id, "");
+
+    lines.push(String::new());
+    lines.push("--- Choose Your Starting Location ---".to_string());
+
+    if available.is_empty() {
+        lines.push("No spawn points available. Contact an administrator.".to_string());
+        return lines;
+    }
+
+    for (i, (area_id, spawn)) in available.iter().enumerate() {
+        let area_name = templates
+            .get_area(area_id)
+            .map(|a| a.name.as_str())
+            .unwrap_or(area_id);
+        lines.push(format!(
+            "{}. {} — {} ({})",
+            i + 1,
+            spawn.label,
+            spawn.description,
+            area_name
+        ));
+    }
+
+    lines.push(format!(
+        "Pick a starting location by number (1-{}):",
+        available.len()
+    ));
+    lines
+}
+
 /// Return a list of online players as output lines.
 pub fn list_who(world: &World, registry: &ConnectionRegistry) -> Vec<String> {
     let mut lines = Vec::new();

@@ -1,0 +1,19 @@
+id = "river_rat"
+name = "river rat"
+description = "A mangy rat the size of a cat, with yellowed teeth and beady red eyes."
+health = { current = 6, max = 6 }
+level = 1
+armor = 0
+damage = "1d2"
+damage_type = "pierce"
+size = "small"
+xp_value = 10
+ai_mode = "wander"
+aggro_range = 4
+aggro_players = true
+
+[loot]
+[[loot.entries]]
+item = "copper_coin"
+count = { min = 1, max = 3 }
+chance = 40

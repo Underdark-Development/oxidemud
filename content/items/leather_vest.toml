@@ -1,0 +1,11 @@
+id = "leather_vest"
+name = "Leather Vest"
+description = "A toughened leather vest scarred from use."
+item_type = "armor"
+subtype = "vest"
+quality = "common"
+weight = 3.0
+value = 15
+
+[equipment]
+slot = "torso"

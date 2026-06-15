@@ -1,0 +1,6 @@
+id = "human"
+name = "Human"
+description = "The human race is known for their adaptability and ambition, thriving in all corners of the world."
+
+allowed_classes = ["warrior", "mage"]
+racial_abilities = ["adaptability"]

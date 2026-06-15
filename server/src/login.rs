@@ -20,6 +20,7 @@ pub struct CharacterCreateBuffer {
     pub race: Option<String>,
     pub class: Option<String>,
     pub password: Option<String>,
+    pub spawn_key: Option<String>,
 }
 
 /// Owns all login / character-creation state. Kept independent of the
@@ -126,6 +127,7 @@ impl LoginFlow {
         world: &mut World,
         registry: &mut ConnectionRegistry,
         void_room: Entity,
+        spawn_room: Entity,
     ) -> Vec<String> {
         match &self.state {
             LoginState::Connected => handlers::handle_connected_state(self),
@@ -151,8 +153,10 @@ impl LoginFlow {
                 handlers::handle_account_create_confirm_password_state(self, input, db).await
             }
             LoginState::CharacterSelect => {
-                handlers::handle_character_select_state(self, input, db, world, registry, void_room)
-                    .await
+                handlers::handle_character_select_state(
+                    self, input, db, world, registry, void_room, spawn_room,
+                )
+                .await
             }
             LoginState::CharacterCreateName => {
                 handlers::handle_character_create_name_state(self, input, db).await
@@ -163,9 +167,12 @@ impl LoginFlow {
             LoginState::CharacterCreateClass => {
                 handlers::handle_character_create_class_state(self, input, templates)
             }
+            LoginState::CharacterCreateSpawn => {
+                handlers::handle_spawn_select_state(self, input, templates)
+            }
             LoginState::CharacterCreateConfirm => {
                 handlers::handle_character_create_confirm_state(
-                    self, input, db, world, void_room, templates,
+                    self, input, db, world, void_room, spawn_room, templates,
                 )
                 .await
             }
@@ -206,6 +213,13 @@ impl LoginFlow {
             LoginState::CharacterCreateClass => {
                 if let Some(t) = templates {
                     prompt::show_character_class_prompt(self, t)
+                } else {
+                    Vec::new()
+                }
+            }
+            LoginState::CharacterCreateSpawn => {
+                if let Some(t) = templates {
+                    prompt::show_spawn_prompt(self, t)
                 } else {
                     Vec::new()
                 }

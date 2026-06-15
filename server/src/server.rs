@@ -36,6 +36,7 @@ pub struct Server {
     commands: CommandDispatch,
     next_conn_id: AtomicU64,
     void_room: Entity,
+    spawn_room: Entity,
     db: Option<Arc<Mutex<mud_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     shutdown_complete: Arc<Notify>,
@@ -50,10 +51,16 @@ impl Server {
             commands: CommandDispatch::new(),
             next_conn_id: AtomicU64::new(1),
             void_room,
+            spawn_room: void_room,
             db: None,
             templates: None,
             shutdown_complete: Arc::new(Notify::new()),
         }
+    }
+
+    pub fn with_spawn_room(mut self, spawn_room: Entity) -> Self {
+        self.spawn_room = spawn_room;
+        self
     }
 
     pub fn with_database(mut self, db: mud_data::Database) -> Self {
@@ -96,6 +103,7 @@ impl Server {
         let registry = self.registry;
         let commands = Arc::new(self.commands);
         let void_room = self.void_room;
+        let spawn_room = self.spawn_room;
         let db = self.db;
         let templates = self.templates;
         let shutdown_complete = self.shutdown_complete;
@@ -127,7 +135,11 @@ impl Server {
 
                     let templates = templates.clone();
                     tokio::spawn(async move {
-                        handle_connection(conn_id, stream, world, registry, commands, void_room, db, templates).await;
+                        handle_connection(
+                            conn_id, stream, world, registry, commands, void_room, spawn_room, db,
+                            templates,
+                        )
+                        .await;
                     });
                 }
             }
@@ -152,6 +164,7 @@ async fn handle_connection(
     registry: Arc<Mutex<ConnectionRegistry>>,
     commands: Arc<CommandDispatch>,
     void_room: Entity,
+    spawn_room: Entity,
     db: Option<Arc<Mutex<mud_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
 ) {
@@ -240,6 +253,7 @@ async fn handle_connection(
                             &mut w,
                             &mut reg,
                             void_room,
+                            spawn_room,
                         )
                         .await;
 
@@ -429,9 +443,20 @@ pub fn award_xp(world: &mut World, entity: Entity) {
             ""
         };
 
+        // Grant skill points on level-up
+        let skill_points = (new_level as u32 * 2) + con_mod.max(0) as u32;
+        if let Ok(mut q) = world.query_one::<&mut mud_core::LearnedSkills>(entity) {
+            if let Some(skills) = q.get() {
+                skills.unspent_points = skills.unspent_points.saturating_add(skill_points);
+            }
+        }
+
+        let sp_msg = format!(" {} skill point(s).", skill_points);
+
         messages.push(format!(
-            "You advance to level {new_level}! HP increased by {}.{attr_msg}",
+            "You advance to level {new_level}! HP increased by {}.{attr_msg}{}",
             (hit_die + con_mod).max(1),
+            sp_msg,
         ));
     }
 
@@ -440,6 +465,11 @@ pub fn award_xp(world: &mut World, entity: Entity) {
             if let Some(health) = q.get() {
                 health.current = health.max; // Ensure full heal
             }
+        }
+
+        // Re-apply passives on level-up
+        if let Some(templates) = TEMPLATES.get() {
+            mud_core::systems::passive::apply_all_passives(world, entity, templates);
         }
     }
 }

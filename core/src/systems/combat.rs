@@ -1,12 +1,61 @@
 use crate::dice::DiceRoll;
 use crate::{
     Armor, Attributes, CombatTarget, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Health,
-    Inventory, Level, LootRule, Position, Resistance, Weapon, World,
+    Inventory, Level, LootRule, Position, Resistance, Weapon, WeaponHands, World,
 };
 
 /// Calculate ability modifier: (stat - 10) / 2
 fn ability_mod(stat: u8) -> i32 {
     (stat as i32 - 10) / 2
+}
+
+/// Returns the attacker's shield entity if they have one equipped.
+fn get_shield(world: &World, entity: Entity) -> Option<Entity> {
+    world
+        .query_one::<&Equipment>(entity)
+        .ok()
+        .and_then(|mut q| {
+            q.get()
+                .and_then(|eq| eq.equipped(&EquipmentSlot::Shield).copied())
+        })
+}
+
+/// Check if attacker is dual-wielding (weapon in both Weapon and Shield slots).
+fn is_dual_wielding(world: &World, entity: Entity) -> bool {
+    let has_weapon = world
+        .query_one::<&Equipment>(entity)
+        .ok()
+        .and_then(|mut q| {
+            q.get().and_then(|eq| {
+                eq.equipped(&EquipmentSlot::Weapon)
+                    .and_then(|e| world.query_one::<&Weapon>(*e).ok())
+                    .and_then(|mut wq| wq.get().map(|w| w.hands == WeaponHands::OneHand))
+            })
+        })
+        .unwrap_or(false);
+
+    if !has_weapon {
+        return false;
+    }
+
+    // Check if Shield slot has a weapon (not an actual shield)
+    get_shield(world, entity).is_some_and(|s| {
+        world
+            .query_one::<&Weapon>(s)
+            .is_ok_and(|mut q| q.get().is_some())
+    })
+}
+
+/// Get the equipped weapon entity and data for a given slot.
+fn get_weapon_data(world: &World, entity: Entity, slot: EquipmentSlot) -> Option<(Entity, Weapon)> {
+    let mut eq = world.query_one::<&Equipment>(entity).ok()?;
+    let weapon_entity = *eq.get()?.equipped(&slot)?;
+    let weapon = world
+        .query_one::<&Weapon>(weapon_entity)
+        .ok()?
+        .get()?
+        .clone();
+    Some((weapon_entity, weapon))
 }
 
 /// Calculate AC for an entity.
@@ -30,12 +79,36 @@ pub fn calculate_ac(world: &World, entity: Entity) -> i32 {
         .and_then(|mut q| q.get().cloned())
         .unwrap_or(Armor { base: 0, bonus: 0 });
 
-    10 + level.0 as i32 + ability_mod(dex) + armor.total()
+    // Shield AC bonus
+    let shield_bonus = get_shield(world, entity).is_some_and(|s| {
+        world
+            .query_one::<&Armor>(s)
+            .is_ok_and(|mut q| q.get().is_some())
+    }) as i32
+        * 2;
+
+    10 + level.0 as i32 + ability_mod(dex) + armor.total() + shield_bonus
+}
+
+/// Calculate to-hit penalty for dual-wielding.
+/// Main hand: -2, offhand: -4.
+fn dual_wield_penalty(is_offhand: bool) -> i32 {
+    if is_offhand {
+        -4
+    } else {
+        -2
+    }
 }
 
 /// Calculate damage for an attack from `attacker` against `target`.
+/// `is_offhand` should be true for the offhand weapon when dual-wielding.
 /// Returns (damage_amount, damage_type).
-pub fn calculate_damage(world: &World, attacker: Entity, _target: Entity) -> (i32, DamageType) {
+pub fn calculate_damage(
+    world: &World,
+    attacker: Entity,
+    _target: Entity,
+    is_offhand: bool,
+) -> (i32, DamageType) {
     let str = world
         .query_one::<&Attributes>(attacker)
         .ok()
@@ -49,34 +122,41 @@ pub fn calculate_damage(world: &World, attacker: Entity, _target: Entity) -> (i3
         .and_then(|mut q| q.get().copied())
         .unwrap_or(Level(1));
 
-    // Check for equipped weapon
-    let weapon_damage = world
-        .query_one::<&Equipment>(attacker)
-        .ok()
-        .and_then(|mut q| {
-            q.get().and_then(|eq| {
-                eq.equipped(&EquipmentSlot::Weapon).and_then(|wep_entity| {
-                    world
-                        .query_one::<&Weapon>(*wep_entity)
-                        .ok()
-                        .and_then(|mut wq| wq.get().cloned())
-                })
-            })
-        });
+    let str_mod = ability_mod(str);
 
-    if let Some(wep) = weapon_damage {
-        let base = wep.damage_dice.roll() + ability_mod(str);
+    // Check for equipped weapon
+    let slot = if is_offhand {
+        EquipmentSlot::Shield
+    } else {
+        EquipmentSlot::Weapon
+    };
+
+    let weapon_damage = get_weapon_data(world, attacker, slot);
+
+    if let Some((_, wep)) = weapon_damage {
+        let dice_damage = wep.damage_dice.roll();
+        let str_bonus = if wep.is_two_handed() {
+            // Two-handed: 1.5x str mod
+            (str_mod as f32 * 1.5).round() as i32
+        } else if is_offhand {
+            // Offhand: 0.5x str mod
+            (str_mod as f32 * 0.5).round() as i32
+        } else {
+            str_mod
+        };
+        let base = dice_damage + str_bonus;
         (base.max(1), wep.damage_type)
     } else {
         // Unarmed: 1d4 + str mod
         let dice = DiceRoll::new(1, 4, 0);
-        let base = dice.roll() + ability_mod(str) + level.0 as i32 / 5;
+        let base = dice.roll() + str_mod + level.0 as i32 / 5;
         (base.max(1), DamageType::Bludgeon)
     }
 }
 
 /// Calculate to-hit value for attacker vs target. Returns true if hit.
-pub fn calculate_hit(world: &World, attacker: Entity, target: Entity) -> bool {
+/// `is_offhand` should be true for the offhand weapon when dual-wielding.
+pub fn calculate_hit(world: &World, attacker: Entity, target: Entity, is_offhand: bool) -> bool {
     let atk_level = world
         .query_one::<&Level>(attacker)
         .ok()
@@ -93,7 +173,13 @@ pub fn calculate_hit(world: &World, attacker: Entity, target: Entity) -> bool {
 
     let ac = calculate_ac(world, target);
 
-    // d20 + level + str_mod >= AC
+    let dw_penalty = if is_dual_wielding(world, attacker) {
+        dual_wield_penalty(is_offhand)
+    } else {
+        0
+    };
+
+    // d20 + level + str_mod + dw_penalty >= AC
     let roll = fastrand::i32(1..=20);
     if roll == 1 {
         return false; // auto-miss
@@ -102,7 +188,7 @@ pub fn calculate_hit(world: &World, attacker: Entity, target: Entity) -> bool {
         return true; // auto-crit
     }
 
-    roll + atk_level + ability_mod(str) >= ac
+    roll + atk_level + ability_mod(str) + dw_penalty >= ac
 }
 
 /// Run one combat pulse for all entities with CombatTarget.
@@ -154,50 +240,74 @@ pub fn run_combat_pulse(world: &mut World) {
             continue;
         }
 
-        // Hit roll
-        let is_hit = calculate_hit(world, attacker, target);
-        if !is_hit {
-            continue;
-        }
-
-        // Damage
-        let (mut damage, damage_type) = calculate_damage(world, attacker, target);
-
-        // Apply resistance
-        if let Ok(mut res) = world.query_one::<&Resistance>(target) {
-            if let Some(r) = res.get() {
-                damage = r.apply(damage, &damage_type);
+        // Main hand attack
+        let is_hit = calculate_hit(world, attacker, target, false);
+        if is_hit {
+            let (damage, damage_type) = calculate_damage(world, attacker, target, false);
+            if apply_damage(world, attacker, target, damage, damage_type) {
+                continue;
             }
         }
 
-        if damage <= 0 {
-            continue;
-        }
-
-        // Apply damage to target (drop borrow before death handling)
-        let killed = {
-            let mut q = match world.query_one::<&mut Health>(target) {
-                Ok(q) => q,
-                Err(_) => continue,
-            };
-            match q.get() {
-                Some(hp) => {
-                    let killed = hp.current <= damage;
-                    hp.damage(damage);
-                    killed
-                }
-                None => continue,
+        // Offhand attack if dual-wielding
+        if is_dual_wielding(world, attacker) {
+            let oh_hit = calculate_hit(world, attacker, target, true);
+            if oh_hit {
+                let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
+                apply_damage(world, attacker, target, oh_dmg, oh_type);
             }
-        };
-
-        // Handle death outside the borrow
-        if killed {
-            spawn_corpse(world, target, None);
-            grant_xp(world, attacker, target);
-            let _ = world.remove_one::<CombatTarget>(attacker);
-            let _ = world.remove_one::<CombatTarget>(target);
         }
     }
+}
+
+/// Apply damage to target, handling resistance, death, corpse, and XP.
+/// Returns true if the target died (caller should not continue attacking).
+fn apply_damage(
+    world: &mut World,
+    attacker: Entity,
+    target: Entity,
+    damage: i32,
+    damage_type: DamageType,
+) -> bool {
+    // Apply resistance
+    let final_damage = if let Ok(mut res) = world.query_one::<&Resistance>(target) {
+        if let Some(r) = res.get() {
+            r.apply(damage, &damage_type)
+        } else {
+            damage
+        }
+    } else {
+        damage
+    };
+
+    if final_damage <= 0 {
+        return false;
+    }
+
+    // Apply damage to target
+    let killed = {
+        let mut q = match world.query_one::<&mut Health>(target) {
+            Ok(q) => q,
+            Err(_) => return false,
+        };
+        match q.get() {
+            Some(hp) => {
+                let killed = hp.current <= final_damage;
+                hp.damage(final_damage);
+                killed
+            }
+            None => return false,
+        }
+    };
+
+    if killed {
+        spawn_corpse(world, target, None);
+        grant_xp(world, attacker, target);
+        let _ = world.remove_one::<CombatTarget>(attacker);
+        let _ = world.remove_one::<CombatTarget>(target);
+    }
+
+    killed
 }
 
 /// Spawn a corpse entity with the victim's inventory + equipment.

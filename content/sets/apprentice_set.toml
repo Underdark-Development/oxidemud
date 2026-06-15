@@ -1,0 +1,6 @@
+id = "apprentice_set"
+name = "Apprentice's Set"
+
+[[bonuses]]
+min_pieces = 2
+effects = [{ effect_type = "stat", stat = "intelligence", amount = 1 }]

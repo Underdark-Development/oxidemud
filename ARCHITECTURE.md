@@ -1039,33 +1039,33 @@ mcp/
 - [x] Unit tests — movement, void blocking, room broadcast, ANSI
 
 ### Phase 2 — Character System
-- [ ] Connection state machine (LoginFlow in server/src/login/)
-- [ ] Account creation (username + password, argon2 hashing)
-- [ ] Login flow (banner/MOTD → username → password)
-- [ ] Character select screen (list existing + create new)
-- [ ] Character creation wizard (name → race → class → attributes → confirm)
-- [ ] Race→class filtering in creation wizard
-- [ ] characters SQLite table + schema migration
-- [ ] TOML race/class template loading
-- [ ] Unified SkillDef + skill_type enum
-- [ ] Expanded RaceTemplate with constraints
-- [ ] Expanded ClassTemplate with constraints
-- [ ] Cross-reference validation pipeline
-- [ ] Derived indices in TemplateRegistry
-- [ ] Auto-grant racial abilities + class auto-skills
-- [ ] Starting room spawn on character confirm
-- [ ] motd command
+- [x] Connection state machine (LoginFlow in server/src/login/)
+- [x] Account creation (username + password, argon2 hashing)
+- [x] Login flow (banner/MOTD → username → password)
+- [x] Character select screen (list existing + create new)
+- [x] Character creation wizard (name → race → class → attributes → confirm)
+- [x] Race→class filtering in creation wizard
+- [x] characters SQLite table + schema migration
+- [x] TOML race/class template loading
+- [x] Unified SkillDef + skill_type enum
+- [x] Expanded RaceTemplate with constraints
+- [x] Expanded ClassTemplate with constraints
+- [x] Cross-reference validation pipeline
+- [x] Derived indices in TemplateRegistry
+- [x] Auto-grant racial abilities + class auto-skills
+- [x] Starting room spawn on character confirm
+- [x] motd command
 
 ### Phase 3 — Combat & Equipment
-- [ ] Health, Damage components
-- [ ] Combat system (attack/damage rolls)
-- [ ] Damage type system (resistance/vulnerability)
-- [ ] Weapon styles (two-handed, dual-wield)
-- [ ] Equipment, Inventory components
-- [ ] Weapon/armor items with restriction gates
-- [ ] NPC mobiles with basic AI
-- [ ] Mob template system
-- [ ] Stance subsystem
+- [x] Health, Damage components
+- [x] Combat system (attack/damage rolls)
+- [x] Damage type system (resistance/vulnerability)
+- [x] Weapon styles (two-handed, dual-wield)
+- [x] Equipment, Inventory components
+- [x] Weapon/armor items with restriction gates
+- [x] NPC mobiles with basic AI
+- [x] Mob template system
+- [x] Stance subsystem
 - [ ] Passive system (login/level-up application)
 - [ ] Skill cap system
 - [ ] Training system
@@ -1081,7 +1081,7 @@ mcp/
 - [ ] Multi-classing system
 - [ ] Spell system (unified in Skill System)
 - [ ] Shop & Economy
-- [ ] Resource pools + regeneration
+- [x] Resource pools + regeneration
 - [ ] Resource cost system
 - [ ] Optional PvP flagging
 

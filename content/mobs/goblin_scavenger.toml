@@ -1,0 +1,28 @@
+id = "goblin_scavenger"
+name = "goblin scavenger"
+description = "A wiry green-skinned goblin clad in ragged cloth, clutching a crude blade."
+health = { current = 12, max = 12 }
+level = 2
+armor = 2
+damage = "1d4+1"
+damage_type = "slash"
+size = "small"
+xp_value = 35
+ai_mode = "wander"
+aggro_range = 6
+aggro_players = true
+languages = ["goblin"]
+
+[[equipment]]
+template_id = "wooden_cudgel"
+slot = "weapon"
+
+[loot]
+[[loot.entries]]
+item = "copper_coin"
+count = { min = 2, max = 5 }
+chance = 60
+
+[[loot.entries]]
+item = "healing_salve"
+chance = 10

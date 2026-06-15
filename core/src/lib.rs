@@ -4,6 +4,7 @@ mod components;
 pub mod dice;
 mod events;
 pub mod format;
+pub mod regen;
 mod resources;
 pub mod systems;
 pub mod templates;

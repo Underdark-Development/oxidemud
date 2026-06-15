@@ -1,5 +1,9 @@
 pub mod ai;
 pub mod combat;
 pub mod corpse;
+pub mod loot;
+pub mod passive;
+pub mod regen;
 pub mod set_bonus;
 pub mod stance;
+pub mod trigger;

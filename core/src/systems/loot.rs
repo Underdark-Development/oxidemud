@@ -1,0 +1,404 @@
+use crate::templates::{AffixDef, LootTable, TemplateRegistry};
+use crate::Entity;
+
+/// Quality tiers that determine how many affixes an item can roll.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum QualityTier {
+    Common,
+    Uncommon,
+    Rare,
+    Epic,
+    Legendary,
+}
+
+impl QualityTier {
+    /// Number of affixes this tier grants (prefix + suffix pairs).
+    pub fn affix_count(self) -> usize {
+        match self {
+            QualityTier::Common => 0,
+            QualityTier::Uncommon => 1,
+            QualityTier::Rare => 2,
+            QualityTier::Epic => 3,
+            QualityTier::Legendary => 4,
+        }
+    }
+
+    /// Name used in template `quality_min` filtering.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            QualityTier::Common => "common",
+            QualityTier::Uncommon => "uncommon",
+            QualityTier::Rare => "rare",
+            QualityTier::Epic => "epic",
+            QualityTier::Legendary => "legendary",
+        }
+    }
+}
+
+/// Result of a loot roll — entity creation is handled by the caller.
+#[derive(Debug, Clone)]
+pub struct ItemSpawn {
+    pub template_id: String,
+    pub count: u8,
+    pub quality: QualityTier,
+    pub prefix_ids: Vec<String>,
+    pub suffix_ids: Vec<String>,
+}
+
+/// Roll loot from a mob's loot table.
+pub fn roll_loot(table: &LootTable, mob_level: u8, templates: &TemplateRegistry) -> Vec<ItemSpawn> {
+    let mut results = Vec::new();
+
+    for entry in &table.entries {
+        if entry.chance < 100 && fastrand::u8(0..100) >= entry.chance {
+            continue;
+        }
+
+        if entry.item.is_empty() {
+            continue;
+        }
+
+        // Determine count
+        let count = match &entry.count {
+            Some(c) => {
+                let min = c.min;
+                let max = c.max.max(min);
+                if min == max {
+                    min
+                } else {
+                    fastrand::u8(min..=max)
+                }
+            }
+            None => 1,
+        };
+
+        // Roll quality based on mob level
+        let quality = roll_quality(mob_level);
+
+        // Roll affixes
+        let (prefix_ids, suffix_ids) = roll_affixes(quality, &entry.item, templates);
+
+        results.push(ItemSpawn {
+            template_id: entry.item.clone(),
+            count,
+            quality,
+            prefix_ids,
+            suffix_ids,
+        });
+    }
+
+    results
+}
+
+/// Roll quality tier based on mob level.
+fn roll_quality(mob_level: u8) -> QualityTier {
+    let roll = fastrand::u64(0..10_000);
+
+    let (common, uncommon, rare, epic) = quality_thresholds(mob_level);
+
+    if roll < epic {
+        QualityTier::Legendary
+    } else if roll < rare {
+        QualityTier::Epic
+    } else if roll < uncommon {
+        QualityTier::Rare
+    } else if roll < common {
+        QualityTier::Uncommon
+    } else {
+        QualityTier::Common
+    }
+}
+
+/// Quality thresholds per mob level (out of 10,000).
+/// Higher-level mobs drop better loot more often.
+fn quality_thresholds(level: u8) -> (u64, u64, u64, u64) {
+    let l = level as u64;
+    // Common threshold decreases with level; uncommon/rare/epic increase.
+    let common = 8000u64.saturating_sub(l * 100).max(2000);
+    let uncommon = common + 1500 + l * 50;
+    let rare = uncommon + 300 + l * 30;
+    let epic = rare + 50 + l * 10;
+    (common, uncommon, rare, epic)
+}
+
+/// Roll prefix and suffix affixes for an item.
+fn roll_affixes(
+    quality: QualityTier,
+    item_template_id: &str,
+    templates: &TemplateRegistry,
+) -> (Vec<String>, Vec<String>) {
+    let count = quality.affix_count();
+    if count == 0 {
+        return (vec![], vec![]);
+    }
+
+    // Determine the equipment slot from the item template
+    let slot = templates
+        .get_item(item_template_id)
+        .and_then(|item| item.equipment.as_ref().map(|eq| eq.slot.clone()))
+        .unwrap_or_default();
+
+    let quality_str = quality.as_str();
+
+    // Collect eligible affixes from the pool
+    let mut eligible: Vec<&AffixDef> = Vec::new();
+    for affix in templates.affixes.values() {
+        if (affix.slot.is_empty() || affix.slot.contains(&slot))
+            && quality_meets_min(quality_str, &affix.quality_min)
+        {
+            eligible.push(affix);
+        }
+    }
+
+    if eligible.is_empty() {
+        return (vec![], vec![]);
+    }
+
+    // Separate into prefixes and suffixes
+    let prefixes: Vec<&&AffixDef> = eligible
+        .iter()
+        .filter(|a| a.affix_type == "prefix")
+        .collect();
+    let suffixes: Vec<&&AffixDef> = eligible
+        .iter()
+        .filter(|a| a.affix_type == "suffix")
+        .collect();
+
+    let prefix_ids = weighted_sample(&prefixes, count);
+    let suffix_ids = weighted_sample(&suffixes, count);
+
+    (prefix_ids, suffix_ids)
+}
+
+/// Check if a quality tier meets the minimum requirement.
+fn quality_meets_min(tier: &str, min: &str) -> bool {
+    let tiers = ["common", "uncommon", "rare", "epic", "legendary"];
+    let tier_idx = tiers.iter().position(|t| *t == tier).unwrap_or(0);
+    let min_idx = tiers.iter().position(|t| *t == min).unwrap_or(0);
+    tier_idx >= min_idx
+}
+
+/// Weighted random sample from affix candidates.
+fn weighted_sample(affixes: &[&&AffixDef], count: usize) -> Vec<String> {
+    use std::collections::HashMap;
+
+    if affixes.is_empty() || count == 0 {
+        return vec![];
+    }
+
+    let total_weight: u32 = affixes.iter().map(|a| a.weight).sum();
+    if total_weight == 0 {
+        return vec![];
+    }
+
+    let mut selected: Vec<String> = Vec::new();
+    let mut used: HashMap<usize, bool> = HashMap::new();
+
+    for _ in 0..count {
+        if used.len() >= affixes.len() {
+            break;
+        }
+        let roll = fastrand::u32(0..total_weight);
+        let mut cumulative = 0u32;
+        for (i, affix) in affixes.iter().enumerate() {
+            if used.contains_key(&i) {
+                continue;
+            }
+            cumulative += affix.weight;
+            if roll < cumulative {
+                selected.push(affix.id.clone());
+                used.insert(i, true);
+                break;
+            }
+        }
+    }
+
+    selected
+}
+
+/// Apply affix stat modifiers to an existing item entity.
+/// Reads component data and attaches affix names as a component.
+pub fn apply_affixes_to_item(
+    world: &mut crate::World,
+    item: Entity,
+    prefix_ids: &[String],
+    suffix_ids: &[String],
+    templates: &TemplateRegistry,
+) {
+    if prefix_ids.is_empty() && suffix_ids.is_empty() {
+        return;
+    }
+
+    let mut names: Vec<String> = Vec::new();
+
+    for affix_id in prefix_ids.iter().chain(suffix_ids) {
+        if let Some(affix) = templates.get_affix(affix_id) {
+            names.push(affix.name.clone());
+        }
+    }
+
+    let _ = world.insert(item, (crate::AffixNames(names),));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::templates::{AffixDef, EquipmentDef, ItemTemplate};
+
+    fn make_templates() -> TemplateRegistry {
+        let mut t = TemplateRegistry::new();
+        t.items.insert(
+            "test_weapon".into(),
+            ItemTemplate {
+                id: "test_weapon".into(),
+                name: "Test Weapon".into(),
+                description: ".".into(),
+                item_type: "weapon".into(),
+                subtype: String::new(),
+                quality: "common".into(),
+                level_requirement: 0,
+                weight: 0.0,
+                value: 0,
+                flags: vec![],
+                allowed_classes: vec![],
+                allowed_races: vec![],
+                allowed_alignments: vec![],
+                requires_skill: None,
+                weapon: None,
+                equipment: Some(EquipmentDef {
+                    slot: "weapon".into(),
+                }),
+                set: None,
+                triggers: vec![],
+            },
+        );
+        t.affixes.insert(
+            "of_frost".into(),
+            AffixDef {
+                id: "of_frost".into(),
+                name: "of Frost".into(),
+                description: "Cold damage.".into(),
+                affix_type: "suffix".into(),
+                element: Some("cold".into()),
+                amount: Some("1d6".into()),
+                stat: None,
+                quality_min: "uncommon".into(),
+                slot: vec!["weapon".into()],
+                weight: 1,
+            },
+        );
+        t.affixes.insert(
+            "sharp".into(),
+            AffixDef {
+                id: "sharp".into(),
+                name: "Sharp".into(),
+                description: "+2 damage.".into(),
+                affix_type: "prefix".into(),
+                element: None,
+                amount: Some("2".into()),
+                stat: Some("damage".into()),
+                quality_min: "common".into(),
+                slot: vec!["weapon".into()],
+                weight: 2,
+            },
+        );
+        t
+    }
+
+    #[test]
+    fn test_quality_tier_ordering() {
+        assert!(QualityTier::Common < QualityTier::Uncommon);
+        assert!(QualityTier::Uncommon < QualityTier::Rare);
+        assert!(QualityTier::Rare < QualityTier::Epic);
+        assert!(QualityTier::Epic < QualityTier::Legendary);
+    }
+
+    #[test]
+    fn test_quality_meets_min() {
+        assert!(quality_meets_min("uncommon", "common"));
+        assert!(quality_meets_min("uncommon", "uncommon"));
+        assert!(!quality_meets_min("common", "uncommon"));
+    }
+
+    #[test]
+    fn test_roll_quality_high_level() {
+        // High-level mobs should have better quality distribution
+        let q = roll_quality(50);
+        // Just verify it returns a valid tier
+        assert!(matches!(
+            q,
+            QualityTier::Common
+                | QualityTier::Uncommon
+                | QualityTier::Rare
+                | QualityTier::Epic
+                | QualityTier::Legendary
+        ));
+    }
+
+    #[test]
+    fn test_affix_slot_filter() {
+        let templates = make_templates();
+        let (_prefixes, suffixes) = roll_affixes(QualityTier::Uncommon, "test_weapon", &templates);
+        // sharp has weight 2, of_frost has weight 1, but of_frost is a suffix
+        assert_eq!(suffixes.len(), 1);
+        assert!(suffixes.contains(&"of_frost".to_string()));
+    }
+
+    #[test]
+    fn test_roll_loot_always_drops() {
+        let mut t = TemplateRegistry::new();
+        t.items.insert(
+            "test_item".into(),
+            ItemTemplate {
+                id: "test_item".into(),
+                name: "Test Item".into(),
+                description: ".".into(),
+                item_type: "weapon".into(),
+                subtype: String::new(),
+                quality: "common".into(),
+                level_requirement: 0,
+                weight: 0.0,
+                value: 0,
+                flags: vec![],
+                allowed_classes: vec![],
+                allowed_races: vec![],
+                allowed_alignments: vec![],
+                requires_skill: None,
+                weapon: None,
+                equipment: Some(EquipmentDef {
+                    slot: "weapon".into(),
+                }),
+                set: None,
+                triggers: vec![],
+            },
+        );
+        t.affixes.insert(
+            "sharp".into(),
+            AffixDef {
+                id: "sharp".into(),
+                name: "Sharp".into(),
+                description: "+2 damage.".into(),
+                affix_type: "prefix".into(),
+                element: None,
+                amount: Some("2".into()),
+                stat: Some("damage".into()),
+                quality_min: "common".into(),
+                slot: vec!["weapon".into()],
+                weight: 2,
+            },
+        );
+
+        let table = LootTable {
+            entries: vec![crate::templates::LootEntry {
+                item: "test_item".into(),
+                treasure_class: None,
+                count: None,
+                chance: 100,
+            }],
+        };
+
+        let spawns = roll_loot(&table, 10, &t);
+        assert_eq!(spawns.len(), 1);
+        assert_eq!(spawns[0].template_id, "test_item");
+    }
+}

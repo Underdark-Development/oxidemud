@@ -1,0 +1,8 @@
+id = "sturdy"
+name = "Sturdy"
+description = "Fortifies the body."
+type = "prefix"
+stat = "constitution"
+amount = "1"
+quality_min = "common"
+slot = ["torso", "head", "legs", "feet", "arms", "hands"]

@@ -1,0 +1,11 @@
+id = "cloth_robe"
+name = "Cloth Robe"
+description = "A simple undyed robe of rough-spun cloth, belted at the waist."
+item_type = "armor"
+subtype = "robe"
+quality = "common"
+weight = 1.0
+value = 3
+
+[equipment]
+slot = "torso"

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::dice::DiceRoll;
@@ -131,12 +132,25 @@ pub enum WeaponRange {
     Thrown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WeaponHands {
+    OneHand,
+    TwoHand,
+}
+
 #[derive(Debug, Clone)]
 pub struct Weapon {
     pub damage_dice: DiceRoll,
     pub damage_type: DamageType,
     pub speed: f32,
     pub range: WeaponRange,
+    pub hands: WeaponHands,
+}
+
+impl Weapon {
+    pub fn is_two_handed(&self) -> bool {
+        self.hands == WeaponHands::TwoHand
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -167,3 +181,45 @@ impl Durability {
         self.current = (self.current + amount).min(self.max);
     }
 }
+
+/// Which item set this piece belongs to (set_id, piece_type).
+/// Populated from the template when the item entity is spawned.
+#[derive(Debug, Clone)]
+pub struct SetMembership {
+    pub set_id: String,
+    pub piece_type: String,
+}
+
+/// Tracks how many equipped pieces of each set the entity has.
+#[derive(Debug, Clone)]
+pub struct SetTracker(pub HashMap<String, u8>);
+
+impl SetTracker {
+    pub fn new() -> Self {
+        SetTracker(HashMap::new())
+    }
+
+    pub fn count(&self, set_id: &str) -> u8 {
+        self.0.get(set_id).copied().unwrap_or(0)
+    }
+}
+
+impl Default for SetTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// An active effect on an entity (from set bonuses, spells, etc.).
+#[derive(Debug, Clone)]
+pub struct ActiveEffect {
+    pub source: String,
+    pub stat: Option<String>,
+    pub amount: Option<i32>,
+    pub aura_id: Option<String>,
+    pub radius: Option<u32>,
+}
+
+/// Affix names attached to a looted item (prefix/suffix).
+#[derive(Debug, Clone)]
+pub struct AffixNames(pub Vec<String>);

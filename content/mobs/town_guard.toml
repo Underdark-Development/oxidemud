@@ -1,0 +1,17 @@
+id = "town_guard"
+name = "Town Guard"
+description = "A stern watchman in a leather vest, spear never far from reach. A silver badge glints on his chest."
+health = { current = 30, max = 30 }
+level = 3
+armor = 4
+damage = "1d6+1"
+damage_type = "pierce"
+race = "human"
+ai_mode = "stationary"
+aggro_range = 8
+aggro_race = ["goblin"]
+languages = ["common"]
+
+[[equipment]]
+template_id = "leather_vest"
+slot = "torso"

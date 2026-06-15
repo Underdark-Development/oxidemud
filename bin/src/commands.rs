@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use mud_core as core;
+use mud_core::templates::SetDef;
 use mud_core::{Direction, Name, Position, Room, RoomExits, VoidRoom, World};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
@@ -374,6 +376,7 @@ pub fn cmd_help(
     conn.send_line("  look/l         — examine your surroundings");
     conn.send_line("  say <text>     — speak in the room");
     conn.send_line("  score          — display your character stats");
+    conn.send_line("  train          — spend skill points to train skills");
     conn.send_line("  motd           — show message of the day");
     conn.send_line("  north/n        — move north");
     conn.send_line("  south/s        — move south");
@@ -750,6 +753,14 @@ fn find_item_in_inventory(
     None
 }
 
+/// Re-evaluate set bonuses for an entity after equipment changes.
+fn evaluate_equipment_sets(world: &mut World, entity: core::Entity) {
+    if let Some(templates) = mud_server::get_templates() {
+        let set_defs: HashMap<String, SetDef> = templates.sets.clone();
+        core::systems::set_bonus::evaluate_set_bonuses(world, entity, &set_defs);
+    }
+}
+
 pub fn cmd_wear(
     world: &mut World,
     conn: &mut dyn Connection,
@@ -813,6 +824,8 @@ pub fn cmd_wear(
             conn.send_line("You wear it.");
         }
     }
+
+    evaluate_equipment_sets(world, entity);
 }
 
 pub fn cmd_wield(
@@ -872,6 +885,8 @@ pub fn cmd_wield(
             conn.send_line("You wield it.");
         }
     }
+
+    evaluate_equipment_sets(world, entity);
 }
 
 pub fn cmd_remove(
@@ -917,6 +932,8 @@ pub fn cmd_remove(
             }
         }
     }
+
+    evaluate_equipment_sets(world, entity);
 }
 
 pub fn cmd_examine(
@@ -1290,17 +1307,143 @@ pub fn cmd_stance(
 }
 
 // ---------------------------------------------------------------------------
-// Train command (placeholder)
+// Train command
 // ---------------------------------------------------------------------------
 
+fn skill_point_cost(current_rank: u16) -> u32 {
+    // Cost = 1 + rank / 10 (so rank 0=1, rank 10=2, rank 50=6, rank 100=11)
+    1 + (current_rank / 10) as u32
+}
+
+fn max_rank_for_level(level: u8) -> u16 {
+    // Max any skill rank = level * 5 + 5 (level 1 = 10, level 10 = 55, level 50 = 255)
+    (level as u16 * 5) + 5
+}
+
 pub fn cmd_train(
-    _world: &mut World,
+    world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
-    _args: &str,
+    args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    conn.send_line("Training is not yet implemented.");
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let level = world
+        .query_one::<&core::Level>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::Level(1));
+
+    let args = args.trim();
+
+    // `train` with no args — show status
+    if args.is_empty() {
+        let skills = world
+            .query_one::<&core::LearnedSkills>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .unwrap_or_default();
+
+        conn.send_line("");
+        conn.send_line("--- Training ---");
+        conn.send_line(&format!("Unspent skill points: {}", skills.unspent_points));
+        conn.send_line(&format!(
+            "Max rank per skill at level {}: {}",
+            level.0,
+            max_rank_for_level(level.0)
+        ));
+        conn.send_line("");
+
+        if skills.skills.is_empty() {
+            conn.send_line("You have no skills yet.");
+        } else {
+            let mut skills_vec: Vec<_> = skills.skills.iter().collect();
+            skills_vec.sort_by(|a, b| a.0.cmp(b.0));
+
+            conn.send_line("Known skills:");
+            for (skill_id, rank) in &skills_vec {
+                let cost = skill_point_cost(**rank);
+                conn.send_line(&format!(
+                    "  {skill_id}: rank {rank} ({} point(s) to train)",
+                    cost
+                ));
+            }
+        }
+
+        conn.send_line("");
+        return;
+    }
+
+    // `train list` — show all available skills from templates
+    if args == "list" {
+        conn.send_line("");
+        conn.send_line("Available skills:");
+        conn.send_line("  Skills are granted through race/class selection.");
+        conn.send_line("  Use 'train <skill>' to increase a known skill's rank.");
+        conn.send_line("");
+        return;
+    }
+
+    // `train <skill>` — train a specific skill
+    let skill_id = args.to_lowercase();
+
+    let mut skills = match world.query_one::<&mut core::LearnedSkills>(entity) {
+        Ok(mut q) => match q.get() {
+            Some(s) => s.clone(),
+            None => {
+                conn.send_line("You have no skills component.");
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line("You have no skills component.");
+            return;
+        }
+    };
+
+    // Check if skill is known
+    let current_rank = skills.rank(&skill_id);
+    if current_rank == 0 {
+        conn.send_line(&format!("You don't know the skill '{skill_id}'."));
+        return;
+    }
+
+    // Check skill cap by level
+    let max_rank = max_rank_for_level(level.0);
+    if current_rank >= max_rank {
+        conn.send_line(&format!(
+            "You cannot train '{skill_id}' beyond rank {max_rank} at your level."
+        ));
+        return;
+    }
+
+    // Check cost
+    let cost = skill_point_cost(current_rank);
+    if skills.unspent_points < cost {
+        conn.send_line(&format!(
+            "Training '{skill_id}' costs {cost} point(s), but you only have {}.",
+            skills.unspent_points
+        ));
+        return;
+    }
+
+    // Apply training
+    skills.unspent_points -= cost;
+    let new_rank = current_rank + 1;
+    skills.set_rank(&skill_id, new_rank);
+    let remaining = skills.unspent_points;
+
+    let _ = world.insert(entity, (skills,));
+    conn.send_line(&format!(
+        "You train '{skill_id}' to rank {new_rank}. ({remaining} point(s) remaining)",
+    ));
 }
 
 #[cfg(test)]

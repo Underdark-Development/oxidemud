@@ -1,0 +1,9 @@
+id = "merchant"
+name = "Elias the Merchant"
+description = "A portly man with a warm smile and keen eyes, dressed in a well-worn canvas apron."
+health = { current = 15, max = 15 }
+level = 2
+armor = 1
+ai_mode = "idle"
+race = "human"
+languages = ["common"]

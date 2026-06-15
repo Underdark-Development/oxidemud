@@ -1,0 +1,10 @@
+id = "warrior"
+name = "Warrior"
+description = "A stalwart fighter skilled in the art of battle."
+hit_die = 10
+
+[attribute_mods]
+strength = 2
+constitution = 1
+
+allowed_races = ["human"]

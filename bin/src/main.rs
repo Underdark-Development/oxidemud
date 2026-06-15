@@ -6,7 +6,7 @@ mod signals;
 mod templates;
 
 use config::Config;
-use init::init_world;
+use init::{init_world, spawn_area};
 use mud_server::{AccessLevel, Server};
 use std::path::Path;
 
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     });
 
-    let (world, void_room) = init_world();
+    let (mut world, void_room) = init_world();
 
     let content_path = config
         .motd_path
@@ -34,14 +34,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let templates = templates::load_templates(content_path);
     tracing::info!(
-        "Loaded {} race(s), {} class(es)",
+        "Loaded {} race(s), {} class(es), {} item(s), {} mob(s), {} area(s)",
         templates.races.len(),
-        templates.classes.len()
+        templates.classes.len(),
+        templates.items.len(),
+        templates.mobs.len(),
+        templates.areas.len(),
     );
+
+    // Spawn the first area into the ECS world
+    let spawn_room = templates
+        .areas
+        .values()
+        .next()
+        .map(|area| {
+            let room = spawn_area(&mut world, area);
+            tracing::info!(
+                "Spawned area '{}' with {} room(s)",
+                area.name,
+                area.rooms.len()
+            );
+            tracing::info!("Spawn room: {}", area.spawn_room);
+            room
+        })
+        .unwrap_or(void_room);
 
     let mut server = Server::new(config.bind_addr(), world, void_room)
         .with_database(db)
-        .with_templates(templates);
+        .with_templates(templates)
+        .with_spawn_room(spawn_room);
 
     server.register_command("look", &["l"], AccessLevel::Player, commands::cmd_look);
     server.register_command("say", &[], AccessLevel::Player, commands::cmd_say);

@@ -1,0 +1,17 @@
+id = "wooden_cudgel"
+name = "Wooden Cudgel"
+description = "A stout branch worn smooth by countless hands."
+item_type = "weapon"
+subtype = "club"
+quality = "common"
+weight = 2.5
+value = 5
+
+[weapon]
+damage = "1d4"
+damage_type = "bludgeon"
+speed = 2.0
+range = "melee"
+
+[equipment]
+slot = "weapon"

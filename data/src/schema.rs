@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS characters (
     experience INTEGER NOT NULL DEFAULT 0,
     entity_id INTEGER NOT NULL REFERENCES entities(id),
     room_id INTEGER NOT NULL REFERENCES entities(id),
+    spawn_key TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT
 );
@@ -166,7 +167,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 5;
+pub const VERSION: i64 = 6;
 
 #[cfg(test)]
 mod tests {

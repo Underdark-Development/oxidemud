@@ -1,0 +1,8 @@
+id = "torch"
+name = "Torch"
+description = "A resin-soaked brand that burns with a steady flame."
+item_type = "light"
+quality = "common"
+weight = 1.0
+value = 2
+flags = ["light_source"]

@@ -32,6 +32,34 @@ impl Database {
 
     fn run_migrations(&mut self) -> Result<(), rusqlite::Error> {
         self.conn.execute_batch(schema::SCHEMA)?;
+
+        // Check current schema version and run incremental migrations
+        let current: i64 = self
+            .conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if current < 6 {
+            // Migration 6: add spawn_key column to characters
+            // Guard against double-apply (column already exists in new DBs)
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT spawn_key FROM characters LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn
+                    .execute_batch("ALTER TABLE characters ADD COLUMN spawn_key TEXT;")?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (6)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

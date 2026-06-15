@@ -12,6 +12,7 @@ pub enum LoginState {
     CharacterCreateName,
     CharacterCreateRace,
     CharacterCreateClass,
+    CharacterCreateSpawn,
     CharacterCreateConfirm,
     Playing,
 }

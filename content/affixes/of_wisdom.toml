@@ -1,0 +1,8 @@
+id = "of_wisdom"
+name = "of Wisdom"
+description = "Grants insight."
+type = "suffix"
+stat = "wisdom"
+amount = "1"
+quality_min = "common"
+slot = ["head", "neck", "torso"]

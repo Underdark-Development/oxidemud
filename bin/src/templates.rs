@@ -1,6 +1,6 @@
 use mud_core::templates::{
-    AffixDef, ClassTemplate, ItemTemplate, MobTemplate, RaceTemplate, SetDef, StanceDef,
-    TemplateRegistry,
+    AffixDef, AreaTemplate, ClassTemplate, ItemTemplate, MobTemplate, PassiveDef, RaceTemplate,
+    SetDef, StanceDef, TemplateRegistry,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -15,6 +15,8 @@ pub fn load_templates(content_path: &Path) -> TemplateRegistry {
     registry.stances = load_stances(content_path);
     registry.sets = load_sets(content_path);
     registry.affixes = load_affixes(content_path);
+    registry.passives = load_passives(content_path);
+    registry.areas = load_areas(content_path);
     registry
 }
 
@@ -172,6 +174,52 @@ fn load_affixes(content_path: &Path) -> HashMap<String, AffixDef> {
                         map.insert(t.id.clone(), t);
                     }
                     Err(e) => tracing::error!("Failed to parse affix '{}': {e}", path.display()),
+                }
+            }
+        }
+    }
+    map
+}
+
+fn load_passives(content_path: &Path) -> HashMap<String, PassiveDef> {
+    let dir = content_path.join("passives");
+    let mut map = HashMap::new();
+    if !dir.exists() {
+        tracing::warn!("Passives directory not found: {}", dir.display());
+        return map;
+    }
+    for entry in fs::read_dir(&dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            if let Ok(content) = fs::read_to_string(&path) {
+                match toml::from_str::<PassiveDef>(&content) {
+                    Ok(t) => {
+                        map.insert(t.id.clone(), t);
+                    }
+                    Err(e) => tracing::error!("Failed to parse passive '{}': {e}", path.display()),
+                }
+            }
+        }
+    }
+    map
+}
+
+fn load_areas(content_path: &Path) -> HashMap<String, AreaTemplate> {
+    let dir = content_path.join("areas");
+    let mut map = HashMap::new();
+    if !dir.exists() {
+        tracing::warn!("Areas directory not found: {}", dir.display());
+        return map;
+    }
+    for entry in fs::read_dir(&dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            if let Ok(content) = fs::read_to_string(&path) {
+                match toml::from_str::<AreaTemplate>(&content) {
+                    Ok(t) => {
+                        map.insert(t.id.clone(), t);
+                    }
+                    Err(e) => tracing::error!("Failed to parse area '{}': {e}", path.display()),
                 }
             }
         }

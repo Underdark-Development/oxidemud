@@ -1,0 +1,5 @@
+id = "offensive"
+name = "Offensive Stance"
+damage_bonus = 2
+ac_penalty = 2
+min_level = 1

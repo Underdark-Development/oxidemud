@@ -1,0 +1,15 @@
+id = "apprentice_hat"
+name = "Apprentice Hat"
+description = "A pointed wool hat, slightly singed at the tip. {blue}Mages{/} might recognize the cut."
+item_type = "armor"
+quality = "common"
+weight = 0.5
+value = 10
+allowed_classes = ["mage"]
+
+[equipment]
+slot = "head"
+
+[set]
+id = "apprentice_set"
+piece_type = "hat"

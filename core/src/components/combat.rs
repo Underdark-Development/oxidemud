@@ -32,6 +32,18 @@ impl Health {
     }
 }
 
+impl Health {
+    /// Base HP regen per tick (6s) at constitution 10.
+    pub const BASE_REGEN: i32 = 1;
+
+    pub fn regen_amount(&self, constitution: u8, rest_mult: f32) -> i32 {
+        let con_bonus = (constitution as i32 - 10) / 2;
+        let base = Self::BASE_REGEN + con_bonus.max(0);
+        let amount = (base as f32 * rest_mult).round() as i32;
+        (self.max - self.current).min(amount.max(1))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Damage(pub i32);
 

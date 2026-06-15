@@ -3,7 +3,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use mud_core::templates::TemplateRegistry;
-use mud_core::{DbId, Entity, Experience, Health, Level, Name, Player, Position, World};
+use mud_core::{
+    Class, DbId, Entity, Experience, Health, Level, Name, Player, Position, Race, World,
+};
 
 use crate::registry::ConnectionRegistry;
 
@@ -381,7 +383,8 @@ pub async fn handle_character_select_state(
     db: Option<&Mutex<mud_data::Database>>,
     world: &mut World,
     registry: &ConnectionRegistry,
-    void_room: Entity,
+    _void_room: Entity,
+    spawn_room: Entity,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let input = input.trim();
@@ -478,7 +481,7 @@ pub async fn handle_character_select_state(
                 } else {
                     let char_row = &chars[idx - 1];
                     drop(db_guard); // must drop before load_character (needs mutable world)
-                    lines.extend(load_character(flow, world, void_room, char_row, db).await);
+                    lines.extend(load_character(flow, world, spawn_room, char_row, db).await);
                 }
             } else {
                 drop(db_guard);
@@ -588,7 +591,7 @@ pub fn handle_character_create_class_state(
         Ok(idx) if idx > 0 && idx <= available.len() => {
             let class_id = available[idx - 1].id.clone();
             flow.create_buffer.class = Some(class_id);
-            flow.state = LoginState::CharacterCreateConfirm;
+            flow.state = LoginState::CharacterCreateSpawn;
         }
         _ => {
             lines.push("Invalid selection.".to_string());
@@ -602,13 +605,14 @@ pub async fn handle_character_create_confirm_state(
     input: &str,
     db: Option<&Mutex<mud_data::Database>>,
     world: &mut World,
-    void_room: Entity,
+    _void_room: Entity, // used during character creation flows
+    spawn_room: Entity,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     match input.trim().to_lowercase().as_str() {
         "y" | "yes" => {
-            lines.extend(finalize_character(flow, db, world, void_room, templates).await);
+            lines.extend(finalize_character(flow, db, world, spawn_room, templates).await);
         }
         "n" | "no" => {
             flow.create_buffer.name = None;
@@ -624,6 +628,55 @@ pub async fn handle_character_create_confirm_state(
     lines
 }
 
+pub fn handle_spawn_select_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let templates = match templates {
+        Some(t) => t,
+        None => {
+            lines.push("No spawn points available.".to_string());
+            return lines;
+        }
+    };
+
+    let race_id = match flow.create_buffer.race.as_deref() {
+        Some(r) => r,
+        None => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let class_id = match flow.create_buffer.class.as_deref() {
+        Some(c) => c,
+        None => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let available = templates.available_spawns(race_id, class_id, "");
+    let input = input.trim();
+
+    match input.parse::<usize>() {
+        Ok(idx) if idx > 0 && idx <= available.len() => {
+            let (area_id, spawn) = available[idx - 1];
+            let spawn_key = format!("{}:{}", area_id, spawn.room);
+            flow.create_buffer.spawn_key = Some(spawn_key);
+            flow.state = LoginState::CharacterCreateConfirm;
+        }
+        _ => {
+            lines.push("Invalid selection.".to_string());
+        }
+    }
+    lines
+}
+
 // ---------------------------------------------------------------------------
 // Character creation finalisation
 // ---------------------------------------------------------------------------
@@ -632,7 +685,7 @@ async fn finalize_character(
     flow: &mut LoginFlow,
     db: Option<&Mutex<mud_data::Database>>,
     world: &mut World,
-    void_room: Entity,
+    fallback_room: Entity,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
@@ -664,6 +717,15 @@ async fn finalize_character(
         }
     };
 
+    let spawn_key = match flow.create_buffer.spawn_key.as_deref() {
+        Some(s) => s.to_string(),
+        None => {
+            lines.push("Session error: no spawn selected.".to_string());
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
     let account_id = match flow.account_id {
         Some(id) => id,
         None => {
@@ -682,6 +744,9 @@ async fn finalize_character(
     };
 
     let (attrs, hp, skills) = compute_character_stats(templates, &race_id, &class_id);
+
+    // Resolve spawn room from spawn key, falling back to area's spawn_room
+    let room_entity = resolve_room(templates, world, &spawn_key).unwrap_or(fallback_room);
 
     let db_guard = db_con.lock().await;
     let conn_db = db_guard.conn();
@@ -731,13 +796,15 @@ async fn finalize_character(
         return lines;
     }
 
-    if let Err(e) = mud_data::save_position_component(conn_db, entity_id, 0) {
-        lines.push(format!("Error saving position: {e}"));
-        return lines;
-    }
-
     if let Err(e) = mud_data::create_character(
-        conn_db, account_id, &name, &race_id, &class_id, entity_id, 0,
+        conn_db,
+        account_id,
+        &name,
+        &race_id,
+        &class_id,
+        entity_id,
+        0,
+        Some(&spawn_key),
     ) {
         lines.push(format!("Error saving character: {e}"));
         return lines;
@@ -746,9 +813,11 @@ async fn finalize_character(
     drop(db_guard);
 
     let player = world.spawn((
-        Position::new(void_room),
+        Position::new(room_entity),
         Name::new(name.clone()),
         Player::new(account_id),
+        Race(race_id.clone()),
+        Class(class_id),
         attrs,
         Health::new(hp),
         Level::default(),
@@ -756,6 +825,11 @@ async fn finalize_character(
         skills,
         DbId::new(entity_id),
     ));
+
+    // Apply racial and class passives
+    if let Some(templates) = templates {
+        mud_core::systems::passive::apply_all_passives(world, player, templates);
+    }
 
     flow.entity = Some(player);
     flow.entity_just_spawned = true;
@@ -771,6 +845,15 @@ async fn finalize_character(
     lines
 }
 
+/// Resolve a spawn key to a room entity, falling back if not found.
+fn resolve_room(
+    templates: Option<&TemplateRegistry>,
+    world: &World,
+    spawn_key: &str,
+) -> Option<Entity> {
+    templates.and_then(|t| t.find_room_by_key(world, spawn_key))
+}
+
 // ---------------------------------------------------------------------------
 // Load an existing character
 // ---------------------------------------------------------------------------
@@ -778,7 +861,7 @@ async fn finalize_character(
 async fn load_character(
     flow: &mut LoginFlow,
     world: &mut World,
-    void_room: Entity,
+    spawn_room: Entity,
     char_row: &mud_data::CharacterRow,
     db: &Mutex<mud_data::Database>,
 ) -> Vec<String> {
@@ -828,16 +911,30 @@ async fn load_character(
 
     drop(db_guard);
 
+    // Resolve room from spawn_key, falling back to the server's spawn_room
+    let room = char_row
+        .spawn_key
+        .as_deref()
+        .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
+        .unwrap_or(spawn_room);
+
     let player = world.spawn((
-        Position::new(void_room),
+        Position::new(room),
         Name::new(char_row.name.clone()),
         Player::new(char_row.account_id),
+        Race(char_row.race.clone()),
+        Class(char_row.class.clone()),
         attrs,
         hp,
         level,
         xp,
         DbId::new(entity_id),
     ));
+
+    // Apply racial and class passives
+    if let Some(templates) = crate::get_templates() {
+        mud_core::systems::passive::apply_all_passives(world, player, &templates);
+    }
 
     flow.entity = Some(player);
     flow.entity_just_spawned = true;

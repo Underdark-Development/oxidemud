@@ -1,3 +1,5 @@
+use crate::regen::PoolRegen;
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Mana {
     pub current: u16,
@@ -15,5 +17,20 @@ impl Mana {
         } else {
             self.current as f32 / self.max as f32
         }
+    }
+}
+
+impl PoolRegen for Mana {
+    fn current(&self) -> u16 {
+        self.current
+    }
+    fn max(&self) -> u16 {
+        self.max
+    }
+    fn set_current(&mut self, val: u16) {
+        self.current = val;
+    }
+    fn base_regen() -> u16 {
+        2
     }
 }

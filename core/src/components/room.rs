@@ -294,6 +294,11 @@ pub struct Teleportable(pub bool);
 #[derive(Debug, Clone, Default)]
 pub struct FloorItems(pub Vec<crate::Entity>);
 
+/// Maps a room entity to its content-defined spawn key (`"area_id:room_id"`).
+/// Used at login to resolve a player's saved spawn point to an entity.
+#[derive(Debug, Clone)]
+pub struct SpawnKey(pub String);
+
 impl Default for Teleportable {
     fn default() -> Self {
         Teleportable(true)

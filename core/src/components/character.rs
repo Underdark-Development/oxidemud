@@ -1,10 +1,77 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RestState {
+    #[default]
+    Standing,
+    Sitting,
+    Resting,
+    Sleeping,
+    Unconscious,
+    Dead,
+}
+
+impl RestState {
+    pub fn can_stand(&self) -> bool {
+        matches!(
+            self,
+            RestState::Sitting | RestState::Resting | RestState::Sleeping
+        )
+    }
+
+    pub fn can_sit(&self) -> bool {
+        matches!(self, RestState::Standing)
+    }
+
+    pub fn can_rest(&self) -> bool {
+        matches!(self, RestState::Sitting)
+    }
+
+    pub fn can_sleep(&self) -> bool {
+        matches!(self, RestState::Resting)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum PlayerState {
+    Alive { rest: RestState },
+    Stunned { remaining_ms: u64 },
+    Casting { remaining_ms: u64 },
+    Dead,
+}
+
+impl Default for PlayerState {
+    fn default() -> Self {
+        PlayerState::Alive {
+            rest: RestState::Standing,
+        }
+    }
+}
+
+impl PlayerState {
+    pub fn rest(&self) -> RestState {
+        match self {
+            PlayerState::Alive { rest } => *rest,
+            PlayerState::Stunned { .. } => RestState::Standing,
+            PlayerState::Casting { .. } => RestState::Standing,
+            PlayerState::Dead => RestState::Dead,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Player {
     pub account_id: i64,
     pub prompt: String,
 }
+
+/// The entity's race (e.g. "human", "elf").
+#[derive(Debug, Clone)]
+pub struct Race(pub String);
+
+/// The entity's class (e.g. "warrior", "mage").
+#[derive(Debug, Clone)]
+pub struct Class(pub String);
 
 impl Player {
     pub fn new(account_id: i64) -> Self {

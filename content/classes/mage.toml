@@ -1,0 +1,10 @@
+id = "mage"
+name = "Mage"
+description = "A student of the arcane arts, bending reality through force of will."
+hit_die = 6
+
+[attribute_mods]
+intelligence = 2
+wisdom = 1
+
+allowed_races = ["human"]

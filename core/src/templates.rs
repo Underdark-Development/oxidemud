@@ -406,6 +406,27 @@ pub struct SetDef {
 }
 
 // ---------------------------------------------------------------------------
+// Passive definitions — data-driven racial/class/item passives
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PassiveEffect {
+    pub effect_type: String,
+    pub target: String,
+    #[serde(default)]
+    pub amount: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PassiveDef {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub effects: Vec<PassiveEffect>,
+}
+
+// ---------------------------------------------------------------------------
 // Affix definitions
 // ---------------------------------------------------------------------------
 
@@ -435,6 +456,155 @@ const fn default_weight() -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// Area / Room template types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MobSpawnEntry {
+    pub template_id: String,
+    #[serde(default = "default_mob_count")]
+    pub count: u8,
+    #[serde(default)]
+    pub respawn_secs: Option<u64>,
+}
+
+const fn default_mob_count() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ItemSpawnEntry {
+    pub template_id: String,
+    #[serde(default = "default_item_count")]
+    pub count: u8,
+}
+
+const fn default_item_count() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RoomContent {
+    #[serde(default)]
+    pub mobs: Vec<MobSpawnEntry>,
+    #[serde(default)]
+    pub items: Vec<ItemSpawnEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoomTemplate {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub exits: HashMap<String, String>,
+    #[serde(default)]
+    pub portals: Vec<RoomPortalTemplate>,
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default)]
+    pub content: RoomContent,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RoomPortalTemplate {
+    pub keyword: String,
+    pub dest: String,
+    pub description: String,
+    #[serde(default)]
+    pub flags: Vec<String>,
+}
+
+/// Room reset (spawn) timer settings.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResetInterval {
+    /// How often the area's rooms reset in seconds.
+    pub secs: u64,
+}
+
+/// A character spawn point within an area.
+///
+/// Empty constraint vectors mean "no restriction" — any race/class/alignment
+/// can choose this spawn. The area's `spawn_room` is implicitly included as
+/// a fallback spawn when no explicit spawns are defined.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpawnEntry {
+    /// Room ID within this area.
+    pub room: String,
+    /// Short display label shown in the spawn-selection prompt.
+    pub label: String,
+    /// Flavor description shown when inspecting this spawn option.
+    pub description: String,
+    /// Races allowed to spawn here (empty = all).
+    #[serde(default)]
+    pub allowed_races: Vec<String>,
+    /// Classes allowed to spawn here (empty = all).
+    #[serde(default)]
+    pub allowed_classes: Vec<String>,
+    /// Alignments allowed to spawn here (empty = all).
+    #[serde(default)]
+    pub allowed_alignments: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AreaTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// Room ID used as the fallback spawn point for this area
+    /// (used when no explicit spawn matches or on recall).
+    pub spawn_room: String,
+    #[serde(default)]
+    pub level_range: Option<[u8; 2]>,
+    #[serde(default)]
+    pub flags: Vec<String>,
+    #[serde(default)]
+    pub weather_zone: Option<String>,
+    #[serde(default)]
+    pub reset_interval: Option<ResetInterval>,
+    #[serde(default)]
+    pub credits: Option<String>,
+    /// Explicit spawn entries with optional race/class/alignment constraints.
+    #[serde(default)]
+    pub spawns: Vec<SpawnEntry>,
+    /// Map of room_id → RoomTemplate
+    pub rooms: HashMap<String, RoomTemplate>,
+}
+
+// ---------------------------------------------------------------------------
+// Validation error
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct ValidationError {
+    pub template_type: &'static str,
+    pub template_id: String,
+    pub field: String,
+    pub message: String,
+}
+
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}] {}: {} — {}",
+            self.template_type, self.template_id, self.field, self.message
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Derived indices — pre-computed lookup tables
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default)]
+pub struct DerivedIndices {
+    /// Set ID → item template IDs that belong to it
+    pub items_by_set: HashMap<String, Vec<String>>,
+    /// Equipment slot name → item template IDs for that slot
+    pub items_by_slot: HashMap<String, Vec<String>>,
+}
+
+// ---------------------------------------------------------------------------
 // Registry — holds all template types
 // ---------------------------------------------------------------------------
 
@@ -447,11 +617,254 @@ pub struct TemplateRegistry {
     pub stances: HashMap<String, StanceDef>,
     pub sets: HashMap<String, SetDef>,
     pub affixes: HashMap<String, AffixDef>,
+    pub passives: HashMap<String, PassiveDef>,
+    pub areas: HashMap<String, AreaTemplate>,
+    pub indices: DerivedIndices,
 }
 
 impl TemplateRegistry {
     pub fn new() -> Self {
         TemplateRegistry::default()
+    }
+
+    /// Validate all templates and return any errors found.
+    pub fn validate(&self) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+
+        // Validate race ↔ class cross-references
+        for (id, race) in &self.races {
+            for class_id in &race.allowed_classes {
+                if !self.classes.contains_key(class_id) {
+                    errors.push(ValidationError {
+                        template_type: "race",
+                        template_id: id.clone(),
+                        field: "allowed_classes".into(),
+                        message: format!("references unknown class template: {class_id}"),
+                    });
+                }
+            }
+        }
+
+        for (id, class) in &self.classes {
+            for race_id in &class.allowed_races {
+                if !self.races.contains_key(race_id) {
+                    errors.push(ValidationError {
+                        template_type: "class",
+                        template_id: id.clone(),
+                        field: "allowed_races".into(),
+                        message: format!("references unknown race template: {race_id}"),
+                    });
+                }
+            }
+        }
+
+        // Validate items
+        for (id, item) in &self.items {
+            // Set membership
+            if let Some(set) = &item.set {
+                if !self.sets.contains_key(&set.id) {
+                    errors.push(ValidationError {
+                        template_type: "item",
+                        template_id: id.clone(),
+                        field: "set.id".into(),
+                        message: format!("references unknown set: {}", set.id),
+                    });
+                }
+            }
+
+            // Skill requirement — validate once a master skill registry exists
+            if let Some(_req) = &item.requires_skill {}
+
+            // Allowed classes
+            for class_id in &item.allowed_classes {
+                if !self.classes.contains_key(class_id) {
+                    errors.push(ValidationError {
+                        template_type: "item",
+                        template_id: id.clone(),
+                        field: "allowed_classes".into(),
+                        message: format!("references unknown class: {class_id}"),
+                    });
+                }
+            }
+
+            // Allowed races
+            for race_id in &item.allowed_races {
+                if !self.races.contains_key(race_id) {
+                    errors.push(ValidationError {
+                        template_type: "item",
+                        template_id: id.clone(),
+                        field: "allowed_races".into(),
+                        message: format!("references unknown race: {race_id}"),
+                    });
+                }
+            }
+        }
+
+        // Validate mobs
+        for (id, mob) in &self.mobs {
+            for eq_entry in &mob.equipment {
+                if !self.items.contains_key(&eq_entry.template_id) {
+                    errors.push(ValidationError {
+                        template_type: "mob",
+                        template_id: id.clone(),
+                        field: "equipment".into(),
+                        message: format!(
+                            "references unknown item template: {}",
+                            eq_entry.template_id
+                        ),
+                    });
+                }
+            }
+
+            for entry in &mob.loot.entries {
+                if !entry.item.is_empty() && !self.items.contains_key(&entry.item) {
+                    errors.push(ValidationError {
+                        template_type: "mob",
+                        template_id: id.clone(),
+                        field: "loot".into(),
+                        message: format!("references unknown item template: {}", entry.item),
+                    });
+                }
+            }
+
+            if let Some(ref race_id) = mob.race {
+                if !self.races.contains_key(race_id) {
+                    errors.push(ValidationError {
+                        template_type: "mob",
+                        template_id: id.clone(),
+                        field: "race".into(),
+                        message: format!("references unknown race: {race_id}"),
+                    });
+                }
+            }
+        }
+
+        // Validate passives referenced by race/class/items
+        for race in self.races.values() {
+            for ability in &race.racial_abilities {
+                if !self.passives.contains_key(ability) {
+                    errors.push(ValidationError {
+                        template_type: "race",
+                        template_id: race.id.clone(),
+                        field: "racial_abilities".into(),
+                        message: format!("references unknown passive: {ability}"),
+                    });
+                }
+            }
+        }
+
+        // Validate areas and their rooms
+        for (area_id, area) in &self.areas {
+            if !area.rooms.contains_key(&area.spawn_room) {
+                errors.push(ValidationError {
+                    template_type: "area",
+                    template_id: area_id.clone(),
+                    field: "spawn_room".into(),
+                    message: format!(
+                        "references unknown room '{}' in area '{}'",
+                        area.spawn_room, area_id
+                    ),
+                });
+            }
+            for (room_id, room) in &area.rooms {
+                for dest in room.exits.values() {
+                    if !area.rooms.contains_key(dest) {
+                        errors.push(ValidationError {
+                            template_type: "area",
+                            template_id: area_id.clone(),
+                            field: format!("rooms.{room_id}.exits"),
+                            message: format!(
+                                "references unknown room '{dest}' in area '{area_id}'"
+                            ),
+                        });
+                    }
+                }
+                for portal in &room.portals {
+                    if !area.rooms.contains_key(&portal.dest) {
+                        errors.push(ValidationError {
+                            template_type: "area",
+                            template_id: area_id.clone(),
+                            field: format!("rooms.{room_id}.portals"),
+                            message: format!(
+                                "references unknown room '{}' in area '{}'",
+                                portal.dest, area_id
+                            ),
+                        });
+                    }
+                }
+                for entry in &room.content.mobs {
+                    if !self.mobs.contains_key(&entry.template_id) {
+                        errors.push(ValidationError {
+                            template_type: "area",
+                            template_id: area_id.clone(),
+                            field: format!("rooms.{room_id}.content.mobs"),
+                            message: format!(
+                                "references unknown mob template '{}'",
+                                entry.template_id
+                            ),
+                        });
+                    }
+                }
+                for entry in &room.content.items {
+                    if !self.items.contains_key(&entry.template_id) {
+                        errors.push(ValidationError {
+                            template_type: "area",
+                            template_id: area_id.clone(),
+                            field: format!("rooms.{room_id}.content.items"),
+                            message: format!(
+                                "references unknown item template '{}'",
+                                entry.template_id
+                            ),
+                        });
+                    }
+                }
+            }
+            // Validate spawn entries
+            for (i, spawn) in area.spawns.iter().enumerate() {
+                if !area.rooms.contains_key(&spawn.room) {
+                    errors.push(ValidationError {
+                        template_type: "area",
+                        template_id: area_id.clone(),
+                        field: format!("spawns[{i}].room"),
+                        message: format!(
+                            "references unknown room '{}' in area '{}'",
+                            spawn.room, area_id
+                        ),
+                    });
+                }
+            }
+        }
+
+        errors
+    }
+
+    /// Build derived indices from all loaded templates.
+    pub fn build_indices(&mut self) {
+        let mut items_by_set: HashMap<String, Vec<String>> = HashMap::new();
+        let mut items_by_slot: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (id, item) in &self.items {
+            // Items by set
+            if let Some(set) = &item.set {
+                items_by_set
+                    .entry(set.id.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
+
+            // Items by equipment slot
+            if let Some(eq) = &item.equipment {
+                items_by_slot
+                    .entry(eq.slot.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
+        }
+
+        self.indices = DerivedIndices {
+            items_by_set,
+            items_by_slot,
+        };
     }
 
     // ── Race helpers ──
@@ -513,10 +926,84 @@ impl TemplateRegistry {
         self.sets.get(id)
     }
 
+    // ── Passive helpers ──
+
+    pub fn get_passive(&self, id: &str) -> Option<&PassiveDef> {
+        self.passives.get(id)
+    }
+
+    pub fn passives_for_race(&self, race_id: &str) -> Vec<&PassiveDef> {
+        self.races
+            .get(race_id)
+            .map(|race| {
+                race.racial_abilities
+                    .iter()
+                    .filter_map(|id| self.passives.get(id))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    // ── Area helpers ──
+
+    pub fn get_area(&self, id: &str) -> Option<&AreaTemplate> {
+        self.areas.get(id)
+    }
+
+    /// Returns all spawn entries across all areas that match the given
+    /// race, class, and alignment constraints.
+    ///
+    /// Each result is `(area_id, &SpawnEntry)` so the caller can construct
+    /// a fully-qualified spawn key (`"area_id:room_id"`).
+    pub fn available_spawns(
+        &self,
+        race: &str,
+        class: &str,
+        _alignment: &str,
+    ) -> Vec<(&str, &SpawnEntry)> {
+        let mut result = Vec::new();
+        for (area_id, area) in &self.areas {
+            for spawn in &area.spawns {
+                let race_ok =
+                    spawn.allowed_races.is_empty() || spawn.allowed_races.iter().any(|r| r == race);
+                let class_ok = spawn.allowed_classes.is_empty()
+                    || spawn.allowed_classes.iter().any(|c| c == class);
+                let align_ok = spawn.allowed_alignments.is_empty();
+                if race_ok && class_ok && align_ok {
+                    result.push((area_id.as_str(), spawn));
+                }
+            }
+        }
+        result
+    }
+
+    /// Find a room entity by its spawn key (`"area_id:room_id"`).
+    /// Searches all spawned rooms with a matching [`SpawnKey`](crate::SpawnKey) component.
+    pub fn find_room_by_key(&self, world: &crate::World, key: &str) -> Option<crate::Entity> {
+        use crate::SpawnKey;
+        let mut query = world.query::<(&SpawnKey,)>();
+        for (e, (sk,)) in query.iter() {
+            if sk.0 == key {
+                return Some(crate::Entity::from(e));
+            }
+        }
+        None
+    }
+
     // ── Affix helpers ──
 
     pub fn get_affix(&self, id: &str) -> Option<&AffixDef> {
         self.affixes.get(id)
+    }
+
+    // ── Index helpers ──
+
+    pub fn items_for_set(&self, set_id: &str) -> Option<&[String]> {
+        self.indices.items_by_set.get(set_id).map(|v| v.as_slice())
+    }
+
+    pub fn items_for_slot(&self, slot: &str) -> Option<&[String]> {
+        self.indices.items_by_slot.get(slot).map(|v| v.as_slice())
     }
 }
 

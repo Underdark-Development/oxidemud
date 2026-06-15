@@ -1,0 +1,8 @@
+id = "adaptability"
+name = "Adaptability"
+description = "Humans adapt quickly, gaining a bonus to all skills."
+
+[[effects]]
+effect_type = "skill_boost"
+target = "self"
+amount = 1
