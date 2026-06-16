@@ -1,7 +1,7 @@
 use mud_core::templates::TemplateRegistry;
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},
     layout::Rect,
     style::{Color, Style},
     widgets::Widget,
@@ -447,6 +447,16 @@ impl EntityInspectorScreen {
     }
 }
 
+impl EntityInspectorScreen {
+    pub(super) fn select_prev(&mut self) {
+        self.table.select_prev();
+    }
+
+    pub(super) fn select_next(&mut self) {
+        self.table.select_next();
+    }
+}
+
 impl Screen for EntityInspectorScreen {
     fn name(&self) -> &str {
         "Entity Inspector"
@@ -456,6 +466,14 @@ impl Screen for EntityInspectorScreen {
         match key.code {
             KeyCode::Up => self.table.select_prev(),
             KeyCode::Down => self.table.select_next(),
+            _ => {}
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent, _area: Rect) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.table.select_prev(),
+            MouseEventKind::ScrollDown => self.table.select_next(),
             _ => {}
         }
     }

@@ -1,7 +1,7 @@
 use mud_core::templates::TemplateRegistry;
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{KeyCode, KeyEvent},
+    crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},
     layout::{Constraint, Rect},
     style::{Color, Style},
     widgets::Widget,
@@ -86,6 +86,14 @@ impl Screen for ValidationPanelScreen {
         match key.code {
             KeyCode::Up => self.table.select_prev(),
             KeyCode::Down => self.table.select_next(),
+            _ => {}
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent, _area: Rect) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.table.select_prev(),
+            MouseEventKind::ScrollDown => self.table.select_next(),
             _ => {}
         }
     }

@@ -1,9 +1,8 @@
 use crate::config_file::{PrefsConfig, SpadeConfig};
 use crate::content;
-use crate::screens::entity_inspector::EntityInspectorScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::world_tree::WorldTreeScreen;
-use crate::screens::{PlaceholderScreen, Screen, ScreenAction};
+use crate::screens::{PlaceholderScreen, Screen};
 use mud_core::templates::TemplateRegistry;
 use ratatui::{
     backend::CrosstermBackend,
@@ -11,6 +10,7 @@ use ratatui::{
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
+    layout::Rect,
     Terminal,
 };
 use std::io;
@@ -48,13 +48,11 @@ impl App {
         let registry = content::load_templates(&content_path);
         let world_tree = WorldTreeScreen::new_shared(content_path.clone(), registry.clone());
 
-        let inspector = EntityInspectorScreen::new(registry.clone(), String::new(), String::new());
-
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(world_tree),
             Box::new(PlaceholderScreen::new("Template Editor")),
             Box::new(PlaceholderScreen::new("Room Graph")),
-            Box::new(inspector),
+            Box::new(PlaceholderScreen::new("Entity Inspector")),
             Box::new(PlaceholderScreen::new("Command Palette")),
             Box::new(PlaceholderScreen::new("Live Dashboard")),
             Box::new(ValidationPanelScreen::new(registry.clone())),
@@ -94,17 +92,7 @@ impl App {
     }
 
     fn handle_action(&mut self) {
-        match self.active_screen_mut().take_action() {
-            ScreenAction::Inspect(category, id) => {
-                self.screens[3] = Box::new(EntityInspectorScreen::new(
-                    self.registry.clone(),
-                    category,
-                    id,
-                ));
-                self.active_screen = 3;
-            }
-            ScreenAction::None => {}
-        }
+        // reserved for future action dispatch
     }
 
     pub async fn run(&mut self) -> color_eyre::Result<()> {
@@ -114,8 +102,14 @@ impl App {
         while !self.should_quit {
             terminal.draw(|f| crate::ui::render(self, f))?;
 
-            if let crate::event::Event::Key(key) = event_loop.next().await? {
-                crate::input::handle_key(self, key);
+            match event_loop.next().await? {
+                crate::event::Event::Key(key) => crate::input::handle_key(self, key),
+                crate::event::Event::Mouse(mouse) if self.prefs.mouse => {
+                    let size = terminal.size()?;
+                    let main_area = Rect::new(0, 1, size.width, size.height.saturating_sub(2));
+                    self.active_screen_mut().handle_mouse(mouse, main_area);
+                }
+                _ => {}
             }
 
             self.handle_action();

@@ -2,7 +2,11 @@ pub mod entity_inspector;
 pub mod validation_panel;
 pub mod world_tree;
 
-use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect};
+use ratatui::{
+    buffer::Buffer,
+    crossterm::event::{KeyEvent, MouseEvent},
+    layout::Rect,
+};
 
 #[derive(Debug, Clone)]
 pub enum ScreenAction {
@@ -14,6 +18,7 @@ pub trait Screen {
     fn name(&self) -> &str;
     fn handle_key(&mut self, key: KeyEvent);
     fn render(&mut self, area: Rect, buf: &mut Buffer);
+    fn handle_mouse(&mut self, _mouse: MouseEvent, _area: Rect) {}
     fn reload(&mut self) {}
     fn take_action(&mut self) -> ScreenAction {
         ScreenAction::None
