@@ -1,6 +1,7 @@
 use crate::config_file::{PrefsConfig, SpadeConfig};
 use crate::content;
 use crate::screens::entity_inspector::EntityInspectorScreen;
+use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::world_tree::WorldTreeScreen;
 use crate::screens::{PlaceholderScreen, Screen, ScreenAction};
 use mud_core::templates::TemplateRegistry;
@@ -56,7 +57,7 @@ impl App {
             Box::new(inspector),
             Box::new(PlaceholderScreen::new("Command Palette")),
             Box::new(PlaceholderScreen::new("Live Dashboard")),
-            Box::new(PlaceholderScreen::new("Validation Panel")),
+            Box::new(ValidationPanelScreen::new(registry.clone())),
             Box::new(PlaceholderScreen::new("File Browser")),
             Box::new(PlaceholderScreen::new("Script Console")),
         ];

@@ -1,4 +1,5 @@
 pub mod entity_inspector;
+pub mod validation_panel;
 pub mod world_tree;
 
 use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect};
