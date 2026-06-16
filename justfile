@@ -16,9 +16,9 @@ run port="4000":
 
 # ─── Connect ────────────────────────────────────────────────────────
 
-# Connect via tintin++ (auto-loads tinytin.tin if present)
+# Connect via tintin++ (auto-loads mud.tin if present)
 connect addr="127.0.0.1" port="4000":
-    test -f tinytin.tin && tt++ -r tinytin.tin || tt++ -r /dev/null {{ addr }} {{ port }}
+    test -f mud.tin && tt++ -r mud.tin || tt++ -r /dev/null {{ addr }} {{ port }}
 
 # Connect via raw telnet (fallback)
 connect-raw addr="127.0.0.1" port="4000":
