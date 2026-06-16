@@ -41,6 +41,8 @@ pub struct WorldTreeScreen {
     detail: Option<EntityInspectorScreen>,
     focus: Focus,
     show_help: bool,
+    search: Option<String>,
+    search_focus: bool,
 }
 
 impl WorldTreeScreen {
@@ -64,6 +66,8 @@ impl WorldTreeScreen {
             detail: None,
             focus: Focus::Tree,
             show_help: false,
+            search: None,
+            search_focus: false,
         };
         screen.rebuild_tree();
         screen
@@ -76,6 +80,8 @@ impl WorldTreeScreen {
         self.detail = None;
         self.focus = Focus::Tree;
         self.show_help = false;
+        self.search = None;
+        self.search_focus = false;
         self.rebuild_tree();
     }
 
@@ -84,11 +90,24 @@ impl WorldTreeScreen {
     }
 
     fn rebuild_tree(&mut self) {
+        let filter = self
+            .search
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_lowercase());
+
+        let matches = |name: &str| -> bool {
+            filter
+                .as_ref()
+                .is_none_or(|f| name.to_lowercase().contains(f.as_str()))
+        };
+
         let mut roots = Vec::new();
 
         if !self.registry.areas.is_empty() {
-            let mut node = TreeNode::new(
-                format!("Areas ({})", self.registry.areas.len()),
+            let mut area_count = 0usize;
+            let mut area_node = TreeNode::new(
+                "Areas".to_string(),
                 NodeInfo {
                     category: String::new(),
                     id: String::new(),
@@ -98,6 +117,7 @@ impl WorldTreeScreen {
             ids.sort();
             for id in ids {
                 let area = &self.registry.areas[id];
+                let area_matches = matches(&area.name) || filter.is_none();
                 let mut area_child = TreeNode::new(
                     area.name.clone(),
                     NodeInfo {
@@ -105,58 +125,97 @@ impl WorldTreeScreen {
                         id: id.clone(),
                     },
                 );
+                let mut room_count = 0usize;
                 let mut room_ids: Vec<&String> = area.rooms.keys().collect();
                 room_ids.sort();
                 for room_id in room_ids {
                     let room = &area.rooms[room_id];
-                    area_child.add_child(TreeNode::new(
-                        room.name.clone(),
-                        NodeInfo {
-                            category: "rooms".into(),
-                            id: room_id.clone(),
-                        },
-                    ));
+                    if matches(&room.name) {
+                        area_child.add_child(TreeNode::new(
+                            room.name.clone(),
+                            NodeInfo {
+                                category: "rooms".into(),
+                                id: room_id.clone(),
+                            },
+                        ));
+                        room_count += 1;
+                    }
                 }
-                node.add_child(area_child);
+                if area_matches || room_count > 0 {
+                    area_node.add_child(area_child);
+                    area_count += 1;
+                }
             }
-            roots.push(node);
+            if area_count > 0 {
+                area_node.label = format!("Areas ({area_count})");
+                roots.push(area_node);
+            }
         }
 
-        add_group(&mut roots, &self.registry.items, "Items", "items", |i| {
-            i.name.clone()
-        });
-        add_group(&mut roots, &self.registry.mobs, "Mobs", "mobs", |m| {
-            m.name.clone()
-        });
-        add_group(&mut roots, &self.registry.races, "Races", "races", |r| {
-            r.name.clone()
-        });
+        let filter_str = filter.as_deref();
+        add_group(
+            &mut roots,
+            &self.registry.items,
+            "Items",
+            "items",
+            |i| i.name.clone(),
+            filter_str,
+        );
+        add_group(
+            &mut roots,
+            &self.registry.mobs,
+            "Mobs",
+            "mobs",
+            |m| m.name.clone(),
+            filter_str,
+        );
+        add_group(
+            &mut roots,
+            &self.registry.races,
+            "Races",
+            "races",
+            |r| r.name.clone(),
+            filter_str,
+        );
         add_group(
             &mut roots,
             &self.registry.classes,
             "Classes",
             "classes",
             |c| c.name.clone(),
+            filter_str,
         );
-        add_group(&mut roots, &self.registry.skills, "Skills", "skills", |s| {
-            s.name.clone()
-        });
+        add_group(
+            &mut roots,
+            &self.registry.skills,
+            "Skills",
+            "skills",
+            |s| s.name.clone(),
+            filter_str,
+        );
         add_group(
             &mut roots,
             &self.registry.stances,
             "Stances",
             "stances",
             |s| s.name.clone(),
+            filter_str,
         );
-        add_group(&mut roots, &self.registry.sets, "Sets", "sets", |s| {
-            s.name.clone()
-        });
+        add_group(
+            &mut roots,
+            &self.registry.sets,
+            "Sets",
+            "sets",
+            |s| s.name.clone(),
+            filter_str,
+        );
         add_group(
             &mut roots,
             &self.registry.affixes,
             "Affixes",
             "affixes",
             |a| a.name.clone(),
+            filter_str,
         );
         add_group(
             &mut roots,
@@ -164,6 +223,7 @@ impl WorldTreeScreen {
             "Passives",
             "passives",
             |p| p.name.clone(),
+            filter_str,
         );
 
         self.tree = Tree::new(roots);
@@ -434,6 +494,34 @@ impl WorldTreeScreen {
         Ok(())
     }
 
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.search = None;
+                self.search_focus = false;
+                self.rebuild_tree();
+            }
+            KeyCode::Enter => {
+                self.search_focus = false;
+            }
+            KeyCode::Backspace => {
+                if let Some(ref mut s) = self.search {
+                    s.pop();
+                    if s.is_empty() {
+                        self.search = None;
+                        self.search_focus = false;
+                    }
+                }
+                self.rebuild_tree();
+            }
+            KeyCode::Char(c) if !c.is_control() => {
+                self.search.get_or_insert_with(String::new).push(c);
+                self.rebuild_tree();
+            }
+            _ => {}
+        }
+    }
+
     fn handle_tree_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => self.tree.select_prev(),
@@ -493,6 +581,10 @@ impl WorldTreeScreen {
                     }
                 }
             }
+            KeyCode::Char('/') => {
+                self.search_focus = true;
+                self.search.get_or_insert_with(String::new);
+            }
             _ => {}
         }
     }
@@ -544,6 +636,7 @@ impl WorldTreeScreen {
             "  \u{2192}          Expand collapsed tree node",
             "  \u{2190}          Collapse expanded tree node",
             "  Enter      Open entity detail",
+            "  /          Search/filter tree",
             "",
             "  Ctrl+R     Reload content",
             "  Ctrl+1-9   Switch screens",
@@ -591,14 +684,16 @@ fn add_group<T, F>(
     label: &str,
     category: &str,
     display: F,
+    filter: Option<&str>,
 ) where
     F: Fn(&T) -> String,
 {
     if items.is_empty() {
         return;
     }
+    let mut count = 0usize;
     let mut node = TreeNode::new(
-        format!("{} ({})", label, items.len()),
+        label.to_string(),
         NodeInfo {
             category: String::new(),
             id: String::new(),
@@ -608,16 +703,23 @@ fn add_group<T, F>(
     ids.sort();
     for id in ids {
         if let Some(item) = items.get(id) {
-            node.add_child(TreeNode::new(
-                display(item),
-                NodeInfo {
-                    category: category.to_string(),
-                    id: id.clone(),
-                },
-            ));
+            let name = display(item);
+            if filter.is_none_or(|f| name.to_lowercase().contains(&f.to_lowercase())) {
+                node.add_child(TreeNode::new(
+                    name,
+                    NodeInfo {
+                        category: category.to_string(),
+                        id: id.clone(),
+                    },
+                ));
+                count += 1;
+            }
         }
     }
-    roots.push(node);
+    if count > 0 {
+        node.label = format!("{label} ({count})");
+        roots.push(node);
+    }
 }
 
 impl Screen for WorldTreeScreen {
@@ -626,6 +728,11 @@ impl Screen for WorldTreeScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        if self.search_focus {
+            self.handle_search_key(key);
+            return;
+        }
+
         if key.code == KeyCode::Char('?') {
             self.show_help = !self.show_help;
             return;
@@ -694,8 +801,36 @@ impl Screen for WorldTreeScreen {
             return;
         }
 
-        let info = self.info_line();
-        buf.set_string(area.x, area.y, &info, Style::default().fg(Color::DarkGray));
+        if self.search_focus {
+            let search_text = format!(" / {}", self.search.as_deref().unwrap_or(""));
+            buf.set_string(
+                area.x,
+                area.y,
+                &search_text,
+                Style::default().fg(Color::Cyan),
+            );
+            if let Some(ref s) = self.search {
+                let cursor_x = area.x + 2 + s.len() as u16;
+                if cursor_x < area.x + area.width {
+                    buf.set_string(
+                        cursor_x,
+                        area.y,
+                        "\u{2588}",
+                        Style::default().fg(Color::Cyan),
+                    );
+                }
+            } else {
+                buf.set_string(
+                    area.x + 2,
+                    area.y,
+                    "\u{2588}",
+                    Style::default().fg(Color::Cyan),
+                );
+            }
+        } else {
+            let info = self.info_line();
+            buf.set_string(area.x, area.y, &info, Style::default().fg(Color::DarkGray));
+        }
 
         let tree_width = self.tree_width_pct(area.width);
 
