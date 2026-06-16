@@ -1,0 +1,5 @@
+id = "parry"
+name = "Parry"
+description = "Deflect an incoming melee attack with your weapon."
+skill_type = "combat"
+max_rank = 100

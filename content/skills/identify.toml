@@ -1,0 +1,5 @@
+id = "identify"
+name = "Identify"
+description = "Reveal the hidden properties of a magical item."
+skill_type = "magic"
+max_rank = 100

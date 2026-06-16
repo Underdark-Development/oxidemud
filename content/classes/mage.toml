@@ -2,9 +2,17 @@ id = "mage"
 name = "Mage"
 description = "A student of the arcane arts, bending reality through force of will."
 hit_die = 6
+starting_skill_slots = 4
+allowed_races = ["human"]
+allowed_alignments = []
+auto_skills = ["meditation"]
+skill_pool = ["magic_missile", "identify", "enchant"]
+starting_items = ["cloth_robe", "torch", "healing_salve"]
 
 [attribute_mods]
 intelligence = 2
 wisdom = 1
 
-allowed_races = ["human"]
+[starting_gold]
+gold = 5
+silver = 10

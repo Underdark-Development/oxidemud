@@ -1,0 +1,5 @@
+id = "meditation"
+name = "Meditation"
+description = "Enter a deep meditative state to restore mana more quickly."
+skill_type = "magic"
+max_rank = 100

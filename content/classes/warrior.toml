@@ -2,9 +2,17 @@ id = "warrior"
 name = "Warrior"
 description = "A stalwart fighter skilled in the art of battle."
 hit_die = 10
+starting_skill_slots = 3
+allowed_races = ["human", "orc"]
+allowed_alignments = []
+auto_skills = ["tactics"]
+skill_pool = ["shield_bash", "power_attack", "parry"]
+starting_items = ["leather_vest", "wooden_cudgel"]
 
 [attribute_mods]
 strength = 2
 constitution = 1
 
-allowed_races = ["human"]
+[starting_gold]
+gold = 3
+silver = 5

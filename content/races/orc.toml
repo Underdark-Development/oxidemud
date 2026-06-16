@@ -1,0 +1,12 @@
+id = "orc"
+name = "Orc"
+description = "Orcs are fierce and warlike humanoids, hardened by a life of conflict in the harsh wilds."
+allowed_classes = ["warrior"]
+allowed_alignments = ["lawful_evil", "neutral_evil", "chaotic_evil"]
+racial_abilities = []
+
+[attributes]
+strength = 12
+constitution = 12
+intelligence = 8
+charisma = 8

@@ -1,0 +1,5 @@
+id = "shield_bash"
+name = "Shield Bash"
+description = "Smash your opponent with your shield, stunning them briefly."
+skill_type = "combat"
+max_rank = 100

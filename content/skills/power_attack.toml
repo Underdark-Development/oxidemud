@@ -1,0 +1,5 @@
+id = "power_attack"
+name = "Power Attack"
+description = "A heavy strike that trades accuracy for raw damage."
+skill_type = "combat"
+max_rank = 100

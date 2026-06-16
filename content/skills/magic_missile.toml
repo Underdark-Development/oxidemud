@@ -1,0 +1,5 @@
+id = "magic_missile"
+name = "Magic Missile"
+description = "Hurl a bolt of pure arcane energy at your target."
+skill_type = "magic"
+max_rank = 100

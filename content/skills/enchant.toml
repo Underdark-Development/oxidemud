@@ -1,0 +1,5 @@
+id = "enchant"
+name = "Enchant"
+description = "Imbue an item with temporary magical power."
+skill_type = "magic"
+max_rank = 100

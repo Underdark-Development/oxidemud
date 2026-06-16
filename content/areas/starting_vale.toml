@@ -8,7 +8,6 @@ spawn_room = "town_square"
 room = "town_square"
 label = "Village Square"
 description = "Begin your journey in the heart of Riverside, surrounded by linden trees and the laughter of villagers."
-allowed_races = ["human"]
 
 [[spawns]]
 room = "temple_of_light"

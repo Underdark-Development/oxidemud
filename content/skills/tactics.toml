@@ -1,0 +1,5 @@
+id = "tactics"
+name = "Tactics"
+description = "Battlefield awareness that improves positioning and teamwork."
+skill_type = "combat"
+max_rank = 100
