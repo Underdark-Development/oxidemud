@@ -136,7 +136,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Direction`: North, South, East, West, Up, Down, NE, NW, SE, SW
 
 ### Character
-- `Player { account_id }` — player entity
+- `Player { account_id, prompt }` — player entity, configurable prompt template
 - `Npc { template_id }` — NPC entity
 - `Attributes { str, dex, int, wis, con, cha }` — 6 core stats (u8)
 - `Health { current, max }` — HP (i32)
@@ -145,6 +145,29 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Teleportable(bool)` — teleport target opt-out
 - `RestState` — Standing, Sitting, Resting, Sleeping, Unconscious, Dead
 - `PlayerState` — wraps RestState + Stunned { remaining_ms }, Casting { .. }
+
+### In-Game Prompt
+
+The game prompt is a configurable template string stored in `Player.prompt`. Default: `"<%hhp %hm %ss> "` renders as `<450/500hp 120/200m 80/100s>`.
+
+Sent after every command output, before the next `read_line()`. Also sent on room entry, death, level-up, and combat state changes.
+
+| Variable | Source | Example |
+|---|---|---|
+| `%h` / `%H` | `Health.current` / `Health.max` | `450` / `500` |
+| `%m` / `%M` | `Mana.current` / `Mana.max` | `120` / `200` |
+| `%s` / `%S` | `Stamina.current` / `Stamina.max` | `80` / `100` |
+| `%e` / `%E` | `Energy.current` / `Energy.max` | `50` / `100` |
+| `%p` / `%P` | `Psi.current` / `Psi.max` | `30` / `60` |
+| `%x` / `%X` | `Experience` / XP to next level | `5200` / `8000` |
+| `%r` | `PlayerState.rest` | `Stand` / `Sit` / `Rest` / `Sleep` / `Dead` |
+| `%%` | literal `%` | `%` |
+
+Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources display `?` (e.g. `%m` when player has no mana pool).
+
+**Rendering** — `prompt::render(entity, world) -> String` reads the template, walks `Health`, resource pools, `Experience`, `PlayerState` components. Run after command dispatch in the game loop.
+
+**Customization** — `config prompt <template>` writes to `Player.prompt`, persisted to SQLite via dirty tracking. Validates template on set (syntax only, no live values).
 
 ### Combat
 - `CombatState` — NotInCombat, Engaged { target, round_started, stance }, Fleeing { target, attempts }
@@ -301,6 +324,27 @@ Skills consume from appropriate pool. `RegenSystem`: `current += max / 20` per R
 ### Learned Skills
 
 `LearnedSkills { skills: HashMap<skill_id, SkillRank>, cooldowns }`. Auto-learn on level-up from class `auto_skills`. Trainer NPCs: `train` command shows menu with costs.
+
+### Partial Name Resolution
+
+All skill name inputs (character creation skill selection, `train` command,
+future `use`/`cast`) are resolved against both `SkillDef.id` and
+`SkillDef.name` via `TemplateRegistry::resolve_skill(input, pool)`.
+
+Resolution priority:
+1. **Exact match** on id or name — immediate return
+2. **Unique prefix match** on id — return the matching skill
+3. **Unique prefix match** on name — return the matching skill
+4. **Multiple matches** — produce a disambiguation prompt
+   (`"Which skill did you mean? skill_a (Name A), skill_b (Name B)"`)
+5. **No match** — error with `SkillResolveError::NotFound`
+
+The optional `pool` parameter restricts search to a subset of skills (used
+during character creation where only the class's `skill_pool` is valid).
+When no pool is provided, the full `TemplateRegistry.skills` is searched.
+
+Resolution is case-insensitive. If the template registry is unavailable
+(e.g. during early startup), callers fall back to exact match on raw input.
 
 ### Effect System
 
@@ -719,6 +763,7 @@ Login state machine lives in `server/src/login/` as a standalone `LoginFlow` str
 | **Race** | Pick from `content/races/*.toml` | Valid key |
 | **Class** | Pick from filtered list | Race∈class.allowed_races ∩ class∈race.allowed_classes |
 | **Attributes** | Point-buy (27pts), standard array (15/14/13/12/10/8), or roll 4d6 drop lowest | Clamped [3, 25] |
+| **Skill** | Pick from class skill pool | Prefix match against id/name |
 | **Confirm** | Full summary → accept? | Save to DB + spawn entity |
 
 ### Attribute Calculation
