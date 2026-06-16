@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "server", "data", "scripting", "bin", "tui"]
+members = ["core", "server", "data", "scripting", "bin", "tui", "mcp"]
 
 [workspace.package]
 version = "0.1.0"
