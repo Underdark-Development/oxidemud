@@ -18,7 +18,7 @@ pub fn load_registry(path: &Path) -> (TemplateRegistry, FileMap) {
     registry.sets = load_dir(path, "sets", &mut file_map);
     registry.affixes = load_dir(path, "affixes", &mut file_map);
     registry.passives = load_dir(path, "passives", &mut file_map);
-    registry.areas = load_dir(path, "areas", &mut file_map);
+    registry.areas = load_areas(path, &mut file_map);
     registry.skills = load_dir(path, "skills", &mut file_map);
 
     (registry, file_map)
@@ -54,6 +54,85 @@ fn load_dir<T: serde::de::DeserializeOwned>(
         }
     }
     file_map.insert(subdir.to_string(), path_map);
+    map
+}
+
+fn load_areas(
+    content_path: &Path,
+    file_map: &mut FileMap,
+) -> HashMap<String, mud_core::templates::AreaTemplate> {
+    let dir = content_path.join("areas");
+    let mut map = HashMap::new();
+    if !dir.exists() {
+        return map;
+    }
+    let mut path_map = HashMap::new();
+
+    let entries = match fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return map,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // Flat file: areas/foo.toml
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(area) = toml::from_str::<mud_core::templates::AreaTemplate>(&content) {
+                    let id = area.id.clone();
+                    path_map.insert(id.clone(), path);
+                    map.insert(id, area);
+                }
+            }
+            continue;
+        }
+
+        // Subdirectory: areas/foo/area.toml + areas/foo/rooms/*.toml
+        if path.is_dir() {
+            let area_file = path.join("area.toml");
+            if !area_file.exists() {
+                continue;
+            }
+            if let Ok(content) = fs::read_to_string(&area_file) {
+                if let Ok(mut area) = toml::from_str::<mud_core::templates::AreaTemplate>(&content)
+                {
+                    let id = area.id.clone();
+                    path_map.insert(id.clone(), area_file);
+
+                    // Load rooms from subdirectory
+                    let rooms_dir = path.join("rooms");
+                    if rooms_dir.exists() {
+                        if let Ok(room_entries) = fs::read_dir(&rooms_dir) {
+                            for room_entry in room_entries.flatten() {
+                                let room_path = room_entry.path();
+                                if room_path.extension().is_some_and(|ext| ext == "toml") {
+                                    if let Ok(room_content) = fs::read_to_string(&room_path) {
+                                        if let Ok(room) =
+                                            toml::from_str::<mud_core::templates::RoomTemplate>(
+                                                &room_content,
+                                            )
+                                        {
+                                            let room_id = room_path
+                                                .file_stem()
+                                                .and_then(|s| s.to_str())
+                                                .unwrap_or("unknown")
+                                                .to_string();
+                                            area.rooms.insert(room_id, room);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    map.insert(id, area);
+                }
+            }
+        }
+    }
+
+    file_map.insert("areas".to_string(), path_map);
     map
 }
 

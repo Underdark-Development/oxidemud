@@ -1,11 +1,127 @@
 id = "starting_vale"
 name = "The Starting Vale"
 description = "A peaceful valley cradled between forested hills, home to the hamlet of Riverside."
-
 spawn_room = "town_square"
 
-# level_range = { min = 1, max = 5 }
-# credits = "Original design by Example Builder"
-# flags = ["city"]
-# weather_zone = "temperate"
-# reset_interval = { secs = 300 }
+[rooms.town_square]
+name = "Village Square"
+description = """
+The cobblestone square of Riverside Village opens around you. An old stone fountain bubbles at the center, its basin carved with dancing nymphs. Flowering linden trees shade wooden benches along the edges. A weathered notice board stands near the fountain, and the distant clang of a smith's hammer mingles with birdsong.
+
+North of here, canvas awnings shade a bustling market stall.
+The east leads along a stone path toward a small temple.
+The south road winds toward the village gate.
+"""
+exits = { north = "market_stall", east = "temple_of_light", south = "town_gate" }
+
+[rooms.town_square.content]
+[[rooms.town_square.content.mobs]]
+template_id = "town_guard"
+count = 2
+
+[rooms.town_gate]
+name = "Town Gate"
+description = """
+A sturdy timber palisade rises fifteen feet high, flanked by two watchtowers. The iron-bound gate stands open, and a dirt road stretches south into the forest beyond.
+
+North leads back into Riverside.
+South, the road disappears into the deepening wood.
+"""
+exits = { north = "town_square", south = "forest_path" }
+
+[rooms.town_gate.content]
+[[rooms.town_gate.content.mobs]]
+template_id = "town_guard"
+count = 1
+
+[rooms.forest_path]
+name = "Forest Path"
+description = """
+The dirt road narrows to a winding path as the forest closes in. Ancient oaks and elms interlace their branches overhead, dappling the ground with patches of sunlight. Ferns and wild garlic carpet the undergrowth, and the air is thick with the scent of damp earth and leaf mold.
+
+Birds call in the canopy above. The north road leads back to the village gate. The path continues south into deeper woods.
+"""
+exits = { north = "town_gate", south = "forest_crossing" }
+
+[rooms.forest_crossing]
+name = "Forest Crossing"
+description = """
+The path opens into a small clearing where four moss-covered stones mark an ancient crossroads. A weathered signpost lies toppled in the ferns, its carved directions long worn illegible.
+
+To the east, the land slopes into a dark, tangled thicket.
+To the west, crumbling stonework peeks through the trees — the remains of an old watchtower.
+The north path leads back toward Riverside.
+"""
+exits = { north = "forest_path", east = "dark_thicket", west = "ruined_watchtower" }
+
+[rooms.dark_thicket]
+name = "Dark Thicket"
+description = """
+The forest grows dense and menacing here. Brambles claw at your clothes, and the canopy blocks all but a murky twilight. The ground is slick with mud and scattered with gnawed bones. Furtive rustling sounds echo in the underbrush — rats, and perhaps worse.
+
+The only clear path leads west back toward the forest crossing.
+"""
+exits = { west = "forest_crossing" }
+
+[rooms.dark_thicket.content]
+[[rooms.dark_thicket.content.mobs]]
+template_id = "river_rat"
+count = 3
+
+[rooms.ruined_watchtower]
+name = "Ruined Watchtower"
+description = """
+An old watchtower stands crumbling at the edge of the forest, its upper half collapsed into a heap of mossy stone. The ground floor remains mostly intact — the wooden door hangs crooked on one hinge. Faint flickering light spills from cracks in the walls, and harsh laughter echoes from within.
+
+The tower's former purpose is long forgotten; now it serves as a den for whatever creatures lurk in these woods.
+
+The east path leads back to the forest crossing.
+"""
+exits = { east = "forest_crossing" }
+
+[rooms.ruined_watchtower.content]
+[[rooms.ruined_watchtower.content.mobs]]
+template_id = "goblin_scavenger"
+count = 2
+
+[rooms.market_stall]
+name = "Market Stall"
+description = """
+A wide canvas awning stretches between wooden poles, shading crates of vegetables, coils of rope, and clay jugs of oil. The air smells of dried herbs, fresh bread, and woodsmoke. A heavy scale sits on a barrel-top counter.
+
+The south path leads back to the village square.
+"""
+exits = { south = "town_square" }
+
+[rooms.market_stall.content]
+[[rooms.market_stall.content.mobs]]
+template_id = "merchant"
+count = 1
+
+[rooms.temple_of_light]
+name = "Temple of Light"
+description = """
+Sunlight streams through a stained-glass rose window, casting shimmering blue and amber patterns across the marble floor. Simple wooden pews face a white stone altar where a single candle burns. The air is cool and still, carrying a faint scent of incense.
+
+An engraved plaque beside the door reads:
+"All who enter find rest."
+
+The west exit leads back to the village square.
+"""
+exits = { west = "town_square" }
+
+[rooms.temple_of_light.content]
+[[rooms.temple_of_light.content.mobs]]
+template_id = "temple_acolyte"
+count = 1
+
+[[spawns]]
+room = "town_square"
+label = "Village Square"
+description = "Begin your journey in the heart of Riverside, surrounded by linden trees and the laughter of villagers."
+
+[[spawns]]
+room = "temple_of_light"
+label = "Temple of Light"
+description = "A serene temple bathed in the glow of stained glass, tended by the gentle clergy."
+allowed_classes = ["mage"]
