@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS components_position (
 CREATE TABLE IF NOT EXISTS components_player (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     account_id INTEGER NOT NULL,
-    prompt TEXT NOT NULL DEFAULT '<%hhp %hmhp> '
+    prompt TEXT NOT NULL DEFAULT '<%hhp %hmhp> ',
+    screen_width INTEGER NOT NULL DEFAULT 80
 );
 
 CREATE TABLE IF NOT EXISTS components_npc (
@@ -103,7 +104,27 @@ CREATE TABLE IF NOT EXISTS components_combat_stats (
 
 CREATE TABLE IF NOT EXISTS components_golds (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-    copper INTEGER NOT NULL DEFAULT 0
+    copper INTEGER NOT NULL DEFAULT 0,
+    silver INTEGER NOT NULL DEFAULT 0,
+    gold INTEGER NOT NULL DEFAULT 0,
+    platinum INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS components_skills (
+    entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    skill_id TEXT NOT NULL,
+    rank INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (entity_id, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS components_alignment (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    alignment TEXT NOT NULL DEFAULT 'true_neutral'
+);
+
+CREATE TABLE IF NOT EXISTS components_description (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    description TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS components_equipment (
@@ -158,7 +179,7 @@ CREATE TABLE IF NOT EXISTS characters (
     level INTEGER NOT NULL DEFAULT 1,
     experience INTEGER NOT NULL DEFAULT 0,
     entity_id INTEGER NOT NULL REFERENCES entities(id),
-    room_id INTEGER NOT NULL REFERENCES entities(id),
+    room_id INTEGER REFERENCES entities(id),
     spawn_key TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT
@@ -167,7 +188,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 6;
+pub const VERSION: i64 = 8;
 
 #[cfg(test)]
 mod tests {
@@ -196,9 +217,11 @@ mod tests {
             "accounts",
             "attributes",
             "characters",
+            "components_alignment",
             "components_armor",
             "components_attributes",
             "components_combat_stats",
+            "components_description",
             "components_durability",
             "components_equipment",
             "components_exit",
@@ -212,6 +235,7 @@ mod tests {
             "components_player",
             "components_position",
             "components_room",
+            "components_skills",
             "components_stance",
             "components_weapon",
             "entities",

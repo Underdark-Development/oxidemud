@@ -71,7 +71,7 @@ pub struct CharacterRow {
     pub level: i64,
     pub experience: i64,
     pub entity_id: i64,
-    pub room_id: i64,
+    pub room_id: Option<i64>,
     pub spawn_key: Option<String>,
     pub created_at: String,
     pub last_seen: Option<String>,
@@ -140,7 +140,7 @@ pub fn create_character(
     race: &str,
     class: &str,
     entity_id: i64,
-    room_id: i64,
+    room_id: Option<i64>,
     spawn_key: Option<&str>,
 ) -> Result<i64, rusqlite::Error> {
     conn.execute(
@@ -254,10 +254,11 @@ pub fn save_player_component(
     entity_id: i64,
     account_id: i64,
     prompt: &str,
+    screen_width: u16,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt) VALUES (?1, ?2, ?3)",
-        params![entity_id, account_id, prompt],
+        "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, ?3, ?4)",
+        params![entity_id, account_id, prompt, screen_width],
     )?;
     Ok(())
 }
@@ -265,14 +266,31 @@ pub fn save_player_component(
 pub fn load_player_component(
     conn: &Connection,
     entity_id: i64,
-) -> Result<Option<(i64, String)>, rusqlite::Error> {
-    let mut stmt =
-        conn.prepare("SELECT account_id, prompt FROM components_player WHERE entity_id = ?1")?;
+) -> Result<Option<(i64, String, u16)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT account_id, prompt, screen_width FROM components_player WHERE entity_id = ?1",
+    )?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
-        Some(row) => Ok(Some((row.get(0)?, row.get(1)?))),
+        Some(row) => Ok(Some((
+            row.get(0)?,
+            row.get(1)?,
+            row.get::<_, i64>(2)? as u16,
+        ))),
         None => Ok(None),
     }
+}
+
+pub fn update_player_screen_width(
+    conn: &Connection,
+    entity_id: i64,
+    screen_width: u16,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE components_player SET screen_width = ?1 WHERE entity_id = ?2",
+        params![screen_width, entity_id],
+    )?;
+    Ok(())
 }
 
 pub fn save_npc_component(
@@ -679,10 +697,13 @@ pub fn save_golds_component(
     conn: &Connection,
     entity_id: i64,
     copper: i64,
+    silver: i64,
+    gold: i64,
+    platinum: i64,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO components_golds (entity_id, copper) VALUES (?1, ?2)",
-        params![entity_id, copper],
+        "INSERT OR REPLACE INTO components_golds (entity_id, copper, silver, gold, platinum) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![entity_id, copper, silver, gold, platinum],
     )?;
     Ok(())
 }
@@ -690,8 +711,101 @@ pub fn save_golds_component(
 pub fn load_golds_component(
     conn: &Connection,
     entity_id: i64,
-) -> Result<Option<i64>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT copper FROM components_golds WHERE entity_id = ?1")?;
+) -> Result<Option<(i64, i64, i64, i64)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT copper, silver, gold, platinum FROM components_golds WHERE entity_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))),
+        None => Ok(None),
+    }
+}
+
+// ── Alignment persistence ──
+
+pub fn save_alignment_component(
+    conn: &Connection,
+    entity_id: i64,
+    alignment: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_alignment (entity_id, alignment) VALUES (?1, ?2)",
+        params![entity_id, alignment],
+    )?;
+    Ok(())
+}
+
+pub fn load_alignment_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT alignment FROM components_alignment WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+// ── Description persistence ──
+
+pub fn save_description_component(
+    conn: &Connection,
+    entity_id: i64,
+    description: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_description (entity_id, description) VALUES (?1, ?2)",
+        params![entity_id, description],
+    )?;
+    Ok(())
+}
+
+pub fn save_skills(
+    conn: &Connection,
+    entity_id: i64,
+    skills: &std::collections::HashMap<String, u16>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM components_skills WHERE entity_id = ?1",
+        params![entity_id],
+    )?;
+    let mut stmt = conn
+        .prepare("INSERT INTO components_skills (entity_id, skill_id, rank) VALUES (?1, ?2, ?3)")?;
+    for (skill_id, rank) in skills {
+        stmt.execute(params![entity_id, skill_id, rank])?;
+    }
+    Ok(())
+}
+
+pub fn load_skills(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<std::collections::HashMap<String, u16>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT skill_id, rank FROM components_skills WHERE entity_id = ?1 ORDER BY skill_id",
+    )?;
+    let rows = stmt.query_map(params![entity_id], |row| {
+        let skill_id: String = row.get(0)?;
+        let rank: u16 = row.get(1)?;
+        Ok((skill_id, rank))
+    })?;
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        let (skill_id, rank) = row?;
+        map.insert(skill_id, rank);
+    }
+    Ok(map)
+}
+
+pub fn load_description_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT description FROM components_description WHERE entity_id = ?1")?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some(row.get(0)?)),
@@ -908,7 +1022,14 @@ mod tests {
         let account_id = create_account(&conn, "charowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
-            &conn, account_id, "Aragorn", "human", "warrior", eid, room_id, None,
+            &conn,
+            account_id,
+            "Aragorn",
+            "human",
+            "warrior",
+            eid,
+            Some(room_id),
+            None,
         )
         .unwrap();
         assert!(char_id > 0);
@@ -922,7 +1043,14 @@ mod tests {
         let account_id = create_account(&conn, "owner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
         create_character(
-            &conn, account_id, "Legolas", "elf", "ranger", eid, room_id, None,
+            &conn,
+            account_id,
+            "Legolas",
+            "elf",
+            "ranger",
+            eid,
+            Some(room_id),
+            None,
         )
         .unwrap();
 
@@ -951,11 +1079,25 @@ mod tests {
         let eid1 = insert_entity(&conn, "player").unwrap();
         let eid2 = insert_entity(&conn, "player").unwrap();
         create_character(
-            &conn, account_id, "Char1", "human", "warrior", eid1, room_id, None,
+            &conn,
+            account_id,
+            "Char1",
+            "human",
+            "warrior",
+            eid1,
+            Some(room_id),
+            None,
         )
         .unwrap();
         create_character(
-            &conn, account_id, "Char2", "elf", "mage", eid2, room_id, None,
+            &conn,
+            account_id,
+            "Char2",
+            "elf",
+            "mage",
+            eid2,
+            Some(room_id),
+            None,
         )
         .unwrap();
 
@@ -980,7 +1122,14 @@ mod tests {
         let account_id = create_account(&conn, "delowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
-            &conn, account_id, "DeleteMe", "human", "warrior", eid, room_id, None,
+            &conn,
+            account_id,
+            "DeleteMe",
+            "human",
+            "warrior",
+            eid,
+            Some(room_id),
+            None,
         )
         .unwrap();
         delete_character(&conn, char_id).unwrap();
@@ -1000,11 +1149,25 @@ mod tests {
         let eid1 = insert_entity(&conn, "player").unwrap();
         let eid2 = insert_entity(&conn, "player").unwrap();
         create_character(
-            &conn, account1, "SameName", "human", "warrior", eid1, room_id, None,
+            &conn,
+            account1,
+            "SameName",
+            "human",
+            "warrior",
+            eid1,
+            Some(room_id),
+            None,
         )
         .unwrap();
         let result = create_character(
-            &conn, account2, "SameName", "elf", "mage", eid2, room_id, None,
+            &conn,
+            account2,
+            "SameName",
+            "elf",
+            "mage",
+            eid2,
+            Some(room_id),
+            None,
         );
         assert!(result.is_err());
     }
@@ -1017,7 +1180,14 @@ mod tests {
         let account_id = create_account(&conn, "levelowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
-            &conn, account_id, "Leveler", "human", "warrior", eid, room_id, None,
+            &conn,
+            account_id,
+            "Leveler",
+            "human",
+            "warrior",
+            eid,
+            Some(room_id),
+            None,
         )
         .unwrap();
         update_character_level(&conn, char_id, 5, 5000).unwrap();
@@ -1036,13 +1206,20 @@ mod tests {
         let account_id = create_account(&conn, "posowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
-            &conn, account_id, "Wanderer", "human", "warrior", eid, room1, None,
+            &conn,
+            account_id,
+            "Wanderer",
+            "human",
+            "warrior",
+            eid,
+            Some(room1),
+            None,
         )
         .unwrap();
         update_character_position(&conn, char_id, room2).unwrap();
 
         let char_row = get_character_by_name(&conn, "Wanderer").unwrap().unwrap();
-        assert_eq!(char_row.room_id, room2);
+        assert_eq!(char_row.room_id, Some(room2));
     }
 
     #[test]
@@ -1053,7 +1230,14 @@ mod tests {
         let account_id = create_account(&conn, "seenowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
-            &conn, account_id, "SeenMe", "human", "warrior", eid, room_id, None,
+            &conn,
+            account_id,
+            "SeenMe",
+            "human",
+            "warrior",
+            eid,
+            Some(room_id),
+            None,
         )
         .unwrap();
         assert!(get_character_by_name(&conn, "SeenMe")
@@ -1095,10 +1279,21 @@ mod tests {
     fn test_save_and_load_player_component() {
         let conn = setup();
         let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, "<%hhp> ").unwrap();
-        let (account_id, prompt) = load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, "<%hhp> ", 80).unwrap();
+        let (account_id, prompt, width) = load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
         assert_eq!(prompt, "<%hhp> ");
+        assert_eq!(width, 80);
+    }
+
+    #[test]
+    fn test_update_player_screen_width() {
+        let conn = setup();
+        let eid = insert_entity(&conn, "player").unwrap();
+        save_player_component(&conn, eid, 42, "<%hhp> ", 80).unwrap();
+        update_player_screen_width(&conn, eid, 132).unwrap();
+        let (_, _, width) = load_player_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(width, 132);
     }
 
     #[test]

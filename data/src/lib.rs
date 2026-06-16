@@ -60,6 +60,52 @@ impl Database {
             )?;
         }
 
+        if current < 7 {
+            // Migration 7: expand components_golds with silver, gold, platinum
+            let has_silver: bool = self
+                .conn
+                .prepare("SELECT silver FROM components_golds LIMIT 0")
+                .is_ok();
+            if !has_silver {
+                self.conn.execute_batch(
+                    "ALTER TABLE components_golds ADD COLUMN silver INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE components_golds ADD COLUMN gold INTEGER NOT NULL DEFAULT 0;
+                     ALTER TABLE components_golds ADD COLUMN platinum INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (7)",
+                [],
+            )?;
+        }
+
+        if current < 8 {
+            // Migration 8: components_skills table
+            // Table is created by CREATE TABLE IF NOT EXISTS in SCHEMA,
+            // so running the full schema batch handles it.
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (8)",
+                [],
+            )?;
+        }
+
+        if current < 9 {
+            // Migration 9: add screen_width column to components_player
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT screen_width FROM components_player LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn.execute_batch(
+                    "ALTER TABLE components_player ADD COLUMN screen_width INTEGER NOT NULL DEFAULT 80;",
+                )?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (9)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
