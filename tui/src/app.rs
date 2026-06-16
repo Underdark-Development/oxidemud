@@ -1,6 +1,9 @@
 use crate::config_file::{PrefsConfig, SpadeConfig};
+use crate::content;
+use crate::screens::entity_inspector::EntityInspectorScreen;
 use crate::screens::world_tree::WorldTreeScreen;
-use crate::screens::{PlaceholderScreen, Screen};
+use crate::screens::{PlaceholderScreen, Screen, ScreenAction};
+use mud_core::templates::TemplateRegistry;
 use ratatui::{
     backend::CrosstermBackend,
     crossterm::{
@@ -30,6 +33,7 @@ pub struct App {
     pub content_path: PathBuf,
     pub screens: Vec<Box<dyn Screen>>,
     pub active_screen: usize,
+    pub registry: TemplateRegistry,
 }
 
 impl App {
@@ -40,12 +44,16 @@ impl App {
         let port = cli.connect_port.unwrap_or(file_config.connection.port);
         let content_path = PathBuf::from(file_config.content_path.clone());
 
-        let world_tree = WorldTreeScreen::new(content_path.clone());
+        let registry = content::load_templates(&content_path);
+        let world_tree = WorldTreeScreen::new_shared(content_path.clone(), registry.clone());
+
+        let inspector = EntityInspectorScreen::new(registry.clone(), String::new(), String::new());
+
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(world_tree),
             Box::new(PlaceholderScreen::new("Template Editor")),
             Box::new(PlaceholderScreen::new("Room Graph")),
-            Box::new(PlaceholderScreen::new("Entity Inspector")),
+            Box::new(inspector),
             Box::new(PlaceholderScreen::new("Command Palette")),
             Box::new(PlaceholderScreen::new("Live Dashboard")),
             Box::new(PlaceholderScreen::new("Validation Panel")),
@@ -62,6 +70,7 @@ impl App {
             content_path,
             screens,
             active_screen: 0,
+            registry,
         }
     }
 
@@ -83,6 +92,20 @@ impl App {
         self.screens[0].reload();
     }
 
+    fn handle_action(&mut self) {
+        match self.active_screen_mut().take_action() {
+            ScreenAction::Inspect(category, id) => {
+                self.screens[3] = Box::new(EntityInspectorScreen::new(
+                    self.registry.clone(),
+                    category,
+                    id,
+                ));
+                self.active_screen = 3;
+            }
+            ScreenAction::None => {}
+        }
+    }
+
     pub async fn run(&mut self) -> color_eyre::Result<()> {
         let mut terminal = init_terminal()?;
         let mut event_loop = crate::event::EventLoop::new()?;
@@ -93,6 +116,8 @@ impl App {
             if let crate::event::Event::Key(key) = event_loop.next().await? {
                 crate::input::handle_key(self, key);
             }
+
+            self.handle_action();
         }
 
         restore_terminal()?;

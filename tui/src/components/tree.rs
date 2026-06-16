@@ -29,7 +29,7 @@ impl<T> TreeNode<T> {
         self.children.push(child);
     }
 
-    fn is_leaf(&self) -> bool {
+    pub fn is_leaf(&self) -> bool {
         self.children.is_empty()
     }
 }

@@ -1,12 +1,22 @@
+pub mod entity_inspector;
 pub mod world_tree;
 
 use ratatui::{buffer::Buffer, crossterm::event::KeyEvent, layout::Rect};
+
+#[derive(Debug, Clone)]
+pub enum ScreenAction {
+    None,
+    Inspect(String, String),
+}
 
 pub trait Screen {
     fn name(&self) -> &str;
     fn handle_key(&mut self, key: KeyEvent);
     fn render(&mut self, area: Rect, buf: &mut Buffer);
     fn reload(&mut self) {}
+    fn take_action(&mut self) -> ScreenAction {
+        ScreenAction::None
+    }
 }
 
 pub const SCREEN_TITLES: &[&str] = &[

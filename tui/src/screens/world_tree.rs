@@ -9,25 +9,37 @@ use ratatui::{
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use super::Screen;
+use super::{Screen, ScreenAction};
 use crate::components::{ScrollState, Tree, TreeNode};
 use crate::content;
 
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub category: String,
+    pub id: String,
+}
+
 pub struct WorldTreeScreen {
-    tree: Tree<String>,
+    tree: Tree<NodeInfo>,
     content_path: PathBuf,
     registry: TemplateRegistry,
     scrollbar: ScrollState,
+    inspect_request: Option<(String, String)>,
 }
 
 impl WorldTreeScreen {
     pub fn new(content_path: PathBuf) -> Self {
         let registry = content::load_templates(&content_path);
+        Self::new_shared(content_path, registry)
+    }
+
+    pub fn new_shared(content_path: PathBuf, registry: TemplateRegistry) -> Self {
         let mut screen = WorldTreeScreen {
             tree: Tree::new(Vec::new()),
             content_path,
             registry,
             scrollbar: ScrollState::new(),
+            inspect_request: None,
         };
         screen.rebuild_tree();
         screen
@@ -38,53 +50,92 @@ impl WorldTreeScreen {
         self.rebuild_tree();
     }
 
+    pub fn registry(&self) -> &TemplateRegistry {
+        &self.registry
+    }
+
     fn rebuild_tree(&mut self) {
         let mut roots = Vec::new();
 
         if !self.registry.areas.is_empty() {
             let mut node = TreeNode::new(
                 format!("Areas ({})", self.registry.areas.len()),
-                String::new(),
+                NodeInfo {
+                    category: String::new(),
+                    id: String::new(),
+                },
             );
             let mut ids: Vec<&String> = self.registry.areas.keys().collect();
             ids.sort();
             for id in ids {
                 let area = &self.registry.areas[id];
-                let mut area_child = TreeNode::new(area.name.clone(), id.clone());
+                let mut area_child = TreeNode::new(
+                    area.name.clone(),
+                    NodeInfo {
+                        category: "areas".into(),
+                        id: id.clone(),
+                    },
+                );
                 let mut room_ids: Vec<&String> = area.rooms.keys().collect();
                 room_ids.sort();
                 for room_id in room_ids {
                     let room = &area.rooms[room_id];
-                    area_child.add_child(TreeNode::new(room.name.clone(), room_id.clone()));
+                    area_child.add_child(TreeNode::new(
+                        room.name.clone(),
+                        NodeInfo {
+                            category: "rooms".into(),
+                            id: room_id.clone(),
+                        },
+                    ));
                 }
                 node.add_child(area_child);
             }
             roots.push(node);
         }
 
-        add_group(&mut roots, &self.registry.items, "Items", |i| {
+        add_group(&mut roots, &self.registry.items, "Items", "items", |i| {
             i.name.clone()
         });
-        add_group(&mut roots, &self.registry.mobs, "Mobs", |m| m.name.clone());
-        add_group(&mut roots, &self.registry.races, "Races", |r| {
+        add_group(&mut roots, &self.registry.mobs, "Mobs", "mobs", |m| {
+            m.name.clone()
+        });
+        add_group(&mut roots, &self.registry.races, "Races", "races", |r| {
             r.name.clone()
         });
-        add_group(&mut roots, &self.registry.classes, "Classes", |c| {
-            c.name.clone()
-        });
-        add_group(&mut roots, &self.registry.skills, "Skills", |s| {
+        add_group(
+            &mut roots,
+            &self.registry.classes,
+            "Classes",
+            "classes",
+            |c| c.name.clone(),
+        );
+        add_group(&mut roots, &self.registry.skills, "Skills", "skills", |s| {
             s.name.clone()
         });
-        add_group(&mut roots, &self.registry.stances, "Stances", |s| {
+        add_group(
+            &mut roots,
+            &self.registry.stances,
+            "Stances",
+            "stances",
+            |s| s.name.clone(),
+        );
+        add_group(&mut roots, &self.registry.sets, "Sets", "sets", |s| {
             s.name.clone()
         });
-        add_group(&mut roots, &self.registry.sets, "Sets", |s| s.name.clone());
-        add_group(&mut roots, &self.registry.affixes, "Affixes", |a| {
-            a.name.clone()
-        });
-        add_group(&mut roots, &self.registry.passives, "Passives", |p| {
-            p.name.clone()
-        });
+        add_group(
+            &mut roots,
+            &self.registry.affixes,
+            "Affixes",
+            "affixes",
+            |a| a.name.clone(),
+        );
+        add_group(
+            &mut roots,
+            &self.registry.passives,
+            "Passives",
+            "passives",
+            |p| p.name.clone(),
+        );
 
         self.tree = Tree::new(roots);
         self.tree.selected = Some(0);
@@ -105,9 +156,10 @@ impl WorldTreeScreen {
 }
 
 fn add_group<T, F>(
-    roots: &mut Vec<TreeNode<String>>,
+    roots: &mut Vec<TreeNode<NodeInfo>>,
     items: &HashMap<String, T>,
     label: &str,
+    category: &str,
     display: F,
 ) where
     F: Fn(&T) -> String,
@@ -115,12 +167,24 @@ fn add_group<T, F>(
     if items.is_empty() {
         return;
     }
-    let mut node = TreeNode::new(format!("{} ({})", label, items.len()), String::new());
+    let mut node = TreeNode::new(
+        format!("{} ({})", label, items.len()),
+        NodeInfo {
+            category: String::new(),
+            id: String::new(),
+        },
+    );
     let mut ids: Vec<&String> = items.keys().collect();
     ids.sort();
     for id in ids {
         if let Some(item) = items.get(id) {
-            node.add_child(TreeNode::new(display(item), id.clone()));
+            node.add_child(TreeNode::new(
+                display(item),
+                NodeInfo {
+                    category: category.to_string(),
+                    id: id.clone(),
+                },
+            ));
         }
     }
     roots.push(node);
@@ -135,10 +199,31 @@ impl Screen for WorldTreeScreen {
         match key.code {
             KeyCode::Up => self.tree.select_prev(),
             KeyCode::Down => self.tree.select_next(),
-            KeyCode::Enter | KeyCode::Right => self.tree.toggle_selected(),
+            KeyCode::Enter | KeyCode::Right => {
+                if let Some(data) = self.tree.selected_data() {
+                    if !data.id.is_empty() {
+                        if let Some(idx) = self.tree.selected {
+                            if let Some((_, node)) = self.tree.flatten().get(idx) {
+                                if node.is_leaf() {
+                                    self.inspect_request =
+                                        Some((data.category.clone(), data.id.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+                self.tree.toggle_selected();
+            }
             KeyCode::Char('r') => self.reload(),
             _ => {}
         }
+    }
+
+    fn take_action(&mut self) -> ScreenAction {
+        self.inspect_request
+            .take()
+            .map(|(cat, id)| ScreenAction::Inspect(cat, id))
+            .unwrap_or(ScreenAction::None)
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer) {
