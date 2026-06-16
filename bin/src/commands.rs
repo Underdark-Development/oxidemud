@@ -13,10 +13,6 @@ fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
     conn.send_line(&text.render_wrapped(width, ansi, blink));
 }
 
-fn section_label(text: &str) -> core::format::Segment {
-    core::format::Segment::colored(text, core::format::Color::BrightBlack)
-}
-
 fn get_pos_room(world: &World, entity: core::Entity) -> Option<core::Entity> {
     world
         .query_one::<&Position>(entity)
@@ -137,7 +133,6 @@ pub fn cmd_look(
 
     if !mobs.is_empty() {
         let mut t = core::format::RichText::new();
-        t.push(section_label("Mobs here: "));
         for (i, &mob) in mobs.iter().enumerate() {
             if i > 0 {
                 t.push(core::format::Segment::new(", "));
@@ -158,7 +153,6 @@ pub fn cmd_look(
 
     if !others.is_empty() {
         let mut t = core::format::RichText::new();
-        t.push(section_label("Players here: "));
         for (i, &other) in others.iter().enumerate() {
             if i > 0 {
                 t.push(core::format::Segment::new(", "));
@@ -1712,10 +1706,6 @@ mod tests {
         assert!(
             all.contains("Room A"),
             "Expected 'Room A' in lines: {lines:?}"
-        );
-        assert!(
-            all.contains("Mobs here:"),
-            "Expected 'Mobs here:' in lines: {lines:?}"
         );
         assert!(
             all.contains("Test Mob"),
