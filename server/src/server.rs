@@ -202,7 +202,8 @@ async fn handle_connection(
     loop {
         line.clear();
         let is_login_state = !login_flow.state().is_playing();
-        let read_result = if is_login_state {
+        let is_pre_auth = login_flow.state().is_pre_auth();
+        let read_result = if is_pre_auth {
             match tokio::time::timeout(LOGIN_READ_TIMEOUT, buf_reader.read_line(&mut line)).await {
                 Ok(result) => result,
                 Err(_elapsed) => {
