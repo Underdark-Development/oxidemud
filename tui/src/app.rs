@@ -1,5 +1,5 @@
 use crate::config_file::{PrefsConfig, SpadeConfig};
-use crate::content;
+use crate::content::{self, FileMap};
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::world_tree::WorldTreeScreen;
 use crate::screens::{PlaceholderScreen, Screen};
@@ -35,6 +35,7 @@ pub struct App {
     pub screens: Vec<Box<dyn Screen>>,
     pub active_screen: usize,
     pub registry: TemplateRegistry,
+    pub file_map: FileMap,
 }
 
 impl App {
@@ -45,8 +46,9 @@ impl App {
         let port = cli.connect_port.unwrap_or(file_config.connection.port);
         let content_path = PathBuf::from(file_config.content_path.clone());
 
-        let registry = content::load_templates(&content_path);
-        let world_tree = WorldTreeScreen::new_shared(content_path.clone(), registry.clone());
+        let (registry, file_map) = content::load_templates(&content_path);
+        let world_tree =
+            WorldTreeScreen::new_shared(content_path.clone(), registry.clone(), file_map.clone());
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(world_tree),
@@ -70,6 +72,7 @@ impl App {
             screens,
             active_screen: 0,
             registry,
+            file_map,
         }
     }
 

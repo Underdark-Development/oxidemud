@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use super::{entity_inspector::EntityInspectorScreen, Screen};
 use crate::components::{ScrollState, Tree, TreeNode};
-use crate::content;
+use crate::content::{self, FileMap};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -30,6 +30,7 @@ pub struct WorldTreeScreen {
     tree: Tree<NodeInfo>,
     content_path: PathBuf,
     registry: TemplateRegistry,
+    file_map: FileMap,
     scrollbar: ScrollState,
     last_click: Option<(Instant, usize)>,
     detail: Option<EntityInspectorScreen>,
@@ -39,15 +40,20 @@ pub struct WorldTreeScreen {
 
 impl WorldTreeScreen {
     pub fn new(content_path: PathBuf) -> Self {
-        let registry = content::load_templates(&content_path);
-        Self::new_shared(content_path, registry)
+        let (registry, file_map) = content::load_templates(&content_path);
+        Self::new_shared(content_path, registry, file_map)
     }
 
-    pub fn new_shared(content_path: PathBuf, registry: TemplateRegistry) -> Self {
+    pub fn new_shared(
+        content_path: PathBuf,
+        registry: TemplateRegistry,
+        file_map: FileMap,
+    ) -> Self {
         let mut screen = WorldTreeScreen {
             tree: Tree::new(Vec::new()),
             content_path,
             registry,
+            file_map,
             scrollbar: ScrollState::new(),
             last_click: None,
             detail: None,
@@ -59,7 +65,9 @@ impl WorldTreeScreen {
     }
 
     pub fn reload(&mut self) {
-        self.registry = content::load_templates(&self.content_path);
+        let (registry, file_map) = content::load_templates(&self.content_path);
+        self.registry = registry;
+        self.file_map = file_map;
         self.detail = None;
         self.focus = Focus::Tree;
         self.show_help = false;
@@ -185,6 +193,7 @@ impl WorldTreeScreen {
             self.registry.clone(),
             category,
             template_id,
+            self.file_map.clone(),
         ));
         self.focus = Focus::Detail;
     }
@@ -361,11 +370,13 @@ impl Screen for WorldTreeScreen {
         if key.code == KeyCode::Esc {
             if self.show_help {
                 self.show_help = false;
-            } else if let Some(ref mut detail) = self.detail {
-                if detail.is_editing() {
-                    detail.handle_key(key);
+            } else if self.detail.is_some() {
+                if self.detail.as_ref().unwrap().is_editing() {
+                    self.detail.as_mut().unwrap().handle_key(key);
                 } else {
-                    self.detail = None;
+                    if let Some(detail) = self.detail.take() {
+                        detail.apply_changes(&mut self.registry);
+                    }
                     self.focus = Focus::Tree;
                 }
             }

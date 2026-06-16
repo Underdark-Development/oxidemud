@@ -1,6 +1,6 @@
 use crate::components::SkillDef;
 use crate::dice::DiceRoll;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 /// Custom deserialize for dice notation strings like "2d6" or "2d8+3".
 /// Accepts a plain string in TOML: `dice = "2d6+3"`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DiceString(pub String);
 
 impl DiceString {
@@ -39,7 +39,7 @@ impl<'de> Deserialize<'de> for DiceString {
 // Race template
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RaceAttributes {
     #[serde(default = "default_stat")]
     pub strength: u8,
@@ -72,7 +72,7 @@ const fn default_stat() -> u8 {
     10
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RaceTemplate {
     pub id: String,
     pub name: String,
@@ -91,7 +91,7 @@ pub struct RaceTemplate {
 // Class template
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClassAttributeMods {
     #[serde(default)]
     pub strength: i8,
@@ -108,7 +108,7 @@ pub struct ClassAttributeMods {
 }
 
 /// Currency amounts used in template definitions (starting gold, etc.)
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WalletAmount {
     #[serde(default)]
     pub copper: u64,
@@ -120,7 +120,7 @@ pub struct WalletAmount {
     pub platinum: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassTemplate {
     pub id: String,
     pub name: String,
@@ -157,7 +157,7 @@ const fn default_hit_die() -> u8 {
 // Stance template
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StanceDef {
     pub id: String,
     pub name: String,
@@ -181,7 +181,7 @@ const fn default_min_level() -> u8 {
 // Item template
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeaponDef {
     pub damage: DiceString,
     pub damage_type: String,
@@ -199,19 +199,19 @@ fn default_weapon_range() -> String {
     "melee".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EquipmentDef {
     pub slot: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillRequirement {
     pub id: String,
     #[serde(default)]
     pub level: u16,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TriggerDef {
     pub event: String,
     #[serde(default)]
@@ -220,13 +220,13 @@ pub struct TriggerDef {
     pub target: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetMembership {
     pub id: String,
     pub piece_type: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemTemplate {
     pub id: String,
     pub name: String,
@@ -270,19 +270,19 @@ fn default_quality() -> String {
 // Mob template
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthBounds {
     pub current: i32,
     pub max: i32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MobEquipmentEntry {
     pub template_id: String,
     pub slot: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CountRange {
     #[serde(default = "default_count_min")]
     pub min: u8,
@@ -298,7 +298,7 @@ const fn default_count_max() -> u8 {
     1
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LootEntry {
     #[serde(default)]
     pub item: String,
@@ -314,26 +314,26 @@ const fn default_chance() -> u8 {
     100
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LootTable {
     #[serde(default)]
     pub entries: Vec<LootEntry>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MobSkillEntry {
     pub id: String,
     #[serde(default)]
     pub level: u16,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptHookEntry {
     pub event: String,
     pub script: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MobTemplate {
     pub id: String,
     pub name: String,
@@ -393,7 +393,7 @@ fn default_ai_mode() -> String {
 // Item set definitions
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetCondition {
     pub piece_type: String,
     #[serde(default = "default_condition_min")]
@@ -404,7 +404,7 @@ const fn default_condition_min() -> u8 {
     1
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetEffect {
     pub effect_type: String,
     #[serde(default)]
@@ -417,7 +417,7 @@ pub struct SetEffect {
     pub radius: Option<u32>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetBonusEntry {
     #[serde(default)]
     pub min_pieces: u8,
@@ -427,7 +427,7 @@ pub struct SetBonusEntry {
     pub effects: Vec<SetEffect>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetDef {
     pub id: String,
     pub name: String,
@@ -439,7 +439,7 @@ pub struct SetDef {
 // Passive definitions — data-driven racial/class/item passives
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PassiveEffect {
     pub effect_type: String,
     pub target: String,
@@ -447,7 +447,7 @@ pub struct PassiveEffect {
     pub amount: Option<i32>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PassiveDef {
     pub id: String,
     pub name: String,
@@ -460,7 +460,7 @@ pub struct PassiveDef {
 // Affix definitions
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AffixDef {
     pub id: String,
     pub name: String,
@@ -489,7 +489,7 @@ const fn default_weight() -> u32 {
 // Area / Room template types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MobSpawnEntry {
     pub template_id: String,
     #[serde(default = "default_mob_count")]
@@ -502,7 +502,7 @@ const fn default_mob_count() -> u8 {
     1
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemSpawnEntry {
     pub template_id: String,
     #[serde(default = "default_item_count")]
@@ -513,7 +513,7 @@ const fn default_item_count() -> u8 {
     1
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RoomContent {
     #[serde(default)]
     pub mobs: Vec<MobSpawnEntry>,
@@ -521,7 +521,7 @@ pub struct RoomContent {
     pub items: Vec<ItemSpawnEntry>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomTemplate {
     pub name: String,
     pub description: String,
@@ -535,7 +535,7 @@ pub struct RoomTemplate {
     pub content: RoomContent,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomPortalTemplate {
     pub keyword: String,
     pub dest: String,
@@ -545,7 +545,7 @@ pub struct RoomPortalTemplate {
 }
 
 /// Room reset (spawn) timer settings.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResetInterval {
     /// How often the area's rooms reset in seconds.
     pub secs: u64,
@@ -556,7 +556,7 @@ pub struct ResetInterval {
 /// Empty constraint vectors mean "no restriction" — any race/class/alignment
 /// can choose this spawn. The area's `spawn_room` is implicitly included as
 /// a fallback spawn when no explicit spawns are defined.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnEntry {
     /// Room ID within this area.
     pub room: String,
@@ -575,7 +575,7 @@ pub struct SpawnEntry {
     pub allowed_alignments: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AreaTemplate {
     pub id: String,
     pub name: String,

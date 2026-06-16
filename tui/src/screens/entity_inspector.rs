@@ -9,6 +9,7 @@ use ratatui::{
 
 use super::Screen;
 use crate::components::{ScrollState, Table};
+use crate::content::FileMap;
 
 enum EditMode {
     Idle,
@@ -45,10 +46,16 @@ pub struct EntityInspectorScreen {
     edit_mode: EditMode,
     dirty: bool,
     cursor_char: u8,
+    file_map: FileMap,
 }
 
 impl EntityInspectorScreen {
-    pub fn new(registry: TemplateRegistry, category: String, template_id: String) -> Self {
+    pub fn new(
+        registry: TemplateRegistry,
+        category: String,
+        template_id: String,
+        file_map: FileMap,
+    ) -> Self {
         let mut screen = EntityInspectorScreen {
             registry,
             category,
@@ -58,6 +65,7 @@ impl EntityInspectorScreen {
             edit_mode: EditMode::Idle,
             dirty: false,
             cursor_char: 0,
+            file_map,
         };
         screen.load_table();
         screen
@@ -619,10 +627,199 @@ impl EntityInspectorScreen {
             if value != old_value {
                 if self.update_registry(&field, &value).is_ok() {
                     self.dirty = true;
+                    if let Err(e) = self.save_to_disk() {
+                        tracing::error!(
+                            "failed to save {}/{}: {e}",
+                            self.category,
+                            self.template_id
+                        );
+                    }
                 } else {
                     self.table.rows[row][1] = old_value;
                 }
             }
+        }
+    }
+
+    fn save_to_disk(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Rooms are nested within area templates, so we find the parent area
+        let (lookup_category, lookup_id) = if self.category == "rooms" {
+            let parent_id = self
+                .registry
+                .areas
+                .values()
+                .find(|a| a.rooms.contains_key(&self.template_id))
+                .map(|a| &a.id)
+                .ok_or_else(|| format!("room {} parent area not found", self.template_id))?
+                .clone();
+            ("areas", parent_id)
+        } else {
+            (self.category.as_str(), self.template_id.clone())
+        };
+
+        let path = self
+            .file_map
+            .get(lookup_category)
+            .and_then(|m| m.get(&lookup_id))
+            .ok_or_else(|| format!("no file mapping for {}/{lookup_id}", lookup_category,))?;
+
+        let content = std::fs::read_to_string(path)?;
+        let mut doc: toml::Value = content.parse()?;
+
+        let template_value: toml::Value = match self.category.as_str() {
+            "items" => toml::Value::try_from(
+                self.registry
+                    .items
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("item {} not found", self.template_id))?,
+            )?,
+            "mobs" => toml::Value::try_from(
+                self.registry
+                    .mobs
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("mob {} not found", self.template_id))?,
+            )?,
+            "races" => toml::Value::try_from(
+                self.registry
+                    .races
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("race {} not found", self.template_id))?,
+            )?,
+            "classes" => toml::Value::try_from(
+                self.registry
+                    .classes
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("class {} not found", self.template_id))?,
+            )?,
+            "skills" => toml::Value::try_from(
+                self.registry
+                    .skills
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("skill {} not found", self.template_id))?,
+            )?,
+            "stances" => toml::Value::try_from(
+                self.registry
+                    .stances
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("stance {} not found", self.template_id))?,
+            )?,
+            "sets" => toml::Value::try_from(
+                self.registry
+                    .sets
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("set {} not found", self.template_id))?,
+            )?,
+            "affixes" => toml::Value::try_from(
+                self.registry
+                    .affixes
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("affix {} not found", self.template_id))?,
+            )?,
+            "passives" => toml::Value::try_from(
+                self.registry
+                    .passives
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("passive {} not found", self.template_id))?,
+            )?,
+            "areas" => toml::Value::try_from(
+                self.registry
+                    .areas
+                    .get(&self.template_id)
+                    .ok_or_else(|| format!("area {} not found", self.template_id))?,
+            )?,
+            "rooms" => {
+                // Rooms are nested within area templates; find the parent area
+                let parent_area = self
+                    .registry
+                    .areas
+                    .values()
+                    .find(|a| a.rooms.contains_key(&self.template_id))
+                    .ok_or_else(|| format!("room {} parent area not found", self.template_id))?;
+                toml::Value::try_from(parent_area)?
+            }
+            cat => return Err(format!("unknown category: {cat}").into()),
+        };
+
+        if let Some(array) = doc.get_mut(&self.category).and_then(|v| v.as_array_mut()) {
+            for entry in array.iter_mut() {
+                let is_match =
+                    entry.get("id").and_then(|v| v.as_str()) == Some(self.template_id.as_str());
+                if is_match {
+                    *entry = template_value;
+                    break;
+                }
+            }
+        }
+
+        std::fs::write(path, doc.to_string())?;
+        Ok(())
+    }
+
+    pub fn apply_changes(&self, registry: &mut TemplateRegistry) {
+        let template_id = &self.template_id;
+        match self.category.as_str() {
+            "items" => {
+                if let Some(t) = self.registry.items.get(template_id) {
+                    registry.items.insert(template_id.clone(), t.clone());
+                }
+            }
+            "mobs" => {
+                if let Some(t) = self.registry.mobs.get(template_id) {
+                    registry.mobs.insert(template_id.clone(), t.clone());
+                }
+            }
+            "races" => {
+                if let Some(t) = self.registry.races.get(template_id) {
+                    registry.races.insert(template_id.clone(), t.clone());
+                }
+            }
+            "classes" => {
+                if let Some(t) = self.registry.classes.get(template_id) {
+                    registry.classes.insert(template_id.clone(), t.clone());
+                }
+            }
+            "skills" => {
+                if let Some(t) = self.registry.skills.get(template_id) {
+                    registry.skills.insert(template_id.clone(), t.clone());
+                }
+            }
+            "stances" => {
+                if let Some(t) = self.registry.stances.get(template_id) {
+                    registry.stances.insert(template_id.clone(), t.clone());
+                }
+            }
+            "sets" => {
+                if let Some(t) = self.registry.sets.get(template_id) {
+                    registry.sets.insert(template_id.clone(), t.clone());
+                }
+            }
+            "affixes" => {
+                if let Some(t) = self.registry.affixes.get(template_id) {
+                    registry.affixes.insert(template_id.clone(), t.clone());
+                }
+            }
+            "passives" => {
+                if let Some(t) = self.registry.passives.get(template_id) {
+                    registry.passives.insert(template_id.clone(), t.clone());
+                }
+            }
+            "areas" => {
+                if let Some(t) = self.registry.areas.get(template_id) {
+                    registry.areas.insert(template_id.clone(), t.clone());
+                }
+            }
+            "rooms" => {
+                // Rooms are nested within areas; sync the parent area's room
+                for area in self.registry.areas.values() {
+                    if let Some(room) = area.rooms.get(template_id) {
+                        if let Some(target_area) = registry.areas.get_mut(&area.id) {
+                            target_area.rooms.insert(template_id.clone(), room.clone());
+                        }
+                        break;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
