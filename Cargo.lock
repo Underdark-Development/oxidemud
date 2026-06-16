@@ -411,6 +411,7 @@ dependencies = [
 name = "mud-server"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "mud-core",
  "mud-data",
  "tokio",
