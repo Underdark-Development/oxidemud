@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use mud_core as core;
 use mud_core::templates::{SetDef, SkillResolveError};
-use mud_core::{Direction, Name, Position, Room, RoomExits, VoidRoom, World};
+use mud_core::{Direction, Name, Npc, Position, Room, RoomExits, VoidRoom, World};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
@@ -123,6 +123,30 @@ pub fn cmd_look(
             conn,
             &core::format::conventions::exit_dir(format!("[Exits: {}]", exits.join(" "))),
         );
+    }
+
+    // Mobs
+    let mobs: Vec<_> = {
+        let mut q = world.query::<(&Position, &Npc)>();
+        q.iter()
+            .filter(|(_, (pos, _))| pos.room == room)
+            .map(|(raw, _)| core::Entity::from(raw))
+            .filter(|&e| e != entity)
+            .collect()
+    };
+
+    if !mobs.is_empty() {
+        let mut t = core::format::RichText::new();
+        t.push(section_label("Mobs here: "));
+        for (i, &mob) in mobs.iter().enumerate() {
+            if i > 0 {
+                t.push(core::format::Segment::new(", "));
+            }
+            if let Some(name) = get_name(world, mob) {
+                t.push(core::format::Segment::new(name.to_string()));
+            }
+        }
+        send_formatted(conn, &t);
     }
 
     // Occupants
@@ -1674,6 +1698,13 @@ mod tests {
         let (mut world, _void, room_a, _room_b) = test_world();
         let (_player, mut conn, registry) = test_player(&mut world, room_a);
 
+        // Spawn a mob in the room for mob listing test
+        world.spawn((
+            Position::new(room_a),
+            Name::new("Test Mob"),
+            Npc::new("test_mob"),
+        ));
+
         cmd_look(&mut world, &mut conn, "", "", &registry);
 
         let lines = conn.take_lines();
@@ -1681,6 +1712,14 @@ mod tests {
         assert!(
             all.contains("Room A"),
             "Expected 'Room A' in lines: {lines:?}"
+        );
+        assert!(
+            all.contains("Mobs here:"),
+            "Expected 'Mobs here:' in lines: {lines:?}"
+        );
+        assert!(
+            all.contains("Test Mob"),
+            "Expected 'Test Mob' in mob listing: {lines:?}"
         );
         assert!(lines.len() > 1, "expected more than one line: {lines:?}");
     }

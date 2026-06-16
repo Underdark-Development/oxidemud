@@ -12,6 +12,11 @@ The {yellow}west{/} exit leads back to the village square.
 exits = { west = "town_square" }
 # portals = [{ keyword = "altar", dest = "temple_crypt", description = "A hidden stairwell behind the altar" }]
 
+[content]
+[[content.mobs]]
+template_id = "temple_acolyte"
+count = 1
+
 [spawn]
 label = "Temple of Light"
 description = "A serene temple bathed in the glow of stained glass, tended by the gentle clergy."

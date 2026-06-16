@@ -1,0 +1,15 @@
+id = "elias_wares"
+name = "Elias's Wares"
+buy_rate = 0.5
+sell_rate = 1.5
+restock_secs = 300
+
+[[inventory]]
+item = "healing_salve"
+count = { min = 2, max = 5 }
+price = 30
+
+[[inventory]]
+item = "torch"
+count = { min = 3, max = 10 }
+price = 3

@@ -4,8 +4,6 @@ name = "Market Stall"
 description = """
 A wide canvas awning stretches between wooden poles, shading crates of vegetables, coils of rope, and clay jugs of oil. The air smells of dried herbs, fresh bread, and woodsmoke. A heavy scale sits on a barrel-top counter.
 
-An elderly merchant in a canvas apron stands behind the counter, wiping his hands on a rag.
-
 The {yellow}south{/} path leads back to the village square.
 """
 exits = { south = "town_square" }
