@@ -71,14 +71,21 @@ impl Table {
         }
     }
 
+    pub fn set_cell(&mut self, row: usize, col: usize, value: String) {
+        if let Some(r) = self.rows.get_mut(row) {
+            if let Some(c) = r.get_mut(col) {
+                *c = value;
+            }
+        }
+    }
+
     pub fn update_scroll(&mut self, area_height: usize) {
         self.scroll.total_lines = self.rows.len();
         self.scroll.visible_lines = area_height.saturating_sub(1);
         self.ensure_selected_visible();
     }
 
-    #[allow(dead_code)]
-    fn col_x(&self, col: usize) -> u16 {
+    pub fn col_x(&self, col: usize) -> u16 {
         let mut x = 0;
         for (i, w) in self.column_widths.iter().enumerate() {
             if i >= col {

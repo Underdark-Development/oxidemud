@@ -231,11 +231,7 @@ impl WorldTreeScreen {
 
     fn handle_detail_key(&mut self, key: KeyEvent) {
         if let Some(ref mut detail) = self.detail {
-            match key.code {
-                KeyCode::Up => detail.select_prev(),
-                KeyCode::Down => detail.select_next(),
-                _ => {}
-            }
+            detail.handle_key(key);
         }
     }
 
@@ -365,9 +361,13 @@ impl Screen for WorldTreeScreen {
         if key.code == KeyCode::Esc {
             if self.show_help {
                 self.show_help = false;
-            } else if self.detail.is_some() {
-                self.detail = None;
-                self.focus = Focus::Tree;
+            } else if let Some(ref mut detail) = self.detail {
+                if detail.is_editing() {
+                    detail.handle_key(key);
+                } else {
+                    self.detail = None;
+                    self.focus = Focus::Tree;
+                }
             }
             return;
         }

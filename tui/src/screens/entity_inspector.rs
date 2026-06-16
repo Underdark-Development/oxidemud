@@ -1,14 +1,40 @@
-use mud_core::templates::TemplateRegistry;
+use mud_core::templates::{DiceString, ResetInterval, TemplateRegistry};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Style},
-    widgets::Widget,
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Widget},
 };
 
 use super::Screen;
 use crate::components::{ScrollState, Table};
+
+enum EditMode {
+    Idle,
+    Text {
+        row: usize,
+        cursor: usize,
+        original: String,
+    },
+    Number {
+        row: usize,
+        cursor: usize,
+        original: String,
+    },
+    Multiline {
+        row: usize,
+        cursor: usize,
+        scroll: usize,
+        original: String,
+    },
+    Dropdown {
+        row: usize,
+        selection: usize,
+        options: Vec<String>,
+        original: String,
+    },
+}
 
 pub struct EntityInspectorScreen {
     registry: TemplateRegistry,
@@ -16,6 +42,9 @@ pub struct EntityInspectorScreen {
     template_id: String,
     table: Table,
     scrollbar: ScrollState,
+    edit_mode: EditMode,
+    dirty: bool,
+    cursor_char: u8,
 }
 
 impl EntityInspectorScreen {
@@ -26,6 +55,9 @@ impl EntityInspectorScreen {
             template_id,
             table: Table::new(vec!["Field".into(), "Value".into()]),
             scrollbar: ScrollState::new(),
+            edit_mode: EditMode::Idle,
+            dirty: false,
+            cursor_char: 0,
         };
         screen.load_table();
         screen
@@ -445,35 +477,945 @@ impl EntityInspectorScreen {
             }
         }
     }
+
+    fn detect_field_kind(&self, row: usize) -> EditMode {
+        let value = &self.table.rows[row][1];
+        let field = &self.table.rows[row][0];
+
+        if field == "description"
+            || field.ends_with(".description")
+            || field.ends_with(".script")
+            || value.len() > 50
+        {
+            return EditMode::Multiline {
+                row,
+                cursor: value.len(),
+                scroll: 0,
+                original: value.clone(),
+            };
+        }
+
+        if let Some(options) = dropdown_options(field) {
+            let sel = options.iter().position(|o| o == value).unwrap_or(0);
+            return EditMode::Dropdown {
+                row,
+                selection: sel,
+                options: options.iter().map(|&s| s.to_string()).collect(),
+                original: value.clone(),
+            };
+        }
+
+        let is_number = matches!(
+            field
+                .rsplit('.')
+                .next()
+                .unwrap_or(field)
+                .trim_end_matches(']'),
+            "level"
+                | "weight"
+                | "value"
+                | "speed"
+                | "chance"
+                | "min"
+                | "max"
+                | "count"
+                | "armor"
+                | "xp_value"
+                | "aggro_range"
+                | "faction_standing"
+                | "current"
+                | "hp"
+                | "mp"
+                | "min_level"
+                | "quality_min"
+                | "hit_die"
+                | "max_rank"
+                | "min_pieces"
+                | "secs"
+                | "radius"
+                | "amount"
+                | "ac_bonus"
+                | "attack_penalty"
+                | "damage_bonus"
+                | "ac_penalty"
+                | "strength"
+                | "dexterity"
+                | "constitution"
+                | "intelligence"
+                | "wisdom"
+                | "charisma"
+                | "copper"
+                | "silver"
+                | "gold"
+                | "platinum"
+                | "level_requirement"
+                | "starting_skill_slots"
+                | "respawn_secs"
+        );
+
+        if is_number || value.parse::<f64>().is_ok() {
+            return EditMode::Number {
+                row,
+                cursor: value.len(),
+                original: value.clone(),
+            };
+        }
+
+        EditMode::Text {
+            row,
+            cursor: value.len(),
+            original: value.clone(),
+        }
+    }
+
+    fn start_edit(&mut self, row: usize) {
+        self.edit_mode = self.detect_field_kind(row);
+    }
+
+    fn commit_edit(&mut self) {
+        let (row, value_opt) = match &self.edit_mode {
+            EditMode::Idle => return,
+            EditMode::Text {
+                row,
+                cursor: _,
+                original: _,
+            }
+            | EditMode::Number {
+                row,
+                cursor: _,
+                original: _,
+            } => (*row, Some(self.table.rows[*row][1].clone())),
+            EditMode::Multiline {
+                row,
+                cursor: _,
+                scroll: _,
+                original: _,
+            } => (*row, Some(self.table.rows[*row][1].clone())),
+            EditMode::Dropdown { row, selection, .. } => {
+                let options = dropdown_options(&self.table.rows[*row][0]);
+                let value = options.map_or_else(
+                    || self.table.rows[*row][1].clone(),
+                    |o| o[*selection].to_string(),
+                );
+                self.table.rows[*row][1] = value.clone();
+                (*row, Some(value))
+            }
+        };
+
+        let field = self.table.rows[row][0].clone();
+        let old_value = match &self.edit_mode {
+            EditMode::Idle => return,
+            m => match m {
+                EditMode::Text { original, .. }
+                | EditMode::Number { original, .. }
+                | EditMode::Multiline { original, .. }
+                | EditMode::Dropdown { original, .. } => original.clone(),
+                _ => return,
+            },
+        };
+        self.edit_mode = EditMode::Idle;
+
+        if let Some(value) = value_opt {
+            if value != old_value {
+                if self.update_registry(&field, &value).is_ok() {
+                    self.dirty = true;
+                } else {
+                    self.table.rows[row][1] = old_value;
+                }
+            }
+        }
+    }
+
+    fn cancel_edit(&mut self) {
+        let (row, original) = match &self.edit_mode {
+            EditMode::Idle => return,
+            EditMode::Text { row, original, .. }
+            | EditMode::Number { row, original, .. }
+            | EditMode::Multiline { row, original, .. }
+            | EditMode::Dropdown { row, original, .. } => (*row, original.clone()),
+        };
+        self.table.rows[row][1] = original;
+        self.edit_mode = EditMode::Idle;
+    }
+
+    fn insert_char(&mut self, c: char) {
+        if matches!(self.edit_mode, EditMode::Number { .. })
+            && !c.is_ascii_digit()
+            && c != '.'
+            && c != '-'
+        {
+            return;
+        }
+        let row;
+        let cursor;
+        match &self.edit_mode {
+            EditMode::Text {
+                row: r, cursor: c2, ..
+            }
+            | EditMode::Number {
+                row: r, cursor: c2, ..
+            }
+            | EditMode::Multiline {
+                row: r, cursor: c2, ..
+            } => {
+                row = *r;
+                cursor = *c2;
+            }
+            _ => return,
+        }
+        self.table.rows[row][1].insert(cursor, c);
+        match &mut self.edit_mode {
+            EditMode::Text { cursor: c2, .. }
+            | EditMode::Number { cursor: c2, .. }
+            | EditMode::Multiline { cursor: c2, .. } => *c2 += 1,
+            _ => {}
+        }
+    }
+
+    fn delete_char(&mut self) {
+        let row;
+        let cursor;
+        match &self.edit_mode {
+            EditMode::Text {
+                row: r, cursor: c, ..
+            }
+            | EditMode::Number {
+                row: r, cursor: c, ..
+            }
+            | EditMode::Multiline {
+                row: r, cursor: c, ..
+            } => {
+                row = *r;
+                cursor = *c;
+            }
+            _ => return,
+        }
+        let s = &mut self.table.rows[row][1];
+        if cursor < s.len() {
+            s.remove(cursor);
+        }
+    }
+
+    fn backspace_char(&mut self) {
+        let row;
+        let cursor;
+        match &self.edit_mode {
+            EditMode::Text {
+                row: r, cursor: c, ..
+            }
+            | EditMode::Number {
+                row: r, cursor: c, ..
+            }
+            | EditMode::Multiline {
+                row: r, cursor: c, ..
+            } => {
+                row = *r;
+                cursor = *c;
+            }
+            _ => return,
+        }
+        if cursor == 0 {
+            return;
+        }
+        self.table.rows[row][1].remove(cursor - 1);
+        match &mut self.edit_mode {
+            EditMode::Text { cursor: c2, .. }
+            | EditMode::Number { cursor: c2, .. }
+            | EditMode::Multiline { cursor: c2, .. } => *c2 -= 1,
+            _ => {}
+        }
+    }
+
+    fn cursor_left(&mut self) {
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => {
+                *cursor = cursor.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    fn cursor_right(&mut self) {
+        let row;
+        let cursor;
+        match &self.edit_mode {
+            EditMode::Text {
+                row: r, cursor: c, ..
+            }
+            | EditMode::Number {
+                row: r, cursor: c, ..
+            }
+            | EditMode::Multiline {
+                row: r, cursor: c, ..
+            } => {
+                row = *r;
+                cursor = *c;
+            }
+            _ => return,
+        }
+        let len = self.table.rows[row][1].len();
+        if cursor < len {
+            match &mut self.edit_mode {
+                EditMode::Text { cursor: c2, .. }
+                | EditMode::Number { cursor: c2, .. }
+                | EditMode::Multiline { cursor: c2, .. } => *c2 += 1,
+                _ => {}
+            }
+        }
+    }
+
+    fn cursor_home(&mut self) {
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => {
+                *cursor = 0;
+            }
+            _ => {}
+        }
+    }
+
+    fn cursor_end(&mut self) {
+        let row = match &self.edit_mode {
+            EditMode::Text { row: r, .. }
+            | EditMode::Number { row: r, .. }
+            | EditMode::Multiline { row: r, .. } => *r,
+            _ => return,
+        };
+        let len = self.table.rows[row][1].len();
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => *cursor = len,
+            _ => {}
+        }
+    }
+
+    fn multiline_newline(&mut self) {
+        let row;
+        let cursor;
+        match &self.edit_mode {
+            EditMode::Multiline {
+                row: r, cursor: c, ..
+            } => {
+                row = *r;
+                cursor = *c;
+            }
+            _ => return,
+        }
+        self.table.rows[row][1].insert(cursor, '\n');
+        if let EditMode::Multiline { cursor: c2, .. } = &mut self.edit_mode {
+            *c2 += 1
+        }
+    }
+
+    fn update_registry(&mut self, field: &str, value: &str) -> Result<(), String> {
+        match self.category.as_str() {
+            "items" => self.update_item(field, value),
+            "mobs" => self.update_mob(field, value),
+            "races" => self.update_race(field, value),
+            "classes" => self.update_class(field, value),
+            "skills" => self.update_skill(field, value),
+            "stances" => self.update_stance(field, value),
+            "sets" => self.update_set(field, value),
+            "affixes" => self.update_affix(field, value),
+            "passives" => self.update_passive(field, value),
+            "areas" => self.update_area(field, value),
+            "rooms" => self.update_room(field, value),
+            _ => Err(format!("unknown category: {}", self.category)),
+        }
+    }
+
+    fn update_item(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let item = self
+            .registry
+            .items
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "item not found".to_string())?;
+        match field {
+            "id" => item.id = value.to_string(),
+            "name" => item.name = value.to_string(),
+            "description" => item.description = value.to_string(),
+            "item_type" => item.item_type = value.to_string(),
+            "subtype" => item.subtype = value.to_string(),
+            "quality" => item.quality = value.to_string(),
+            "level_requirement" => {
+                item.level_requirement = value.parse().map_err(|_| "invalid number")?
+            }
+            "weight" => item.weight = value.parse().map_err(|_| "invalid number")?,
+            "value" => item.value = value.parse().map_err(|_| "invalid number")?,
+            "flags" => item.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
+            _ if field.starts_with("allowed_classes[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_classes[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < item.allowed_classes.len() {
+                    item.allowed_classes[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("allowed_races[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_races[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < item.allowed_races.len() {
+                    item.allowed_races[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("allowed_alignments[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_alignments[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < item.allowed_alignments.len() {
+                    item.allowed_alignments[idx] = value.to_string();
+                }
+            }
+            "requires_skill.id" => {
+                if let Some(ref mut r) = item.requires_skill {
+                    r.id = value.to_string();
+                }
+            }
+            "requires_skill.level" => {
+                if let Some(ref mut r) = item.requires_skill {
+                    r.level = value.parse().map_err(|_| "invalid number")?;
+                }
+            }
+            "weapon.damage" => {
+                if let Some(ref mut w) = item.weapon {
+                    w.damage = DiceString(value.to_string());
+                }
+            }
+            "weapon.damage_type" => {
+                if let Some(ref mut w) = item.weapon {
+                    w.damage_type = value.to_string();
+                }
+            }
+            "weapon.speed" => {
+                if let Some(ref mut w) = item.weapon {
+                    w.speed = value.parse().map_err(|_| "invalid number")?;
+                }
+            }
+            "weapon.range" => {
+                if let Some(ref mut w) = item.weapon {
+                    w.range = value.to_string();
+                }
+            }
+            "equipment.slot" => {
+                if let Some(ref mut eq) = item.equipment {
+                    eq.slot = value.to_string();
+                }
+            }
+            "set.id" => {
+                if let Some(ref mut s) = item.set {
+                    s.id = value.to_string();
+                }
+            }
+            "set.piece_type" => {
+                if let Some(ref mut s) = item.set {
+                    s.piece_type = value.to_string();
+                }
+            }
+            _ if field.starts_with("triggers[") => {
+                let rest = field.trim_start_matches("triggers[");
+                let (idx_str, _rest) = rest.split_once(']').ok_or("invalid trigger path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < item.triggers.len() {
+                    let t = &mut item.triggers[idx];
+                    if rest.contains(".event") {
+                        t.event = value.to_string();
+                    } else if rest.contains(".chance") {
+                        t.chance = value.parse().map_err(|_| "invalid number")?;
+                    } else if rest.contains(".cast") {
+                        t.cast = value.to_string();
+                    } else if rest.contains(".target") {
+                        t.target = value.to_string();
+                    }
+                }
+            }
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_mob(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let mob = self
+            .registry
+            .mobs
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "mob not found".to_string())?;
+        match field {
+            "id" => mob.id = value.to_string(),
+            "name" => mob.name = value.to_string(),
+            "description" => mob.description = value.to_string(),
+            "level" => mob.level = value.parse().map_err(|_| "invalid number")?,
+            "armor" => mob.armor = value.parse().map_err(|_| "invalid number")?,
+            "size" => mob.size = value.to_string(),
+            "xp_value" => mob.xp_value = value.parse().map_err(|_| "invalid number")?,
+            "ai_mode" => mob.ai_mode = value.to_string(),
+            "aggro_range" => mob.aggro_range = value.parse().map_err(|_| "invalid number")?,
+            "aggro_players" => mob.aggro_players = value.parse().unwrap_or(false),
+            "faction_standing" => {
+                mob.faction_standing = value.parse().map_err(|_| "invalid number")?
+            }
+            "damage" => mob.damage = Some(value.to_string()),
+            "damage_type" => mob.damage_type = Some(value.to_string()),
+            "race" => mob.race = Some(value.to_string()),
+            "faction" => mob.faction = Some(value.to_string()),
+            "health.current" => mob.health.current = value.parse().map_err(|_| "invalid number")?,
+            "health.max" => mob.health.max = value.parse().map_err(|_| "invalid number")?,
+            "attributes.str" => {
+                mob.attributes.strength = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.dex" => {
+                mob.attributes.dexterity = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.con" => {
+                mob.attributes.constitution = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.int" => {
+                mob.attributes.intelligence = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.wis" => {
+                mob.attributes.wisdom = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.cha" => {
+                mob.attributes.charisma = value.parse().map_err(|_| "invalid number")?
+            }
+            _ if field.starts_with("equipment.") => {
+                let slot = field.trim_start_matches("equipment.");
+                for entry in mob.equipment.iter_mut() {
+                    if entry.slot == slot {
+                        entry.template_id = value.to_string();
+                        break;
+                    }
+                }
+            }
+            _ if field.starts_with("loot.") => {
+                // Simple: update first loot entry
+                if let Some(entry) = mob.loot.entries.first_mut() {
+                    match field.trim_start_matches("loot.") {
+                        "item" => entry.item = value.to_string(),
+                        "chance" => entry.chance = value.parse().map_err(|_| "invalid number")?,
+                        "treasure_class" => entry.treasure_class = Some(value.to_string()),
+                        "count.min" => {
+                            if let Some(ref mut c) = entry.count {
+                                c.min = value.parse().map_err(|_| "invalid number")?;
+                            }
+                        }
+                        "count.max" => {
+                            if let Some(ref mut c) = entry.count {
+                                c.max = value.parse().map_err(|_| "invalid number")?;
+                            }
+                        }
+                        _ => return Err(format!("unknown loot field: {field}")),
+                    }
+                }
+            }
+            _ if field.starts_with("aggro_race[")
+                || field.starts_with("languages[")
+                || field.starts_with("trainer_types[") =>
+            {
+                // Skip array element edits for now
+            }
+            _ if field.starts_with("skills[") => {
+                let rest = field.trim_start_matches("skills[");
+                let (idx_str, _rest) = rest.split_once(']').ok_or("invalid skill path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < mob.skills.len() {
+                    let s = &mut mob.skills[idx];
+                    if rest.contains(".id") {
+                        s.id = value.to_string();
+                    } else if rest.contains(".level") {
+                        s.level = value.parse().map_err(|_| "invalid number")?;
+                    }
+                }
+            }
+            _ if field.starts_with("scripts[") => {
+                let rest = field.trim_start_matches("scripts[");
+                let (idx_str, _rest) = rest.split_once(']').ok_or("invalid script path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < mob.scripts.len() {
+                    let s = &mut mob.scripts[idx];
+                    if rest.contains(".event") {
+                        s.event = value.to_string();
+                    } else if rest.contains(".script") {
+                        s.script = value.to_string();
+                    }
+                }
+            }
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_race(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let race = self
+            .registry
+            .races
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "race not found".to_string())?;
+        match field {
+            "id" => race.id = value.to_string(),
+            "name" => race.name = value.to_string(),
+            "description" => race.description = value.to_string(),
+            "attributes.str" => {
+                race.attributes.strength = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.dex" => {
+                race.attributes.dexterity = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.con" => {
+                race.attributes.constitution = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.int" => {
+                race.attributes.intelligence = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.wis" => {
+                race.attributes.wisdom = value.parse().map_err(|_| "invalid number")?
+            }
+            "attributes.cha" => {
+                race.attributes.charisma = value.parse().map_err(|_| "invalid number")?
+            }
+            _ if field.starts_with("allowed_classes[")
+                || field.starts_with("allowed_alignments[")
+                || field.starts_with("racial_abilities[") => {}
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_class(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let cls = self
+            .registry
+            .classes
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "class not found".to_string())?;
+        match field {
+            "id" => cls.id = value.to_string(),
+            "name" => cls.name = value.to_string(),
+            "description" => cls.description = value.to_string(),
+            "hit_die" => cls.hit_die = value.parse().map_err(|_| "invalid number")?,
+            "starting_skill_slots" => {
+                cls.starting_skill_slots = value.parse().map_err(|_| "invalid number")?
+            }
+            "attribute_mods.str" => {
+                cls.attribute_mods.strength = value.parse().map_err(|_| "invalid number")?
+            }
+            "attribute_mods.dex" => {
+                cls.attribute_mods.dexterity = value.parse().map_err(|_| "invalid number")?
+            }
+            "attribute_mods.con" => {
+                cls.attribute_mods.constitution = value.parse().map_err(|_| "invalid number")?
+            }
+            "attribute_mods.int" => {
+                cls.attribute_mods.intelligence = value.parse().map_err(|_| "invalid number")?
+            }
+            "attribute_mods.wis" => {
+                cls.attribute_mods.wisdom = value.parse().map_err(|_| "invalid number")?
+            }
+            "attribute_mods.cha" => {
+                cls.attribute_mods.charisma = value.parse().map_err(|_| "invalid number")?
+            }
+            "starting_gold.copper" => {
+                cls.starting_gold.copper = value.parse().map_err(|_| "invalid number")?
+            }
+            "starting_gold.silver" => {
+                cls.starting_gold.silver = value.parse().map_err(|_| "invalid number")?
+            }
+            "starting_gold.gold" => {
+                cls.starting_gold.gold = value.parse().map_err(|_| "invalid number")?
+            }
+            "starting_gold.platinum" => {
+                cls.starting_gold.platinum = value.parse().map_err(|_| "invalid number")?
+            }
+            _ if field.starts_with("allowed_races[")
+                || field.starts_with("allowed_alignments[")
+                || field.starts_with("auto_skills[")
+                || field.starts_with("skill_pool[")
+                || field.starts_with("starting_items[") => {}
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_skill(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let skill = self
+            .registry
+            .skills
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "skill not found".to_string())?;
+        match field {
+            "id" => skill.id = value.to_string(),
+            "name" => skill.name = value.to_string(),
+            "description" => skill.description = value.to_string(),
+            "max_rank" => skill.max_rank = value.parse().map_err(|_| "invalid number")?,
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_stance(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let stance = self
+            .registry
+            .stances
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "stance not found".to_string())?;
+        match field {
+            "id" => stance.id = value.to_string(),
+            "name" => stance.name = value.to_string(),
+            "ac_bonus" => stance.ac_bonus = value.parse().map_err(|_| "invalid number")?,
+            "attack_penalty" => {
+                stance.attack_penalty = value.parse().map_err(|_| "invalid number")?
+            }
+            "damage_bonus" => stance.damage_bonus = value.parse().map_err(|_| "invalid number")?,
+            "ac_penalty" => stance.ac_penalty = value.parse().map_err(|_| "invalid number")?,
+            "min_level" => stance.min_level = value.parse().map_err(|_| "invalid number")?,
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_set(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let set = self
+            .registry
+            .sets
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "set not found".to_string())?;
+        match field {
+            "id" => set.id = value.to_string(),
+            "name" => set.name = value.to_string(),
+            _ if field.starts_with("bonuses[") => {
+                let rest = field.trim_start_matches("bonuses[");
+                let (idx_str, path_rest) = rest.split_once(']').ok_or("invalid bonus path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < set.bonuses.len() {
+                    let bonus = &mut set.bonuses[idx];
+                    if path_rest == ".min_pieces" || path_rest.starts_with(".min_pieces") {
+                        bonus.min_pieces = value.parse().map_err(|_| "invalid number")?;
+                    } else if path_rest.starts_with(".conditions[") {
+                        let cond_rest = path_rest.trim_start_matches(".conditions[");
+                        let (cidx_str, cpath_rest) =
+                            cond_rest.split_once(']').ok_or("invalid cond path")?;
+                        let cidx: usize = cidx_str.parse().map_err(|_| "invalid index")?;
+                        if cidx < bonus.conditions.len() {
+                            let cond = &mut bonus.conditions[cidx];
+                            if cpath_rest == ".piece_type" {
+                                cond.piece_type = value.to_string();
+                            } else if cpath_rest == ".min" || cpath_rest.starts_with(".min") {
+                                cond.min = value.parse().map_err(|_| "invalid number")?;
+                            }
+                        }
+                    } else if path_rest.starts_with(".effects[") {
+                        let eff_rest = path_rest.trim_start_matches(".effects[");
+                        let (eidx_str, epath_rest) =
+                            eff_rest.split_once(']').ok_or("invalid effect path")?;
+                        let eidx: usize = eidx_str.parse().map_err(|_| "invalid index")?;
+                        if eidx < bonus.effects.len() {
+                            let eff = &mut bonus.effects[eidx];
+                            if epath_rest == ".effect_type" {
+                                eff.effect_type = value.to_string();
+                            } else if epath_rest == ".stat" {
+                                eff.stat = Some(value.to_string());
+                            } else if epath_rest == ".amount" {
+                                eff.amount = Some(value.parse().map_err(|_| "invalid number")?);
+                            } else if epath_rest == ".aura_id" {
+                                eff.aura_id = Some(value.to_string());
+                            } else if epath_rest == ".radius" {
+                                eff.radius = Some(value.parse().map_err(|_| "invalid number")?);
+                            }
+                        }
+                    }
+                }
+            }
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_affix(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let affix = self
+            .registry
+            .affixes
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "affix not found".to_string())?;
+        match field {
+            "id" => affix.id = value.to_string(),
+            "name" => affix.name = value.to_string(),
+            "description" => affix.description = value.to_string(),
+            "type" => affix.affix_type = value.to_string(),
+            "quality_min" => affix.quality_min = value.to_string(),
+            "weight" => affix.weight = value.parse().map_err(|_| "invalid number")?,
+            "slot" => affix.slot = value.split(',').map(|s| s.trim().to_string()).collect(),
+            "element" => affix.element = Some(value.to_string()),
+            "amount" => affix.amount = Some(value.to_string()),
+            "stat" => affix.stat = Some(value.to_string()),
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_passive(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let passive = self
+            .registry
+            .passives
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "passive not found".to_string())?;
+        match field {
+            "id" => passive.id = value.to_string(),
+            "name" => passive.name = value.to_string(),
+            "description" => passive.description = value.to_string(),
+            _ if field.starts_with("effects[") => {
+                let rest = field.trim_start_matches("effects[");
+                let (idx_str, path_rest) = rest.split_once(']').ok_or("invalid effect path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < passive.effects.len() {
+                    let e = &mut passive.effects[idx];
+                    if path_rest == ".effect_type" {
+                        e.effect_type = value.to_string();
+                    } else if path_rest == ".target" {
+                        e.target = value.to_string();
+                    } else if path_rest == ".amount" {
+                        e.amount = Some(value.parse().map_err(|_| "invalid number")?);
+                    }
+                }
+            }
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_area(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let area = self
+            .registry
+            .areas
+            .get_mut(&self.template_id)
+            .ok_or_else(|| "area not found".to_string())?;
+        match field {
+            "id" => area.id = value.to_string(),
+            "name" => area.name = value.to_string(),
+            "description" => area.description = value.to_string(),
+            "spawn_room" => area.spawn_room = value.to_string(),
+            "flags" => area.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
+            "level_range" => {
+                let parts: Vec<&str> = value.split(&['–', '-'][..]).collect();
+                if parts.len() == 2 {
+                    let lo: u8 = parts[0].trim().parse().map_err(|_| "invalid number")?;
+                    let hi: u8 = parts[1].trim().parse().map_err(|_| "invalid number")?;
+                    area.level_range = Some([lo, hi]);
+                }
+            }
+            "weather_zone" => area.weather_zone = Some(value.to_string()),
+            "reset_interval_secs" => {
+                let secs: u64 = value.parse().map_err(|_| "invalid number")?;
+                area.reset_interval = Some(ResetInterval { secs });
+            }
+            "credits" => area.credits = Some(value.to_string()),
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    fn update_room(&mut self, field: &str, value: &str) -> Result<(), String> {
+        let room = self
+            .registry
+            .areas
+            .values_mut()
+            .find_map(|a| a.rooms.get_mut(&self.template_id))
+            .ok_or_else(|| "room not found".to_string())?;
+        match field {
+            "name" => room.name = value.to_string(),
+            "description" => room.description = value.to_string(),
+            "flags" => room.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
+            _ if field.starts_with("exit.") => {
+                let dir = field.trim_start_matches("exit.").to_string();
+                room.exits.insert(dir, value.to_string());
+            }
+            _ if field.starts_with("portal[") => {
+                let rest = field.trim_start_matches("portal[");
+                let (idx_str, path_rest) = rest.split_once(']').ok_or("invalid portal path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < room.portals.len() {
+                    let p = &mut room.portals[idx];
+                    if path_rest == ".keyword" {
+                        p.keyword = value.to_string();
+                    } else if path_rest == ".destination" {
+                        p.dest = value.to_string();
+                    } else if path_rest == ".description" {
+                        p.description = value.to_string();
+                    } else if path_rest == ".flags" {
+                        p.flags = value.split(',').map(|s| s.trim().to_string()).collect();
+                    }
+                }
+            }
+            _ if field.starts_with("content.mobs[") => {
+                let rest = field.trim_start_matches("content.mobs[");
+                let (idx_str, path_rest) = rest.split_once(']').ok_or("invalid mob spawn path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < room.content.mobs.len() {
+                    let m = &mut room.content.mobs[idx];
+                    if path_rest == ".template_id" {
+                        m.template_id = value.to_string();
+                    } else if path_rest == ".count" {
+                        m.count = value.parse().map_err(|_| "invalid number")?;
+                    } else if path_rest == ".respawn_secs" {
+                        m.respawn_secs = Some(value.parse().map_err(|_| "invalid number")?);
+                    }
+                }
+            }
+            _ if field.starts_with("content.items[") => {
+                let rest = field.trim_start_matches("content.items[");
+                let (idx_str, path_rest) = rest.split_once(']').ok_or("invalid item spawn path")?;
+                let idx: usize = idx_str.parse().map_err(|_| "invalid index")?;
+                if idx < room.content.items.len() {
+                    let it = &mut room.content.items[idx];
+                    if path_rest == ".template_id" {
+                        it.template_id = value.to_string();
+                    } else if path_rest == ".count" {
+                        it.count = value.parse().map_err(|_| "invalid number")?;
+                    }
+                }
+            }
+            _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
 }
 
 impl EntityInspectorScreen {
-    pub(super) fn select_prev(&mut self) {
-        self.table.select_prev();
-    }
-
-    pub(super) fn select_next(&mut self) {
-        self.table.select_next();
+    pub(super) fn is_editing(&self) -> bool {
+        !matches!(self.edit_mode, EditMode::Idle)
     }
 }
 
 impl Screen for EntityInspectorScreen {
     fn name(&self) -> &str {
-        "Entity Inspector"
-    }
-
-    fn handle_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Up => self.table.select_prev(),
-            KeyCode::Down => self.table.select_next(),
-            _ => {}
+        if self.dirty {
+            "Entity Inspector *"
+        } else {
+            "Entity Inspector"
         }
     }
 
-    fn handle_mouse(&mut self, mouse: MouseEvent, _area: Rect) {
-        match mouse.kind {
-            MouseEventKind::ScrollUp => self.table.select_prev(),
-            MouseEventKind::ScrollDown => self.table.select_next(),
+    fn handle_key(&mut self, key: KeyEvent) {
+        match self.edit_mode {
+            EditMode::Idle => self.handle_key_idle(key),
+            EditMode::Text { .. } | EditMode::Number { .. } => self.handle_key_inline(key),
+            EditMode::Multiline { .. } => self.handle_key_multiline(key),
+            EditMode::Dropdown { .. } => self.handle_key_dropdown(key),
+        }
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
+        match self.edit_mode {
+            EditMode::Idle => self.handle_mouse_idle(mouse, area),
+            EditMode::Dropdown { .. } => self.handle_mouse_dropdown(mouse, area),
             _ => {}
         }
     }
@@ -509,5 +1451,421 @@ impl Screen for EntityInspectorScreen {
             area.height.saturating_sub(2),
         );
         self.scrollbar.render(scrollbar_area, buf);
+
+        match &self.edit_mode {
+            EditMode::Text { row, cursor, .. } | EditMode::Number { row, cursor, .. } => {
+                self.render_cursor(area, buf, *row, *cursor);
+            }
+            EditMode::Multiline {
+                row,
+                cursor,
+                scroll,
+                ..
+            } => {
+                self.render_multiline(area, buf, *row, *cursor, *scroll);
+            }
+            EditMode::Dropdown { row, selection, .. } => {
+                self.render_dropdown(area, buf, *row, *selection);
+            }
+            EditMode::Idle => {}
+        }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Idle-mode handlers
+// ---------------------------------------------------------------------------
+impl EntityInspectorScreen {
+    fn handle_key_idle(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.table.select_prev(),
+            KeyCode::Down | KeyCode::Char('j') => self.table.select_next(),
+            KeyCode::Enter | KeyCode::Tab => {
+                if let Some(row) = self.table.selected {
+                    self.start_edit(row);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_mouse_idle(&mut self, mouse: MouseEvent, area: Rect) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.table.select_prev(),
+            MouseEventKind::ScrollDown => self.table.select_next(),
+            MouseEventKind::Down(_) => {
+                let row = (mouse.row as usize)
+                    .saturating_sub(area.y as usize)
+                    .saturating_sub(1)
+                    .saturating_add(self.table.scroll.offset);
+                if row < self.table.rows.len() {
+                    self.table.selected = Some(row);
+                    self.start_edit(row);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inline (Text / Number) edit handlers
+// ---------------------------------------------------------------------------
+impl EntityInspectorScreen {
+    fn handle_key_inline(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.cancel_edit(),
+            KeyCode::Enter => self.commit_edit(),
+            KeyCode::Backspace => self.backspace_char(),
+            KeyCode::Delete => self.delete_char(),
+            KeyCode::Left => self.cursor_left(),
+            KeyCode::Right => self.cursor_right(),
+            KeyCode::Home => self.cursor_home(),
+            KeyCode::End => self.cursor_end(),
+            KeyCode::Char(c) => self.insert_char(c),
+            _ => {}
+        }
+    }
+
+    fn render_cursor(&mut self, area: Rect, buf: &mut Buffer, row: usize, cursor: usize) {
+        let visible_row = row.saturating_sub(self.table.scroll.offset);
+        if visible_row >= self.table.scroll.visible_lines {
+            return;
+        }
+
+        let value_col_x = area.x + 2 + self.table.col_x(1) + 1;
+        let y = area.y + 1 + 1 + visible_row as u16;
+
+        if y >= area.y + area.height {
+            return;
+        }
+
+        let value = &self.table.rows[row][1];
+        let c_cursor = cursor.min(value.len());
+        let x = value_col_x + c_cursor as u16;
+
+        if x >= area.x + area.width {
+            return;
+        }
+
+        let show = (self.cursor_char / 8) % 2 == 0;
+        if show {
+            buf.set_string(x, y, "▎", Style::default().fg(Color::Cyan));
+        }
+        self.cursor_char = self.cursor_char.wrapping_add(1);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Multiline edit handlers
+// ---------------------------------------------------------------------------
+impl EntityInspectorScreen {
+    fn handle_key_multiline(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.cancel_edit(),
+            KeyCode::F(2) => self.commit_edit(),
+            KeyCode::Enter => self.multiline_newline(),
+            KeyCode::Backspace => self.backspace_char(),
+            KeyCode::Delete => self.delete_char(),
+            KeyCode::Left => self.cursor_left(),
+            KeyCode::Right => self.cursor_right(),
+            KeyCode::Home => self.cursor_home(),
+            KeyCode::End => self.cursor_end(),
+            KeyCode::Up => self.multiline_scroll_up(),
+            KeyCode::Down => self.multiline_scroll_down(),
+            KeyCode::Char(c) => self.insert_char(c),
+            _ => {}
+        }
+    }
+
+    fn multiline_scroll_up(&mut self) {
+        if let EditMode::Multiline { scroll, .. } = &mut self.edit_mode {
+            *scroll = scroll.saturating_sub(1);
+        }
+    }
+
+    fn multiline_scroll_down(&mut self) {
+        if let EditMode::Multiline { scroll, .. } = &mut self.edit_mode {
+            *scroll += 1;
+        }
+    }
+
+    fn render_multiline(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        _row: usize,
+        cursor: usize,
+        scroll: usize,
+    ) {
+        let value = match &self.edit_mode {
+            EditMode::Multiline { row, .. } => &self.table.rows[*row][1],
+            _ => return,
+        };
+
+        let box_width = area.width.clamp(20, 60);
+        let box_height = area.height.clamp(6, 18);
+        let x = area.x + (area.width.saturating_sub(box_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(box_height)) / 2;
+
+        let overlay = Rect::new(x, y, box_width, box_height);
+        let block = Block::default()
+            .title(" Edit (Esc=cancel, F2=save) ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow));
+        let inner = block.inner(overlay);
+        block.render(overlay, buf);
+
+        let inner_width = inner.width.saturating_sub(1) as usize;
+        if inner_width == 0 || inner.height < 2 {
+            return;
+        }
+
+        let lines = wrap_text(value, inner_width);
+        let total_lines = lines.len();
+        let max_scroll = total_lines.saturating_sub(inner.height as usize);
+        let effective_scroll = scroll.min(max_scroll);
+
+        let visible_lines = lines
+            .iter()
+            .skip(effective_scroll)
+            .take(inner.height as usize);
+
+        let cursor_vpos = cursor_visual_pos(value, cursor, inner_width);
+        let cursor_visual_row = cursor_vpos.0;
+        let cursor_visual_col = cursor_vpos.1;
+
+        let cursor_visible = cursor_visual_row >= effective_scroll
+            && cursor_visual_row < effective_scroll + inner.height as usize;
+
+        for (i, line) in visible_lines.enumerate() {
+            let y = inner.y + i as u16;
+            if y >= inner.y + inner.height {
+                break;
+            }
+            buf.set_string(inner.x, y, line, Style::default().fg(Color::White));
+        }
+
+        if cursor_visible {
+            let render_row = cursor_visual_row.saturating_sub(effective_scroll);
+            let y = inner.y + render_row as u16;
+            let x = inner.x + cursor_visual_col as u16;
+            if x < inner.x + inner.width && y < inner.y + inner.height {
+                let show = (self.cursor_char / 8) % 2 == 0;
+                if show {
+                    buf.set_string(x, y, "▎", Style::default().fg(Color::Cyan));
+                }
+                self.cursor_char = self.cursor_char.wrapping_add(1);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dropdown edit handlers
+// ---------------------------------------------------------------------------
+impl EntityInspectorScreen {
+    fn handle_key_dropdown(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.cancel_edit(),
+            KeyCode::Enter => self.commit_edit(),
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let EditMode::Dropdown { selection, .. } = &mut self.edit_mode {
+                    *selection = selection.saturating_sub(1);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let EditMode::Dropdown {
+                    selection, options, ..
+                } = &mut self.edit_mode
+                {
+                    let max = options.len().saturating_sub(1);
+                    *selection = (*selection + 1).min(max);
+                }
+            }
+            KeyCode::Char(c) if c.is_ascii_alphanumeric() => {
+                if let EditMode::Dropdown {
+                    selection, options, ..
+                } = &mut self.edit_mode
+                {
+                    if let Some(pos) = options
+                        .iter()
+                        .position(|o| o.starts_with(c))
+                        .filter(|&p| p != *selection)
+                    {
+                        *selection = pos;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_mouse_dropdown(&mut self, mouse: MouseEvent, _area: Rect) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                if let EditMode::Dropdown { selection, .. } = &mut self.edit_mode {
+                    *selection = selection.saturating_sub(1);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if let EditMode::Dropdown {
+                    selection, options, ..
+                } = &mut self.edit_mode
+                {
+                    let max = options.len().saturating_sub(1);
+                    *selection = (*selection + 1).min(max);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn render_dropdown(&self, area: Rect, buf: &mut Buffer, row: usize, selection: usize) {
+        let options = match &self.edit_mode {
+            EditMode::Dropdown { options, .. } => options.clone(),
+            _ => return,
+        };
+
+        if options.is_empty() {
+            return;
+        }
+
+        let visible_row = row.saturating_sub(self.table.scroll.offset);
+        let row_y = area.y + 1 + 1 + visible_row as u16;
+
+        let max_width = options
+            .iter()
+            .map(|o| o.len() + 4)
+            .max()
+            .unwrap_or(20)
+            .max(10) as u16;
+
+        let box_height = (options.len() as u16).min(10).saturating_add(2);
+        let mut box_y = row_y + 1;
+        if box_y + box_height > area.y + area.height {
+            box_y = row_y.saturating_sub(box_height);
+        }
+
+        let box_x = area.x + 2 + self.table.col_x(1);
+        let overlay = Rect::new(box_x, box_y, max_width, box_height);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+        let inner = block.inner(overlay);
+        block.render(overlay, buf);
+
+        let visible_count = inner.height as usize;
+        let scroll = selection.saturating_sub(visible_count.saturating_sub(1));
+
+        for i in 0..visible_count {
+            let idx = scroll + i;
+            if idx >= options.len() {
+                break;
+            }
+            let y = inner.y + i as u16;
+            let is_selected = idx == selection;
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix = if is_selected { "▸ " } else { "  " };
+            let text = format!("{prefix}{}", options[idx]);
+            buf.set_string(inner.x, y, &text, style);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+fn dropdown_options(field: &str) -> Option<Vec<&'static str>> {
+    match field {
+        "item_type" => Some(vec![
+            "weapon",
+            "armor",
+            "potion",
+            "scroll",
+            "food",
+            "drink",
+            "container",
+            "key",
+            "quest",
+            "misc",
+        ]),
+        "quality" => Some(vec![
+            "common",
+            "uncommon",
+            "rare",
+            "epic",
+            "legendary",
+            "artifact",
+        ]),
+        "ai_mode" => Some(vec![
+            "idle",
+            "wander",
+            "patrol",
+            "aggressive",
+            "guard",
+            "flee",
+        ]),
+        "size" => Some(vec!["tiny", "small", "medium", "large", "huge", "giant"]),
+        "equipment.slot" | "slot" => Some(vec![
+            "head", "neck", "torso", "back", "arms", "hands", "finger", "legs", "feet", "shield",
+            "weapon", "ranged", "ammo", "wrist", "waist",
+        ]),
+        "weapon.damage_type" | "damage_type" => Some(vec![
+            "slashing",
+            "piercing",
+            "bludgeoning",
+            "fire",
+            "cold",
+            "lightning",
+            "acid",
+            "poison",
+            "holy",
+            "shadow",
+            "arcane",
+        ]),
+        "weapon.range" | "range" => Some(vec!["melee", "short", "medium", "long", "very_long"]),
+        "type" => Some(vec!["prefix", "suffix"]),
+        "quality_min" => Some(vec!["common", "uncommon", "rare", "epic", "legendary"]),
+        _ => None,
+    }
+}
+
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for line in text.lines() {
+        if line.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut remaining = line;
+        while !remaining.is_empty() {
+            let chunk_width = max_width.min(remaining.len());
+            let (chunk, rest) = remaining.split_at(chunk_width);
+            lines.push(chunk.to_string());
+            remaining = rest;
+        }
+    }
+    lines
+}
+
+fn cursor_visual_pos(text: &str, cursor: usize, line_width: usize) -> (usize, usize) {
+    let prefix = &text[..cursor.min(text.len())];
+    let lines_before = prefix.matches('\n').count();
+    let last_newline = prefix.rfind('\n');
+    let col = match last_newline {
+        Some(pos) => prefix.len() - pos - 1,
+        None => prefix.len(),
+    };
+    let visual_row = lines_before + col / line_width;
+    let visual_col = col % line_width;
+    (visual_row, visual_col)
 }
