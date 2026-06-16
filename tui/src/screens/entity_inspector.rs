@@ -4,6 +4,7 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},
     layout::Rect,
     style::{Color, Modifier, Style},
+    text::Span,
     widgets::{Block, Borders, Widget},
 };
 
@@ -47,6 +48,8 @@ pub struct EntityInspectorScreen {
     dirty: bool,
     cursor_char: u8,
     file_map: FileMap,
+    pub deleted: bool,
+    show_delete_confirm: bool,
 }
 
 impl EntityInspectorScreen {
@@ -66,6 +69,8 @@ impl EntityInspectorScreen {
             dirty: false,
             cursor_char: 0,
             file_map,
+            deleted: false,
+            show_delete_confirm: false,
         };
         screen.load_table();
         screen
@@ -752,6 +757,45 @@ impl EntityInspectorScreen {
         }
 
         std::fs::write(path, doc.to_string())?;
+        Ok(())
+    }
+
+    fn delete_from_disk(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let (lookup_category, lookup_id) = if self.category == "rooms" {
+            let parent_id = self
+                .registry
+                .areas
+                .values()
+                .find(|a| a.rooms.contains_key(&self.template_id))
+                .map(|a| &a.id)
+                .ok_or_else(|| format!("room {} parent not found", self.template_id))?
+                .clone();
+            ("areas".to_string(), parent_id)
+        } else {
+            (self.category.clone(), self.template_id.clone())
+        };
+
+        let path = self
+            .file_map
+            .get(&lookup_category)
+            .and_then(|m| m.get(&lookup_id))
+            .ok_or_else(|| format!("no file mapping for {}/{lookup_id}", lookup_category))?;
+
+        if self.category == "rooms" {
+            let mut area = self
+                .registry
+                .areas
+                .values()
+                .find(|a| a.rooms.contains_key(&self.template_id))
+                .ok_or_else(|| format!("room {} parent not found", self.template_id))?
+                .clone();
+            area.rooms.remove(&self.template_id);
+            let content = toml::to_string_pretty(&area)?;
+            std::fs::write(path, content)?;
+        } else {
+            std::fs::remove_file(path)?;
+        }
+
         Ok(())
     }
 
@@ -1601,6 +1645,25 @@ impl Screen for EntityInspectorScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
+        if self.show_delete_confirm {
+            match key.code {
+                KeyCode::Enter => {
+                    if let Err(e) = self.delete_from_disk() {
+                        tracing::error!(
+                            "failed to delete {}/{}: {e}",
+                            self.category,
+                            self.template_id
+                        );
+                    }
+                    self.deleted = true;
+                }
+                KeyCode::Esc => {
+                    self.show_delete_confirm = false;
+                }
+                _ => {}
+            }
+            return;
+        }
         match self.edit_mode {
             EditMode::Idle => self.handle_key_idle(key),
             EditMode::Text { .. } | EditMode::Number { .. } => self.handle_key_inline(key),
@@ -1666,6 +1729,10 @@ impl Screen for EntityInspectorScreen {
             }
             EditMode::Idle => {}
         }
+
+        if self.show_delete_confirm {
+            self.render_delete_confirm(area, buf);
+        }
     }
 }
 
@@ -1681,6 +1748,9 @@ impl EntityInspectorScreen {
                 if let Some(row) = self.table.selected {
                     self.start_edit(row);
                 }
+            }
+            KeyCode::Char('D') => {
+                self.show_delete_confirm = true;
             }
             _ => {}
         }
@@ -1974,6 +2044,45 @@ impl EntityInspectorScreen {
             let prefix = if is_selected { "▸ " } else { "  " };
             let text = format!("{prefix}{}", options[idx]);
             buf.set_string(inner.x, y, &text, style);
+        }
+    }
+
+    fn render_delete_confirm(&mut self, area: Rect, buf: &mut Buffer) {
+        let lines = [
+            format!("Delete {} \"{}\"?", self.category, self.template_id),
+            String::new(),
+            "Enter: Confirm  Esc: Cancel".to_string(),
+        ];
+        let width = 40.max(lines.iter().map(|l| l.len()).max().unwrap_or(40) as u16 + 4);
+        let height = lines.len() as u16 + 2;
+        let x = area.x + (area.width.saturating_sub(width)) / 2;
+        let y = area.y + (area.height.saturating_sub(height)) / 2;
+        let overlay = Rect::new(x, y, width, height);
+
+        ratatui::widgets::Clear.render(overlay, buf);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Red))
+            .title(Span::styled(
+                "Confirm Delete",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .style(Style::default().bg(Color::Black));
+        let inner = block.inner(overlay);
+        block.render(overlay, buf);
+        for (i, line) in lines.iter().enumerate() {
+            let style = if line.starts_with("Enter") {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else if line.starts_with("Delete") {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            buf.set_string(inner.x, inner.y + i as u16, line, style);
         }
     }
 }

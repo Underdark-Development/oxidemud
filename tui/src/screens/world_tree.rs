@@ -1,4 +1,9 @@
 use mud_core::templates::TemplateRegistry;
+use mud_core::templates::{
+    AffixDef, AreaTemplate, ClassAttributeMods, ClassTemplate, HealthBounds, ItemTemplate,
+    LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate,
+    SetDef, StanceDef, WalletAmount,
+};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
@@ -8,7 +13,7 @@ use ratatui::{
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::{entity_inspector::EntityInspectorScreen, Screen};
 use crate::components::{ScrollState, Tree, TreeNode};
@@ -198,6 +203,237 @@ impl WorldTreeScreen {
         self.focus = Focus::Detail;
     }
 
+    fn create_new_entity(&mut self, category: &str, context_id: Option<&str>) {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let id = match category {
+            "rooms" => format!("room_{ts}"),
+            "areas" => format!("area_{ts}"),
+            _ => {
+                let stem = category.trim_end_matches('s');
+                format!("{stem}_{ts}")
+            }
+        };
+
+        let result = if category == "rooms" {
+            self.create_room_file(&id, context_id)
+        } else if category == "areas" {
+            self.create_area_file(&id)
+        } else {
+            self.create_template_file(category, &id)
+        };
+
+        match result {
+            Ok(_) => {
+                self.reload();
+                self.open_detail(category.to_string(), id);
+            }
+            Err(e) => {
+                tracing::error!("failed to create {category}/{id}: {e}");
+            }
+        }
+    }
+
+    fn create_template_file(
+        &self,
+        category: &str,
+        id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let path = self.content_path.join(category);
+        std::fs::create_dir_all(&path)?;
+        let path = path.join(format!("{id}.toml"));
+
+        let content: String = match category {
+            "items" => toml::to_string_pretty(&ItemTemplate {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                item_type: "misc".to_string(),
+                subtype: String::new(),
+                quality: "common".to_string(),
+                level_requirement: 1,
+                weight: 1.0,
+                value: 0,
+                flags: Vec::new(),
+                allowed_classes: Vec::new(),
+                allowed_races: Vec::new(),
+                allowed_alignments: Vec::new(),
+                requires_skill: None,
+                weapon: None,
+                equipment: None,
+                set: None,
+                triggers: Vec::new(),
+            })?,
+            "mobs" => toml::to_string_pretty(&MobTemplate {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                level: 1,
+                attributes: RaceAttributes::default(),
+                health: HealthBounds {
+                    current: 10,
+                    max: 10,
+                },
+                armor: 0,
+                damage: None,
+                damage_type: None,
+                race: None,
+                size: "medium".to_string(),
+                equipment: Vec::new(),
+                xp_value: 0,
+                loot: LootTable::default(),
+                ai_mode: "idle".to_string(),
+                aggro_range: 0,
+                aggro_players: false,
+                aggro_race: Vec::new(),
+                faction: None,
+                faction_standing: 0,
+                trainer_types: Vec::new(),
+                languages: Vec::new(),
+                skills: Vec::new(),
+                scripts: Vec::new(),
+            })?,
+            "races" => toml::to_string_pretty(&RaceTemplate {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                attributes: RaceAttributes::default(),
+                allowed_classes: Vec::new(),
+                allowed_alignments: Vec::new(),
+                racial_abilities: Vec::new(),
+            })?,
+            "classes" => toml::to_string_pretty(&ClassTemplate {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                hit_die: 8,
+                attribute_mods: ClassAttributeMods::default(),
+                allowed_races: Vec::new(),
+                allowed_alignments: Vec::new(),
+                auto_skills: Vec::new(),
+                skill_pool: Vec::new(),
+                starting_skill_slots: 3,
+                starting_items: Vec::new(),
+                starting_gold: WalletAmount::default(),
+            })?,
+            "skills" => toml::to_string_pretty(&mud_core::SkillDef {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                skill_type: mud_core::SkillType::Combat,
+                max_rank: 100,
+            })?,
+            "stances" => toml::to_string_pretty(&StanceDef {
+                id: id.to_string(),
+                name: id.to_string(),
+                ac_bonus: 0,
+                attack_penalty: 0,
+                damage_bonus: 0,
+                ac_penalty: 0,
+                min_level: 1,
+            })?,
+            "sets" => toml::to_string_pretty(&SetDef {
+                id: id.to_string(),
+                name: id.to_string(),
+                bonuses: Vec::new(),
+            })?,
+            "affixes" => toml::to_string_pretty(&AffixDef {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                affix_type: "prefix".to_string(),
+                element: None,
+                amount: None,
+                stat: None,
+                quality_min: "common".to_string(),
+                slot: Vec::new(),
+                weight: 1,
+            })?,
+            "passives" => toml::to_string_pretty(&PassiveDef {
+                id: id.to_string(),
+                name: id.to_string(),
+                description: String::new(),
+                effects: Vec::new(),
+            })?,
+            _ => return Err(format!("unknown category: {category}").into()),
+        };
+
+        std::fs::write(&path, &content)?;
+        Ok(())
+    }
+
+    fn create_area_file(&self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let path = self.content_path.join("areas").join(format!("{id}.toml"));
+        let area = AreaTemplate {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            spawn_room: "start".to_string(),
+            level_range: None,
+            flags: Vec::new(),
+            weather_zone: None,
+            reset_interval: None,
+            credits: None,
+            spawns: Vec::new(),
+            rooms: HashMap::from([(
+                "start".to_string(),
+                RoomTemplate {
+                    name: "Starting Room".to_string(),
+                    description: String::new(),
+                    exits: HashMap::new(),
+                    portals: Vec::new(),
+                    flags: Vec::new(),
+                    content: RoomContent::default(),
+                },
+            )]),
+        };
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        let content = toml::to_string_pretty(&area)?;
+        std::fs::write(&path, &content)?;
+        Ok(())
+    }
+
+    fn create_room_file(
+        &self,
+        id: &str,
+        context_id: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let area_id = context_id.ok_or("no area context for room creation")?;
+        let path = self
+            .file_map
+            .get("areas")
+            .and_then(|m| m.get(area_id))
+            .ok_or_else(|| format!("area {area_id} file not found"))?;
+
+        let content = std::fs::read_to_string(path)?;
+        let mut doc: toml::Value = content.parse()?;
+
+        let room = RoomTemplate {
+            name: id.to_string(),
+            description: String::new(),
+            exits: HashMap::new(),
+            portals: Vec::new(),
+            flags: Vec::new(),
+            content: RoomContent::default(),
+        };
+        let room_value = toml::Value::try_from(&room)?;
+
+        if let Some(area_table) = doc.as_table_mut() {
+            if let Some(rooms) = area_table.get_mut("rooms").and_then(|v| v.as_table_mut()) {
+                rooms.insert(id.to_string(), room_value);
+            } else {
+                let mut rooms_map = toml::value::Table::new();
+                rooms_map.insert(id.to_string(), room_value);
+                area_table.insert("rooms".to_string(), toml::Value::Table(rooms_map));
+            }
+        }
+
+        std::fs::write(path, doc.to_string())?;
+        Ok(())
+    }
+
     fn handle_tree_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Up => self.tree.select_prev(),
@@ -234,6 +470,29 @@ impl WorldTreeScreen {
                 }
             }
             KeyCode::Char('r') => self.reload(),
+            KeyCode::Char('n') => {
+                let node_info = self.tree.selected_data().cloned();
+                if let Some(info) = node_info {
+                    if info.id.is_empty() {
+                        self.create_new_entity("items", None);
+                    } else if info.category == "areas" || info.category == "rooms" {
+                        let area_id = if info.category == "areas" {
+                            Some(info.id.clone())
+                        } else {
+                            self.registry
+                                .areas
+                                .iter()
+                                .find(|(_, a)| a.rooms.contains_key(&info.id))
+                                .map(|(id, _)| id.clone())
+                        };
+                        if let Some(aid) = area_id {
+                            self.create_new_entity("rooms", Some(&aid));
+                        }
+                    } else {
+                        self.create_new_entity(&info.category, None);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -241,6 +500,11 @@ impl WorldTreeScreen {
     fn handle_detail_key(&mut self, key: KeyEvent) {
         if let Some(ref mut detail) = self.detail {
             detail.handle_key(key);
+            if detail.deleted {
+                self.detail = None;
+                self.reload();
+                self.focus = Focus::Tree;
+            }
         }
     }
 
