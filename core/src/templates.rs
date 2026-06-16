@@ -1,3 +1,4 @@
+use crate::components::SkillDef;
 use crate::dice::DiceRoll;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -81,6 +82,8 @@ pub struct RaceTemplate {
     #[serde(default)]
     pub allowed_classes: Vec<String>,
     #[serde(default)]
+    pub allowed_alignments: Vec<String>,
+    #[serde(default)]
     pub racial_abilities: Vec<String>,
 }
 
@@ -104,6 +107,19 @@ pub struct ClassAttributeMods {
     pub charisma: i8,
 }
 
+/// Currency amounts used in template definitions (starting gold, etc.)
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct WalletAmount {
+    #[serde(default)]
+    pub copper: u64,
+    #[serde(default)]
+    pub silver: u64,
+    #[serde(default)]
+    pub gold: u64,
+    #[serde(default)]
+    pub platinum: u64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ClassTemplate {
     pub id: String,
@@ -116,7 +132,21 @@ pub struct ClassTemplate {
     #[serde(default)]
     pub allowed_races: Vec<String>,
     #[serde(default)]
+    pub allowed_alignments: Vec<String>,
+    #[serde(default)]
     pub auto_skills: Vec<String>,
+    #[serde(default)]
+    pub skill_pool: Vec<String>,
+    #[serde(default = "default_starting_skill_slots")]
+    pub starting_skill_slots: u8,
+    #[serde(default)]
+    pub starting_items: Vec<String>,
+    #[serde(default)]
+    pub starting_gold: WalletAmount,
+}
+
+const fn default_starting_skill_slots() -> u8 {
+    3
 }
 
 const fn default_hit_die() -> u8 {
@@ -592,6 +622,27 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
+/// Error from `TemplateRegistry::resolve_skill`.
+#[derive(Debug, Clone)]
+pub enum SkillResolveError {
+    /// No skill matched the input.
+    NotFound,
+    /// Multiple skills matched; each entry is `(skill_id, display_name)`.
+    Multiple(Vec<(String, String)>),
+}
+
+impl std::fmt::Display for SkillResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SkillResolveError::NotFound => write!(f, "no matching skill found"),
+            SkillResolveError::Multiple(candidates) => {
+                let names: Vec<&str> = candidates.iter().map(|(id, _)| id.as_str()).collect();
+                write!(f, "multiple skills match: {}", names.join(", "))
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Derived indices — pre-computed lookup tables
 // ---------------------------------------------------------------------------
@@ -619,6 +670,7 @@ pub struct TemplateRegistry {
     pub affixes: HashMap<String, AffixDef>,
     pub passives: HashMap<String, PassiveDef>,
     pub areas: HashMap<String, AreaTemplate>,
+    pub skills: HashMap<String, SkillDef>,
     pub indices: DerivedIndices,
 }
 
@@ -878,10 +930,16 @@ impl TemplateRegistry {
     }
 
     pub fn available_classes_for_race(&self, race_id: &str) -> Vec<&ClassTemplate> {
+        let race = match self.races.get(race_id) {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
         self.classes
             .values()
             .filter(|c| {
-                c.allowed_races.is_empty() || c.allowed_races.contains(&race_id.to_string())
+                (race.allowed_classes.is_empty() || race.allowed_classes.contains(&c.id))
+                    && (c.allowed_races.is_empty()
+                        || c.allowed_races.contains(&race_id.to_string()))
             })
             .collect()
     }
@@ -944,6 +1002,69 @@ impl TemplateRegistry {
             .unwrap_or_default()
     }
 
+    // ── Skill helpers ──
+
+    pub fn get_skill(&self, id: &str) -> Option<&SkillDef> {
+        self.skills.get(id)
+    }
+
+    /// Resolve a partial or exact skill name to a unique skill ID.
+    ///
+    /// Matches against both `SkillDef.id` and `SkillDef.name` (case-insensitive).
+    /// If `pool` is provided, only searches within the given set of skill IDs.
+    ///
+    /// Resolution priority:
+    ///   1. Exact match on id or name
+    ///   2. Unique prefix match on id
+    ///   3. Unique prefix match on name
+    ///   4. Multiple matches → `SkillResolveError::Multiple(candidates)`
+    ///   5. No match → `SkillResolveError::NotFound`
+    pub fn resolve_skill(
+        &self,
+        input: &str,
+        pool: Option<&[String]>,
+    ) -> Result<String, SkillResolveError> {
+        let input_lower = input.to_lowercase();
+
+        let candidates: Vec<&SkillDef> = if let Some(pool) = pool {
+            pool.iter()
+                .filter_map(|id| self.skills.get(id.as_str()))
+                .collect()
+        } else {
+            self.skills.values().collect()
+        };
+
+        // Priority 1: exact match on id or name
+        for skill in &candidates {
+            if skill.id.to_lowercase() == input_lower || skill.name.to_lowercase() == input_lower {
+                return Ok(skill.id.clone());
+            }
+        }
+
+        // Priority 2 & 3: prefix match on id or name, deduplicated
+        let mut matches: Vec<&SkillDef> = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+        for skill in candidates {
+            if seen_ids.insert(skill.id.as_str())
+                && (skill.id.to_lowercase().starts_with(&input_lower)
+                    || skill.name.to_lowercase().starts_with(&input_lower))
+            {
+                matches.push(skill);
+            }
+        }
+
+        match matches.len() {
+            0 => Err(SkillResolveError::NotFound),
+            1 => Ok(matches[0].id.clone()),
+            _ => Err(SkillResolveError::Multiple(
+                matches
+                    .into_iter()
+                    .map(|s| (s.id.clone(), s.name.clone()))
+                    .collect(),
+            )),
+        }
+    }
+
     // ── Area helpers ──
 
     pub fn get_area(&self, id: &str) -> Option<&AreaTemplate> {
@@ -959,7 +1080,7 @@ impl TemplateRegistry {
         &self,
         race: &str,
         class: &str,
-        _alignment: &str,
+        alignment: &str,
     ) -> Vec<(&str, &SpawnEntry)> {
         let mut result = Vec::new();
         for (area_id, area) in &self.areas {
@@ -968,7 +1089,8 @@ impl TemplateRegistry {
                     spawn.allowed_races.is_empty() || spawn.allowed_races.iter().any(|r| r == race);
                 let class_ok = spawn.allowed_classes.is_empty()
                     || spawn.allowed_classes.iter().any(|c| c == class);
-                let align_ok = spawn.allowed_alignments.is_empty();
+                let align_ok = spawn.allowed_alignments.is_empty()
+                    || spawn.allowed_alignments.iter().any(|a| a == alignment);
                 if race_ok && class_ok && align_ok {
                     result.push((area_id.as_str(), spawn));
                 }
@@ -1018,6 +1140,7 @@ mod tests {
             description: "A versatile race.".into(),
             attributes: RaceAttributes::default(),
             allowed_classes: vec!["warrior".into(), "mage".into()],
+            allowed_alignments: Vec::new(),
             racial_abilities: vec!["adaptability".into()],
         }
     }
@@ -1034,7 +1157,16 @@ mod tests {
                 ..Default::default()
             },
             allowed_races: vec!["human".into()],
+            allowed_alignments: Vec::new(),
             auto_skills: vec!["power_attack".into(), "shield_bash".into()],
+            skill_pool: vec![
+                "power_attack".into(),
+                "shield_bash".into(),
+                "tactics".into(),
+            ],
+            starting_skill_slots: 3,
+            starting_items: Vec::new(),
+            starting_gold: WalletAmount::default(),
         }
     }
 
@@ -1172,6 +1304,7 @@ effects = [{ effect_type = "stat", stat = "constitution", amount = 2 }]
             description: "Desc.".into(),
             attributes: RaceAttributes::default(),
             allowed_classes: vec![],
+            allowed_alignments: vec![],
             racial_abilities: vec![],
         };
         assert_eq!(r.attributes.strength, 10);

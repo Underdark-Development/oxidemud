@@ -174,6 +174,7 @@ mod tests {
                 description: "Adaptable humans.".into(),
                 attributes: crate::templates::RaceAttributes::default(),
                 allowed_classes: vec![],
+                allowed_alignments: vec![],
                 racial_abilities: vec!["adaptability".into(), "darkvision".into()],
             },
         );
@@ -190,7 +191,12 @@ mod tests {
                     ..Default::default()
                 },
                 allowed_races: vec!["human".into()],
+                allowed_alignments: vec![],
                 auto_skills: vec!["shield_bash".into()],
+                skill_pool: vec!["shield_bash".into()],
+                starting_skill_slots: 3,
+                starting_items: vec![],
+                starting_gold: crate::templates::WalletAmount::default(),
             },
         );
         t
