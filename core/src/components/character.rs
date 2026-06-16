@@ -63,6 +63,7 @@ impl PlayerState {
 pub struct Player {
     pub account_id: i64,
     pub prompt: String,
+    pub screen_width: u16,
 }
 
 /// The entity's race (e.g. "human", "elf").
@@ -78,6 +79,7 @@ impl Player {
         Player {
             account_id,
             prompt: "<%hhp %hmhp> ".to_string(),
+            screen_width: 80,
         }
     }
 }
@@ -150,6 +152,106 @@ pub struct Experience(pub u64);
 pub struct Golds {
     pub copper: u64,
 }
+
+/// Multi-denomination currency wallet.
+///
+/// Exchange rates (all 100:1): 100 copper = 1 silver, 100 silver = 1 gold,
+/// 100 gold = 1 platinum.
+#[derive(Debug, Clone, Default)]
+pub struct Wallet {
+    pub copper: u64,
+    pub silver: u64,
+    pub gold: u64,
+    pub platinum: u64,
+}
+
+impl Wallet {
+    pub const COPPER_PER_SILVER: u64 = 100;
+    pub const SILVER_PER_GOLD: u64 = 100;
+    pub const GOLD_PER_PLATINUM: u64 = 100;
+
+    pub fn new(copper: u64, silver: u64, gold: u64, platinum: u64) -> Self {
+        Wallet {
+            copper,
+            silver,
+            gold,
+            platinum,
+        }
+    }
+
+    /// Total value expressed in copper pieces.
+    pub fn total_copper(&self) -> u64 {
+        self.copper
+            + self.silver * Self::COPPER_PER_SILVER
+            + self.gold * Self::COPPER_PER_SILVER * Self::SILVER_PER_GOLD
+            + self.platinum
+                * Self::COPPER_PER_SILVER
+                * Self::SILVER_PER_GOLD
+                * Self::GOLD_PER_PLATINUM
+    }
+
+    /// Add another wallet's contents into this one.
+    pub fn add(&mut self, other: &Wallet) {
+        self.copper = self.copper.saturating_add(other.copper);
+        self.silver = self.silver.saturating_add(other.silver);
+        self.gold = self.gold.saturating_add(other.gold);
+        self.platinum = self.platinum.saturating_add(other.platinum);
+    }
+
+    /// Deduct an amount of copper, returning true if successful.
+    /// Converts higher denominations as needed.
+    pub fn deduct_copper(&mut self, amount: u64) -> bool {
+        let total = self.total_copper();
+        if total < amount {
+            return false;
+        }
+        let remaining = total - amount;
+        self.copper = remaining % Self::COPPER_PER_SILVER;
+        let remaining = remaining / Self::COPPER_PER_SILVER;
+        self.silver = remaining % Self::SILVER_PER_GOLD;
+        let remaining = remaining / Self::SILVER_PER_GOLD;
+        self.gold = remaining % Self::GOLD_PER_PLATINUM;
+        self.platinum = remaining / Self::GOLD_PER_PLATINUM;
+        true
+    }
+}
+
+/// The entity's alignment on the lawful–chaotic × good–evil grid.
+///
+/// Valid values: `lawful_good`, `neutral_good`, `chaotic_good`,
+/// `lawful_neutral`, `true_neutral`, `chaotic_neutral`,
+/// `lawful_evil`, `neutral_evil`, `chaotic_evil`.
+#[derive(Debug, Clone)]
+pub struct Alignment(pub String);
+
+impl Alignment {
+    /// All 9 valid alignment strings.
+    pub const ALL: &'static [&'static str] = &[
+        "lawful_good",
+        "neutral_good",
+        "chaotic_good",
+        "lawful_neutral",
+        "true_neutral",
+        "chaotic_neutral",
+        "lawful_evil",
+        "neutral_evil",
+        "chaotic_evil",
+    ];
+
+    pub fn is_valid(s: &str) -> bool {
+        Self::ALL.contains(&s)
+    }
+}
+
+impl Default for Alignment {
+    fn default() -> Self {
+        Alignment("true_neutral".to_string())
+    }
+}
+
+/// A multi-line character description supporting ANSI color.
+#[derive(Debug, Clone, Default)]
+pub struct Description(pub String);
 
 #[derive(Debug, Clone)]
 pub struct Name(pub String);
@@ -290,5 +392,84 @@ mod tests {
         let n = Name::new("Eve");
         assert_eq!(n.len(), 3);
         assert!(n.starts_with("E"));
+    }
+
+    // ── Wallet tests ──
+
+    #[test]
+    fn test_wallet_new() {
+        let w = Wallet::new(50, 2, 1, 0);
+        assert_eq!(w.copper, 50);
+        assert_eq!(w.silver, 2);
+        assert_eq!(w.gold, 1);
+        assert_eq!(w.platinum, 0);
+    }
+
+    #[test]
+    fn test_wallet_total_copper() {
+        let w = Wallet::new(50, 2, 1, 0);
+        // 50 + 2*100 + 1*100*100 = 50 + 200 + 10_000 = 10_250
+        assert_eq!(w.total_copper(), 10_250);
+    }
+
+    #[test]
+    fn test_wallet_add() {
+        let mut w1 = Wallet::new(50, 2, 0, 0);
+        let w2 = Wallet::new(50, 0, 1, 0);
+        w1.add(&w2);
+        assert_eq!(w1.copper, 100);
+        assert_eq!(w1.silver, 2);
+        assert_eq!(w1.gold, 1);
+    }
+
+    #[test]
+    fn test_wallet_deduct_simple() {
+        let mut w = Wallet::new(100, 0, 0, 0);
+        assert!(w.deduct_copper(30));
+        assert_eq!(w.copper, 70);
+    }
+
+    #[test]
+    fn test_wallet_deduct_breaks_denominations() {
+        let mut w = Wallet::new(0, 1, 0, 0);
+        assert!(w.deduct_copper(50));
+        // 100 - 50 = 50 copper
+        assert_eq!(w.copper, 50);
+        assert_eq!(w.silver, 0);
+    }
+
+    #[test]
+    fn test_wallet_deduct_insufficient() {
+        let mut w = Wallet::new(50, 0, 0, 0);
+        assert!(!w.deduct_copper(100));
+        assert_eq!(w.copper, 50);
+    }
+
+    // ── Alignment tests ──
+
+    #[test]
+    fn test_alignment_is_valid() {
+        assert!(Alignment::is_valid("lawful_good"));
+        assert!(Alignment::is_valid("true_neutral"));
+        assert!(Alignment::is_valid("chaotic_evil"));
+        assert!(!Alignment::is_valid("good"));
+        assert!(!Alignment::is_valid(""));
+    }
+
+    #[test]
+    fn test_alignment_default() {
+        let a = Alignment::default();
+        assert_eq!(a.0, "true_neutral");
+    }
+
+    #[test]
+    fn test_all_alignments_count() {
+        assert_eq!(Alignment::ALL.len(), 9);
+    }
+
+    #[test]
+    fn test_description_default() {
+        let d = Description::default();
+        assert_eq!(d.0, "");
     }
 }

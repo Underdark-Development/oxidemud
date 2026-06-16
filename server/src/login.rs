@@ -21,6 +21,10 @@ pub struct CharacterCreateBuffer {
     pub class: Option<String>,
     pub password: Option<String>,
     pub spawn_key: Option<String>,
+    pub attributes: Option<mud_core::Attributes>,
+    pub alignment: Option<String>,
+    pub description: Option<String>,
+    pub selected_skills: Vec<String>,
 }
 
 /// Owns all login / character-creation state. Kept independent of the
@@ -129,7 +133,7 @@ impl LoginFlow {
         void_room: Entity,
         spawn_room: Entity,
     ) -> Vec<String> {
-        match &self.state {
+        let mut lines = match &self.state {
             LoginState::Connected => handlers::handle_connected_state(self),
             LoginState::Username => handlers::handle_username_state(self, input, db).await,
             LoginState::Password { username, attempts } => {
@@ -161,11 +165,32 @@ impl LoginFlow {
             LoginState::CharacterCreateName => {
                 handlers::handle_character_create_name_state(self, input, db).await
             }
-            LoginState::CharacterCreateRace => {
+            LoginState::CharacterCreateRace(..) => {
                 handlers::handle_character_create_race_state(self, input, templates)
             }
-            LoginState::CharacterCreateClass => {
+            LoginState::CharacterCreateClass(..) => {
                 handlers::handle_character_create_class_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAttributesPickMethod => {
+                handlers::handle_attributes_pick_method_state(self, input)
+            }
+            LoginState::CharacterCreateAttributesPointBuy { .. } => {
+                handlers::handle_point_buy_state(self, input)
+            }
+            LoginState::CharacterCreateAttributesArray { .. } => {
+                handlers::handle_standard_array_state(self, input)
+            }
+            LoginState::CharacterCreateAttributesRoll { .. } => {
+                handlers::handle_roll_state(self, input)
+            }
+            LoginState::CharacterCreateAlignment => {
+                handlers::handle_alignment_state(self, input, templates)
+            }
+            LoginState::CharacterCreateSkillSelection { .. } => {
+                handlers::handle_skill_selection_state(self, input, templates)
+            }
+            LoginState::CharacterCreateDescription { .. } => {
+                handlers::handle_description_state(self, input)
             }
             LoginState::CharacterCreateSpawn => {
                 handlers::handle_spawn_select_state(self, input, templates)
@@ -177,7 +202,12 @@ impl LoginFlow {
                 .await
             }
             LoginState::Playing => Vec::new(),
+        };
+
+        if lines.first().is_none_or(|l| !l.is_empty()) {
+            lines.insert(0, String::new());
         }
+        lines
     }
 
     /// Return the lines that form the prompt for the current state.
@@ -209,13 +239,35 @@ impl LoginFlow {
                     "Enter your character's name (3-16 letters, hyphens, apostrophes):".to_string(),
                 ]
             }
-            LoginState::CharacterCreateRace => prompt::show_character_race_prompt(self, templates),
-            LoginState::CharacterCreateClass => {
+            LoginState::CharacterCreateRace(..) => {
+                prompt::show_character_race_prompt(self, templates)
+            }
+            LoginState::CharacterCreateClass(..) => {
                 if let Some(t) = templates {
                     prompt::show_character_class_prompt(self, t)
                 } else {
                     Vec::new()
                 }
+            }
+            LoginState::CharacterCreateAttributesPickMethod => {
+                prompt::show_attribute_method_prompt()
+            }
+            LoginState::CharacterCreateAttributesPointBuy { .. } => {
+                prompt::show_point_buy_prompt(self)
+            }
+            LoginState::CharacterCreateAttributesArray { .. } => {
+                prompt::show_standard_array_prompt(self)
+            }
+            LoginState::CharacterCreateAttributesRoll { .. } => prompt::show_roll_prompt(self),
+            LoginState::CharacterCreateAlignment => prompt::show_alignment_prompt(self, templates),
+            LoginState::CharacterCreateSkillSelection { .. } => {
+                prompt::show_skill_selection_prompt(self, templates)
+            }
+            LoginState::CharacterCreateDescription { .. } => {
+                vec![
+                    String::new(),
+                    "Enter your character's description (multi-line). Type '.' on a blank line to finish:".to_string(),
+                ]
             }
             LoginState::CharacterCreateSpawn => {
                 if let Some(t) = templates {
