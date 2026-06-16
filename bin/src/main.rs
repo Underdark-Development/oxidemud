@@ -71,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
     server.register_command("who", &["w"], AccessLevel::Player, commands::cmd_who);
     server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
+    server.register_command("width", &[], AccessLevel::Player, commands::cmd_width);
 
     // Phase 3 — Combat
     server.register_command("kill", &[], AccessLevel::Player, commands::cmd_kill);

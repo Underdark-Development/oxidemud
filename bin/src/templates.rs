@@ -2,6 +2,7 @@ use mud_core::templates::{
     AffixDef, AreaTemplate, ClassTemplate, ItemTemplate, MobTemplate, PassiveDef, RaceTemplate,
     SetDef, StanceDef, TemplateRegistry,
 };
+use mud_core::SkillDef;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -17,6 +18,7 @@ pub fn load_templates(content_path: &Path) -> TemplateRegistry {
     registry.affixes = load_affixes(content_path);
     registry.passives = load_passives(content_path);
     registry.areas = load_areas(content_path);
+    registry.skills = load_skills(content_path);
     registry
 }
 
@@ -225,4 +227,52 @@ fn load_areas(content_path: &Path) -> HashMap<String, AreaTemplate> {
         }
     }
     map
+}
+
+fn load_skills(content_path: &Path) -> HashMap<String, SkillDef> {
+    let dir = content_path.join("skills");
+    let mut map = HashMap::new();
+    if !dir.exists() {
+        tracing::warn!("Skills directory not found: {}", dir.display());
+        return map;
+    }
+    for entry in fs::read_dir(&dir).unwrap().flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "toml") {
+            if let Ok(content) = fs::read_to_string(&path) {
+                match toml::from_str::<SkillDef>(&content) {
+                    Ok(t) => {
+                        map.insert(t.id.clone(), t);
+                    }
+                    Err(e) => tracing::error!("Failed to parse skill '{}': {e}", path.display()),
+                }
+            }
+        }
+    }
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn project_root() -> PathBuf {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.parent().unwrap().to_path_buf()
+    }
+
+    #[test]
+    fn test_actual_content_class_filtering() {
+        let content_path = project_root().join("content");
+        let registry = load_templates(&content_path);
+
+        let orc_classes = registry.available_classes_for_race("orc");
+        assert_eq!(orc_classes.len(), 1);
+        assert_eq!(orc_classes[0].id, "warrior");
+
+        let mage_races = registry.available_races_for_class("mage");
+        assert_eq!(mage_races.len(), 1);
+        assert_eq!(mage_races[0].id, "human");
+    }
 }

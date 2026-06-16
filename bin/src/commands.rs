@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use mud_core as core;
-use mud_core::templates::SetDef;
+use mud_core::templates::{SetDef, SkillResolveError};
 use mud_core::{Direction, Name, Position, Room, RoomExits, VoidRoom, World};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
     let ansi = conn.flags().has(ConnectionFlag::Ansi);
     let blink = conn.flags().has(ConnectionFlag::Blink);
-    conn.send_line(&text.render(ansi, blink));
+    let width = conn.screen_width() as usize;
+    conn.send_line(&text.render_wrapped(width, ansi, blink));
 }
 
 fn section_label(text: &str) -> core::format::Segment {
@@ -113,7 +114,7 @@ pub fn cmd_look(
         conn,
         &core::format::conventions::separator("-".repeat(room_name.len().min(40))),
     );
-    conn.send_line(&room_desc);
+    send_formatted(conn, &core::format::parse_tags(&room_desc));
 
     // Exits
     let exits = get_exits(world, room);
@@ -492,6 +493,59 @@ pub fn cmd_who(
     let lines = mud_server::login::list_who(world, registry);
     for line in &lines {
         conn.send_line(line);
+    }
+}
+
+pub fn cmd_width(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        let current = conn.screen_width();
+        if current == 0 {
+            conn.send_line("Screen width: unlimited (0)");
+        } else {
+            conn.send_line(&format!("Screen width: {current} columns"));
+        }
+        conn.send_line("Usage: width <columns>  (0 = unlimited)");
+        return;
+    }
+
+    let width: u16 = match trimmed.parse() {
+        Ok(w) => w,
+        Err(_) => {
+            conn.send_line("Usage: width <columns>  (0 = unlimited)");
+            return;
+        }
+    };
+
+    conn.set_screen_width(width);
+
+    // Persist to Player component and DB
+    if let Some(entity) = conn.entity() {
+        if let Ok(mut q) = world.query_one::<&mut core::Player>(entity) {
+            if let Some(player) = q.get() {
+                player.screen_width = width;
+            }
+        }
+        if let Some(db) = mud_server::get_db() {
+            let db_guard = db.blocking_lock();
+            if let Ok(mut q) = world.query_one::<&core::DbId>(entity) {
+                if let Some(db_id) = q.get() {
+                    let _ = mud_data::update_player_screen_width(db_guard.conn(), db_id.0, width);
+                }
+            }
+        }
+    }
+
+    if width == 0 {
+        conn.send_line("Screen width set to unlimited.");
+    } else {
+        conn.send_line(&format!("Screen width set to {width} columns."));
     }
 }
 
@@ -1392,7 +1446,13 @@ pub fn cmd_train(
     }
 
     // `train <skill>` — train a specific skill
-    let skill_id = args.to_lowercase();
+    let skill_id = match resolve_skill_name_for_training(args, world, entity) {
+        Ok(id) => id,
+        Err(msg) => {
+            conn.send_line(&msg);
+            return;
+        }
+    };
 
     let mut skills = match world.query_one::<&mut core::LearnedSkills>(entity) {
         Ok(mut q) => match q.get() {
@@ -1446,6 +1506,46 @@ pub fn cmd_train(
     ));
 }
 
+/// Resolve a skill name (exact or partial) for the `train` command.
+/// Falls back to exact match when the template registry is unavailable.
+fn resolve_skill_name_for_training(
+    input: &str,
+    world: &World,
+    entity: core::Entity,
+) -> Result<String, String> {
+    let templates = match mud_server::get_templates() {
+        Some(t) => t,
+        None => return Ok(input.to_lowercase()),
+    };
+
+    let raw = input.to_lowercase();
+    match templates.resolve_skill(&raw, None) {
+        Ok(id) => {
+            // Verify the player knows this skill before we return the resolved ID.
+            // If they don't know it, fall back to raw input so the caller's
+            // "You don't know the skill" message uses what the player typed.
+            let known = world
+                .query_one::<&core::LearnedSkills>(entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned())
+                .is_some_and(|s| s.has(&id));
+            if known {
+                Ok(id)
+            } else {
+                Ok(raw)
+            }
+        }
+        Err(SkillResolveError::NotFound) => Ok(raw),
+        Err(SkillResolveError::Multiple(candidates)) => {
+            let names: Vec<String> = candidates
+                .into_iter()
+                .map(|(id, name)| format!("{id} ({name})"))
+                .collect();
+            Err(format!("Which skill did you mean? {}", names.join(", ")))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1461,6 +1561,7 @@ mod tests {
         entity: RefCell<Option<core::Entity>>,
         disconnected: RefCell<bool>,
         flags: RefCell<ConnectionFlags>,
+        screen_width: RefCell<u16>,
     }
 
     impl MockConnection {
@@ -1470,6 +1571,7 @@ mod tests {
                 entity: RefCell::new(None),
                 disconnected: RefCell::new(false),
                 flags: RefCell::new(ConnectionFlags::new()),
+                screen_width: RefCell::new(0),
             }
         }
 
@@ -1509,6 +1611,12 @@ mod tests {
         }
         fn set_flags(&mut self, flags: ConnectionFlags) {
             self.flags.borrow_mut().clone_from(&flags);
+        }
+        fn screen_width(&self) -> u16 {
+            *self.screen_width.borrow()
+        }
+        fn set_screen_width(&mut self, width: u16) {
+            *self.screen_width.borrow_mut() = width;
         }
         fn output_sender(&self) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
             None
