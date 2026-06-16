@@ -73,6 +73,13 @@ pub trait Connection: Send {
     fn flags(&self) -> ConnectionFlags;
     fn set_flags(&mut self, flags: ConnectionFlags);
 
+    /// Player's preferred screen width in columns (0 = no wrap).
+    fn screen_width(&self) -> u16 {
+        0
+    }
+
+    fn set_screen_width(&mut self, _width: u16) {}
+
     /// Enable or disable server-side echo via telnet IAC WILL/WONT ECHO.
     /// WILL ECHO = server echoes (client hides input) — used for passwords.
     /// WONT ECHO = client does local echo — used for normal gameplay.
@@ -100,6 +107,7 @@ pub struct TelnetConnection {
     entity: Option<Entity>,
     tx: Option<mpsc::UnboundedSender<Output>>,
     flags: ConnectionFlags,
+    screen_width: u16,
 }
 
 impl TelnetConnection {
@@ -110,6 +118,7 @@ impl TelnetConnection {
             entity: None,
             tx: Some(tx),
             flags: ConnectionFlags::new(),
+            screen_width: 80,
         };
         (conn, rx)
     }
@@ -120,6 +129,7 @@ impl TelnetConnection {
             entity: None,
             tx: Some(tx),
             flags: ConnectionFlags::new(),
+            screen_width: 80,
         }
     }
 }
@@ -167,6 +177,14 @@ impl Connection for TelnetConnection {
 
     fn set_flags(&mut self, flags: ConnectionFlags) {
         self.flags = flags;
+    }
+
+    fn screen_width(&self) -> u16 {
+        self.screen_width
+    }
+
+    fn set_screen_width(&mut self, width: u16) {
+        self.screen_width = width;
     }
 
     fn output_sender(&self) -> Option<mpsc::UnboundedSender<Vec<u8>>> {
