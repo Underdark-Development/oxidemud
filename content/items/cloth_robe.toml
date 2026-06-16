@@ -7,5 +7,10 @@ quality = "common"
 weight = 1.0
 value = 3
 
+# level_requirement = 1
+# gates = { allowed_classes = ["mage"], allowed_races = ["human"] }
+# triggers = [{ event = "on_wear", chance = 100, skill = "arcane_ward", target = "self" }]
+# durability = { current = 8, max = 8, decay_rate = 0.05 }
+
 [equipment]
 slot = "torso"

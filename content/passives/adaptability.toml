@@ -2,6 +2,10 @@ id = "adaptability"
 name = "Adaptability"
 description = "Humans adapt quickly, gaining a bonus to all skills."
 
+# stackable = false
+# allowed_classes = ["warrior", "mage"]
+# script = "passives/adaptability.rhai"
+
 [[effects]]
 effect_type = "skill_boost"
 target = "self"

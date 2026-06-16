@@ -6,3 +6,6 @@ stat = "wisdom"
 amount = "1"
 quality_min = "common"
 slot = ["head", "neck", "torso"]
+
+# level_requirement = 1
+# quality_max = "legendary"

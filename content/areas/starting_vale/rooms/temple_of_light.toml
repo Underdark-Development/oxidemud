@@ -1,0 +1,18 @@
+id = "temple_of_light"
+area = "starting_vale"
+name = "Temple of Light"
+description = """
+Sunlight streams through a stained-glass rose window, casting {cyan}shimmering blue{/} and {gold}amber{/} patterns across the marble floor. Simple wooden pews face a white stone altar where a single candle burns. The air is cool and still, carrying a faint scent of incense.
+
+An engraved plaque beside the door reads:
+{italic}"All who enter find rest.{/}"
+
+The {yellow}west{/} exit leads back to the village square.
+"""
+exits = { west = "town_square" }
+# portals = [{ keyword = "altar", dest = "temple_crypt", description = "A hidden stairwell behind the altar" }]
+
+[spawn]
+label = "Temple of Light"
+description = "A serene temple bathed in the glow of stained glass, tended by the gentle clergy."
+allowed_classes = ["mage"]

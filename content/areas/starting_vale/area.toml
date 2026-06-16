@@ -1,0 +1,11 @@
+id = "starting_vale"
+name = "The Starting Vale"
+description = "A peaceful valley cradled between forested hills, home to the hamlet of Riverside."
+
+spawn_room = "town_square"
+
+# level_range = { min = 1, max = 5 }
+# credits = "Original design by Example Builder"
+# flags = ["city"]
+# weather_zone = "temperate"
+# reset_interval = { secs = 300 }

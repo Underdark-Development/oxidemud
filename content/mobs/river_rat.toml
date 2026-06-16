@@ -12,6 +12,17 @@ ai_mode = "wander"
 aggro_range = 4
 aggro_players = true
 
+# attributes = { str = 4, dex = 14, int = 2, wis = 8, con = 8, cha = 2 }
+# race = "beast"
+# languages = []
+# faction = ""
+# trainer_types = []
+# skills = []
+# scripts = []
+# flee_threshold = 0.3
+# patrol_route = []
+# return_home = "dark_thicket"
+
 [loot]
 [[loot.entries]]
 item = "copper_coin"

@@ -3,3 +3,17 @@ name = "Tactics"
 description = "Battlefield awareness that improves positioning and teamwork."
 skill_type = "combat"
 max_rank = 100
+
+# level_requirement = 1
+# cooldown_secs = 0
+# targeting = { type = "self" }
+# cost = { stamina = 5 }
+# effect = { type = "buff", stat = "attack_bonus", amount = 1, duration = 60 }
+# script = "skills/tactics.rhai"
+# allowed_classes = ["warrior"]
+# allowed_races = ["human", "orc"]
+# requires_skill = ""
+# must_train = false
+# trainer_types = ["combat"]
+# use_while_fighting = true
+# use_while_sitting = false

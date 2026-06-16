@@ -6,3 +6,6 @@ stat = "constitution"
 amount = "1"
 quality_min = "common"
 slot = ["torso", "head", "legs", "feet", "arms", "hands"]
+
+# level_requirement = 1
+# quality_max = "legendary"

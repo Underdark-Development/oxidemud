@@ -3,3 +3,9 @@ name = "Offensive Stance"
 damage_bonus = 2
 ac_penalty = 2
 min_level = 1
+
+# attack_bonus = 0
+# allowed_classes = ["warrior"]
+# allowed_races = ["human", "orc"]
+# duration = { secs = 30 }
+# cooldown = { secs = 5 }

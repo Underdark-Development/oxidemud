@@ -5,4 +5,7 @@ item_type = "light"
 quality = "common"
 weight = 1.0
 value = 2
-flags = ["light_source"]
+flags = ["consumable", "light_source"]
+
+# level_requirement = 1
+# durability = { current = 60, max = 60, decay_rate = 1.0 }

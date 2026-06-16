@@ -7,5 +7,10 @@ quality = "common"
 weight = 3.0
 value = 15
 
+# level_requirement = 2
+# gates = { allowed_races = ["human", "orc"] }
+# triggers = [{ event = "on_hit", chance = 10, skill = "thorns", target = "attacker" }]
+# durability = { current = 20, max = 20, decay_rate = 0.15 }
+
 [equipment]
 slot = "torso"

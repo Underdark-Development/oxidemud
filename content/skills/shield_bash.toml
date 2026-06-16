@@ -3,3 +3,17 @@ name = "Shield Bash"
 description = "Smash your opponent with your shield, stunning them briefly."
 skill_type = "combat"
 max_rank = 100
+
+# level_requirement = 2
+# cooldown_secs = 6
+# targeting = { type = "single", range = "melee" }
+# cost = { stamina = 15 }
+# effect = { type = "damage", damage = "1d6+2", damage_type = "bludgeon" }
+# script = "skills/shield_bash.rhai"
+# allowed_classes = ["warrior"]
+# allowed_races = ["human", "orc"]
+# requires_skill = "tactics"
+# must_train = true
+# trainer_types = ["combat"]
+# use_while_fighting = true
+# use_while_sitting = false

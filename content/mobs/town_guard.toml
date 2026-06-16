@@ -12,6 +12,17 @@ aggro_range = 8
 aggro_race = ["goblin"]
 languages = ["common"]
 
+# attributes = { str = 14, dex = 12, int = 10, wis = 10, con = 13, cha = 8 }
+# size = "medium"
+# xp_value = 75
+# faction = "riverside_guard"
+# trainer_types = []
+# skills = ["shield_bash"]
+# scripts = [{ trigger = "on_death", path = "guards/fall_in_line.rhai" }]
+# flee_threshold = 0.1
+# patrol_route = ["town_square", "town_gate"]
+# return_home = "town_square"
+
 [[equipment]]
 template_id = "leather_vest"
 slot = "torso"

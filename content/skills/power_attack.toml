@@ -3,3 +3,17 @@ name = "Power Attack"
 description = "A heavy strike that trades accuracy for raw damage."
 skill_type = "combat"
 max_rank = 100
+
+# level_requirement = 1
+# cooldown_secs = 3
+# targeting = { type = "single", range = "melee" }
+# cost = { stamina = 10 }
+# effect = { type = "damage", damage = "2d6", damage_type = "bludgeon" }
+# script = "skills/power_attack.rhai"
+# allowed_classes = ["warrior"]
+# allowed_races = ["human", "orc"]
+# requires_skill = "tactics"
+# must_train = true
+# trainer_types = ["combat"]
+# use_while_fighting = true
+# use_while_sitting = false

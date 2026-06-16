@@ -3,3 +3,17 @@ name = "Enchant"
 description = "Imbue an item with temporary magical power."
 skill_type = "magic"
 max_rank = 100
+
+# level_requirement = 5
+# cooldown_secs = 60
+# targeting = { type = "single", range = "touch" }
+# cost = { mana = 40 }
+# effect = { type = "enchant", stat = "damage_bonus", amount = 1, duration = 300 }
+# script = "skills/enchant.rhai"
+# allowed_classes = ["mage"]
+# allowed_races = ["human"]
+# requires_skill = "identify"
+# must_train = true
+# trainer_types = ["magic"]
+# use_while_fighting = false
+# use_while_sitting = true

@@ -1,6 +1,9 @@
 id = "apprentice_set"
 name = "Apprentice's Set"
 
+# description = "A beginner's collection of arcane garments."
+
 [[bonuses]]
 min_pieces = 2
 effects = [{ effect_type = "stat", stat = "intelligence", amount = 1 }]
+# conditions = ["equipped"]

@@ -1,0 +1,16 @@
+id = "town_gate"
+area = "starting_vale"
+name = "Town Gate"
+description = """
+A sturdy timber palisade rises fifteen feet high, flanked by two watchtowers. The {green}iron-bound gate{/} stands open, and a dirt road stretches south into the forest beyond. A guard leans against the gatepost, eyeing travelers with practiced disinterest.
+
+{yellow}North{/} leads back into Riverside.
+{yellow}South{/}, the road disappears into the deepening wood.
+"""
+exits = { north = "town_square", south = "forest_path" }
+# portals = [{ keyword = "gate", dest = "outside_wall", description = "A small sally port beside the main gate" }]
+
+[content]
+[[content.mobs]]
+template_id = "town_guard"
+count = 1

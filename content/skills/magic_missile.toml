@@ -3,3 +3,17 @@ name = "Magic Missile"
 description = "Hurl a bolt of pure arcane energy at your target."
 skill_type = "magic"
 max_rank = 100
+
+# level_requirement = 1
+# cooldown_secs = 2
+# targeting = { type = "single", range = 30 }
+# cost = { mana = 10 }
+# effect = { type = "damage", damage = "1d4+1", damage_type = "magic" }
+# script = "skills/magic_missile.rhai"
+# allowed_classes = ["mage"]
+# allowed_races = ["human"]
+# requires_skill = ""
+# must_train = false
+# trainer_types = ["magic"]
+# use_while_fighting = true
+# use_while_sitting = false

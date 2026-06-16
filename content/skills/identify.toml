@@ -3,3 +3,17 @@ name = "Identify"
 description = "Reveal the hidden properties of a magical item."
 skill_type = "magic"
 max_rank = 100
+
+# level_requirement = 3
+# cooldown_secs = 30
+# targeting = { type = "single", range = "touch" }
+# cost = { mana = 20 }
+# effect = { type = "identify" }
+# script = "skills/identify.rhai"
+# allowed_classes = ["mage"]
+# allowed_races = ["human"]
+# requires_skill = ""
+# must_train = true
+# trainer_types = ["magic"]
+# use_while_fighting = false
+# use_while_sitting = true

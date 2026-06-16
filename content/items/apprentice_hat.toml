@@ -7,6 +7,10 @@ weight = 0.5
 value = 10
 allowed_classes = ["mage"]
 
+# level_requirement = 1
+# triggers = [{ event = "on_wear", chance = 100, skill = "meditation", target = "self" }]
+# durability = { current = 6, max = 6, decay_rate = 0.05 }
+
 [equipment]
 slot = "head"
 

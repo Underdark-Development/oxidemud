@@ -5,6 +5,13 @@ allowed_classes = ["warrior"]
 allowed_alignments = ["lawful_evil", "neutral_evil", "chaotic_evil"]
 racial_abilities = []
 
+# size = "large"
+# speed = 30
+# languages = ["orcish", "common"]
+# hometown = ""
+# traits = { infravision = 60 }
+# familiarity = []
+
 [attributes]
 strength = 12
 constitution = 12

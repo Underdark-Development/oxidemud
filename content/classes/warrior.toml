@@ -9,6 +9,17 @@ auto_skills = ["tactics"]
 skill_pool = ["shield_bash", "power_attack", "parry"]
 starting_items = ["leather_vest", "wooden_cudgel"]
 
+# base_attack_bonus = "high"
+# skill_ranks_per_level = 2
+# class_skills = ["tactics", "shield_bash", "power_attack", "parry"]
+# cross_class_skills = ["identify", "enchant"]
+# exclusive_skills = []
+# stances = ["offensive", "defensive"]
+# passives = []
+# fort_save = 12
+# ref_save = 4
+# will_save = 4
+
 [attribute_mods]
 strength = 2
 constitution = 1

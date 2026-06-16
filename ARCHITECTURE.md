@@ -659,7 +659,7 @@ Tag syntax: `{red}text{/}`, `{brightblue}item{/}`, `{yellow bold}critical!{/}`, 
 
 All game content in TOML under `content/` (configurable path). Scanned at startup, deserialized via serde, cross-referenced, built into `TemplateRegistry` (behind `Arc<RwLock<...>>`).
 
-**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help}/` + `affixes.toml`, `sets.toml`, `languages.toml`, `socials.toml`, `treasure_classes.toml`.
+**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help}/` + `affixes.toml`, `sets.toml`, `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
 
 Hot-reload uses `notify` crate. On change: re-parse, validate, atomic-swap in registry, emit `ContentReloaded`.
 
@@ -667,9 +667,9 @@ Hot-reload uses `notify` crate. On change: re-parse, validate, atomic-swap in re
 
 ## Zone & Area System
 
-Areas group rooms into named, managed zones. Each area in a single TOML under `content/areas/`.
+Areas group rooms into named, managed zones. Each area is a directory under `content/areas/<area_id>/` containing an `area.toml` (metadata) and a `rooms/` subdirectory with one TOML file per room.
 
-**AreaTemplate:** id, name, description, level_range, flags, weather_zone, reset_interval_secs, credits. **RoomTemplate:** id, area, name, description, exits, portals, flags, content.
+**AreaTemplate:** id, name, description, level_range, flags, weather_zone, reset_interval_secs, credits. **RoomTemplate:** id, area, name, description, exits, portals, flags, content, spawn (optional — label, description, allowed_classes for character creation).
 
 ### Area Flags
 

@@ -3,3 +3,17 @@ name = "Parry"
 description = "Deflect an incoming melee attack with your weapon."
 skill_type = "combat"
 max_rank = 100
+
+# level_requirement = 2
+# cooldown_secs = 1
+# targeting = { type = "self" }
+# cost = { stamina = 8 }
+# effect = { type = "buff", stat = "ac_bonus", amount = 4, duration = 6 }
+# script = "skills/parry.rhai"
+# allowed_classes = ["warrior"]
+# allowed_races = ["human", "orc"]
+# requires_skill = "tactics"
+# must_train = true
+# trainer_types = ["combat"]
+# use_while_fighting = true
+# use_while_sitting = false

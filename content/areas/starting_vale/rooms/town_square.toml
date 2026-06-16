@@ -1,0 +1,28 @@
+id = "town_square"
+area = "starting_vale"
+name = "Village Square"
+description = """
+The cobblestone square of {yellow bold}Riverside Village{/} opens around you. An old stone fountain bubbles at the center, its basin carved with dancing nymphs. Flowering linden trees shade wooden benches along the edges. A weathered notice board stands near the fountain, and the distant clang of a smith's hammer mingles with birdsong.
+
+{yellow}North{/} of here, canvas awnings shade a bustling market stall.
+The {yellow}east{/} leads along a stone path toward a small temple.
+The {yellow}south{/} road winds toward the village gate.
+"""
+exits = { north = "market_stall", east = "temple_of_light", south = "town_gate" }
+
+# portals = [{ keyword = "fountain", dest = "fountain_room", description = "The old stone fountain" }]
+# flags = ["portal_in", "portal_out"]
+
+[content]
+[[content.mobs]]
+template_id = "town_guard"
+count = 2
+
+# [[content.items]]
+# template_id = "copper_coin"
+# count = { min = 1, max = 3 }
+
+[spawn]
+label = "Village Square"
+description = "Begin your journey in the heart of Riverside, surrounded by linden trees and the laughter of villagers."
+# allowed_classes = ["warrior", "mage"]

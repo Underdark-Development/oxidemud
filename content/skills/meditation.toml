@@ -3,3 +3,17 @@ name = "Meditation"
 description = "Enter a deep meditative state to restore mana more quickly."
 skill_type = "magic"
 max_rank = 100
+
+# level_requirement = 1
+# cooldown_secs = 10
+# targeting = { type = "self" }
+# cost = { mana = 5 }
+# effect = { type = "heal", pool = "mana", amount = "2d10" }
+# script = "skills/meditation.rhai"
+# allowed_classes = ["mage"]
+# allowed_races = ["human"]
+# requires_skill = ""
+# must_train = false
+# trainer_types = ["magic"]
+# use_while_fighting = false
+# use_while_sitting = true

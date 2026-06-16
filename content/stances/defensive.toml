@@ -3,3 +3,9 @@ name = "Defensive Stance"
 ac_bonus = 2
 attack_penalty = -2
 min_level = 1
+
+# attack_bonus = 0
+# allowed_classes = ["warrior", "mage"]
+# allowed_races = ["human", "orc"]
+# duration = { secs = 30 }
+# cooldown = { secs = 5 }

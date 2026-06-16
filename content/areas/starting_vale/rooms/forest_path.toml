@@ -1,0 +1,9 @@
+id = "forest_path"
+area = "starting_vale"
+name = "Forest Path"
+description = """
+The dirt road narrows to a winding path as the forest closes in. Ancient oaks and elms interlace their branches overhead, dappling the ground with {green}patches of sunlight{/}. Ferns and wild garlic carpet the undergrowth, and the air is thick with the scent of damp earth and leaf mold.
+
+Birds call in the canopy above. The {yellow}north{/} road leads back to the village gate. The path continues {yellow}south{/} into deeper woods.
+"""
+exits = { north = "town_gate", south = "forest_crossing" }

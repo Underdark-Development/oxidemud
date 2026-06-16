@@ -6,3 +6,8 @@ quality = "common"
 weight = 0.3
 value = 25
 flags = ["consumable"]
+
+# level_requirement = 1
+# durability = { current = 1, max = 1, decay_rate = 0 }
+# triggers = [{ event = "on_use", chance = 100, skill = "heal_light_wounds", target = "self" }]
+# gates = { allowed_classes = ["warrior", "mage"] }
