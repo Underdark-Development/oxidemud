@@ -14,6 +14,10 @@ release:
 run port="4000":
     cargo run -p mud-bin -- {{ port }}
 
+# Run spade (offline builder mode)
+spade *args="":
+    cargo run -p spade -- {{ args }}
+
 # ─── Connect ────────────────────────────────────────────────────────
 
 # Connect via tintin++ (auto-loads mud.tin if present)
