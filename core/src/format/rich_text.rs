@@ -177,6 +177,109 @@ impl RichText {
         out.push_str("\x1b[0m");
         out
     }
+
+    /// Render with word-wrapping at `width` columns.
+    ///
+    /// If `width` is 0, delegates to [`render`](Self::render) (no wrapping).
+    /// Wrapping preserves per-segment styling across line breaks.
+    /// Words longer than `width` overflow onto the current line (no hyphenation).
+    pub fn render_wrapped(&self, width: usize, ansi: bool, allow_blink: bool) -> String {
+        if width == 0 {
+            return self.render(ansi, allow_blink);
+        }
+        if self.is_empty() {
+            return String::new();
+        }
+
+        fn seg_ansi(seg: &Segment, blink: bool) -> String {
+            let mut params: Vec<&str> = Vec::new();
+            params.push("0");
+            params.extend(seg.modifiers.codes(blink));
+            params.push(seg.fg.fg_code());
+            params.push(seg.bg.bg_code());
+            format!("\x1b[{}m", params.join(";"))
+        }
+
+        let mut out = String::new();
+        let mut line_width: usize = 0;
+
+        for seg in self.segments() {
+            let ansi_on = if ansi {
+                Some(seg_ansi(seg, allow_blink))
+            } else {
+                None
+            };
+
+            if let Some(ref a) = ansi_on {
+                out.push_str(a);
+            }
+
+            let mut word = String::new();
+
+            for ch in seg.text.chars() {
+                match ch {
+                    '\n' => {
+                        if !word.is_empty() {
+                            out.push_str(&word);
+                            word.clear();
+                        }
+                        if let Some(ref a) = ansi_on {
+                            out.push_str("\x1b[0m\n");
+                            out.push_str(a);
+                        } else {
+                            out.push('\n');
+                        }
+                        line_width = 0;
+                    }
+                    ' ' => {
+                        // flush accumulated word
+                        if !word.is_empty() {
+                            if line_width + word.len() > width {
+                                if let Some(ref a) = ansi_on {
+                                    out.push_str("\x1b[0m\n");
+                                    out.push_str(a);
+                                } else {
+                                    out.push('\n');
+                                }
+                                line_width = 0;
+                            }
+                            out.push_str(&word);
+                            line_width += word.len();
+                            word.clear();
+                        }
+                        // add space if it fits
+                        if line_width < width {
+                            out.push(' ');
+                            line_width += 1;
+                        }
+                    }
+                    _ => {
+                        word.push(ch);
+                    }
+                }
+            }
+
+            // flush remaining word
+            if !word.is_empty() {
+                if line_width + word.len() > width {
+                    if let Some(ref a) = ansi_on {
+                        out.push_str("\x1b[0m\n");
+                        out.push_str(a);
+                    } else {
+                        out.push('\n');
+                    }
+                    line_width = 0;
+                }
+                out.push_str(&word);
+                line_width += word.len();
+            }
+        }
+
+        if ansi {
+            out.push_str("\x1b[0m");
+        }
+        out
+    }
 }
 
 impl Default for RichText {
@@ -272,5 +375,85 @@ mod tests {
         let r = t.render(true, true);
         assert!(r.starts_with("\x1b[0;31;49m"));
         assert!(r.ends_with("\x1b[0m"));
+    }
+
+    // ── render_wrapped tests ──
+
+    #[test]
+    fn test_render_wrapped_width_zero() {
+        let t = RichText::from(Segment::colored("hello world", Color::Red));
+        // width=0 means no wrapping
+        let r = t.render_wrapped(0, true, true);
+        assert_eq!(r, "\x1b[0;31;49mhello world\x1b[0m");
+    }
+
+    #[test]
+    fn test_render_wrapped_no_ansi() {
+        let t = RichText::from(Segment::colored("hello world", Color::Red));
+        let r = t.render_wrapped(80, false, true);
+        assert_eq!(r, "hello world");
+    }
+
+    #[test]
+    fn test_render_wrapped_shorter_than_width() {
+        let t = RichText::from("hello");
+        let r = t.render_wrapped(80, true, true);
+        assert_eq!(r, "\x1b[0;39;49mhello\x1b[0m");
+    }
+
+    #[test]
+    fn test_render_wrapped_word_boundary() {
+        let t = RichText::from("one two three");
+        // width=8: "one two " (8) fits, "three" wraps (space added before word known to overflow)
+        let r = t.render_wrapped(8, true, true);
+        assert_eq!(r, "\x1b[0;39;49mone two \x1b[0m\n\x1b[0;39;49mthree\x1b[0m");
+    }
+
+    #[test]
+    fn test_render_wrapped_multi_segment() {
+        let mut t = RichText::new();
+        t.push(Segment::colored("hello ", Color::Red));
+        t.push(Segment::colored("world", Color::Green));
+        // width=10: "hello " (6) + "wor" fits on one line, "ld" wraps
+        let r = t.render_wrapped(10, true, true);
+        assert!(r.contains("\x1b[0;31;49mhello "));
+        assert!(r.contains("\x1b[0;32;49mworld"));
+        assert!(r.ends_with("\x1b[0m"));
+    }
+
+    #[test]
+    fn test_render_wrapped_newlines() {
+        let t = RichText::from("hello\nworld");
+        let r = t.render_wrapped(80, true, true);
+        assert_eq!(r, "\x1b[0;39;49mhello\x1b[0m\n\x1b[0;39;49mworld\x1b[0m");
+    }
+
+    #[test]
+    fn test_render_wrapped_long_word_overflow() {
+        // A word longer than width should overflow (no hyphenation)
+        let t = RichText::from("a antidisestablishment");
+        let r = t.render_wrapped(10, true, true);
+        // "a " fits on first line, "antidisestablishment" is longer than 10
+        assert!(r.contains("antidisestablishment"));
+    }
+
+    #[test]
+    fn test_render_wrapped_skip_space_at_line_start() {
+        let t = RichText::from("hello magnificent world");
+        // width=8: "hello" + space = 6, then wrap before "magnificent"
+        let r = t.render_wrapped(8, true, true);
+        // "magnificent" overflows 8, then "world" wraps to its own line
+        assert!(r.contains("hello"));
+        assert!(r.contains("magnificent"));
+        assert!(r.contains("world"));
+        // No leading space on wrapped lines
+        assert!(!r.contains("\nmagnificent")); // wouldn't have leading space
+    }
+
+    #[test]
+    fn test_render_wrapped_empty() {
+        let t = RichText::new();
+        assert_eq!(t.render_wrapped(80, true, true), "");
+        assert_eq!(t.render_wrapped(0, true, true), "");
     }
 }
