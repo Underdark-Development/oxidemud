@@ -106,6 +106,26 @@ impl Database {
             )?;
         }
 
+        if current < 10 {
+            // Migration 10: add gender columns to characters table
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT gender FROM characters LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn.execute_batch(
+                    "ALTER TABLE characters ADD COLUMN gender TEXT NOT NULL DEFAULT 'neutral';
+                     ALTER TABLE characters ADD COLUMN pronoun_subject TEXT NOT NULL DEFAULT 'they';
+                     ALTER TABLE characters ADD COLUMN pronoun_object TEXT NOT NULL DEFAULT 'them';
+                     ALTER TABLE characters ADD COLUMN pronoun_possessive TEXT NOT NULL DEFAULT 'their';",
+                )?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (10)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

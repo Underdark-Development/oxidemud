@@ -164,6 +164,49 @@ pub fn show_character_class_prompt(
 }
 
 // ---------------------------------------------------------------------------
+// Gender Selection
+// ---------------------------------------------------------------------------
+
+/// Return the gender-selection prompt as a vector of output lines.
+pub fn show_character_gender_prompt(
+    flow: &mut LoginFlow,
+    templates: &TemplateRegistry,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    let race_id = flow.create_buffer.race.as_deref().unwrap_or("unknown");
+    let allowed_genders = templates
+        .get_race(race_id)
+        .map(|r| &r.allowed_genders)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut gender_ids: Vec<String> = allowed_genders.keys().cloned().collect();
+    gender_ids.sort();
+
+    lines.push(String::new());
+    lines.push("--- Choose a Gender ---".to_string());
+
+    for (i, gid) in gender_ids.iter().enumerate() {
+        let pronoun_display = match allowed_genders.get(gid) {
+            Some(_) if *gid == "male" => " (he/him/his)".to_string(),
+            Some(_) if *gid == "female" => " (she/her/hers)".to_string(),
+            Some(_) if *gid == "neutral" => " (they/them/their)".to_string(),
+            Some(p) => format!(" ({}/{}/{})", p.subject, p.object, p.possessive),
+            None => String::new(),
+        };
+        lines.push(format!("{}. {}{}", i + 1, gid, pronoun_display));
+    }
+    if allowed_genders.contains_key("other") {
+        lines.push(String::new());
+        lines.push("To define a custom gender, type: other:subject/object/possessive".to_string());
+        lines.push("  Example: other:xe/xem/xyr".to_string());
+    }
+    lines.push(format!("Pick a gender by number (1-{}):", gender_ids.len()));
+    lines
+}
+
+// ---------------------------------------------------------------------------
 // Attribute Method Selection
 // ---------------------------------------------------------------------------
 
@@ -557,8 +600,20 @@ pub fn show_character_confirm(flow: &mut LoginFlow, templates: &TemplateRegistry
     lines.push(String::new());
     lines.push("--- Character Summary ---".to_string());
     lines.push(format!("  Name:       {name}"));
+
+    let gender_display = flow.create_buffer.gender.as_deref().unwrap_or("?");
+    let pronoun_s = flow.create_buffer.pronoun_subject.as_deref().unwrap_or("?");
+    let pronoun_o = flow.create_buffer.pronoun_object.as_deref().unwrap_or("?");
+    let pronoun_p = flow
+        .create_buffer
+        .pronoun_possessive
+        .as_deref()
+        .unwrap_or("?");
     lines.push(format!("  Race:       {race_name}"));
     lines.push(format!("  Class:      {class_name}"));
+    lines.push(format!(
+        "  Gender:     {gender_display} ({pronoun_s}/{pronoun_o}/{pronoun_p})"
+    ));
     lines.push(format!("  Alignment:  {}", alignment.replace('_', " ")));
     lines.push(String::new());
     lines.push(format!("  STR: {str}   DEX: {dex}   INT: {int}"));

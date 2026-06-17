@@ -176,6 +176,10 @@ mod tests {
                 allowed_classes: vec![],
                 allowed_alignments: vec![],
                 racial_abilities: vec!["adaptability".into(), "darkvision".into()],
+                allowed_genders: std::collections::HashMap::new(),
+                appearance_bounds: crate::templates::AppearanceBounds::default(),
+                age_default: 20,
+                age_max: 100,
             },
         );
         t.classes.insert(

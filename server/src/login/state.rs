@@ -17,6 +17,7 @@ pub enum LoginState {
     CharacterCreateName,
     CharacterCreateRace(Vec<String>),
     CharacterCreateClass(Vec<String>),
+    CharacterCreateGender,
     CharacterCreateAttributesPickMethod,
     CharacterCreateAttributesPointBuy {
         remaining: u8,

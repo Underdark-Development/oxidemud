@@ -68,6 +68,10 @@ pub struct CharacterRow {
     pub name: String,
     pub race: String,
     pub class: String,
+    pub gender: String,
+    pub pronoun_subject: String,
+    pub pronoun_object: String,
+    pub pronoun_possessive: String,
     pub level: i64,
     pub experience: i64,
     pub entity_id: i64,
@@ -82,7 +86,7 @@ pub fn get_characters_by_account(
     account_id: i64,
 ) -> Result<Vec<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, level, experience, entity_id, room_id, spawn_key, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, created_at, last_seen \
          FROM characters WHERE account_id = ?1 ORDER BY created_at",
     )?;
     let rows = stmt.query_map(params![account_id], |row| {
@@ -92,13 +96,17 @@ pub fn get_characters_by_account(
             name: row.get(2)?,
             race: row.get(3)?,
             class: row.get(4)?,
-            level: row.get(5)?,
-            experience: row.get(6)?,
-            entity_id: row.get(7)?,
-            room_id: row.get(8)?,
-            spawn_key: row.get(9)?,
-            created_at: row.get(10)?,
-            last_seen: row.get(11)?,
+            gender: row.get(5)?,
+            pronoun_subject: row.get(6)?,
+            pronoun_object: row.get(7)?,
+            pronoun_possessive: row.get(8)?,
+            level: row.get(9)?,
+            experience: row.get(10)?,
+            entity_id: row.get(11)?,
+            room_id: row.get(12)?,
+            spawn_key: row.get(13)?,
+            created_at: row.get(14)?,
+            last_seen: row.get(15)?,
         })
     })?;
     rows.collect()
@@ -109,7 +117,7 @@ pub fn get_character_by_name(
     name: &str,
 ) -> Result<Option<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, level, experience, entity_id, room_id, spawn_key, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, created_at, last_seen \
          FROM characters WHERE name = ?1",
     )?;
     let mut rows = stmt.query(params![name])?;
@@ -120,13 +128,17 @@ pub fn get_character_by_name(
             name: row.get(2)?,
             race: row.get(3)?,
             class: row.get(4)?,
-            level: row.get(5)?,
-            experience: row.get(6)?,
-            entity_id: row.get(7)?,
-            room_id: row.get(8)?,
-            spawn_key: row.get(9)?,
-            created_at: row.get(10)?,
-            last_seen: row.get(11)?,
+            gender: row.get(5)?,
+            pronoun_subject: row.get(6)?,
+            pronoun_object: row.get(7)?,
+            pronoun_possessive: row.get(8)?,
+            level: row.get(9)?,
+            experience: row.get(10)?,
+            entity_id: row.get(11)?,
+            room_id: row.get(12)?,
+            spawn_key: row.get(13)?,
+            created_at: row.get(14)?,
+            last_seen: row.get(15)?,
         })),
         None => Ok(None),
     }
@@ -179,6 +191,21 @@ pub fn update_character_position(
     conn.execute(
         "UPDATE characters SET room_id = ?1 WHERE id = ?2",
         params![room_id, character_id],
+    )?;
+    Ok(())
+}
+
+pub fn update_character_gender(
+    conn: &Connection,
+    character_id: i64,
+    gender: &str,
+    pronoun_subject: &str,
+    pronoun_object: &str,
+    pronoun_possessive: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE characters SET gender = ?1, pronoun_subject = ?2, pronoun_object = ?3, pronoun_possessive = ?4 WHERE id = ?5",
+        params![gender, pronoun_subject, pronoun_object, pronoun_possessive, character_id],
     )?;
     Ok(())
 }

@@ -66,6 +66,105 @@ pub struct Player {
     pub screen_width: u16,
 }
 
+/// The entity's gender identity with pronoun resolution.
+///
+/// Common genders with their default pronouns:
+/// - male   → (he, him, his)
+/// - female → (she, her, hers)
+/// - neutral → (they, them, their)
+///
+/// Custom genders (e.g. from `other` selection) store explicit pronouns.
+#[derive(Debug, Clone)]
+pub struct Gender {
+    pub gender: String,
+    pub pronoun_subject: String,
+    pub pronoun_object: String,
+    pub pronoun_possessive: String,
+}
+
+impl Gender {
+    pub fn male() -> Self {
+        Gender {
+            gender: "male".into(),
+            pronoun_subject: "he".into(),
+            pronoun_object: "him".into(),
+            pronoun_possessive: "his".into(),
+        }
+    }
+
+    pub fn female() -> Self {
+        Gender {
+            gender: "female".into(),
+            pronoun_subject: "she".into(),
+            pronoun_object: "her".into(),
+            pronoun_possessive: "hers".into(),
+        }
+    }
+
+    pub fn neutral() -> Self {
+        Gender {
+            gender: "neutral".into(),
+            pronoun_subject: "they".into(),
+            pronoun_object: "them".into(),
+            pronoun_possessive: "their".into(),
+        }
+    }
+
+    pub fn new(
+        gender: impl Into<String>,
+        subject: impl Into<String>,
+        object: impl Into<String>,
+        possessive: impl Into<String>,
+    ) -> Self {
+        Gender {
+            gender: gender.into(),
+            pronoun_subject: subject.into(),
+            pronoun_object: object.into(),
+            pronoun_possessive: possessive.into(),
+        }
+    }
+}
+
+impl Default for Gender {
+    fn default() -> Self {
+        Gender::neutral()
+    }
+}
+
+/// Structured physical appearance, bounded by race template defaults.
+#[derive(Debug, Clone)]
+pub struct Appearance {
+    pub height: u8,  // inches
+    pub weight: u16, // pounds
+    pub build: String,
+    pub hair_color: String,
+    pub hair_style: String,
+    pub eye_color: String,
+    pub skin_tone: String,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Appearance {
+            height: 66,
+            weight: 160,
+            build: "average".into(),
+            hair_color: "brown".into(),
+            hair_style: "straight".into(),
+            eye_color: "brown".into(),
+            skin_tone: "fair".into(),
+        }
+    }
+}
+
+/// Character age. Initial value comes from race template default.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Age(pub u16);
+
+/// The entity's chosen deity (None = no deity).
+#[derive(Debug, Clone)]
+pub struct Deity(pub Option<String>);
+
 /// The entity's race (e.g. "human", "elf").
 #[derive(Debug, Clone)]
 pub struct Race(pub String);

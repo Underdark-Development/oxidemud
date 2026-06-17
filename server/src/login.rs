@@ -19,6 +19,10 @@ pub struct CharacterCreateBuffer {
     pub name: Option<String>,
     pub race: Option<String>,
     pub class: Option<String>,
+    pub gender: Option<String>,
+    pub pronoun_subject: Option<String>,
+    pub pronoun_object: Option<String>,
+    pub pronoun_possessive: Option<String>,
     pub password: Option<String>,
     pub spawn_key: Option<String>,
     pub attributes: Option<mud_core::Attributes>,
@@ -171,6 +175,9 @@ impl LoginFlow {
             LoginState::CharacterCreateClass(..) => {
                 handlers::handle_character_create_class_state(self, input, templates)
             }
+            LoginState::CharacterCreateGender => {
+                handlers::handle_character_create_gender_state(self, input, templates)
+            }
             LoginState::CharacterCreateAttributesPickMethod => {
                 handlers::handle_attributes_pick_method_state(self, input)
             }
@@ -245,6 +252,13 @@ impl LoginFlow {
             LoginState::CharacterCreateClass(..) => {
                 if let Some(t) = templates {
                     prompt::show_character_class_prompt(self, t)
+                } else {
+                    Vec::new()
+                }
+            }
+            LoginState::CharacterCreateGender => {
+                if let Some(t) = templates {
+                    prompt::show_character_gender_prompt(self, t)
                 } else {
                     Vec::new()
                 }

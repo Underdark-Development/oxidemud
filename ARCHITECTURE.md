@@ -145,6 +145,10 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Teleportable(bool)` — teleport target opt-out
 - `RestState` — Standing, Sitting, Resting, Sleeping, Unconscious, Dead
 - `PlayerState` — wraps RestState + Stunned { remaining_ms }, Casting { .. }
+- `Gender { gender: String, pronouns: (String, String, String) }` — gender identity + subject/object/possessive pronouns
+- `Appearance { height: u8, weight: u16, build: String, hair_color: String, hair_style: String, eye_color: String, skin_tone: String }` — structured physical description, validated against race bounds
+- `Age(u16)` — character age, initial value from race template default
+- `Deity(Option<String>)` — chosen deity id (none if no deity)
 
 ### In-Game Prompt
 
@@ -376,13 +380,16 @@ Class templates define three categories: `class_skills` (level+3 max), `cross_cl
 
 Races are template definitions, not enums. All behavior in `content/races/*.toml`. Removing a file removes the race without recompiling.
 
-**RaceTemplate:** id, name, description, attributes, size, speed, allowed_classes, languages, hometown, traits, racial_abilities, familiarity, alignment_tendencies
+**RaceTemplate:** id, name, description, attributes, size, speed, allowed_classes, languages, hometown, traits, racial_abilities, familiarity, alignment_tendencies, allowed_genders (HashMap<String, GenderDef>), appearance_bounds, age_default, age_max
 
 - Size effects: small (+1 AC, -1 damage, ×0.75 carry), medium (baseline), large (-1 AC, +1 damage, ×1.5 carry)
 - Traits are boolean-or-numeric always-on passives (e.g. `infravision = 60`), checked at query time
 - Racial abilities are `SkillDef` entries in `content/skills/racial/` with `allowed_races` gates
 - Languages defined in `content/languages.toml`, auto-granted on creation
 - Familiarity gives bonus on checks involving listed races
+- **GenderDef** maps a gender id to its pronoun tuple: `male → (he, him, his)`, `female → (she, her, hers)`, `neutral → (they, them, their)`. Custom genders require explicit pronoun definitions.
+- **AppearanceBounds** defines `height_min/max` (inches), `weight_min/max` (lbs), `allowed_builds`, `allowed_hair_colors`, `allowed_eye_colors`, `allowed_skin_tones` — enforced during character creation
+- **Age default** is the starting age; **age max** is the upper bound for natural aging
 
 ---
 
@@ -503,7 +510,82 @@ NPCs defined in `content/mobs/*.toml`. Zero baked-in knowledge.
 
 ---
 
-## Crafting System
+## Deity System
+
+Deities are template entities defined in `content/deities/*.toml`. A character may adopt a deity during creation or in-game. Deities grant optional effects when prayed to, subject to a cooldown.
+
+### DeityTemplate
+
+```
+DeityTemplate {
+    id: String,
+    name: String,
+    description: String,
+    alignment: Option<String>,       // deity's own alignment
+    symbol: String,
+    favored_weapon: Option<String>,
+    tenets: Vec<String>,
+    domains: Vec<String>,            // War, Nature, Trickery, Knowledge, Life, etc.
+    allowed_races: Vec<String>,      // empty = all races
+    allowed_classes: Vec<String>,    // empty = all classes
+    allowed_alignments: Vec<String>, // empty = all alignments
+    prayer_effect: Option<PrayerEffect>,
+}
+```
+
+### PrayerEffect
+
+```
+PrayerEffect {
+    buff_id: String,        // references a PassiveDef or ActiveEffect template
+    duration_secs: u64,     // how long the effect lasts
+    cooldown_secs: u64,     // minimum time between prayers
+    description: String,    // flavor text on pray
+}
+```
+
+### Class Deity Policy
+
+Class templates define a `deity_policy` field controlling character creation behavior:
+
+| Policy | Meaning |
+|---|---|
+| `any` | Player may choose any deity or none (default) |
+| `none` | Player may not have a deity |
+| `required` | Player must choose a deity |
+| `subset([ids])` | Player must choose from this explicit list |
+
+### Pray Command
+
+```
+pray              — pray to your deity (if you have one)
+pray <deity>      — pray to a specific deity (shrine required in room)
+pray <target>     — cleric/paladin heal ally via deity channel
+```
+
+Each prayer applies the deity's `prayer_effect` as an `ActiveEffect` component with the specified duration. On cooldown: display remaining time message. Cooldown tracked as a simple `Instant` timestamp on the player entity.
+
+### Domains
+
+Domains are thematic groupings used for:
+- Quest gating (domain-restricted quests)
+- Faction relationships (domain-aligned factions)
+- Class requirements (domain-restricted prestige classes)
+- Item restrictions (domain-aligned items)
+
+### ECS Integration
+
+- `Deity(Option<String>)` component on player entity (optional)
+- `PrayerCooldown { last_prayed: Instant }` component or resource tracks cooldown per entity
+- `PrayState` state machine (future) — Idle, Praying, OnCooldown
+
+### Content Directory
+
+```
+content/deities/*.toml
+```
+
+---
 
 Recipes in `content/recipes/*.toml`. `RecipeDef`: id, name, station, skill requirement, difficulty, materials, result, success_chance, quality_scaling, script.
 
@@ -659,7 +741,7 @@ Tag syntax: `{red}text{/}`, `{brightblue}item{/}`, `{yellow bold}critical!{/}`, 
 
 All game content in TOML under `content/` (configurable path). Scanned at startup, deserialized via serde, cross-referenced, built into `TemplateRegistry` (behind `Arc<RwLock<...>>`).
 
-**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help}/` + `affixes.toml`, `sets.toml`, `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
+**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help, deities}/` + `affixes.toml`, `sets.toml`, `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
 
 Hot-reload uses `notify` crate. On change: re-parse, validate, atomic-swap in registry, emit `ContentReloaded`.
 
@@ -740,7 +822,7 @@ Connected → Negotiating → Banner → Username → Password → CharacterSele
                                                                  ↘ CharacterCreate* ↗
 ```
 
-`ConnectionState`: Connected, Negotiating, Banner, Username, Password, CharacterSelect, CharacterCreate{Name,Race,Class,Attributes,Confirm}, Playing.
+`ConnectionState`: Connected, Negotiating, Banner, Username, Password, CharacterSelect, CharacterCreate{Name,Race,Class,Gender,Attributes,Alignment,Deity,Skills,Appearance,Description,Spawn,Confirm}, Playing.
 
 Login state machine lives in `server/src/login/` as a standalone `LoginFlow` struct with separate modules: `state.rs` (enum + transitions), `handlers.rs` (per-state input handling), `prompt.rs` (prompt rendering). Failed input counts toward strike limit (3 → disconnect).
 
@@ -759,11 +841,17 @@ Login state machine lives in `server/src/login/` as a standalone `LoginFlow` str
 
 | Step | Prompt | Validation |
 |---|---|---|
-| **Name** | "Enter your character's name:" | 3–16 alphanumeric + `_-`, unique |
+| **Name** | "Enter your character's name:" | 3–16 letters, hyphens, apostrophes; unique |
 | **Race** | Pick from `content/races/*.toml` | Valid key |
-| **Class** | Pick from filtered list | Race∈class.allowed_races ∩ class∈race.allowed_classes |
-| **Attributes** | Point-buy (27pts), standard array (15/14/13/12/10/8), or roll 4d6 drop lowest | Clamped [3, 25] |
-| **Skill** | Pick from class skill pool | Prefix match against id/name |
+| **Class** | Pick from filtered list | Race ∈ class.allowed_races ∩ class ∈ race.allowed_classes |
+| **Gender** | "Choose gender:" (male/female/neutral/other) | Gender ∈ race.allowed_genders; if `other`, prompt for pronouns |
+| **Attributes** | Point-buy (27pts), standard array (15/14/13/12/10/8), or roll 4d6 drop lowest | Clamped [3, 25]; race base + class mod applied final |
+| **Alignment** | Pick from 3×3 lawful–chaotic × good–evil grid | Race/class may restrict |
+| **Deity** | Pick from `content/deities/*.toml` (or none) | Class deity policy: required/optional/prohibited/subset; alignment gate |
+| **Skills** | Pick from class skill pool | Prefix match against id/name |
+| **Appearance** | Height, weight, build, hair, eyes, skin | Bounded by race appearance_bounds |
+| **Description** | Multi-line free text (type `.` to finish) | — |
+| **Spawn** | Choose starting location | Area spawn entries filtered by race/class/alignment |
 | **Confirm** | Full summary → accept? | Save to DB + spawn entity |
 
 ### Attribute Calculation
@@ -773,7 +861,7 @@ Login state machine lives in `server/src/login/` as a standalone `LoginFlow` str
 - **Standard array:** 15, 14, 13, 12, 10, 8 — assign freely
 - **Roll:** 4d6 drop lowest × 6, assign freely, up to 3 rerolls
 
-On confirm: insert `characters` row → create ECS entity with `Position` (starting room), `Player`, `Attributes`, `Health`, `Level`, `Experience`, `LearnedSkills` → state = Playing.
+On confirm: insert `characters` row → create ECS entity with `Position` (starting room), `Player`, `Gender`, `Attributes`, `Health`, `Level`, `Experience`, `LearnedSkills`, `Alignment`, `Description`, `Deity`, `Appearance`, `Age` → state = Playing.
 
 ---
 
@@ -1088,18 +1176,25 @@ mcp/
 - [x] Account creation (username + password, argon2 hashing)
 - [x] Login flow (banner/MOTD → username → password)
 - [x] Character select screen (list existing + create new)
-- [x] Character creation wizard (name → race → class → attributes → confirm)
+- [x] Character creation wizard (name → race → class → gender → attributes → alignment → deity → skills → appearance → description → spawn → confirm)
 - [x] Race→class filtering in creation wizard
 - [x] characters SQLite table + schema migration
 - [x] TOML race/class template loading
 - [x] Unified SkillDef + skill_type enum
-- [x] Expanded RaceTemplate with constraints
-- [x] Expanded ClassTemplate with constraints
+- [x] Expanded RaceTemplate with constraints (allowed_genders, appearance_bounds, age defaults)
+- [x] Expanded ClassTemplate with constraints (+ deity_policy)
 - [x] Cross-reference validation pipeline
 - [x] Derived indices in TemplateRegistry
 - [x] Auto-grant racial abilities + class auto-skills
 - [x] Starting room spawn on character confirm
 - [x] motd command
+- [ ] Gender component + DB column + creation step
+- [ ] Appearance component + DB table + creation step + race-bounded validation
+- [ ] Age component
+- [ ] Deity component + template system + creation step + in-game adopt
+- [ ] DeityTemplate loader + validation
+- [ ] pray command (basic: own deity + optional target heal)
+- [ ] Class deity_policy enforcement in creation
 
 ### Phase 3 — Combat & Equipment
 - [x] Health, Damage components

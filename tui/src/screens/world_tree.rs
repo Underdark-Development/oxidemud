@@ -1,8 +1,8 @@
 use mud_core::templates::TemplateRegistry;
 use mud_core::templates::{
-    AffixDef, AreaTemplate, ClassAttributeMods, ClassTemplate, HealthBounds, ItemTemplate,
-    LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate,
-    SetDef, StanceDef, WalletAmount,
+    AffixDef, AppearanceBounds, AreaTemplate, ClassAttributeMods, ClassTemplate, HealthBounds,
+    ItemTemplate, LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate, RoomContent,
+    RoomTemplate, SetDef, StanceDef, WalletAmount,
 };
 use ratatui::{
     buffer::Buffer,
@@ -363,6 +363,10 @@ impl WorldTreeScreen {
                 allowed_classes: Vec::new(),
                 allowed_alignments: Vec::new(),
                 racial_abilities: Vec::new(),
+                allowed_genders: HashMap::new(),
+                appearance_bounds: AppearanceBounds::default(),
+                age_default: 20,
+                age_max: 100,
             })?,
             "classes" => toml::to_string_pretty(&ClassTemplate {
                 id: id.to_string(),

@@ -176,6 +176,10 @@ CREATE TABLE IF NOT EXISTS characters (
     name TEXT NOT NULL UNIQUE,
     race TEXT NOT NULL,
     class TEXT NOT NULL,
+    gender TEXT NOT NULL DEFAULT 'neutral',
+    pronoun_subject TEXT NOT NULL DEFAULT 'they',
+    pronoun_object TEXT NOT NULL DEFAULT 'them',
+    pronoun_possessive TEXT NOT NULL DEFAULT 'their',
     level INTEGER NOT NULL DEFAULT 1,
     experience INTEGER NOT NULL DEFAULT 0,
     entity_id INTEGER NOT NULL REFERENCES entities(id),
@@ -188,7 +192,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 8;
+pub const VERSION: i64 = 10;
 
 #[cfg(test)]
 mod tests {

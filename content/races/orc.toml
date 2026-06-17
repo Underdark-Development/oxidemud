@@ -5,6 +5,16 @@ allowed_classes = ["warrior"]
 allowed_alignments = ["lawful_evil", "neutral_evil", "chaotic_evil"]
 racial_abilities = []
 
+[allowed_genders.male]
+subject = "he"
+object = "him"
+possessive = "his"
+
+[allowed_genders.female]
+subject = "she"
+object = "her"
+possessive = "hers"
+
 # size = "large"
 # speed = 30
 # languages = ["orcish", "common"]

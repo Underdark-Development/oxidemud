@@ -5,6 +5,21 @@ description = "The human race is known for their adaptability and ambition, thri
 allowed_classes = ["warrior", "mage"]
 racial_abilities = ["adaptability"]
 
+[allowed_genders.male]
+subject = "he"
+object = "him"
+possessive = "his"
+
+[allowed_genders.female]
+subject = "she"
+object = "her"
+possessive = "hers"
+
+[allowed_genders.neutral]
+subject = "they"
+object = "them"
+possessive = "their"
+
 # attributes = { str = 10, dex = 10, int = 10, wis = 10, con = 10, cha = 10 }
 # size = "medium"
 # speed = 30

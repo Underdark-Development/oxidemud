@@ -72,6 +72,87 @@ const fn default_stat() -> u8 {
     10
 }
 
+// ---------------------------------------------------------------------------
+// Gender definition — embedded in race templates
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenderPronouns {
+    pub subject: String,
+    pub object: String,
+    pub possessive: String,
+}
+
+impl Default for GenderPronouns {
+    fn default() -> Self {
+        GenderPronouns {
+            subject: "they".into(),
+            object: "them".into(),
+            possessive: "their".into(),
+        }
+    }
+}
+
+pub fn default_genders() -> Vec<String> {
+    vec!["male".into(), "female".into(), "neutral".into()]
+}
+
+// ---------------------------------------------------------------------------
+// Appearance bounds — embedded in race templates
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppearanceBounds {
+    pub height_min: u8,
+    pub height_max: u8,
+    pub weight_min: u16,
+    pub weight_max: u16,
+    pub allowed_builds: Vec<String>,
+    pub allowed_hair_colors: Vec<String>,
+    pub allowed_eye_colors: Vec<String>,
+    pub allowed_skin_tones: Vec<String>,
+}
+
+impl Default for AppearanceBounds {
+    fn default() -> Self {
+        AppearanceBounds {
+            height_min: 54,
+            height_max: 80,
+            weight_min: 90,
+            weight_max: 350,
+            allowed_builds: vec![
+                "slim".into(),
+                "average".into(),
+                "athletic".into(),
+                "stocky".into(),
+            ],
+            allowed_hair_colors: vec![
+                "black".into(),
+                "brown".into(),
+                "blonde".into(),
+                "red".into(),
+                "white".into(),
+                "gray".into(),
+            ],
+            allowed_eye_colors: vec![
+                "brown".into(),
+                "blue".into(),
+                "green".into(),
+                "hazel".into(),
+                "gray".into(),
+            ],
+            allowed_skin_tones: vec![
+                "fair".into(),
+                "light".into(),
+                "olive".into(),
+                "tan".into(),
+                "brown".into(),
+                "dark".into(),
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RaceTemplate {
     pub id: String,
@@ -85,6 +166,28 @@ pub struct RaceTemplate {
     pub allowed_alignments: Vec<String>,
     #[serde(default)]
     pub racial_abilities: Vec<String>,
+    /// Gender id → pronoun definitions. Built-in genders (male/female/neutral)
+    /// have default pronouns if not explicitly defined. Custom genders require
+    /// explicit pronouns.
+    #[serde(default)]
+    pub allowed_genders: HashMap<String, GenderPronouns>,
+    /// Bounds for structured appearance fields.
+    #[serde(default)]
+    pub appearance_bounds: AppearanceBounds,
+    /// Default starting age for this race.
+    #[serde(default = "default_age")]
+    pub age_default: u16,
+    /// Maximum natural age for this race.
+    #[serde(default = "default_age_max")]
+    pub age_max: u16,
+}
+
+const fn default_age() -> u16 {
+    20
+}
+
+const fn default_age_max() -> u16 {
+    100
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,6 +1245,10 @@ mod tests {
             allowed_classes: vec!["warrior".into(), "mage".into()],
             allowed_alignments: Vec::new(),
             racial_abilities: vec!["adaptability".into()],
+            allowed_genders: HashMap::new(),
+            appearance_bounds: AppearanceBounds::default(),
+            age_default: 20,
+            age_max: 100,
         }
     }
 
@@ -1306,6 +1413,10 @@ effects = [{ effect_type = "stat", stat = "constitution", amount = 2 }]
             allowed_classes: vec![],
             allowed_alignments: vec![],
             racial_abilities: vec![],
+            allowed_genders: HashMap::new(),
+            appearance_bounds: AppearanceBounds::default(),
+            age_default: 20,
+            age_max: 100,
         };
         assert_eq!(r.attributes.strength, 10);
         assert!(r.allowed_classes.is_empty());

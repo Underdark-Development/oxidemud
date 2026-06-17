@@ -2,8 +2,8 @@ use tokio::sync::Mutex;
 
 use mud_core::templates::{SkillResolveError, TemplateRegistry};
 use mud_core::{
-    Alignment, Class, DbId, Description, Entity, Experience, Health, Level, Name, Player, Position,
-    Race, Wallet, World,
+    Alignment, Class, DbId, Description, Entity, Experience, Gender, Health, Level, Name, Player,
+    Position, Race, Wallet, World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -364,12 +364,89 @@ pub fn handle_character_create_class_state(
         Ok(idx) if idx > 0 && idx <= ordered_classes.len() => {
             let class_id = ordered_classes[idx - 1].clone();
             flow.create_buffer.class = Some(class_id);
-            flow.state = LoginState::CharacterCreateAttributesPickMethod;
+            flow.state = LoginState::CharacterCreateGender;
         }
         _ => {
             lines.push("Invalid selection.".to_string());
         }
     }
+    lines
+}
+
+// ---------------------------------------------------------------------------
+// Character Creation: Gender
+// ---------------------------------------------------------------------------
+
+pub fn handle_character_create_gender_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim().to_lowercase();
+
+    let race_id = match flow.create_buffer.race.as_deref() {
+        Some(r) => r,
+        None => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let allowed_genders = templates
+        .and_then(|t| t.get_race(race_id))
+        .map(|r| &r.allowed_genders)
+        .cloned()
+        .unwrap_or_default();
+
+    // Parse input: number, or "other:<subject>/<object>/<possessive>"
+    let gender_ids: Vec<String> = allowed_genders.keys().cloned().collect();
+
+    // Handle "other" input — requires pronoun specification
+    if input.starts_with("other:") || input.starts_with("custom:") {
+        let pronoun_str = input.split(':').nth(1).unwrap_or("");
+        let parts: Vec<&str> = pronoun_str.split('/').collect();
+        if parts.len() != 3 {
+            lines.push("Invalid format. Use: other:subject/object/possessive".to_string());
+            return lines;
+        }
+        let subject = parts[0].trim();
+        let object = parts[1].trim();
+        let possessive = parts[2].trim();
+        if subject.is_empty() || object.is_empty() || possessive.is_empty() {
+            lines.push("Pronouns must not be empty.".to_string());
+            return lines;
+        }
+        flow.create_buffer.gender = Some("other".into());
+        flow.create_buffer.pronoun_subject = Some(subject.into());
+        flow.create_buffer.pronoun_object = Some(object.into());
+        flow.create_buffer.pronoun_possessive = Some(possessive.into());
+        flow.state = LoginState::CharacterCreateAttributesPickMethod;
+        return lines;
+    }
+
+    // Number selection for standard genders
+    if let Ok(idx) = input.parse::<usize>() {
+        if idx > 0 && idx <= gender_ids.len() {
+            let gender_id = gender_ids[idx - 1].clone();
+            if gender_id == "other" {
+                lines.push("Enter pronouns using: other:subject/object/possessive".to_string());
+                return lines;
+            }
+            flow.create_buffer.gender = Some(gender_id.clone());
+            // Look up pronouns from template, or use defaults
+            if let Some(pronouns) = allowed_genders.get(&gender_id) {
+                flow.create_buffer.pronoun_subject = Some(pronouns.subject.clone());
+                flow.create_buffer.pronoun_object = Some(pronouns.object.clone());
+                flow.create_buffer.pronoun_possessive = Some(pronouns.possessive.clone());
+            }
+            flow.state = LoginState::CharacterCreateAttributesPickMethod;
+            return lines;
+        }
+    }
+
+    lines.push("Invalid selection.".to_string());
     lines
 }
 
@@ -1280,7 +1357,7 @@ async fn finalize_character(
         return lines;
     }
 
-    if let Err(e) = mud_data::create_character(
+    let char_id = match mud_data::create_character(
         conn_db,
         account_id,
         &name,
@@ -1290,7 +1367,38 @@ async fn finalize_character(
         Some(room_db_id),
         Some(&spawn_key),
     ) {
-        lines.push(format!("Error saving character: {e}"));
+        Ok(id) => id,
+        Err(e) => {
+            lines.push(format!("Error saving character: {e}"));
+            return lines;
+        }
+    };
+
+    let gender_id = flow
+        .create_buffer
+        .gender
+        .clone()
+        .unwrap_or_else(|| "neutral".into());
+    let pronoun_s = flow
+        .create_buffer
+        .pronoun_subject
+        .clone()
+        .unwrap_or_else(|| "they".into());
+    let pronoun_o = flow
+        .create_buffer
+        .pronoun_object
+        .clone()
+        .unwrap_or_else(|| "them".into());
+    let pronoun_p = flow
+        .create_buffer
+        .pronoun_possessive
+        .clone()
+        .unwrap_or_else(|| "their".into());
+
+    if let Err(e) = mud_data::update_character_gender(
+        conn_db, char_id, &gender_id, &pronoun_s, &pronoun_o, &pronoun_p,
+    ) {
+        lines.push(format!("Error saving gender: {e}"));
         return lines;
     }
 
@@ -1302,6 +1410,12 @@ async fn finalize_character(
         Player::new(account_id),
         Race(race_id.clone()),
         Class(class_id.clone()),
+        Gender::new(
+            gender_id.clone(),
+            pronoun_s.clone(),
+            pronoun_o.clone(),
+            pronoun_p.clone(),
+        ),
         attrs,
         Health::new(hp),
         Level::default(),
@@ -1466,6 +1580,12 @@ async fn load_character(
         Player::new(char_row.account_id),
         Race(char_row.race.clone()),
         Class(char_row.class.clone()),
+        Gender::new(
+            char_row.gender.clone(),
+            char_row.pronoun_subject.clone(),
+            char_row.pronoun_object.clone(),
+            char_row.pronoun_possessive.clone(),
+        ),
         attrs,
         hp,
         level,
@@ -1503,6 +1623,10 @@ fn clear_create_buffer(flow: &mut LoginFlow) {
     flow.create_buffer.name = None;
     flow.create_buffer.race = None;
     flow.create_buffer.class = None;
+    flow.create_buffer.gender = None;
+    flow.create_buffer.pronoun_subject = None;
+    flow.create_buffer.pronoun_object = None;
+    flow.create_buffer.pronoun_possessive = None;
     flow.create_buffer.spawn_key = None;
     flow.create_buffer.attributes = None;
     flow.create_buffer.alignment = None;
