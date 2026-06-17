@@ -64,6 +64,7 @@ bin/        — Server binary entrypoint (main.rs)
 - No CI, no pre-commit hooks, no release workflow yet.
 - **No code examples** — avoid inline code blocks in docs unless the pattern is genuinely non-obvious or easily misused. Prefer concise prose over example code.
 - **Compact sections** — keep sections tight. Omit exhaustive enumerations when the pattern is clear (e.g. "all LoginState variants" → just name the pattern). Summarize feature completeness tables rather than listing every row.
+- **Update spade and MCP when core changes** — the core crate defines template types, fields, file format conventions, and validation rules. Both the TUI builder (`tui/`) and MCP server (`mcp/`) consume these directly. When adding, removing, or modifying anything in `core` that affects content representation (new template categories, new fields, changed serialization, new validation rules, etc.), update `tui/` and `mcp/` in the same session so they stay consistent. Run `cargo test --workspace` after any cross-crate change to catch breakage early.
 
 ## Modular development
 
