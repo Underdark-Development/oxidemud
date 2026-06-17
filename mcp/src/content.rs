@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mud_core::templates::TemplateRegistry;
+use mud_core::templates::{AreaTemplate, RoomTemplate, TemplateRegistry};
 
 pub type FileMap = HashMap<String, HashMap<String, PathBuf>>;
 
@@ -57,30 +57,42 @@ fn load_dir<T: serde::de::DeserializeOwned>(
     map
 }
 
-fn load_areas(
-    content_path: &Path,
-    file_map: &mut FileMap,
-) -> HashMap<String, mud_core::templates::AreaTemplate> {
+fn load_areas(content_path: &Path, file_map: &mut FileMap) -> HashMap<String, AreaTemplate> {
     let dir = content_path.join("areas");
     let mut map = HashMap::new();
+    let mut path_map = HashMap::new();
+    let mut room_path_map = HashMap::new();
+
     if !dir.exists() {
         return map;
     }
-    let mut path_map = HashMap::new();
 
-    let entries = match fs::read_dir(&dir) {
-        Ok(e) => e,
-        Err(_) => return map,
-    };
+    load_areas_recursive(&dir, &mut map, &mut path_map, &mut room_path_map, "");
+    file_map.insert("areas".to_string(), path_map);
+    file_map.insert("rooms".to_string(), room_path_map);
+    map
+}
 
-    for entry in entries.flatten() {
+fn load_areas_recursive(
+    dir: &Path,
+    map: &mut HashMap<String, AreaTemplate>,
+    path_map: &mut HashMap<String, PathBuf>,
+    room_path_map: &mut HashMap<String, PathBuf>,
+    prefix: &str,
+) {
+    for entry in fs::read_dir(dir).unwrap().flatten() {
         let path = entry.path();
 
-        // Flat file: areas/foo.toml
+        // Flat file: <dir>/<id>.toml (backward compat)
         if path.extension().is_some_and(|ext| ext == "toml") {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(area) = toml::from_str::<mud_core::templates::AreaTemplate>(&content) {
-                    let id = area.id.clone();
+                if let Ok(mut area) = toml::from_str::<AreaTemplate>(&content) {
+                    let id = if prefix.is_empty() {
+                        area.id.clone()
+                    } else {
+                        format!("{}.{}", prefix, area.id)
+                    };
+                    area.id.clone_from(&id);
                     path_map.insert(id.clone(), path);
                     map.insert(id, area);
                 }
@@ -88,19 +100,23 @@ fn load_areas(
             continue;
         }
 
-        // Subdirectory: areas/foo/area.toml + areas/foo/rooms/*.toml
+        // Subdirectory: <dir>/<area_id>/area.toml + rooms/*.toml + areas/*
         if path.is_dir() {
             let area_file = path.join("area.toml");
             if !area_file.exists() {
                 continue;
             }
             if let Ok(content) = fs::read_to_string(&area_file) {
-                if let Ok(mut area) = toml::from_str::<mud_core::templates::AreaTemplate>(&content)
-                {
-                    let id = area.id.clone();
-                    path_map.insert(id.clone(), area_file);
+                if let Ok(mut area) = toml::from_str::<AreaTemplate>(&content) {
+                    let area_id = if prefix.is_empty() {
+                        area.id.clone()
+                    } else {
+                        format!("{}.{}", prefix, area.id)
+                    };
+                    area.id.clone_from(&area_id);
+                    path_map.insert(area_id.clone(), area_file);
 
-                    // Load rooms from subdirectory
+                    // Load rooms from <dir>/<area_id>/rooms/*.toml
                     let rooms_dir = path.join("rooms");
                     if rooms_dir.exists() {
                         if let Ok(room_entries) = fs::read_dir(&rooms_dir) {
@@ -109,16 +125,13 @@ fn load_areas(
                                 if room_path.extension().is_some_and(|ext| ext == "toml") {
                                     if let Ok(room_content) = fs::read_to_string(&room_path) {
                                         if let Ok(room) =
-                                            toml::from_str::<mud_core::templates::RoomTemplate>(
-                                                &room_content,
-                                            )
+                                            toml::from_str::<RoomTemplate>(&room_content)
                                         {
-                                            let room_id = room_path
-                                                .file_stem()
-                                                .and_then(|s| s.to_str())
-                                                .unwrap_or("unknown")
-                                                .to_string();
-                                            area.rooms.insert(room_id, room);
+                                            let room_id = room.id.clone();
+                                            if !room_id.is_empty() {
+                                                area.rooms.insert(room_id.clone(), room);
+                                                room_path_map.insert(room_id, room_path);
+                                            }
                                         }
                                     }
                                 }
@@ -126,14 +139,32 @@ fn load_areas(
                         }
                     }
 
-                    map.insert(id, area);
+                    map.insert(area_id.clone(), area);
+
+                    // Recurse into <dir>/<area_id>/areas/* for sub-areas
+                    let sub_areas_dir = path.join("areas");
+                    if sub_areas_dir.exists() {
+                        load_areas_recursive(
+                            &sub_areas_dir,
+                            map,
+                            path_map,
+                            room_path_map,
+                            &area_id,
+                        );
+                    }
                 }
             }
         }
     }
+}
 
-    file_map.insert("areas".to_string(), path_map);
-    map
+/// Returns the directory path for an area given its area.toml path.
+pub fn area_dir_from_file(file_map: &FileMap, area_id: &str) -> Result<PathBuf, String> {
+    let area_file = find_file(file_map, "areas", area_id)?;
+    area_file
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| format!("area '{}' path has no parent", area_id))
 }
 
 pub fn find_file(file_map: &FileMap, category: &str, id: &str) -> Result<PathBuf, String> {

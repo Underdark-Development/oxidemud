@@ -1,0 +1,16 @@
+id = "ruined_watchtower"
+area = "starting_vale"
+name = "Ruined Watchtower"
+description = """
+An old watchtower stands crumbling at the edge of the forest, its upper half collapsed into a heap of mossy stone. The ground floor remains mostly intact — the wooden door hangs crooked on one hinge. Faint {green}flickering light{/} spills from cracks in the walls, and harsh laughter echoes from within.
+
+The tower's former purpose is long forgotten; now it serves as a den for whatever creatures lurk in these woods.
+
+The {yellow}east{/} path leads back to the forest crossing.
+"""
+exits = { east = "forest_crossing" }
+
+[content]
+[[content.mobs]]
+template_id = "goblin_scavenger"
+count = 2

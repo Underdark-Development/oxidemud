@@ -647,20 +647,24 @@ impl EntityInspectorScreen {
     }
 
     fn save_to_disk(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Rooms are nested within area templates, so we find the parent area
-        let (lookup_category, lookup_id) = if self.category == "rooms" {
-            let parent_id = self
+        if self.category == "rooms" {
+            // Rooms are individual files in the hierarchical format.
+            let path = self
+                .file_map
+                .get("rooms")
+                .and_then(|m| m.get(&self.template_id))
+                .ok_or_else(|| format!("room file for '{}' not found", self.template_id))?;
+            let room = self
                 .registry
                 .areas
                 .values()
-                .find(|a| a.rooms.contains_key(&self.template_id))
-                .map(|a| &a.id)
-                .ok_or_else(|| format!("room {} parent area not found", self.template_id))?
-                .clone();
-            ("areas", parent_id)
-        } else {
-            (self.category.as_str(), self.template_id.clone())
-        };
+                .find_map(|a| a.rooms.get(&self.template_id))
+                .ok_or_else(|| format!("room {} not found", self.template_id))?;
+            std::fs::write(path, toml::to_string_pretty(room)?)?;
+            return Ok(());
+        }
+
+        let (lookup_category, lookup_id) = (self.category.as_str(), self.template_id.clone());
 
         let path = self
             .file_map
@@ -732,16 +736,6 @@ impl EntityInspectorScreen {
                     .get(&self.template_id)
                     .ok_or_else(|| format!("area {} not found", self.template_id))?,
             )?,
-            "rooms" => {
-                // Rooms are nested within area templates; find the parent area
-                let parent_area = self
-                    .registry
-                    .areas
-                    .values()
-                    .find(|a| a.rooms.contains_key(&self.template_id))
-                    .ok_or_else(|| format!("room {} parent area not found", self.template_id))?;
-                toml::Value::try_from(parent_area)?
-            }
             cat => return Err(format!("unknown category: {cat}").into()),
         };
 
@@ -761,41 +755,24 @@ impl EntityInspectorScreen {
     }
 
     fn delete_from_disk(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let (lookup_category, lookup_id) = if self.category == "rooms" {
-            let parent_id = self
-                .registry
-                .areas
-                .values()
-                .find(|a| a.rooms.contains_key(&self.template_id))
-                .map(|a| &a.id)
-                .ok_or_else(|| format!("room {} parent not found", self.template_id))?
-                .clone();
-            ("areas".to_string(), parent_id)
-        } else {
-            (self.category.clone(), self.template_id.clone())
-        };
+        if self.category == "rooms" {
+            // Delete the individual room file
+            let path = self
+                .file_map
+                .get("rooms")
+                .and_then(|m| m.get(&self.template_id))
+                .ok_or_else(|| format!("room file for '{}' not found", self.template_id))?;
+            std::fs::remove_file(path)?;
+            return Ok(());
+        }
 
         let path = self
             .file_map
-            .get(&lookup_category)
-            .and_then(|m| m.get(&lookup_id))
-            .ok_or_else(|| format!("no file mapping for {}/{lookup_id}", lookup_category))?;
+            .get(&self.category)
+            .and_then(|m| m.get(&self.template_id))
+            .ok_or_else(|| format!("no file mapping for {}/{}", self.category, self.template_id))?;
 
-        if self.category == "rooms" {
-            let mut area = self
-                .registry
-                .areas
-                .values()
-                .find(|a| a.rooms.contains_key(&self.template_id))
-                .ok_or_else(|| format!("room {} parent not found", self.template_id))?
-                .clone();
-            area.rooms.remove(&self.template_id);
-            let content = toml::to_string_pretty(&area)?;
-            std::fs::write(path, content)?;
-        } else {
-            std::fs::remove_file(path)?;
-        }
-
+        std::fs::remove_file(path)?;
         Ok(())
     }
 

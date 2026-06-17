@@ -1,0 +1,11 @@
+id = "forest_crossing"
+area = "starting_vale"
+name = "Forest Crossing"
+description = """
+The path opens into a small clearing where four moss-covered stones mark an ancient crossroads. A weathered signpost lies toppled in the ferns, its carved directions long worn illegible.
+
+To the {yellow}east{/}, the land slopes into a dark, tangled thicket.
+To the {yellow}west{/}, crumbling stonework peeks through the trees — the remains of an old watchtower.
+The {yellow}north{/} path leads back toward Riverside.
+"""
+exits = { north = "forest_path", east = "dark_thicket", west = "ruined_watchtower" }

@@ -42,22 +42,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         templates.areas.len(),
     );
 
-    // Spawn the first area into the ECS world
-    let spawn_room = templates
-        .areas
-        .values()
-        .next()
-        .map(|area| {
+    // Spawn all areas into the ECS world
+    let spawn_room = {
+        let mut entry_room = void_room;
+        for area in templates.areas.values() {
             let room = spawn_area(&mut world, area);
+            if entry_room == void_room {
+                entry_room = room;
+            }
             tracing::info!(
                 "Spawned area '{}' with {} room(s)",
                 area.name,
                 area.rooms.len()
             );
-            tracing::info!("Spawn room: {}", area.spawn_room);
-            room
-        })
-        .unwrap_or(void_room);
+        }
+        entry_room
+    };
+    tracing::info!(
+        "Spawn room: {}",
+        templates
+            .areas
+            .values()
+            .next()
+            .map_or("void", |a| &a.spawn_room)
+    );
 
     let mut server = Server::new(config.bind_addr(), world, void_room)
         .with_database(db)

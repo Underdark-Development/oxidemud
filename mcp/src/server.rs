@@ -177,10 +177,15 @@ impl MudMcpServer {
     #[tool(description = "Create a new area")]
     fn create_area(&self, params: Parameters<CreateAreaParams>) -> String {
         let p = params.0;
-        let path = self
-            .content_path
-            .join("areas")
-            .join(format!("{}.toml", p.id));
+        let area_dir = self.content_path.join("areas").join(&p.id);
+
+        if let Err(e) = fs::create_dir_all(area_dir.join("rooms"))
+            .and_then(|_| fs::create_dir_all(area_dir.join("areas")))
+        {
+            return format!("Error: failed to create area directories: {e}");
+        }
+
+        // Write metadata-only area.toml
         let area = AreaTemplate {
             id: p.id.clone(),
             name: p.name,
@@ -192,44 +197,62 @@ impl MudMcpServer {
             reset_interval: None,
             credits: None,
             spawns: Vec::new(),
-            rooms: HashMap::from([(
-                "start".to_string(),
-                RoomTemplate {
-                    name: "Starting Room".to_string(),
-                    description: String::new(),
-                    exits: HashMap::new(),
-                    portals: Vec::new(),
-                    flags: Vec::new(),
-                    content: RoomContent::default(),
-                },
-            )]),
+            rooms: HashMap::new(),
         };
-        match toml::to_string_pretty(&area) {
-            Ok(content) => {
-                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
-                    .and_then(|_| fs::write(&path, &content))
-                {
-                    return format!("Error: failed to write area: {e}");
-                }
-                self.reload();
-                format!("Created area '{}'", p.id)
-            }
-            Err(e) => format!("Error: failed to serialize area: {e}"),
+        let area_str = match toml::to_string_pretty(&area) {
+            Ok(s) => s,
+            Err(e) => return format!("Error: failed to serialize area: {e}"),
+        };
+        if let Err(e) = fs::write(area_dir.join("area.toml"), &area_str) {
+            return format!("Error: failed to write area: {e}");
         }
+
+        // Write starter room file
+        let room = RoomTemplate {
+            id: "start".to_string(),
+            area: p.id.clone(),
+            name: "Starting Room".to_string(),
+            description: String::new(),
+            exits: HashMap::new(),
+            portals: Vec::new(),
+            flags: Vec::new(),
+            content: RoomContent::default(),
+        };
+        let room_str = match toml::to_string_pretty(&room) {
+            Ok(s) => s,
+            Err(e) => return format!("Error: failed to serialize starter room: {e}"),
+        };
+        if let Err(e) = fs::write(area_dir.join("rooms").join("start.toml"), &room_str) {
+            return format!("Error: failed to write starter room: {e}");
+        }
+
+        self.reload();
+        format!("Created area '{}'", p.id)
     }
 
     #[tool(description = "Delete an area and its file")]
     fn delete_area(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
         let state = self.state.read().unwrap();
-        match content::delete_file(&state.file_map, "areas", &p.id) {
-            Ok(()) => {
-                drop(state);
-                self.reload();
-                format!("Deleted area '{}'", p.id)
+        let area_path = match state.file_map.get("areas").and_then(|m| m.get(&p.id)) {
+            Some(p) => p.clone(),
+            None => return format!("Error: area '{}' not found", p.id),
+        };
+        drop(state);
+
+        // If it's a subdirectory-format area, delete the whole directory.
+        // If it's a flat file, just delete the file.
+        if area_path.file_name().is_some_and(|n| n == "area.toml") {
+            let parent_dir = area_path.parent().unwrap();
+            if let Err(e) = fs::remove_dir_all(parent_dir) {
+                return format!("Error: failed to delete area directory: {e}");
             }
-            Err(e) => format!("Error: {e}"),
+        } else if let Err(e) = fs::remove_file(&area_path) {
+            return format!("Error: failed to delete {}: {e}", area_path.display());
         }
+
+        self.reload();
+        format!("Deleted area '{}'", p.id)
     }
 
     #[tool(description = "List rooms in an area")]
@@ -290,44 +313,39 @@ impl MudMcpServer {
         let area_id = &p.area_id;
         let room_id = &p.room_id;
         let state = self.state.read().unwrap();
-        let path = match content::find_file(&state.file_map, "areas", area_id) {
-            Ok(p) => p,
+
+        let area_dir = match content::area_dir_from_file(&state.file_map, area_id) {
+            Ok(d) => d,
             Err(e) => return format!("Error: {e}"),
         };
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
-        };
-        let mut area: AreaTemplate = match toml::from_str(&content) {
-            Ok(a) => a,
-            Err(e) => return format!("Error: failed to parse area: {e}"),
-        };
-        if area.rooms.contains_key(room_id) {
+        drop(state);
+
+        let room_path = area_dir.join("rooms").join(format!("{room_id}.toml"));
+        if room_path.exists() {
             return format!(
                 "Error: room '{}' already exists in area '{}'",
                 room_id, area_id
             );
         }
-        area.rooms.insert(
-            room_id.clone(),
-            RoomTemplate {
-                name: p.name.clone(),
-                description: String::new(),
-                exits: HashMap::new(),
-                portals: Vec::new(),
-                flags: Vec::new(),
-                content: RoomContent::default(),
-            },
-        );
-        match toml::to_string_pretty(&area) {
-            Ok(out) => {
-                if let Err(e) = fs::write(&path, &out) {
-                    return format!("Error: failed to write {}: {e}", path.display());
-                }
-            }
-            Err(e) => return format!("Error: failed to serialize area: {e}"),
+        let room = RoomTemplate {
+            id: room_id.clone(),
+            area: area_id.clone(),
+            name: p.name,
+            description: String::new(),
+            exits: HashMap::new(),
+            portals: Vec::new(),
+            flags: Vec::new(),
+            content: RoomContent::default(),
+        };
+        let room_str = match toml::to_string_pretty(&room) {
+            Ok(s) => s,
+            Err(e) => return format!("Error: failed to serialize room: {e}"),
+        };
+        if let Err(e) = fs::create_dir_all(room_path.parent().unwrap())
+            .and_then(|_| fs::write(&room_path, &room_str))
+        {
+            return format!("Error: failed to write {}: {e}", room_path.display());
         }
-        drop(state);
         self.reload();
         format!("Created room '{}' in area '{}'", room_id, area_id)
     }
@@ -336,33 +354,15 @@ impl MudMcpServer {
     fn delete_room(&self, params: Parameters<RoomIdParam>) -> String {
         let p = params.0;
         let state = self.state.read().unwrap();
-        let path = match content::find_file(&state.file_map, "areas", &p.area_id) {
-            Ok(p) => p,
-            Err(e) => return format!("Error: {e}"),
+        let room_path = match state.file_map.get("rooms").and_then(|m| m.get(&p.room_id)) {
+            Some(p) => p.clone(),
+            None => return format!("Error: room '{}' not found", p.room_id),
         };
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
-        };
-        let mut area: AreaTemplate = match toml::from_str(&content) {
-            Ok(a) => a,
-            Err(e) => return format!("Error: failed to parse area: {e}"),
-        };
-        if area.rooms.remove(&p.room_id).is_none() {
-            return format!(
-                "Error: room '{}' not found in area '{}'",
-                p.room_id, p.area_id
-            );
-        }
-        match toml::to_string_pretty(&area) {
-            Ok(out) => {
-                if let Err(e) = fs::write(&path, &out) {
-                    return format!("Error: failed to write {}: {e}", path.display());
-                }
-            }
-            Err(e) => return format!("Error: failed to serialize area: {e}"),
-        }
         drop(state);
+
+        if let Err(e) = fs::remove_file(&room_path) {
+            return format!("Error: failed to delete {}: {e}", room_path.display());
+        }
         self.reload();
         format!("Deleted room '{}' from area '{}'", p.room_id, p.area_id)
     }
@@ -371,37 +371,33 @@ impl MudMcpServer {
     fn link_rooms(&self, params: Parameters<LinkRoomsParams>) -> String {
         let p = params.0;
         let state = self.state.read().unwrap();
-        let path = match content::find_file(&state.file_map, "areas", &p.area_id) {
-            Ok(p) => p,
-            Err(e) => return format!("Error: {e}"),
+        let room_path = match state
+            .file_map
+            .get("rooms")
+            .and_then(|m| m.get(&p.from_room))
+        {
+            Some(p) => p.clone(),
+            None => return format!("Error: room '{}' not found", p.from_room),
         };
-        let content = match fs::read_to_string(&path) {
+        drop(state);
+
+        let room_content = match fs::read_to_string(&room_path) {
             Ok(c) => c,
-            Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
+            Err(e) => return format!("Error: failed to read {}: {e}", room_path.display()),
         };
-        let mut area: AreaTemplate = match toml::from_str(&content) {
-            Ok(a) => a,
-            Err(e) => return format!("Error: failed to parse area: {e}"),
-        };
-        let room = match area.rooms.get_mut(&p.from_room) {
-            Some(r) => r,
-            None => {
-                return format!(
-                    "Error: room '{}' not found in area '{}'",
-                    p.from_room, p.area_id
-                )
-            }
+        let mut room: RoomTemplate = match toml::from_str(&room_content) {
+            Ok(r) => r,
+            Err(e) => return format!("Error: failed to parse room: {e}"),
         };
         let dest = format!("{}:{}", p.to_area, p.to_room);
         room.exits.insert(p.direction.clone(), dest.clone());
-        drop(state);
-        match toml::to_string_pretty(&area) {
+        match toml::to_string_pretty(&room) {
             Ok(out) => {
-                if let Err(e) = fs::write(&path, &out) {
-                    return format!("Error: failed to write {}: {e}", path.display());
+                if let Err(e) = fs::write(&room_path, &out) {
+                    return format!("Error: failed to write {}: {e}", room_path.display());
                 }
             }
-            Err(e) => return format!("Error: failed to serialize area: {e}"),
+            Err(e) => return format!("Error: failed to serialize room: {e}"),
         }
         self.reload();
         format!(
@@ -571,10 +567,42 @@ impl MudMcpServer {
                     Ok(t) => t,
                     Err(e) => return format!("Error: failed to deserialize area after patch: {e}"),
                 };
-                match toml::to_string_pretty(&t) {
+                let rooms = t.rooms.clone();
+                let mut meta = t;
+                meta.rooms = HashMap::new();
+                let area_dir = match path.parent() {
+                    Some(d) => d.to_path_buf(),
+                    None => return "Error: area path has no parent".to_string(),
+                };
+                let rooms_dir = area_dir.join("rooms");
+                let meta_str = match toml::to_string_pretty(&meta) {
                     Ok(s) => s,
                     Err(e) => return format!("Error: failed to serialize area: {e}"),
+                };
+                if let Err(e) = fs::create_dir_all(&rooms_dir) {
+                    return format!("Error: failed to create rooms dir: {e}");
                 }
+                if let Err(e) = fs::write(area_dir.join("area.toml"), &meta_str) {
+                    return format!("Error: failed to write area.toml: {e}");
+                }
+                for (room_id, room) in &rooms {
+                    let room_str = match toml::to_string_pretty(room) {
+                        Ok(s) => s,
+                        Err(e) => return format!("Error: failed to serialize room {room_id}: {e}"),
+                    };
+                    let room_path = area_dir.join("rooms").join(format!("{room_id}.toml"));
+                    if let Err(e) = fs::write(&room_path, &room_str) {
+                        return format!("Error: failed to write {room_id}: {e}");
+                    }
+                }
+                drop(state);
+                self.reload();
+                return format!(
+                    "Updated {} field(s) on {}/{}",
+                    p.fields.len(),
+                    p.category,
+                    p.id
+                );
             }
             other => return format!("Error: unknown category '{other}'"),
         };
@@ -930,24 +958,22 @@ impl MudMcpServer {
         fields: &serde_json::Map<String, serde_json::Value>,
     ) -> String {
         let state = self.state.read().unwrap();
-        let path = match content::find_file(&state.file_map, "areas", area_id) {
-            Ok(p) => p,
-            Err(e) => return format!("Error: {e}"),
+        let room_path = match state.file_map.get("rooms").and_then(|m| m.get(room_id)) {
+            Some(p) => p.clone(),
+            None => return format!("Error: room '{}' not found", room_id),
         };
-        let content = match fs::read_to_string(&path) {
+        drop(state);
+
+        let content = match fs::read_to_string(&room_path) {
             Ok(c) => c,
-            Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
+            Err(e) => return format!("Error: failed to read {}: {e}", room_path.display()),
         };
-        let mut area: AreaTemplate = match toml::from_str(&content) {
-            Ok(a) => a,
-            Err(e) => return format!("Error: failed to parse area: {e}"),
-        };
-        let room = match area.rooms.get_mut(room_id) {
-            Some(r) => r,
-            None => return format!("Error: room '{}' not found in area '{}'", room_id, area_id),
+        let mut room: RoomTemplate = match toml::from_str(&content) {
+            Ok(r) => r,
+            Err(e) => return format!("Error: failed to parse room: {e}"),
         };
         // Round-trip through JSON to apply field patches
-        let mut room_json = match serde_json::to_value(&*room) {
+        let mut room_json = match serde_json::to_value(&room) {
             Ok(v) => v,
             Err(e) => return format!("Error: failed to serialize room: {e}"),
         };
@@ -956,19 +982,18 @@ impl MudMcpServer {
                 obj.insert(key.clone(), value.clone());
             }
         }
-        *room = match serde_json::from_value(room_json) {
+        room = match serde_json::from_value(room_json) {
             Ok(r) => r,
             Err(e) => return format!("Error: failed to deserialize room after patch: {e}"),
         };
-        match toml::to_string_pretty(&area) {
+        match toml::to_string_pretty(&room) {
             Ok(out) => {
-                if let Err(e) = fs::write(&path, &out) {
-                    return format!("Error: failed to write {}: {e}", path.display());
+                if let Err(e) = fs::write(&room_path, &out) {
+                    return format!("Error: failed to write {}: {e}", room_path.display());
                 }
             }
-            Err(e) => return format!("Error: failed to serialize area: {e}"),
+            Err(e) => return format!("Error: failed to serialize room: {e}"),
         }
-        drop(state);
         self.reload();
         format!(
             "Updated {} field(s) on room {}/{}",

@@ -626,6 +626,12 @@ pub struct RoomContent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomTemplate {
+    /// Room ID (used when serialized as a standalone room file).
+    #[serde(default)]
+    pub id: String,
+    /// Parent area ID (used when serialized as a standalone room file).
+    #[serde(default)]
+    pub area: String,
     pub name: String,
     pub description: String,
     #[serde(default)]

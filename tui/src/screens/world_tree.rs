@@ -429,7 +429,11 @@ impl WorldTreeScreen {
     }
 
     fn create_area_file(&self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let path = self.content_path.join("areas").join(format!("{id}.toml"));
+        let area_dir = self.content_path.join("areas").join(id);
+        std::fs::create_dir_all(area_dir.join("rooms"))?;
+        std::fs::create_dir_all(area_dir.join("areas"))?;
+
+        // Write metadata-only area.toml
         let area = AreaTemplate {
             id: id.to_string(),
             name: id.to_string(),
@@ -441,21 +445,26 @@ impl WorldTreeScreen {
             reset_interval: None,
             credits: None,
             spawns: Vec::new(),
-            rooms: HashMap::from([(
-                "start".to_string(),
-                RoomTemplate {
-                    name: "Starting Room".to_string(),
-                    description: String::new(),
-                    exits: HashMap::new(),
-                    portals: Vec::new(),
-                    flags: Vec::new(),
-                    content: RoomContent::default(),
-                },
-            )]),
+            rooms: HashMap::new(),
         };
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        let content = toml::to_string_pretty(&area)?;
-        std::fs::write(&path, &content)?;
+        std::fs::write(area_dir.join("area.toml"), toml::to_string_pretty(&area)?)?;
+
+        // Write starter room file
+        let room = RoomTemplate {
+            id: "start".to_string(),
+            area: id.to_string(),
+            name: "Starting Room".to_string(),
+            description: String::new(),
+            exits: HashMap::new(),
+            portals: Vec::new(),
+            flags: Vec::new(),
+            content: RoomContent::default(),
+        };
+        std::fs::write(
+            area_dir.join("rooms").join("start.toml"),
+            toml::to_string_pretty(&room)?,
+        )?;
+
         Ok(())
     }
 
@@ -465,16 +474,21 @@ impl WorldTreeScreen {
         context_id: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let area_id = context_id.ok_or("no area context for room creation")?;
-        let path = self
+        let area_path = self
             .file_map
             .get("areas")
             .and_then(|m| m.get(area_id))
-            .ok_or_else(|| format!("area {area_id} file not found"))?;
+            .ok_or_else(|| format!("area {area_id} file not found"))?
+            .parent()
+            .ok_or("area path has no parent")?
+            .to_path_buf();
 
-        let content = std::fs::read_to_string(path)?;
-        let mut doc: toml::Value = content.parse()?;
+        let room_path = area_path.join("rooms").join(format!("{id}.toml"));
+        std::fs::create_dir_all(room_path.parent().unwrap())?;
 
         let room = RoomTemplate {
+            id: id.to_string(),
+            area: area_id.to_string(),
             name: id.to_string(),
             description: String::new(),
             exits: HashMap::new(),
@@ -482,19 +496,8 @@ impl WorldTreeScreen {
             flags: Vec::new(),
             content: RoomContent::default(),
         };
-        let room_value = toml::Value::try_from(&room)?;
+        std::fs::write(&room_path, toml::to_string_pretty(&room)?)?;
 
-        if let Some(area_table) = doc.as_table_mut() {
-            if let Some(rooms) = area_table.get_mut("rooms").and_then(|v| v.as_table_mut()) {
-                rooms.insert(id.to_string(), room_value);
-            } else {
-                let mut rooms_map = toml::value::Table::new();
-                rooms_map.insert(id.to_string(), room_value);
-                area_table.insert("rooms".to_string(), toml::Value::Table(rooms_map));
-            }
-        }
-
-        std::fs::write(path, doc.to_string())?;
         Ok(())
     }
 
