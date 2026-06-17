@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use mud_core::templates::{
-    AreaTemplate, HealthBounds, ItemTemplate, LootTable, MobTemplate, RaceAttributes, RoomContent,
-    RoomTemplate, TemplateRegistry,
+    AffixDef, AreaTemplate, ClassTemplate, HealthBounds, ItemTemplate, LootTable, MobTemplate,
+    PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef, StanceDef,
+    TemplateRegistry,
 };
+use mud_core::SkillDef;
 use rmcp::{
     handler::server::wrapper::Parameters, schemars, tool, tool_router, transport::stdio, ServiceExt,
 };
@@ -44,44 +46,6 @@ impl MudMcpServer {
     fn reload(&self) {
         let (registry, file_map) = content::load_registry(&self.content_path);
         *self.state.write().unwrap() = ServerState { registry, file_map };
-    }
-
-    fn json_to_toml(v: &serde_json::Value) -> toml::Value {
-        match v {
-            serde_json::Value::String(s) => toml::Value::String(s.clone()),
-            serde_json::Value::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    toml::Value::Integer(i)
-                } else if let Some(f) = n.as_f64() {
-                    toml::Value::Float(f)
-                } else {
-                    toml::Value::String(n.to_string())
-                }
-            }
-            serde_json::Value::Bool(b) => toml::Value::Boolean(*b),
-            serde_json::Value::Array(arr) => {
-                toml::Value::Array(arr.iter().map(Self::json_to_toml).collect())
-            }
-            serde_json::Value::Object(obj) => {
-                let mut map = toml::map::Map::new();
-                for (k, v) in obj {
-                    map.insert(k.clone(), Self::json_to_toml(v));
-                }
-                toml::Value::Table(map)
-            }
-            serde_json::Value::Null => toml::Value::String("null".into()),
-        }
-    }
-
-    fn apply_field_patch(
-        doc: &mut toml::Value,
-        fields: &serde_json::Map<String, serde_json::Value>,
-    ) {
-        if let Some(table) = doc.as_table_mut() {
-            for (key, value) in fields {
-                table.insert(key.clone(), Self::json_to_toml(value));
-            }
-        }
     }
 
     fn entity_list(items: &HashMap<String, impl AsRef<str>>, label: &str) -> String {
@@ -334,32 +298,34 @@ impl MudMcpServer {
             Ok(c) => c,
             Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
         };
-        let mut doc: toml::Value = match content.parse() {
-            Ok(d) => d,
-            Err(e) => return format!("Error: failed to parse TOML: {e}"),
+        let mut area: AreaTemplate = match toml::from_str(&content) {
+            Ok(a) => a,
+            Err(e) => return format!("Error: failed to parse area: {e}"),
         };
-        let room = RoomTemplate {
-            name: p.name,
-            description: String::new(),
-            exits: HashMap::new(),
-            portals: Vec::new(),
-            flags: Vec::new(),
-            content: RoomContent::default(),
-        };
-        let room_value = match toml::Value::try_from(&room) {
-            Ok(v) => v,
-            Err(e) => return format!("Error: failed to serialize room: {e}"),
-        };
-        if let Some(rooms) = doc.get_mut("rooms").and_then(|v| v.as_table_mut()) {
-            rooms.insert(room_id.clone(), room_value);
-        } else {
-            let mut rooms_map = toml::map::Map::new();
-            rooms_map.insert(room_id.clone(), room_value);
-            doc.as_table_mut()
-                .map(|t| t.insert("rooms".to_string(), toml::Value::Table(rooms_map)));
+        if area.rooms.contains_key(room_id) {
+            return format!(
+                "Error: room '{}' already exists in area '{}'",
+                room_id, area_id
+            );
         }
-        if let Err(e) = fs::write(&path, doc.to_string()) {
-            return format!("Error: failed to write {}: {e}", path.display());
+        area.rooms.insert(
+            room_id.clone(),
+            RoomTemplate {
+                name: p.name.clone(),
+                description: String::new(),
+                exits: HashMap::new(),
+                portals: Vec::new(),
+                flags: Vec::new(),
+                content: RoomContent::default(),
+            },
+        );
+        match toml::to_string_pretty(&area) {
+            Ok(out) => {
+                if let Err(e) = fs::write(&path, &out) {
+                    return format!("Error: failed to write {}: {e}", path.display());
+                }
+            }
+            Err(e) => return format!("Error: failed to serialize area: {e}"),
         }
         drop(state);
         self.reload();
@@ -378,17 +344,23 @@ impl MudMcpServer {
             Ok(c) => c,
             Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
         };
-        let mut doc: toml::Value = match content.parse() {
-            Ok(d) => d,
-            Err(e) => return format!("Error: failed to parse TOML: {e}"),
+        let mut area: AreaTemplate = match toml::from_str(&content) {
+            Ok(a) => a,
+            Err(e) => return format!("Error: failed to parse area: {e}"),
         };
-        if let Some(rooms) = doc.get_mut("rooms").and_then(|v| v.as_table_mut()) {
-            rooms.remove(&p.room_id);
-        } else {
-            return format!("Error: area '{}' has no rooms", p.area_id);
+        if area.rooms.remove(&p.room_id).is_none() {
+            return format!(
+                "Error: room '{}' not found in area '{}'",
+                p.room_id, p.area_id
+            );
         }
-        if let Err(e) = fs::write(&path, doc.to_string()) {
-            return format!("Error: failed to write {}: {e}", path.display());
+        match toml::to_string_pretty(&area) {
+            Ok(out) => {
+                if let Err(e) = fs::write(&path, &out) {
+                    return format!("Error: failed to write {}: {e}", path.display());
+                }
+            }
+            Err(e) => return format!("Error: failed to serialize area: {e}"),
         }
         drop(state);
         self.reload();
@@ -407,27 +379,30 @@ impl MudMcpServer {
             Ok(c) => c,
             Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
         };
-        let mut doc: toml::Value = match content.parse() {
-            Ok(d) => d,
-            Err(e) => return format!("Error: failed to parse TOML: {e}"),
+        let mut area: AreaTemplate = match toml::from_str(&content) {
+            Ok(a) => a,
+            Err(e) => return format!("Error: failed to parse area: {e}"),
         };
-        let room_path = format!("rooms.{}.exits", p.from_room);
-        let keys: Vec<&str> = room_path.split('.').collect();
-        let mut current = &mut doc;
-        for &key in &keys {
-            current = match current.get_mut(key) {
-                Some(v) => v,
-                None => return format!("Error: path '{room_path}' not found"),
-            };
-        }
-        if let Some(table) = current.as_table_mut() {
-            let dest = format!("{}:{}", p.to_area, p.to_room);
-            table.insert(p.direction.clone(), toml::Value::String(dest));
-        }
-        if let Err(e) = fs::write(&path, doc.to_string()) {
-            return format!("Error: failed to write {}: {e}", path.display());
-        }
+        let room = match area.rooms.get_mut(&p.from_room) {
+            Some(r) => r,
+            None => {
+                return format!(
+                    "Error: room '{}' not found in area '{}'",
+                    p.from_room, p.area_id
+                )
+            }
+        };
+        let dest = format!("{}:{}", p.to_area, p.to_room);
+        room.exits.insert(p.direction.clone(), dest.clone());
         drop(state);
+        match toml::to_string_pretty(&area) {
+            Ok(out) => {
+                if let Err(e) = fs::write(&path, &out) {
+                    return format!("Error: failed to write {}: {e}", path.display());
+                }
+            }
+            Err(e) => return format!("Error: failed to serialize area: {e}"),
+        }
         self.reload();
         format!(
             "Linked {} -> {}:{} via {}.{}",
@@ -473,12 +448,138 @@ impl MudMcpServer {
             Ok(c) => c,
             Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
         };
-        let mut doc: toml::Value = match content.parse() {
-            Ok(d) => d,
+
+        // Parse the file, round-trip through JSON to apply patches, then
+        // serialize back through the concrete struct type for proper TOML output.
+        let toml_val: toml::Value = match content.parse() {
+            Ok(v) => v,
             Err(e) => return format!("Error: failed to parse TOML: {e}"),
         };
-        Self::apply_field_patch(&mut doc, &p.fields);
-        if let Err(e) = fs::write(&path, doc.to_string()) {
+        let mut json_val: serde_json::Value = match serde_json::to_value(&toml_val) {
+            Ok(v) => v,
+            Err(e) => return format!("Error: failed to convert to JSON: {e}"),
+        };
+        if let Some(obj) = json_val.as_object_mut() {
+            for (key, value) in &p.fields {
+                obj.insert(key.clone(), value.clone());
+            }
+        }
+
+        let out = match p.category.as_str() {
+            "mobs" => {
+                let t: MobTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => return format!("Error: failed to deserialize mob after patch: {e}"),
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize mob: {e}"),
+                }
+            }
+            "items" => {
+                let t: ItemTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => return format!("Error: failed to deserialize item after patch: {e}"),
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize item: {e}"),
+                }
+            }
+            "races" => {
+                let t: RaceTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => return format!("Error: failed to deserialize race after patch: {e}"),
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize race: {e}"),
+                }
+            }
+            "classes" => {
+                let t: ClassTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize class after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize class: {e}"),
+                }
+            }
+            "skills" => {
+                let t: SkillDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize skill after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize skill: {e}"),
+                }
+            }
+            "stances" => {
+                let t: StanceDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize stance after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize stance: {e}"),
+                }
+            }
+            "sets" => {
+                let t: SetDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => return format!("Error: failed to deserialize set after patch: {e}"),
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize set: {e}"),
+                }
+            }
+            "affixes" => {
+                let t: AffixDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize affix after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize affix: {e}"),
+                }
+            }
+            "passives" => {
+                let t: PassiveDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize passive after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize passive: {e}"),
+                }
+            }
+            "areas" => {
+                let t: AreaTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => return format!("Error: failed to deserialize area after patch: {e}"),
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize area: {e}"),
+                }
+            }
+            other => return format!("Error: unknown category '{other}'"),
+        };
+
+        if let Err(e) = fs::write(&path, &out) {
             return format!("Error: failed to write {}: {e}", path.display());
         }
         drop(state);
@@ -837,20 +938,35 @@ impl MudMcpServer {
             Ok(c) => c,
             Err(e) => return format!("Error: failed to read {}: {e}", path.display()),
         };
-        let mut doc: toml::Value = match content.parse() {
-            Ok(d) => d,
-            Err(e) => return format!("Error: failed to parse TOML: {e}"),
+        let mut area: AreaTemplate = match toml::from_str(&content) {
+            Ok(a) => a,
+            Err(e) => return format!("Error: failed to parse area: {e}"),
         };
-        let room_doc = doc
-            .get_mut("rooms")
-            .and_then(|v| v.as_table_mut())
-            .and_then(|t| t.get_mut(room_id));
-        match room_doc {
-            Some(room) => Self::apply_field_patch(room, fields),
+        let room = match area.rooms.get_mut(room_id) {
+            Some(r) => r,
             None => return format!("Error: room '{}' not found in area '{}'", room_id, area_id),
+        };
+        // Round-trip through JSON to apply field patches
+        let mut room_json = match serde_json::to_value(&*room) {
+            Ok(v) => v,
+            Err(e) => return format!("Error: failed to serialize room: {e}"),
+        };
+        if let Some(obj) = room_json.as_object_mut() {
+            for (key, value) in fields {
+                obj.insert(key.clone(), value.clone());
+            }
         }
-        if let Err(e) = fs::write(&path, doc.to_string()) {
-            return format!("Error: failed to write {}: {e}", path.display());
+        *room = match serde_json::from_value(room_json) {
+            Ok(r) => r,
+            Err(e) => return format!("Error: failed to deserialize room after patch: {e}"),
+        };
+        match toml::to_string_pretty(&area) {
+            Ok(out) => {
+                if let Err(e) = fs::write(&path, &out) {
+                    return format!("Error: failed to write {}: {e}", path.display());
+                }
+            }
+            Err(e) => return format!("Error: failed to serialize area: {e}"),
         }
         drop(state);
         self.reload();
