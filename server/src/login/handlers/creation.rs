@@ -206,7 +206,7 @@ pub async fn handle_character_select_state(
                     lines.push("--- Create a New Character ---".to_string());
                     flow.state = LoginState::CharacterCreateName;
                 }
-                "who" | "w" => {
+                "who" => {
                     lines.extend(super::super::prompt::list_who(world, registry));
                 }
                 _ => {
@@ -229,7 +229,7 @@ pub async fn handle_character_select_state(
             "n" | "no" => {
                 flow.create_dismissed = true;
             }
-            "who" | "w" => {
+            "who" => {
                 lines.extend(super::super::prompt::list_who(world, registry));
             }
             _ => {
@@ -247,7 +247,7 @@ pub async fn handle_character_select_state(
             lines.push("--- Create a New Character ---".to_string());
             flow.state = LoginState::CharacterCreateName;
         }
-        "who" | "w" => {
+        "who" => {
             drop(db_guard);
             lines.extend(super::super::prompt::list_who(world, registry));
         }
@@ -1246,7 +1246,6 @@ async fn finalize_character(
         skills.grant(skill_id);
     }
     let starting_gold = class_starting_gold(templates, &class_id);
-    let starting_gold_display = starting_gold.clone();
     let class = templates.and_then(|t| t.get_class(&class_id));
 
     // Resolve spawn room from spawn key, falling back to area's spawn_room
@@ -1443,21 +1442,6 @@ async fn finalize_character(
     flow.entity_just_spawned = true;
 
     lines.push(String::new());
-    lines.push("--- Character Score ---".to_string());
-    lines.push(format!("  Name:       {name}"));
-    lines.push("  Level:      1".to_string());
-    lines.push(format!("  HP:         {hp} / {hp}"));
-    lines.push(format!("  Alignment:  {alignment}"));
-    lines.push(format!(
-        "  Gold:       {}g {}s {}c",
-        starting_gold_display.gold, starting_gold_display.silver, starting_gold_display.copper
-    ));
-    if let Some(class) = class {
-        if !class.starting_items.is_empty() {
-            lines.push(format!("  Equipment:  {}", class.starting_items.join(", ")));
-        }
-    }
-    lines.push(String::new());
     lines.push(format!("Welcome, {name}! Your adventure begins."));
     flow.state = LoginState::Playing;
     lines
@@ -1562,10 +1546,6 @@ async fn load_character(
         skills.set_rank(&skill_id, rank);
     }
 
-    let hp_current = hp.current;
-    let hp_max = hp.max;
-    let level_val = level.0;
-
     drop(db_guard);
 
     let room = char_row
@@ -1604,11 +1584,6 @@ async fn load_character(
     flow.entity = Some(player);
     flow.entity_just_spawned = true;
 
-    lines.push(String::new());
-    lines.push("--- Character Score ---".to_string());
-    lines.push(format!("  Name:       {}", char_row.name));
-    lines.push(format!("  Level:      {level_val}"));
-    lines.push(format!("  HP:         {hp_current} / {hp_max}"));
     lines.push(String::new());
     lines.push(format!("Welcome back, {}!", char_row.name));
     flow.state = LoginState::Playing;
