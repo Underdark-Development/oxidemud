@@ -9,6 +9,4 @@ license.workspace = true
 fastrand = "2"
 hecs = "0.10"
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
 toml = "0.8"
