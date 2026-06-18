@@ -4,12 +4,19 @@ name = "Town Gate"
 description = """
 A sturdy timber palisade rises fifteen feet high, flanked by two watchtowers. The {green}iron-bound gate{/} stands open, and a dirt road stretches south into the forest beyond.
 
-{yellow}North{/} leads back into Riverside.
-{yellow}South{/}, the road disappears into the deepening wood.
+{cyan}North{/} leads back into Riverside.
+{cyan}South{/}, the road disappears into the deepening wood.
 """
-exits = { north = "town_square", south = "forest_path" }
+portals = []
+flags = []
+
+[exits]
+north = "town_square"
+south = "forest_path"
 
 [content]
+items = []
+
 [[content.mobs]]
 template_id = "town_guard"
-count = 1
+count = 2

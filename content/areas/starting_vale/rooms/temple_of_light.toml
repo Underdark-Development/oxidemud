@@ -7,7 +7,7 @@ Sunlight streams through a stained-glass rose window, casting {cyan}shimmering b
 An engraved plaque beside the door reads:
 {italic}"All who enter find rest.{/}"
 
-The {yellow}west{/} exit leads back to the village square.
+The {cyan}west{/} exit leads back to the village square.
 """
 exits = { west = "town_square" }
 

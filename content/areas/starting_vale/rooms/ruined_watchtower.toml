@@ -6,7 +6,7 @@ An old watchtower stands crumbling at the edge of the forest, its upper half col
 
 The tower's former purpose is long forgotten; now it serves as a den for whatever creatures lurk in these woods.
 
-The {yellow}east{/} path leads back to the forest crossing.
+The {cyan}east{/} path leads back to the forest crossing.
 """
 exits = { east = "forest_crossing" }
 
