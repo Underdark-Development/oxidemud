@@ -75,10 +75,23 @@ impl CommandDispatch {
         groups
     }
 
-    fn find(&self, name: &str) -> Option<&Command> {
+    pub fn find(&self, name: &str) -> Option<&Command> {
+        // 1. Exact alias match — short aliases always take precedence
+        if let Some(cmd) = self.commands.iter().find(|cmd| cmd.aliases.contains(&name)) {
+            return Some(cmd);
+        }
+        // 2. Exact name match
+        if let Some(cmd) = self.commands.iter().find(|cmd| cmd.name == name) {
+            return Some(cmd);
+        }
+        // 3. Prefix name match
+        if let Some(cmd) = self.commands.iter().find(|cmd| cmd.name.starts_with(name)) {
+            return Some(cmd);
+        }
+        // 4. Prefix alias match (lowest priority)
         self.commands
             .iter()
-            .find(|cmd| cmd.name == name || cmd.aliases.contains(&name))
+            .find(|cmd| cmd.aliases.iter().any(|a| a.starts_with(name)))
     }
 }
 
@@ -199,5 +212,36 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].0, "General");
         assert_eq!(groups[1].0, "Admin");
+    }
+
+    #[test]
+    fn test_command_dispatch_partial_name_match() {
+        let dispatch = make_dispatch();
+        assert_eq!(dispatch.find("te").map(|c| c.name), Some("test"));
+        assert_eq!(dispatch.find("ad").map(|c| c.name), Some("admin"));
+        assert!(dispatch.find("xyzzy").is_none());
+    }
+
+    #[test]
+    fn test_command_dispatch_alias_beats_prefix() {
+        let mut d = CommandDispatch::new();
+        d.register(Command {
+            name: "targeting",
+            aliases: &[],
+            access: AccessLevel::Player,
+            category: "Test",
+            help_text: "",
+            handler: noop,
+        });
+        d.register(Command {
+            name: "test",
+            aliases: &["t"],
+            access: AccessLevel::Player,
+            category: "Test",
+            help_text: "",
+            handler: noop,
+        });
+        // "t" should match the exact alias on "test", not the prefix of "targeting"
+        assert_eq!(d.find("t").map(|c| c.name), Some("test"));
     }
 }

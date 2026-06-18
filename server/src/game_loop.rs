@@ -3,15 +3,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mud_core::systems;
+use mud_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use mud_core::templates::SetDef;
 use mud_core::{DbId, Entity, Player, Position, World};
 use tokio::sync::Mutex;
 use tokio::time::interval;
 
+use crate::registry::ConnectionRegistry;
+
 /// Spawn a background task that runs game systems on fixed intervals.
 pub fn spawn_game_loop(
     world: Arc<Mutex<World>>,
     db: Option<Arc<Mutex<mud_data::Database>>>,
+    registry: Arc<Mutex<ConnectionRegistry>>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
     tokio::spawn(async move {
@@ -30,9 +34,22 @@ pub fn spawn_game_loop(
                 }
                 _ = combat_tick.tick() => {
                     let mut w = world.lock().await;
-                    systems::combat::run_combat_pulse(&mut w);
+                    let reg = registry.lock().await;
+                    let outcomes = systems::combat::run_combat_pulse(&mut w);
+                    // Level-up check for kills
+                    for outcome in &outcomes {
+                        if let CombatOutcomeKind::Killed { .. } = &outcome.kind {
+                            if w.query_one::<&Player>(outcome.attacker)
+                                .is_ok_and(|mut q| q.get().is_some())
+                            {
+                                crate::award_xp(&mut w, outcome.attacker);
+                            }
+                        }
+                    }
+                    dispatch_combat_outcomes(&w, &reg, outcomes);
                     systems::ai::run_ai_pulse(&mut w);
                     systems::stance::run_stance_pulse(&mut w);
+                    drop(reg);
                     drop(w);
                 }
                 _ = regen_tick.tick() => {
@@ -65,6 +82,68 @@ pub fn spawn_game_loop(
             }
         }
     });
+}
+
+fn dispatch_combat_outcomes(
+    world: &World,
+    registry: &ConnectionRegistry,
+    outcomes: Vec<CombatOutcome>,
+) {
+    for outcome in outcomes {
+        let attacker_is_player = world
+            .query_one::<&Player>(outcome.attacker)
+            .is_ok_and(|mut q| q.get().is_some());
+
+        match outcome.kind {
+            CombatOutcomeKind::Hit { damage, .. } => {
+                if attacker_is_player {
+                    if let Some(tx) = registry.sender(outcome.attacker) {
+                        let _ = tx.send(
+                            format!("You hit {} for {} damage.\r\n", outcome.target_name, damage)
+                                .into_bytes(),
+                        );
+                    }
+                } else if let Some(tx) = registry.sender(outcome.target) {
+                    let _ = tx.send(
+                        format!(
+                            "{} hits you for {} damage.\r\n",
+                            outcome.attacker_name, damage
+                        )
+                        .into_bytes(),
+                    );
+                }
+            }
+            CombatOutcomeKind::Miss => {
+                if attacker_is_player {
+                    if let Some(tx) = registry.sender(outcome.attacker) {
+                        let _ =
+                            tx.send(format!("You miss {}.\r\n", outcome.target_name).into_bytes());
+                    }
+                } else if let Some(tx) = registry.sender(outcome.target) {
+                    let _ =
+                        tx.send(format!("{} misses you.\r\n", outcome.attacker_name).into_bytes());
+                }
+            }
+            CombatOutcomeKind::Killed { xp_gained } => {
+                if attacker_is_player {
+                    if let Some(tx) = registry.sender(outcome.attacker) {
+                        let _ = tx.send(
+                            format!(
+                                "You kill {}! You gain {} experience.\r\n",
+                                outcome.target_name, xp_gained
+                            )
+                            .into_bytes(),
+                        );
+                    }
+                } else if let Some(tx) = registry.sender(outcome.target) {
+                    let _ = tx.send(
+                        format!("You have been slain by {}!\r\n", outcome.attacker_name)
+                            .into_bytes(),
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Save every online player's current room to the database.

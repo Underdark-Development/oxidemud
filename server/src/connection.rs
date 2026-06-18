@@ -70,6 +70,7 @@ pub trait Connection: Send {
     fn entity(&self) -> Option<Entity>;
     fn set_entity(&mut self, entity: Entity);
     fn disconnect(&mut self);
+    fn is_disconnected(&self) -> bool;
     fn flags(&self) -> ConnectionFlags;
     fn set_flags(&mut self, flags: ConnectionFlags);
 
@@ -169,6 +170,10 @@ impl Connection for TelnetConnection {
 
     fn disconnect(&mut self) {
         self.tx.take();
+    }
+
+    fn is_disconnected(&self) -> bool {
+        self.tx.is_none()
     }
 
     fn flags(&self) -> ConnectionFlags {

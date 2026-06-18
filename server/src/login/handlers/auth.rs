@@ -97,6 +97,7 @@ pub async fn handle_password_state(
     let mut lines = Vec::new();
 
     if input.is_empty() {
+        flow.echo_on = true;
         lines.push(String::new());
         lines.push("Password cannot be empty.".to_string());
         flow.strikes += 1;
@@ -162,6 +163,7 @@ pub async fn handle_password_state(
             lines.push(String::new());
             lines.push(format!("Invalid password. ({new_attempts}/3 attempts)"));
             lines.push("Password:".to_string());
+            flow.echo_on = true;
             flow.strikes += 1;
             flow.state = LoginState::Password {
                 username,

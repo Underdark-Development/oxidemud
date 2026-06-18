@@ -133,7 +133,12 @@ impl Server {
 
         // Spawn the game loop for combat/AI/corpse pulses
         let server_shutdown_rx = shutdown.clone();
-        spawn_game_loop(world.clone(), db.clone(), server_shutdown_rx);
+        spawn_game_loop(
+            world.clone(),
+            db.clone(),
+            registry.clone(),
+            server_shutdown_rx,
+        );
 
         loop {
             tokio::select! {
@@ -270,9 +275,12 @@ async fn handle_connection(
                     let mut world_lock = world.lock().await;
                     let reg = registry.lock().await;
                     commands.execute(&mut world_lock, &mut conn, trimmed, &reg);
-                    conn.send("> ");
                     drop(reg);
                     drop(world_lock);
+                    if conn.is_disconnected() {
+                        break;
+                    }
+                    conn.send("> ");
                 } else {
                     let db_clone = db.clone();
                     let mut w = world.lock().await;
@@ -338,12 +346,18 @@ async fn handle_connection(
         }
     }
 
-    // Player cleanup: broadcast departure, unregister, despawn
+    // Player cleanup: broadcast departure, save position, unregister, despawn
     {
         let mut w = world.lock().await;
         let mut reg = registry.lock().await;
 
         if let Some(entity) = conn.entity() {
+            if let Some(ref db) = db {
+                if let Ok(db_guard) = db.try_lock() {
+                    crate::game_loop::save_player_positions(&mut w, &db_guard);
+                }
+            }
+
             let name = w
                 .query_one::<&Name>(entity)
                 .ok()

@@ -1,8 +1,35 @@
 use crate::dice::DiceRoll;
 use crate::{
     Armor, Attributes, CombatTarget, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Health,
-    Inventory, Level, LootRule, Position, Resistance, Weapon, WeaponHands, World,
+    Inventory, Level, LootRule, Name, Position, Resistance, Weapon, WeaponHands, World,
 };
+
+// ---------------------------------------------------------------------------
+// Combat outcome types — consumed by the server layer to send messages
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub struct CombatOutcome {
+    pub attacker: Entity,
+    /// May be despawned (killed) by the time the caller processes this.
+    pub target: Entity,
+    pub room: Entity,
+    pub attacker_name: String,
+    pub target_name: String,
+    pub kind: CombatOutcomeKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum CombatOutcomeKind {
+    Hit {
+        damage: i32,
+        damage_type: DamageType,
+    },
+    Miss,
+    Killed {
+        xp_gained: u64,
+    },
+}
 
 /// Calculate ability modifier: (stat - 10) / 2
 fn ability_mod(stat: u8) -> i32 {
@@ -192,7 +219,8 @@ pub fn calculate_hit(world: &World, attacker: Entity, target: Entity, is_offhand
 }
 
 /// Run one combat pulse for all entities with CombatTarget.
-pub fn run_combat_pulse(world: &mut World) {
+/// Returns one outcome per attack swing for the server layer to dispatch as messages.
+pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
     let targets: Vec<(Entity, Entity, Entity)> = {
         let mut q = world.query::<(&CombatTarget, &Health, &Position)>();
         q.iter()
@@ -203,10 +231,11 @@ pub fn run_combat_pulse(world: &mut World) {
             .collect()
     };
 
+    let mut outcomes = Vec::new();
+
     for (attacker, target, room) in targets {
         // Verify target still exists
         if world.query_one::<&Health>(target).is_err() {
-            // Target despawned — clear combat target
             let _ = world.remove_one::<CombatTarget>(attacker);
             continue;
         }
@@ -240,13 +269,54 @@ pub fn run_combat_pulse(world: &mut World) {
             continue;
         }
 
+        // Pre-fetch names before any potential despawn
+        let attacker_name = world
+            .query_one::<&Name>(attacker)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.to_string()))
+            .unwrap_or_else(|| "Someone".to_owned());
+        let target_name = world
+            .query_one::<&Name>(target)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.to_string()))
+            .unwrap_or_else(|| "Something".to_owned());
+
         // Main hand attack
         let is_hit = calculate_hit(world, attacker, target, false);
         if is_hit {
             let (damage, damage_type) = calculate_damage(world, attacker, target, false);
-            if apply_damage(world, attacker, target, damage, damage_type) {
+            let (final_damage, killed, xp_gained) =
+                apply_damage(world, attacker, target, damage, damage_type);
+            if final_damage > 0 {
+                let kind = if killed {
+                    CombatOutcomeKind::Killed { xp_gained }
+                } else {
+                    CombatOutcomeKind::Hit {
+                        damage: final_damage,
+                        damage_type,
+                    }
+                };
+                outcomes.push(CombatOutcome {
+                    attacker,
+                    target,
+                    room,
+                    attacker_name: attacker_name.clone(),
+                    target_name: target_name.clone(),
+                    kind,
+                });
+            }
+            if killed {
                 continue;
             }
+        } else {
+            outcomes.push(CombatOutcome {
+                attacker,
+                target,
+                room,
+                attacker_name: attacker_name.clone(),
+                target_name: target_name.clone(),
+                kind: CombatOutcomeKind::Miss,
+            });
         }
 
         // Offhand attack if dual-wielding
@@ -254,21 +324,52 @@ pub fn run_combat_pulse(world: &mut World) {
             let oh_hit = calculate_hit(world, attacker, target, true);
             if oh_hit {
                 let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
-                apply_damage(world, attacker, target, oh_dmg, oh_type);
+                let (final_damage, killed, xp_gained) =
+                    apply_damage(world, attacker, target, oh_dmg, oh_type);
+                if final_damage > 0 {
+                    let kind = if killed {
+                        CombatOutcomeKind::Killed { xp_gained }
+                    } else {
+                        CombatOutcomeKind::Hit {
+                            damage: final_damage,
+                            damage_type: oh_type,
+                        }
+                    };
+                    outcomes.push(CombatOutcome {
+                        attacker,
+                        target,
+                        room,
+                        attacker_name,
+                        target_name,
+                        kind,
+                    });
+                }
+            } else {
+                outcomes.push(CombatOutcome {
+                    attacker,
+                    target,
+                    room,
+                    attacker_name,
+                    target_name,
+                    kind: CombatOutcomeKind::Miss,
+                });
             }
         }
     }
+
+    outcomes
 }
 
 /// Apply damage to target, handling resistance, death, corpse, and XP.
-/// Returns true if the target died (caller should not continue attacking).
+/// Returns `(final_damage, killed, xp_gained)`.
+/// On kill: spawns a corpse, grants XP to attacker, despawns the target.
 fn apply_damage(
     world: &mut World,
     attacker: Entity,
     target: Entity,
     damage: i32,
     damage_type: DamageType,
-) -> bool {
+) -> (i32, bool, u64) {
     // Apply resistance
     let final_damage = if let Ok(mut res) = world.query_one::<&Resistance>(target) {
         if let Some(r) = res.get() {
@@ -281,14 +382,14 @@ fn apply_damage(
     };
 
     if final_damage <= 0 {
-        return false;
+        return (0, false, 0);
     }
 
     // Apply damage to target
     let killed = {
         let mut q = match world.query_one::<&mut Health>(target) {
             Ok(q) => q,
-            Err(_) => return false,
+            Err(_) => return (0, false, 0),
         };
         match q.get() {
             Some(hp) => {
@@ -296,18 +397,36 @@ fn apply_damage(
                 hp.damage(final_damage);
                 killed
             }
-            None => return false,
+            None => return (0, false, 0),
         }
     };
 
     if killed {
-        spawn_corpse(world, target, None);
-        grant_xp(world, attacker, target);
-        let _ = world.remove_one::<CombatTarget>(attacker);
-        let _ = world.remove_one::<CombatTarget>(target);
-    }
+        // Compute XP before despawning the target
+        let xp_gained = world
+            .query_one::<&Level>(target)
+            .ok()
+            .and_then(|mut q| q.get().copied())
+            .map(|l| (l.0 as u64).saturating_pow(2) * 50)
+            .unwrap_or(0);
 
-    killed
+        spawn_corpse(world, target, None);
+
+        // Grant XP to attacker
+        if let Ok(mut q) = world.query_one::<&mut crate::Experience>(attacker) {
+            if let Some(xp) = q.get() {
+                xp.0 = xp.0.saturating_add(xp_gained);
+            }
+        }
+
+        let _ = world.remove_one::<CombatTarget>(attacker);
+        // Despawn the victim — the corpse entity replaces it in the room
+        let _ = world.despawn(target);
+
+        (final_damage, true, xp_gained)
+    } else {
+        (final_damage, false, 0)
+    }
 }
 
 /// Spawn a corpse entity with the victim's inventory + equipment.
@@ -333,13 +452,22 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
         None => return,
     };
 
+    let victim_name = world
+        .query_one::<&Name>(victim)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.to_string()))
+        .unwrap_or_else(|| "Someone".to_owned());
+
+    let corpse_name = Name::new(format!("Corpse of {victim_name}"));
+
     let _corpse = world.spawn((
         Corpse {
             owner: None,
             created_at: std::time::Instant::now(),
-            decay_secs: 300, // 5 min default
+            decay_secs: 300,
             lootable_by: LootRule::Public,
         },
+        corpse_name,
         inv,
         eq,
         Position::new(pos),

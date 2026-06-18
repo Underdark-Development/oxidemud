@@ -663,7 +663,7 @@ pub fn cmd_help(
     _world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
-    _args: &str,
+    args: &str,
     _registry: &ConnectionRegistry,
 ) {
     let dispatch = match mud_server::get_commands() {
@@ -674,26 +674,34 @@ pub fn cmd_help(
         }
     };
 
-    let groups = dispatch.help_groups();
+    let query = args.trim();
 
-    // Compute column width from the widest name/alias string across all groups.
-    let col_w = groups
-        .iter()
-        .flat_map(|(_, cmds)| cmds.iter())
-        .map(|cmd| {
-            cmd.name.len()
-                + if cmd.aliases.is_empty() {
-                    0
+    if !query.is_empty() {
+        match dispatch.find(query) {
+            Some(cmd) => {
+                conn.send_line("");
+                let header = if cmd.aliases.is_empty() {
+                    cmd.name.to_string()
                 } else {
-                    1 + cmd.aliases.join("/").len() // "/alias1/alias2"
+                    format!("{} ({})", cmd.name, cmd.aliases.join(", "))
+                };
+                conn.send_line(&format!("  {header}"));
+                conn.send_line("");
+                for line in cmd.help_text.lines() {
+                    conn.send_line(&format!("  {line}"));
                 }
-        })
-        .max()
-        .unwrap_or(12)
-        .max(12);
+                conn.send_line("");
+            }
+            None => {
+                conn.send_line(&format!("No help found for '{query}'."));
+            }
+        }
+        return;
+    }
 
+    let groups = dispatch.help_groups();
     conn.send_line("");
-    conn.send_line("Available commands:");
+    conn.send_line("Available commands  (type 'help <command>' for details)");
     for (category, cmds) in groups {
         conn.send_line("");
         conn.send_line(&format!("  {category}:"));
@@ -701,14 +709,9 @@ pub fn cmd_help(
             let name_col = if cmd.aliases.is_empty() {
                 cmd.name.to_string()
             } else {
-                format!("{}/{}", cmd.name, cmd.aliases.join("/"))
+                format!("{} ({})", cmd.name, cmd.aliases.join(", "))
             };
-            conn.send_line(&format!(
-                "    {:<col_w$}  {}",
-                name_col,
-                cmd.help_text,
-                col_w = col_w,
-            ));
+            conn.send_line(&format!("    {name_col}"));
         }
     }
     conn.send_line("");
@@ -1937,6 +1940,9 @@ mod tests {
         }
         fn disconnect(&mut self) {
             self.disconnected.borrow_mut().clone_from(&true);
+        }
+        fn is_disconnected(&self) -> bool {
+            *self.disconnected.borrow()
         }
         fn flags(&self) -> ConnectionFlags {
             *self.flags.borrow()

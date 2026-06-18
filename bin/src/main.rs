@@ -10,6 +10,46 @@ use init::{init_world, spawn_area};
 use mud_server::{AccessLevel, Server};
 use std::path::Path;
 
+const HELP_LOOK: &str = r#"Examine your surroundings, a specific target, or a direction.
+
+Examples:
+  look                  look around the room
+  look goblin           examine a mob in the room
+  look sword            examine an item in the room or inventory
+  look north            peek through an exit
+  look at goblin        same as 'look goblin'"#;
+
+const HELP_HELP: &str = r#"List all commands or show details for a specific command.
+
+Examples:
+  help                  show all available commands
+  help look             show details for the look command
+  help l                works with aliases
+  help ki               works with partial names"#;
+
+const HELP_TRAIN: &str = r#"View your skills and spend skill points to increase ranks.
+
+Examples:
+  train                 show your skills and unspent points
+  train list            list trainable skills
+  train swords          increase rank in the swords skill"#;
+
+const HELP_STANCE: &str = r#"View or change your combat stance.
+
+Examples:
+  stance                show your current stance
+  stance normal         return to a balanced stance
+  stance defensive      reduce damage taken at the cost of offense
+  stance aggressive     deal more damage at the cost of defense
+  stance berserk        maximum offense, minimal defense"#;
+
+const HELP_WIDTH: &str = r#"View or set your terminal width for text wrapping.
+
+Examples:
+  width                 show your current setting
+  width 80              set to 80 columns
+  width 0               disable wrapping (unlimited)"#;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -100,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &["l"],
         AccessLevel::Player,
         "General",
-        "Examine your surroundings",
+        HELP_LOOK,
         commands::cmd_look,
     );
     server.register_command(
@@ -132,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &["h", "?"],
         AccessLevel::Player,
         "General",
-        "Show available commands",
+        HELP_HELP,
         commands::cmd_help,
     );
     server.register_command(
@@ -156,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &[],
         AccessLevel::Player,
         "General",
-        "Set your terminal width",
+        HELP_WIDTH,
         commands::cmd_width,
     );
 
@@ -262,7 +302,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &[],
         AccessLevel::Player,
         "Combat",
-        "Set your combat stance",
+        HELP_STANCE,
         commands::cmd_stance,
     );
     server.register_command(
@@ -270,7 +310,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &[],
         AccessLevel::Player,
         "Character",
-        "Spend skill points to improve skills",
+        HELP_TRAIN,
         commands::cmd_train,
     );
 
