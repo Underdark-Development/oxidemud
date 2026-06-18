@@ -1,37 +1,45 @@
 id = "goblin_scavenger"
 name = "goblin scavenger"
-description = "A wiry green-skinned goblin clad in ragged cloth, clutching a crude blade."
-health = { current = 12, max = 12 }
+description = "A wiry green-skinned goblin clad in ragged cloth, clutching a crude cudgel."
 level = 2
 armor = 2
 damage = "1d4+1"
-damage_type = "slash"
+damage_type = "bludgeoning"
 size = "small"
 xp_value = 35
 ai_mode = "wander"
 aggro_range = 6
 aggro_players = true
+aggro_race = []
+faction_standing = 0
+trainer_types = []
 languages = ["goblin"]
+skills = []
+scripts = []
 
-# attributes = { str = 10, dex = 14, int = 8, wis = 8, con = 10, cha = 6 }
-# race = "goblin"
-# faction = "goblin_warren"
-# trainer_types = []
-# skills = ["parry"]
-# scripts = [{ trigger = "on_death", path = "goblins/scavenge.rhai" }]
-# flee_threshold = 0.2
-# patrol_route = ["dark_thicket", "forest_crossing"]
-# return_home = "dark_thicket"
+[attributes]
+strength = 10
+dexterity = 10
+intelligence = 9
+wisdom = 10
+constitution = 10
+charisma = 5
+
+[health]
+current = 12
+max = 12
 
 [[equipment]]
 template_id = "wooden_cudgel"
 slot = "weapon"
 
-[loot]
 [[loot.entries]]
 item = "copper_coin"
-count = { min = 2, max = 5 }
-chance = 60
+chance = 5
+
+[loot.entries.count]
+min = 2
+max = 5
 
 [[loot.entries]]
 item = "healing_salve"

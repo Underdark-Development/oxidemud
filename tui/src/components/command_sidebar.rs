@@ -259,6 +259,14 @@ impl CommandSidebar {
                 Color::Indexed(236)
             };
 
+            if is_selected || is_hovered {
+                for x in area.x..area.x + actions_w {
+                    if let Some(cell) = buf.cell_mut((x, cmd_y)) {
+                        cell.set_bg(Color::Indexed(240));
+                    }
+                }
+            }
+
             let text = format!("  {cmd_label}");
             buf.set_string(area.x, cmd_y, &text, Style::default().fg(action_fg).bg(bg));
 

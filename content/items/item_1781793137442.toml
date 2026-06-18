@@ -1,0 +1,14 @@
+id = "goblin_skull"
+name = "goblin skull"
+description = "A goblin skull"
+item_type = "misc"
+subtype = "trash"
+quality = "common"
+level_requirement = 1
+weight = 1.0
+value = 0
+flags = []
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []

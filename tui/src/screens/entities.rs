@@ -157,17 +157,17 @@ impl EntitiesScreen {
                 for room_id in room_ids {
                     let room = &area.rooms[room_id];
                     if matches(&room.name) {
-                        let mut label = room.name.clone();
-                        if self.unsaved.contains(&("rooms".into(), room_id.clone())) {
-                            label += " *";
-                        }
-                        area_child.add_child(TreeNode::new(
-                            label,
-                            NodeInfo {
+                        let room_dirty = self.unsaved.contains(&("rooms".into(), room_id.clone()));
+                        area_child.add_child(TreeNode {
+                            label: room.name.clone(),
+                            data: NodeInfo {
                                 category: "rooms".into(),
                                 id: room_id.clone(),
                             },
-                        ));
+                            children: Vec::new(),
+                            collapsed: false,
+                            dirty: room_dirty,
+                        });
                         room_count += 1;
                     }
                 }
@@ -729,18 +729,19 @@ fn add_group<T, F>(
     ids.sort();
     for id in ids {
         if let Some(item) = items.get(id) {
-            let mut name = display(item);
-            if unsaved.contains(&(category.to_string(), id.clone())) {
-                name += " *";
-            }
+            let name = display(item);
+            let is_dirty = unsaved.contains(&(category.to_string(), id.clone()));
             if filter.is_none_or(|f| name.to_lowercase().contains(&f.to_lowercase())) {
-                node.add_child(TreeNode::new(
-                    name,
-                    NodeInfo {
+                node.add_child(TreeNode {
+                    label: name,
+                    data: NodeInfo {
                         category: category.to_string(),
                         id: id.clone(),
                     },
-                ));
+                    children: Vec::new(),
+                    collapsed: false,
+                    dirty: is_dirty,
+                });
                 count += 1;
             }
         }
@@ -1107,6 +1108,10 @@ impl Screen for EntitiesScreen {
         }
     }
 
+    fn unsaved_count(&self) -> usize {
+        self.unsaved.len()
+    }
+
     fn set_sidebar_focused(&mut self, focused: bool) {
         self.sidebar_focused = focused;
     }
@@ -1193,7 +1198,11 @@ impl Screen for EntitiesScreen {
                 ("Delete".to_string(), CommandAction::DeleteEntity),
             ],
         };
-        if self.detail.is_some() {
+        if self.detail.is_some()
+            || self
+                .unsaved
+                .contains(&(data.category.clone(), data.id.clone()))
+        {
             cmds.push(("Save".to_string(), CommandAction::SaveEntity));
         }
         cmds
@@ -1228,7 +1237,33 @@ impl Screen for EntitiesScreen {
             CommandAction::SaveEntity => {
                 let detail_open = self.detail.is_some();
                 if !detail_open {
-                    return Err("No entity open to save".to_string());
+                    let data = self
+                        .tree
+                        .selected_data()
+                        .ok_or_else(|| "No entity selected".to_string())?;
+                    let cat = data.category.clone();
+                    let id = data.id.clone();
+                    let is_draft = self.draft_data.contains_key(&(cat.clone(), id.clone()));
+                    let inspector = EntityInspectorScreen::new(
+                        self.registry.clone(),
+                        cat.clone(),
+                        id.clone(),
+                        self.file_map.clone(),
+                        Some(self.content_path.clone()),
+                        is_draft,
+                    );
+                    inspector.save_to_disk()?;
+                    self.draft_data.remove(&(cat.clone(), id.clone()));
+                    if !self.file_map.contains_key(&cat) || !self.file_map[&cat].contains_key(&id) {
+                        let path = self.content_path.join(&cat).join(format!("{id}.toml"));
+                        self.file_map
+                            .entry(cat.clone())
+                            .or_default()
+                            .insert(id.clone(), path);
+                    }
+                    self.unsaved.remove(&(cat, id));
+                    self.rebuild_tree();
+                    return Ok(true);
                 }
                 // Take save data before mutating
                 let (is_draft, cat, id) = {

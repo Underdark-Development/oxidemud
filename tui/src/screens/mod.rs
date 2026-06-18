@@ -38,6 +38,11 @@ pub trait Screen {
     /// `backward` is true if Shift+Tab was pressed, false for plain Tab.
     fn sidebar_focus_lost(&mut self, _backward: bool) {}
 
+    /// Returns the number of unsaved changes in this screen.
+    fn unsaved_count(&self) -> usize {
+        0
+    }
+
     /// Returns the currently selected entity, if any.
     fn selection_context(&self) -> Option<EntityContext> {
         None

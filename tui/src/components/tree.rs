@@ -14,6 +14,7 @@ pub struct TreeNode<T> {
     pub data: T,
     pub children: Vec<TreeNode<T>>,
     pub collapsed: bool,
+    pub dirty: bool,
 }
 
 impl<T> TreeNode<T> {
@@ -23,6 +24,7 @@ impl<T> TreeNode<T> {
             data,
             children: Vec::new(),
             collapsed: false,
+            dirty: false,
         }
     }
 
@@ -261,11 +263,21 @@ impl<T> Widget for &Tree<T> {
                 Style::default().fg(Color::Indexed(245))
             };
 
-            let line = Line::from(vec![
-                Span::styled(indent_str, Style::default()),
-                Span::styled(format!("{} ", prefix), prefix_style),
-                Span::styled(&node.label, label_style),
-            ]);
+            let marker_style = if self.muted {
+                Style::default().fg(Color::Indexed(240))
+            } else {
+                Style::default().fg(Color::Indexed(245))
+            };
+
+            let mut label_spans: Vec<Span> = vec![Span::styled(indent_str, Style::default())];
+            if node.dirty {
+                label_spans.push(Span::styled(prefix.to_string(), prefix_style));
+                label_spans.push(Span::styled("*".to_string(), marker_style));
+            } else {
+                label_spans.push(Span::styled(format!("{} ", prefix), prefix_style));
+            }
+            label_spans.push(Span::styled(&node.label, label_style));
+            let line = Line::from(label_spans);
             buf.set_line(area.x, y, &line, area.width);
         }
     }

@@ -123,19 +123,64 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    let status_line0 = format!(
-        " {}{}{}",
-        mode_label,
-        if connection_info.is_empty() { "" } else { " |" },
-        connection_info
-    );
+    // Status line 0: mode (reverse) + connection info + unsaved count
+    let mode_y = status_area.y;
+    let mut cursor_x = status_area.x;
+
+    // Leading normal-bg space — matches APP_NAME convention in menu_bar
     buf.set_string(
-        status_area.x,
-        status_area.y,
-        &status_line0,
+        cursor_x,
+        mode_y,
+        " ",
         Style::default().fg(Color::White).bg(Color::Indexed(236)),
     );
+    cursor_x += 1;
 
+    let padded_mode = format!(" {} ", mode_label);
+    buf.set_string(
+        cursor_x,
+        mode_y,
+        &padded_mode,
+        Style::default().fg(Color::White).bg(Color::Indexed(236)),
+    );
+    for (i, _) in padded_mode.char_indices() {
+        if let Some(cell) = buf.cell_mut((cursor_x + i as u16, mode_y)) {
+            cell.set_fg(Color::Black);
+            cell.set_bg(Color::White);
+        }
+    }
+    cursor_x += padded_mode.len() as u16;
+
+    if !connection_info.is_empty() {
+        let conn_text = format!(" |{connection_info}");
+        buf.set_string(
+            cursor_x,
+            mode_y,
+            &conn_text,
+            Style::default()
+                .fg(Color::Indexed(245))
+                .bg(Color::Indexed(236)),
+        );
+        cursor_x += conn_text.len() as u16;
+    }
+
+    let unsaved = app.active_screen().unsaved_count();
+    if unsaved > 0 {
+        let plural = if unsaved == 1 { "change" } else { "changes" };
+        let unsaved_text = format!(" {unsaved} unsaved {plural} ");
+        let unsaved_x =
+            (status_area.x + status_area.width).saturating_sub(unsaved_text.len() as u16);
+        if unsaved_x >= cursor_x {
+            buf.set_string(
+                unsaved_x,
+                mode_y,
+                &unsaved_text,
+                Style::default().fg(Color::White).bg(Color::Indexed(236)),
+            );
+        }
+    }
+
+    // Status line 1: action feedback
     if let Some(msg) = status_msg {
         buf.set_string(
             status_area.x,

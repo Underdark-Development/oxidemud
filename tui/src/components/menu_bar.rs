@@ -3,9 +3,9 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
     style::{Color, Style},
-    widgets::{Block, Borders, Widget},
 };
 
+use super::dropdown::{dropdown_item_style, highlight_dropdown_row, render_dropdown_box};
 use super::CommandAction;
 
 const APP_NAME: &str = " spade ";
@@ -385,24 +385,7 @@ impl MenuBar {
         hovered: Option<usize>,
         _is_sub: bool,
     ) {
-        if rect.width < 4 || rect.height < 3 {
-            return;
-        }
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .style(Style::default().bg(Color::Black).fg(Color::White));
-        block.render(rect, buf);
-
-        // Fill dropdown inner area with black background
-        for y in (rect.y + 1)..(rect.y + rect.height - 1) {
-            for x in (rect.x + 1)..(rect.x + rect.width - 1) {
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_char(' ');
-                    cell.set_bg(Color::Black);
-                }
-            }
-        }
+        render_dropdown_box(buf, rect, Style::default().fg(Color::White));
 
         for (i, item) in items.iter().enumerate() {
             let y = rect.y + 1 + i as u16;
@@ -428,51 +411,27 @@ impl MenuBar {
             let highlighted = is_hovered || is_sel;
 
             if highlighted {
-                for x in rect.x + 1..rect.x + rect.width - 1 {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_bg(Color::Indexed(240));
-                    }
-                }
+                highlight_dropdown_row(buf, rect, y);
             }
 
-            let text_fg = if highlighted {
-                Color::White
-            } else {
-                Color::Indexed(245)
-            };
-            let label_style = Style::default().fg(text_fg).bg(if highlighted {
-                Color::Indexed(240)
-            } else {
-                Color::Black
-            });
-            let shortcut_style = Style::default()
-                .fg(if highlighted {
-                    Color::White
-                } else {
-                    Color::Indexed(245)
-                })
-                .bg(if highlighted {
-                    Color::Indexed(240)
-                } else {
-                    Color::Black
-                });
+            let item_style = dropdown_item_style(highlighted);
 
             let inner_w = rect.width.saturating_sub(2) as usize;
             let label = &item.label;
             let label_trimmed: String = label.chars().take(inner_w.saturating_sub(3)).collect();
 
-            buf.set_string(rect.x + 2, y, &label_trimmed, label_style);
+            buf.set_string(rect.x + 2, y, &label_trimmed, item_style);
 
             let label_end = rect.x + 2 + label_trimmed.len() as u16;
 
             if item.has_submenu() {
                 let is_open = self.open_submenu.as_ref().is_some_and(|s| s.0 == i);
                 let arrow = if is_open { "▾" } else { "▸" };
-                buf.set_string(rect.x + rect.width - 3, y, arrow, label_style);
+                buf.set_string(rect.x + rect.width - 3, y, arrow, item_style);
             } else if let Some(ref shortcut) = item.shortcut {
                 let shortcut_x = rect.x + rect.width - 2 - shortcut.len() as u16;
                 if shortcut_x > label_end + 1 {
-                    buf.set_string(shortcut_x, y, shortcut, shortcut_style);
+                    buf.set_string(shortcut_x, y, shortcut, item_style);
                 }
             }
         }

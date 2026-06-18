@@ -3,13 +3,16 @@ use std::path::PathBuf;
 use mud_core::templates::{DiceString, ResetInterval, TemplateRegistry};
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     widgets::{Block, Borders, Widget},
 };
 
 use super::Screen;
+use crate::components::dropdown::{
+    dropdown_item_style, highlight_dropdown_row, render_dropdown_box,
+};
 use crate::components::{Dialog, ScrollState, Table};
 use crate::content::FileMap;
 
@@ -54,6 +57,9 @@ pub struct EntityInspectorScreen {
     pub content_path: Option<PathBuf>,
     pub is_draft: bool,
     pub muted: bool,
+    dropdown_rect: Option<Rect>,
+    dropdown_hovered: Option<usize>,
+    dropdown_scroll: usize,
 }
 
 impl EntityInspectorScreen {
@@ -80,6 +86,9 @@ impl EntityInspectorScreen {
             content_path,
             is_draft,
             muted: false,
+            dropdown_rect: None,
+            dropdown_hovered: None,
+            dropdown_scroll: 0,
         };
         screen.load_table();
         screen
@@ -1911,6 +1920,8 @@ impl Screen for EntityInspectorScreen {
             return;
         }
 
+        self.dropdown_rect = None;
+
         let info = format!(" {} > {} ", self.category, self.template_id);
         buf.set_string(
             area.x,
@@ -1922,20 +1933,23 @@ impl Screen for EntityInspectorScreen {
         let content_lines = area.height.saturating_sub(2) as usize;
         self.table.update_scroll(content_lines);
 
-        self.table.hovered = mouse_pos.and_then(|(col, row)| {
-            let table_top = area.y + 2;
-            if row >= table_top
-                && row < table_top + content_lines as u16
-                && col >= area.x
-                && col < area.x + area.width
-            {
-                let line = (row - table_top) as usize;
-                let idx = line + self.table.scroll.offset;
-                (idx < self.table.rows.len()).then_some(idx)
-            } else {
-                None
-            }
-        });
+        self.table.hovered = match self.edit_mode {
+            EditMode::Dropdown { .. } => None,
+            _ => mouse_pos.and_then(|(col, row)| {
+                let table_top = area.y + 2;
+                if row >= table_top
+                    && row < table_top + content_lines as u16
+                    && col >= area.x
+                    && col < area.x + area.width
+                {
+                    let line = (row - table_top) as usize;
+                    let idx = line + self.table.scroll.offset;
+                    (idx < self.table.rows.len()).then_some(idx)
+                } else {
+                    None
+                }
+            }),
+        };
         self.scrollbar = ScrollState {
             offset: self.table.scroll.offset,
             visible_lines: self.table.scroll.visible_lines,
@@ -1972,9 +1986,33 @@ impl Screen for EntityInspectorScreen {
                 self.render_multiline(area, buf, *row, *cursor, *scroll);
             }
             EditMode::Dropdown { row, selection, .. } => {
+                // Recompute hover from current mouse_pos so it's render-cycle
+                // accurate, not dependent on handle_mouse_dropdown timing.
+                if let Some(rect) = self.dropdown_rect {
+                    let inner_top = rect.y + 1;
+                    let inner_bottom = rect.y + rect.height - 1;
+                    self.dropdown_hovered = mouse_pos.and_then(|(col, row_pos)| {
+                        let inside_inner = col > rect.x
+                            && col < rect.x + rect.width - 1
+                            && row_pos >= inner_top
+                            && row_pos < inner_bottom;
+                        if inside_inner {
+                            let idx = self.dropdown_scroll + (row_pos - inner_top) as usize;
+                            if let EditMode::Dropdown { options, .. } = &self.edit_mode {
+                                (idx < options.len()).then_some(idx)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    });
+                }
                 self.render_dropdown(area, buf, *row, *selection);
             }
-            EditMode::Idle => {}
+            EditMode::Idle => {
+                self.dropdown_hovered = None;
+            }
         }
 
         if let Some(ref mut dialog) = self.delete_dialog {
@@ -2256,7 +2294,35 @@ impl EntityInspectorScreen {
     }
 
     fn handle_mouse_dropdown(&mut self, mouse: MouseEvent, _area: Rect) {
+        let rect = match self.dropdown_rect {
+            Some(r) => r,
+            None => return,
+        };
+
+        let col = mouse.column;
+        let row = mouse.row;
+        let inside_inner = col > rect.x
+            && col < rect.x + rect.width - 1
+            && row > rect.y
+            && row < rect.y + rect.height - 1;
+
         match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if inside_inner {
+                    if let EditMode::Dropdown {
+                        selection, options, ..
+                    } = &mut self.edit_mode
+                    {
+                        let clicked_idx = self.dropdown_scroll + (row - (rect.y + 1)) as usize;
+                        if clicked_idx < options.len() {
+                            *selection = clicked_idx;
+                            self.commit_edit();
+                        }
+                    }
+                } else {
+                    self.cancel_edit();
+                }
+            }
             MouseEventKind::ScrollUp => {
                 if let EditMode::Dropdown { selection, .. } = &mut self.edit_mode {
                     *selection = selection.saturating_sub(1);
@@ -2275,7 +2341,7 @@ impl EntityInspectorScreen {
         }
     }
 
-    fn render_dropdown(&self, area: Rect, buf: &mut Buffer, row: usize, selection: usize) {
+    fn render_dropdown(&mut self, area: Rect, buf: &mut Buffer, row: usize, selection: usize) {
         let options = match &self.edit_mode {
             EditMode::Dropdown { options, .. } => options.clone(),
             _ => return,
@@ -2303,34 +2369,32 @@ impl EntityInspectorScreen {
 
         let box_x = area.x + 2 + self.table.col_x(1);
         let overlay = Rect::new(box_x, box_y, max_width, box_height);
+        self.dropdown_rect = Some(overlay);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
-        let inner = block.inner(overlay);
-        block.render(overlay, buf);
+        render_dropdown_box(buf, overlay, Style::default().fg(Color::Cyan));
 
-        let visible_count = inner.height as usize;
+        let visible_count = (overlay.height.saturating_sub(2)) as usize;
         let scroll = selection.saturating_sub(visible_count.saturating_sub(1));
+        self.dropdown_scroll = scroll;
 
         for i in 0..visible_count {
             let idx = scroll + i;
             if idx >= options.len() {
                 break;
             }
-            let y = inner.y + i as u16;
+            let y = overlay.y + 1 + i as u16;
             let is_selected = idx == selection;
-            let style = if is_selected {
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
+            let is_hovered = self.dropdown_hovered == Some(idx);
+            let highlighted = is_selected || is_hovered;
+
+            if highlighted {
+                highlight_dropdown_row(buf, overlay, y);
+            }
+
+            let item_style = dropdown_item_style(highlighted);
             let prefix = if is_selected { "▸ " } else { "  " };
             let text = format!("{prefix}{}", options[idx]);
-            buf.set_string(inner.x, y, &text, style);
+            buf.set_string(overlay.x + 2, y, &text, item_style);
         }
     }
 

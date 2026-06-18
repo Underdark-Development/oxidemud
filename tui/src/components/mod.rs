@@ -1,6 +1,7 @@
 pub mod command_sidebar;
 mod context_menu;
 pub mod dialog;
+pub mod dropdown;
 mod form;
 pub mod menu_bar;
 mod modal;
