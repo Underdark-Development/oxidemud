@@ -29,6 +29,9 @@ pub(crate) static TEMPLATES: OnceLock<Arc<TemplateRegistry>> = OnceLock::new();
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
 pub(crate) static REGISTRY: OnceLock<Arc<Mutex<ConnectionRegistry>>> = OnceLock::new();
 
+pub type EntitySpawnedCb =
+    dyn Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync;
+
 pub struct Server {
     bind_addr: String,
     world: Arc<Mutex<World>>,
@@ -40,6 +43,7 @@ pub struct Server {
     db: Option<Arc<Mutex<mud_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     shutdown_complete: Arc<Notify>,
+    on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
 }
 
 impl Server {
@@ -55,7 +59,16 @@ impl Server {
             db: None,
             templates: None,
             shutdown_complete: Arc::new(Notify::new()),
+            on_entity_spawned: None,
         }
+    }
+
+    pub fn with_on_entity_spawned(
+        mut self,
+        cb: impl Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync + 'static,
+    ) -> Self {
+        self.on_entity_spawned = Some(Arc::new(cb));
+        self
     }
 
     pub fn with_spawn_room(mut self, spawn_room: Entity) -> Self {
@@ -134,10 +147,11 @@ impl Server {
                     let db = db.clone();
 
                     let templates = templates.clone();
+                    let on_entity_spawned = self.on_entity_spawned.clone();
                     tokio::spawn(async move {
                         handle_connection(
                             conn_id, stream, world, registry, commands, void_room, spawn_room, db,
-                            templates,
+                            templates, on_entity_spawned,
                         )
                         .await;
                     });
@@ -167,6 +181,7 @@ async fn handle_connection(
     spawn_room: Entity,
     db: Option<Arc<Mutex<mud_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
+    on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
 ) {
     let (reader_half, mut writer_half) = stream.into_split();
 
@@ -275,6 +290,9 @@ async fn handle_connection(
                             if let Some(tx) = conn.output_sender() {
                                 reg.register(entity, tx);
                             }
+                        }
+                        if let Some(ref cb) = on_entity_spawned {
+                            cb(&mut w, &mut conn, &reg);
                         }
                     }
 

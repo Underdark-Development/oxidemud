@@ -33,51 +33,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| Path::new("content"));
 
     let templates = templates::load_templates(content_path);
+    tracing::info!("Loaded {} race(s)", templates.races.len());
+    tracing::info!("Loaded {} class(es)", templates.classes.len());
+    tracing::info!("Loaded {} item(s)", templates.items.len());
+    tracing::info!("Loaded {} mob(s)", templates.mobs.len());
+    tracing::info!("Loaded {} area(s)", templates.areas.len());
     tracing::info!(
-        "Loaded {} race(s), {} class(es), {} item(s), {} mob(s), {} area(s)",
-        templates.races.len(),
-        templates.classes.len(),
-        templates.items.len(),
-        templates.mobs.len(),
-        templates.areas.len(),
+        "Loaded {} room(s)",
+        templates
+            .areas
+            .values()
+            .map(|a| a.rooms.len())
+            .sum::<usize>()
     );
+    tracing::info!("Loaded {} shop(s)", templates.shops.len());
+    tracing::info!("Loaded {} skill(s)", templates.skills.len());
+    tracing::info!("Loaded {} stance(s)", templates.stances.len());
+    tracing::info!("Loaded {} set(s)", templates.sets.len());
+    tracing::info!("Loaded {} affix(es)", templates.affixes.len());
+    tracing::info!("Loaded {} passive(s)", templates.passives.len());
 
     // Spawn all areas into the ECS world
     let spawn_room = {
         let mut entry_room = void_room;
         for area in templates.areas.values() {
-            let room = spawn_area(&mut world, area);
+            let room = spawn_area(&mut world, area, &templates);
             if entry_room == void_room {
                 entry_room = room;
             }
-            tracing::info!(
-                "Spawned area '{}' with {} room(s)",
-                area.name,
-                area.rooms.len()
-            );
+            let sub_count = templates
+                .areas
+                .keys()
+                .filter(|id| id.starts_with(&format!("{}.", area.id)))
+                .count();
+            if sub_count > 0 {
+                tracing::info!(
+                    "Spawned area '{}' with {} room(s), {} sub-area(s); spawn room: {}",
+                    area.name,
+                    area.rooms.len(),
+                    sub_count,
+                    area.spawn_room
+                );
+            } else {
+                tracing::info!(
+                    "Spawned area '{}' with {} room(s); spawn room: {}",
+                    area.name,
+                    area.rooms.len(),
+                    area.spawn_room
+                );
+            }
         }
         entry_room
     };
-    tracing::info!(
-        "Spawn room: {}",
-        templates
-            .areas
-            .values()
-            .next()
-            .map_or("void", |a| &a.spawn_room)
-    );
 
+    let commands_cmd_look = commands::cmd_look;
     let mut server = Server::new(config.bind_addr(), world, void_room)
         .with_database(db)
         .with_templates(templates)
-        .with_spawn_room(spawn_room);
+        .with_spawn_room(spawn_room)
+        .with_on_entity_spawned(move |world, conn, registry| {
+            commands_cmd_look(world, conn, "", "", registry);
+        });
 
     server.register_command("look", &["l"], AccessLevel::Player, commands::cmd_look);
     server.register_command("say", &[], AccessLevel::Player, commands::cmd_say);
     server.register_command("score", &[], AccessLevel::Player, commands::cmd_score);
     server.register_command("motd", &[], AccessLevel::Player, commands::cmd_motd);
     server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
-    server.register_command("who", &["w"], AccessLevel::Player, commands::cmd_who);
+    server.register_command("who", &[], AccessLevel::Player, commands::cmd_who);
     server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
     server.register_command("width", &[], AccessLevel::Player, commands::cmd_width);
 
