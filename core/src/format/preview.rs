@@ -18,9 +18,6 @@ pub fn room_look(
 
     rt.extend(conventions::room_name(name));
     rt.push_str("\n");
-    let sep_len = name.len().min(40);
-    rt.extend(conventions::separator("\u{2500}".repeat(sep_len)));
-    rt.push_str("\n");
     rt.extend(parse_tags(description));
     rt.push_str("\n");
 
@@ -54,22 +51,7 @@ pub fn mob_room_appearance(name: &str) -> RichText {
 pub fn mob_look_template(mob: &MobTemplate) -> RichText {
     let mut rt = RichText::new();
 
-    rt.extend(conventions::room_name(&mob.name));
-    rt.push_str("\n");
-    let sep_len = mob.name.len().min(40);
-    rt.extend(conventions::separator("\u{2500}".repeat(sep_len)));
-    rt.push_str("\n");
     rt.extend(parse_tags(&mob.description));
-    rt.push_str("\n");
-
-    rt.push_str(format!(
-        "Level {} | HP: {}/{} | AC: {}",
-        mob.level, mob.health.current, mob.health.max, mob.armor
-    ));
-    if let Some(ref race) = mob.race {
-        rt.push_str(format!(" | {race}"));
-    }
-    rt.push_str(format!(" | Size: {}", mob.size));
     rt.push_str("\n");
 
     rt
@@ -79,34 +61,8 @@ pub fn mob_look_template(mob: &MobTemplate) -> RichText {
 pub fn item_look_template(item: &ItemTemplate) -> RichText {
     let mut rt = RichText::new();
 
-    rt.extend(conventions::room_name(&item.name));
-    rt.push_str("\n");
-    let sep_len = item.name.len().min(40);
-    rt.extend(conventions::separator("\u{2500}".repeat(sep_len)));
-    rt.push_str("\n");
     rt.extend(parse_tags(&item.description));
     rt.push_str("\n");
-
-    rt.push_str(format!(
-        "{} item | Quality: {} | Weight: {} | Value: {}",
-        item.item_type, item.quality, item.weight, item.value
-    ));
-    if item.level_requirement > 0 {
-        rt.push_str(format!(" | Req. Level: {}", item.level_requirement));
-    }
-    rt.push_str("\n");
-
-    if let Some(ref weapon) = item.weapon {
-        rt.push_str(format!(
-            "Damage: {} {} | Speed: {} | Range: {}",
-            weapon.damage.0, weapon.damage_type, weapon.speed, weapon.range
-        ));
-        rt.push_str("\n");
-    }
-    if let Some(ref equip) = item.equipment {
-        rt.push_str(format!("Slot: {}", equip.slot));
-        rt.push_str("\n");
-    }
 
     rt
 }
