@@ -2,8 +2,12 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use mud_core as core;
+use mud_core::format::preview::{item_look_template, mob_look_template};
 use mud_core::templates::{SetDef, SkillResolveError};
-use mud_core::{Direction, Name, Npc, Position, Room, RoomExits, VoidRoom, World};
+use mud_core::{
+    Description, Direction, FloorItems, Friendly, Inventory, Item, Name, Npc, Position, Room,
+    RoomExits, ShortDesc, VoidRoom, World,
+};
 use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
@@ -41,6 +45,20 @@ fn get_name(world: &World, entity: core::Entity) -> Option<Name> {
         .and_then(|mut q| q.get().cloned())
 }
 
+fn get_short_desc(world: &World, entity: core::Entity) -> Option<String> {
+    let sd = world
+        .query_one::<&ShortDesc>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| s.0.clone()));
+    if sd.as_ref().is_some_and(|s| !s.is_empty()) {
+        return sd;
+    }
+    world
+        .query_one::<&Name>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.0.clone()))
+}
+
 fn is_void_room(world: &World, room: core::Entity) -> bool {
     world
         .query_one::<&VoidRoom>(room)
@@ -61,11 +79,209 @@ fn get_exits(world: &World, room: core::Entity) -> Vec<&'static str> {
     exits
 }
 
+// ---------------------------------------------------------------------------
+// "look at <target>" helpers
+// ---------------------------------------------------------------------------
+
+enum TargetKind {
+    Mob,
+    Player,
+    Item,
+}
+
+fn get_entity_name(world: &World, entity: core::Entity) -> Option<String> {
+    world
+        .query_one::<&Name>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase()))
+}
+
+fn get_room_name_for_entity(world: &World, entity: core::Entity) -> Option<String> {
+    world
+        .query_one::<&Room>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|r| r.name.clone()))
+}
+
+fn find_target_in_room(
+    world: &World,
+    room: core::Entity,
+    player_entity: core::Entity,
+    query: &str,
+) -> Option<(TargetKind, core::Entity)> {
+    let mut candidates: Vec<(String, (TargetKind, core::Entity))> = Vec::new();
+
+    // Search order determines tie-breaking within the same trie tier: NPCs → players → floor → inventory
+    let mut npc_q = world.query::<(&Position, &Npc)>();
+    for (raw, (pos, _)) in npc_q.iter() {
+        if pos.room != room {
+            continue;
+        }
+        let e = core::Entity::from(raw);
+        if e == player_entity {
+            continue;
+        }
+        if let Some(name) = get_entity_name(world, e) {
+            candidates.push((name, (TargetKind::Mob, e)));
+        }
+    }
+
+    let mut player_q = world.query::<&Position>();
+    for (raw, pos) in player_q.iter() {
+        if pos.room != room {
+            continue;
+        }
+        let e = core::Entity::from(raw);
+        if e == player_entity {
+            continue;
+        }
+        if world
+            .query_one::<&Npc>(e)
+            .is_ok_and(|mut q| q.get().is_some())
+        {
+            continue;
+        }
+        if let Some(name) = get_entity_name(world, e) {
+            candidates.push((name, (TargetKind::Player, e)));
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&FloorItems>(room) {
+        if let Some(floor) = q.get() {
+            for &item in &floor.0 {
+                if let Some(name) = get_entity_name(world, item) {
+                    candidates.push((name, (TargetKind::Item, item)));
+                }
+            }
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&Inventory>(player_entity) {
+        if let Some(inv) = q.get() {
+            for &item in &inv.0 {
+                if let Some(name) = get_entity_name(world, item) {
+                    candidates.push((name, (TargetKind::Item, item)));
+                }
+            }
+        }
+    }
+
+    match core::trie::trie_match(query, candidates) {
+        core::trie::TrieMatch::One(result) => Some(result),
+        core::trie::TrieMatch::Many(results) => results.into_iter().next(),
+        core::trie::TrieMatch::None => None,
+    }
+}
+
+fn look_at_target(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    player_entity: core::Entity,
+    room: core::Entity,
+    target_query: &str,
+) {
+    let Some((kind, target)) = find_target_in_room(world, room, player_entity, target_query) else {
+        conn.send_line("You don't see that here.");
+        return;
+    };
+
+    conn.send_line("");
+
+    match kind {
+        TargetKind::Mob => {
+            if let Some(templates) = mud_server::get_templates() {
+                if let Ok(mut q) = world.query_one::<&Npc>(target) {
+                    if let Some(npc) = q.get() {
+                        if let Some(mob_tpl) = templates.mobs.get(&npc.template_id) {
+                            send_formatted(conn, &mob_look_template(mob_tpl));
+                            return;
+                        }
+                    }
+                }
+            }
+            if let Some(sd) = get_short_desc(world, target) {
+                conn.send_line(&sd);
+            } else {
+                conn.send_line("You see nothing special.");
+            }
+        }
+        TargetKind::Player => {
+            if let Some(name) = get_name(world, target) {
+                send_formatted(conn, &core::format::conventions::room_name(&name.0));
+                send_formatted(
+                    conn,
+                    &core::format::conventions::separator("-".repeat(name.0.len().min(40))),
+                );
+            }
+            if let Ok(mut q) = world.query_one::<&Description>(target) {
+                if let Some(desc) = q.get() {
+                    if !desc.0.is_empty() {
+                        send_formatted(conn, &core::format::parse_tags(&desc.0));
+                        conn.send_line("");
+                        return;
+                    }
+                }
+            }
+            conn.send_line("They are nothing special to look at.");
+            conn.send_line("");
+        }
+        TargetKind::Item => {
+            if let Some(templates) = mud_server::get_templates() {
+                if let Ok(mut q) = world.query_one::<&Item>(target) {
+                    if let Some(item_comp) = q.get() {
+                        if let Some(item_tpl) = templates.items.get(&item_comp.template_id) {
+                            send_formatted(conn, &item_look_template(item_tpl));
+                            conn.send_line("");
+                            return;
+                        }
+                    }
+                }
+            }
+            if let Some(name) = get_name(world, target) {
+                conn.send_line(&format!("You see {}.", name.0));
+            } else {
+                conn.send_line("You see nothing special.");
+            }
+            conn.send_line("");
+        }
+    }
+}
+
+fn look_at_direction(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    room: core::Entity,
+    dir: Direction,
+) {
+    if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
+        if let Some(exits) = q.get() {
+            for exit in &exits.0 {
+                if exit.direction == dir {
+                    if exit.is_closed() {
+                        conn.send_line("The door is closed.");
+                        return;
+                    }
+                    if let Some(name) = get_room_name_for_entity(world, exit.dest) {
+                        conn.send_line(&format!("Looking {}, you see: {}", dir.long_name(), name));
+                    } else {
+                        conn.send_line(&format!(
+                            "Looking {}, you see nothing special.",
+                            dir.long_name()
+                        ));
+                    }
+                    return;
+                }
+            }
+        }
+    }
+    conn.send_line("Nothing special in that direction.");
+}
+
 pub fn cmd_look(
     world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
-    _args: &str,
+    args: &str,
     registry: &ConnectionRegistry,
 ) {
     let entity = match conn.entity() {
@@ -84,10 +300,29 @@ pub fn cmd_look(
         }
     };
 
+    let args = args.trim();
+
+    // Direction look: "look north" / "look n"
+    if !args.is_empty() {
+        if let Some(dir) = Direction::try_from(args) {
+            look_at_direction(world, conn, room, dir);
+            return;
+        }
+    }
+
+    // Target look: "look <name>" / "look at <name>"
+    if !args.is_empty() {
+        let target_query = args.strip_prefix("at ").unwrap_or(args).trim();
+        if !target_query.is_empty() {
+            look_at_target(world, conn, entity, room, target_query);
+            return;
+        }
+    }
+
+    // Room look
     if is_void_room(world, room) {
         conn.send_line("");
-        send_formatted(conn, &core::format::conventions::room_name("The Void"));
-        send_formatted(conn, &core::format::conventions::separator("-".repeat(9)));
+        send_formatted(conn, &core::format::conventions::room_name("The Void\n"));
         conn.send_line("You are floating in an endless, featureless void.");
         conn.send_line("There is nothing here and no way out.");
         conn.send_line("");
@@ -106,10 +341,7 @@ pub fn cmd_look(
 
     conn.send_line("");
     send_formatted(conn, &core::format::conventions::room_name(&room_name));
-    send_formatted(
-        conn,
-        &core::format::conventions::separator("-".repeat(room_name.len().min(40))),
-    );
+    conn.send_line("");
     send_formatted(conn, &core::format::parse_tags(&room_desc));
 
     // Exits
@@ -121,8 +353,25 @@ pub fn cmd_look(
         );
     }
 
-    // Mobs
-    let mobs: Vec<_> = {
+    // Floor items
+    if let Ok(mut q) = world.query_one::<&FloorItems>(room) {
+        if let Some(floor) = q.get() {
+            for &item in &floor.0 {
+                if let Some(name) = get_name(world, item) {
+                    conn.send_line(&format!("{} lies here.", name.0));
+                }
+            }
+        }
+    }
+
+    // Collect entities present in the room (excluding self)
+    let players: Vec<_> = registry
+        .occupants(world, room)
+        .into_iter()
+        .filter(|&e| e != entity)
+        .collect();
+
+    let all_npcs: Vec<_> = {
         let mut q = world.query::<(&Position, &Npc)>();
         q.iter()
             .filter(|(_, (pos, _))| pos.room == room)
@@ -131,39 +380,66 @@ pub fn cmd_look(
             .collect()
     };
 
-    if !mobs.is_empty() {
-        let mut t = core::format::RichText::new();
-        for (i, &mob) in mobs.iter().enumerate() {
-            if i > 0 {
-                t.push(core::format::Segment::new(", "));
-            }
-            if let Some(name) = get_name(world, mob) {
-                t.push(core::format::Segment::new(name.to_string()));
-            }
-        }
-        send_formatted(conn, &t);
-    }
+    let friendly: Vec<_> = {
+        let mut q = world.query::<(&Position, &Npc, &Friendly)>();
+        q.iter()
+            .filter(|(_, (pos, _, _))| pos.room == room)
+            .map(|(raw, _)| core::Entity::from(raw))
+            .filter(|&e| e != entity)
+            .collect()
+    };
 
-    // Occupants
-    let others: Vec<_> = registry
-        .occupants(world, room)
-        .into_iter()
-        .filter(|&e| e != entity)
+    let non_friendly: Vec<_> = all_npcs
+        .iter()
+        .filter(|e| !friendly.contains(e))
+        .copied()
         .collect();
 
-    if !others.is_empty() {
-        let mut t = core::format::RichText::new();
-        for (i, &other) in others.iter().enumerate() {
-            if i > 0 {
-                t.push(core::format::Segment::new(", "));
-            }
-            if let Some(name) = get_name(world, other) {
-                t.push(core::format::conventions::player_name_segment(
-                    name.as_str(),
-                ));
-            }
+    // Collect display info for each entity in the room
+    struct LookEntity {
+        name: String,
+        group: u8, // 0 = mob (non-friendly), 1 = friendly NPC, 2 = player
+    }
+
+    let mut look_entities: Vec<LookEntity> = Vec::new();
+
+    for p in &players {
+        if let Some(name) = get_name(world, *p) {
+            look_entities.push(LookEntity {
+                name: name.0,
+                group: 2,
+            });
         }
-        send_formatted(conn, &t);
+    }
+
+    for n in &friendly {
+        if let Some(desc) = get_short_desc(world, *n) {
+            look_entities.push(LookEntity {
+                name: desc,
+                group: 1,
+            });
+        }
+    }
+
+    for n in &non_friendly {
+        if let Some(desc) = get_short_desc(world, *n) {
+            look_entities.push(LookEntity {
+                name: desc,
+                group: 0,
+            });
+        }
+    }
+
+    // Sort: mobs first (0), then friendly NPCs (1), then players (2); alphabetical within groups
+    look_entities.sort_by(|a, b| {
+        a.group
+            .cmp(&b.group)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+
+    for entity_data in &look_entities {
+        let line = format!("{} is here.", entity_data.name);
+        conn.send_line(&line);
     }
 
     conn.send_line("");
@@ -663,16 +939,22 @@ pub fn cmd_kill(
         }
     };
 
-    // Find target in the same room by name
-    let target_name = args.trim().to_lowercase();
+    // Find target in the same room by name (only entities with Health are valid combat targets)
     let target = {
         let mut q = world.query::<(&core::Name, &core::Position, &core::Health)>();
-        q.iter()
-            .map(|(raw, (name, pos, _))| {
-                (core::Entity::from(raw), name.as_str().to_lowercase(), pos)
+        let candidates: Vec<(String, core::Entity)> = q
+            .iter()
+            .filter(|(raw, (_, pos, _))| {
+                let e = core::Entity::from(*raw);
+                pos.room == room && e != entity
             })
-            .find(|(e, n, pos)| pos.room == room && n == &target_name && *e != entity)
-            .map(|(e, _, _)| e)
+            .map(|(raw, (name, _, _))| (name.as_str().to_lowercase(), core::Entity::from(raw)))
+            .collect();
+        match core::trie::trie_match(args.trim(), candidates) {
+            core::trie::TrieMatch::One(e) => Some(e),
+            core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+            core::trie::TrieMatch::None => None,
+        }
     };
 
     let target = match target {
@@ -802,27 +1084,23 @@ fn find_item_in_inventory(
         .0
         .clone();
 
-    // Try by number first
+    // Try bare numeric index first (1-based, for inventory navigation)
     if let Ok(idx) = query.parse::<usize>() {
         if idx > 0 && idx <= inv.len() {
             return Some(inv[idx - 1]);
         }
     }
 
-    // Try by name
-    let query_lower = query.to_lowercase();
-    for item in &inv {
-        let name = world
-            .query_one::<&core::Name>(*item)
-            .ok()
-            .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase()))
-            .unwrap_or_default();
-        if name == query_lower {
-            return Some(*item);
-        }
-    }
+    let candidates: Vec<(String, core::Entity)> = inv
+        .iter()
+        .filter_map(|&item| get_entity_name(world, item).map(|name| (name, item)))
+        .collect();
 
-    None
+    match core::trie::trie_match(query, candidates) {
+        core::trie::TrieMatch::One(e) => Some(e),
+        core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+        core::trie::TrieMatch::None => None,
+    }
 }
 
 /// Re-evaluate set bonuses for an entity after equipment changes.
@@ -1034,23 +1312,21 @@ pub fn cmd_examine(
         let room = get_pos_room(world, entity)?;
         let mut floor_q = world.query_one::<&core::FloorItems>(room).ok()?;
         let floor = floor_q.get()?;
-        let query = item_name.to_lowercase();
-        if let Ok(idx) = query.parse::<usize>() {
+        if let Ok(idx) = item_name.parse::<usize>() {
             if idx > 0 && idx <= floor.0.len() {
                 return Some(floor.0[idx - 1]);
             }
         }
-        for item in &floor.0 {
-            let name = world
-                .query_one::<&core::Name>(*item)
-                .ok()
-                .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase()))
-                .unwrap_or_default();
-            if name == query {
-                return Some(*item);
-            }
+        let candidates: Vec<(String, core::Entity)> = floor
+            .0
+            .iter()
+            .filter_map(|&item| get_entity_name(world, item).map(|name| (name, item)))
+            .collect();
+        match core::trie::trie_match(item_name, candidates) {
+            core::trie::TrieMatch::One(e) => Some(e),
+            core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+            core::trie::TrieMatch::None => None,
         }
-        None
     });
 
     let item = match item {
@@ -1141,24 +1417,28 @@ pub fn cmd_get(
         let mut q = world.query_one::<&mut core::FloorItems>(room);
         match q.as_mut().ok().and_then(|q| q.get()) {
             Some(floor) => {
-                let query = item_name.to_lowercase();
-                let idx = if let Ok(n) = query.parse::<usize>() {
+                if let Ok(n) = item_name.parse::<usize>() {
                     if n > 0 && n <= floor.0.len() {
-                        Some(n - 1)
+                        Some(floor.0.remove(n - 1))
                     } else {
                         None
                     }
                 } else {
-                    floor.0.iter().position(|e| {
-                        world
-                            .query_one::<&core::Name>(*e)
-                            .ok()
-                            .and_then(|mut q| q.get().map(|n| n.as_str().to_lowercase() == query))
-                            .unwrap_or(false)
+                    let candidates: Vec<(String, core::Entity)> = floor
+                        .0
+                        .iter()
+                        .filter_map(|&e| get_entity_name(world, e).map(|name| (name, e)))
+                        .collect();
+                    let matched = match core::trie::trie_match(item_name, candidates) {
+                        core::trie::TrieMatch::One(e) => Some(e),
+                        core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+                        core::trie::TrieMatch::None => None,
+                    };
+                    matched.and_then(|m| {
+                        let idx = floor.0.iter().position(|&e| e == m)?;
+                        Some(floor.0.remove(idx))
                     })
-                };
-
-                idx.map(|i| floor.0.remove(i))
+                }
             }
             None => None,
         }
@@ -1288,17 +1568,16 @@ pub fn cmd_loot(
     // Find corpse in room
     let corpse = {
         let mut q = world.query::<(&core::Corpse, &core::Position, &core::Name)>();
-        q.iter()
-            .map(|(raw, (_, pos, name))| (core::Entity::from(raw), name.clone(), pos))
-            .find(|(_, _, pos)| pos.room == room)
-            .and_then(|(e, name, _)| {
-                let name_lower = corpse_name.to_lowercase();
-                if name.as_str().to_lowercase() == name_lower {
-                    Some(e)
-                } else {
-                    None
-                }
-            })
+        let candidates: Vec<(String, core::Entity)> = q
+            .iter()
+            .filter(|(_, (_, pos, _))| pos.room == room)
+            .map(|(raw, (_, _, name))| (name.as_str().to_lowercase(), core::Entity::from(raw)))
+            .collect();
+        match core::trie::trie_match(corpse_name, candidates) {
+            core::trie::TrieMatch::One(e) => Some(e),
+            core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+            core::trie::TrieMatch::None => None,
+        }
     };
 
     let corpse = match corpse {
