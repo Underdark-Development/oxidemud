@@ -28,6 +28,7 @@ pub(crate) static DB: OnceLock<Arc<Mutex<mud_data::Database>>> = OnceLock::new()
 pub(crate) static TEMPLATES: OnceLock<Arc<TemplateRegistry>> = OnceLock::new();
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
 pub(crate) static REGISTRY: OnceLock<Arc<Mutex<ConnectionRegistry>>> = OnceLock::new();
+static COMMANDS: OnceLock<Arc<CommandDispatch>> = OnceLock::new();
 
 pub type EntitySpawnedCb =
     dyn Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync;
@@ -95,12 +96,16 @@ impl Server {
         name: &'static str,
         aliases: &'static [&'static str],
         access: AccessLevel,
+        category: &'static str,
+        help_text: &'static str,
         handler: crate::cmd::CommandFn,
     ) {
         self.commands.register(Command {
             name,
             aliases,
             access,
+            category,
+            help_text,
             handler,
         });
     }
@@ -115,6 +120,7 @@ impl Server {
         let world = self.world;
         let registry = self.registry;
         let commands = Arc::new(self.commands);
+        let _ = COMMANDS.set(commands.clone());
         let void_room = self.void_room;
         let spawn_room = self.spawn_room;
         let db = self.db;
@@ -160,6 +166,17 @@ impl Server {
         }
 
         tracing::info!("All connections closed");
+
+        if let Some(ref db) = db {
+            if let Ok(db_guard) = db.try_lock() {
+                let mut w = world.lock().await;
+                crate::game_loop::save_player_positions(&mut w, &db_guard);
+                tracing::info!("Player positions saved");
+            } else {
+                tracing::warn!("Could not lock DB at shutdown; player positions not saved");
+            }
+        }
+
         shutdown_complete.notify_one();
 
         Ok(())
@@ -552,6 +569,11 @@ pub fn get_motd() -> &'static str {
 // ---------------------------------------------------------------------------
 // Server console accessors
 // ---------------------------------------------------------------------------
+
+/// Returns a clone of the command dispatch, if initialized.
+pub fn get_commands() -> Option<Arc<CommandDispatch>> {
+    COMMANDS.get().cloned()
+}
 
 /// Returns a clone of the DB handle, if initialized.
 pub fn get_db() -> Option<Arc<Mutex<mud_data::Database>>> {

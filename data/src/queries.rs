@@ -185,12 +185,12 @@ pub fn update_character_level(
 
 pub fn update_character_position(
     conn: &Connection,
-    character_id: i64,
-    room_id: i64,
+    entity_id: i64,
+    room_entity_id: i64,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE characters SET room_id = ?1 WHERE id = ?2",
-        params![room_id, character_id],
+        "UPDATE characters SET room_id = ?1 WHERE entity_id = ?2",
+        params![room_entity_id, entity_id],
     )?;
     Ok(())
 }
@@ -212,11 +212,11 @@ pub fn update_character_gender(
 
 pub fn update_character_last_seen(
     conn: &Connection,
-    character_id: i64,
+    entity_id: i64,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE characters SET last_seen = datetime('now') WHERE id = ?1",
-        params![character_id],
+        "UPDATE characters SET last_seen = datetime('now') WHERE entity_id = ?1",
+        params![entity_id],
     )?;
     Ok(())
 }
@@ -1232,7 +1232,7 @@ mod tests {
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "posowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
-        let char_id = create_character(
+        let _char_id = create_character(
             &conn,
             account_id,
             "Wanderer",
@@ -1243,7 +1243,7 @@ mod tests {
             None,
         )
         .unwrap();
-        update_character_position(&conn, char_id, room2).unwrap();
+        update_character_position(&conn, eid, room2).unwrap();
 
         let char_row = get_character_by_name(&conn, "Wanderer").unwrap().unwrap();
         assert_eq!(char_row.room_id, Some(room2));
@@ -1256,7 +1256,7 @@ mod tests {
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "seenowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
-        let char_id = create_character(
+        let _char_id = create_character(
             &conn,
             account_id,
             "SeenMe",
@@ -1272,7 +1272,7 @@ mod tests {
             .unwrap()
             .last_seen
             .is_none());
-        update_character_last_seen(&conn, char_id).unwrap();
+        update_character_last_seen(&conn, eid).unwrap();
         assert!(get_character_by_name(&conn, "SeenMe")
             .unwrap()
             .unwrap()

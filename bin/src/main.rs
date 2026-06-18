@@ -95,78 +95,274 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             commands_cmd_look(world, conn, "", "", registry);
         });
 
-    server.register_command("look", &["l"], AccessLevel::Player, commands::cmd_look);
-    server.register_command("say", &[], AccessLevel::Player, commands::cmd_say);
-    server.register_command("score", &[], AccessLevel::Player, commands::cmd_score);
-    server.register_command("motd", &[], AccessLevel::Player, commands::cmd_motd);
-    server.register_command("help", &["h", "?"], AccessLevel::Player, commands::cmd_help);
-    server.register_command("who", &[], AccessLevel::Player, commands::cmd_who);
-    server.register_command("quit", &["exit"], AccessLevel::Player, commands::cmd_quit);
-    server.register_command("width", &[], AccessLevel::Player, commands::cmd_width);
+    server.register_command(
+        "look",
+        &["l"],
+        AccessLevel::Player,
+        "General",
+        "Examine your surroundings",
+        commands::cmd_look,
+    );
+    server.register_command(
+        "say",
+        &[],
+        AccessLevel::Player,
+        "Communication",
+        "Speak aloud in the room",
+        commands::cmd_say,
+    );
+    server.register_command(
+        "score",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Display your character stats",
+        commands::cmd_score,
+    );
+    server.register_command(
+        "motd",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Show the message of the day",
+        commands::cmd_motd,
+    );
+    server.register_command(
+        "help",
+        &["h", "?"],
+        AccessLevel::Player,
+        "General",
+        "Show available commands",
+        commands::cmd_help,
+    );
+    server.register_command(
+        "who",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "List connected players",
+        commands::cmd_who,
+    );
+    server.register_command(
+        "quit",
+        &["exit"],
+        AccessLevel::Player,
+        "General",
+        "Disconnect from the game",
+        commands::cmd_quit,
+    );
+    server.register_command(
+        "width",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Set your terminal width",
+        commands::cmd_width,
+    );
 
     // Phase 3 — Combat
-    server.register_command("kill", &[], AccessLevel::Player, commands::cmd_kill);
+    server.register_command(
+        "kill",
+        &[],
+        AccessLevel::Player,
+        "Combat",
+        "Attack a target",
+        commands::cmd_kill,
+    );
     server.register_command(
         "inventory",
         &["inv", "i"],
         AccessLevel::Player,
+        "Items",
+        "List your carried items",
         commands::cmd_inventory,
     );
     server.register_command(
         "equipment",
         &["eq"],
         AccessLevel::Player,
+        "Items",
+        "Show what you are wearing and wielding",
         commands::cmd_equipment,
     );
-    server.register_command("wear", &[], AccessLevel::Player, commands::cmd_wear);
-    server.register_command("wield", &[], AccessLevel::Player, commands::cmd_wield);
-    server.register_command("remove", &[], AccessLevel::Player, commands::cmd_remove);
+    server.register_command(
+        "wear",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Wear a piece of armor",
+        commands::cmd_wear,
+    );
+    server.register_command(
+        "wield",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Wield a weapon",
+        commands::cmd_wield,
+    );
+    server.register_command(
+        "remove",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Remove an equipped item",
+        commands::cmd_remove,
+    );
     server.register_command(
         "examine",
         &["exa"],
         AccessLevel::Player,
+        "Items",
+        "Inspect an item or target",
         commands::cmd_examine,
     );
-    server.register_command("get", &["take"], AccessLevel::Player, commands::cmd_get);
-    server.register_command("drop", &[], AccessLevel::Player, commands::cmd_drop);
-    server.register_command("put", &[], AccessLevel::Player, commands::cmd_put);
-    server.register_command("give", &[], AccessLevel::Player, commands::cmd_give);
-    server.register_command("loot", &[], AccessLevel::Player, commands::cmd_loot);
-    server.register_command("stance", &[], AccessLevel::Player, commands::cmd_stance);
-    server.register_command("train", &[], AccessLevel::Player, commands::cmd_train);
+    server.register_command(
+        "get",
+        &["take"],
+        AccessLevel::Player,
+        "Items",
+        "Pick up an item",
+        commands::cmd_get,
+    );
+    server.register_command(
+        "drop",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Drop an item",
+        commands::cmd_drop,
+    );
+    server.register_command(
+        "put",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Put an item into a container",
+        commands::cmd_put,
+    );
+    server.register_command(
+        "give",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Give an item to someone",
+        commands::cmd_give,
+    );
+    server.register_command(
+        "loot",
+        &[],
+        AccessLevel::Player,
+        "Items",
+        "Take all items from a corpse",
+        commands::cmd_loot,
+    );
+    server.register_command(
+        "stance",
+        &[],
+        AccessLevel::Player,
+        "Combat",
+        "Set your combat stance",
+        commands::cmd_stance,
+    );
+    server.register_command(
+        "train",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Spend skill points to improve skills",
+        commands::cmd_train,
+    );
 
     // Builder commands
-    server.register_command("@award", &[], AccessLevel::Builder, commands::cmd_award);
+    server.register_command(
+        "@award",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Grant XP to a player",
+        commands::cmd_award,
+    );
 
     // Movement commands
-    server.register_command("north", &["n"], AccessLevel::Player, commands::cmd_move);
-    server.register_command("south", &["s"], AccessLevel::Player, commands::cmd_move);
-    server.register_command("east", &["e"], AccessLevel::Player, commands::cmd_move);
-    server.register_command("west", &["w"], AccessLevel::Player, commands::cmd_move);
-    server.register_command("up", &["u"], AccessLevel::Player, commands::cmd_move);
-    server.register_command("down", &["d"], AccessLevel::Player, commands::cmd_move);
+    server.register_command(
+        "north",
+        &["n"],
+        AccessLevel::Player,
+        "Movement",
+        "Move north",
+        commands::cmd_move,
+    );
+    server.register_command(
+        "south",
+        &["s"],
+        AccessLevel::Player,
+        "Movement",
+        "Move south",
+        commands::cmd_move,
+    );
+    server.register_command(
+        "east",
+        &["e"],
+        AccessLevel::Player,
+        "Movement",
+        "Move east",
+        commands::cmd_move,
+    );
+    server.register_command(
+        "west",
+        &["w"],
+        AccessLevel::Player,
+        "Movement",
+        "Move west",
+        commands::cmd_move,
+    );
+    server.register_command(
+        "up",
+        &["u"],
+        AccessLevel::Player,
+        "Movement",
+        "Move up",
+        commands::cmd_move,
+    );
+    server.register_command(
+        "down",
+        &["d"],
+        AccessLevel::Player,
+        "Movement",
+        "Move down",
+        commands::cmd_move,
+    );
     server.register_command(
         "northeast",
         &["ne"],
         AccessLevel::Player,
+        "Movement",
+        "Move northeast",
         commands::cmd_move,
     );
     server.register_command(
         "northwest",
         &["nw"],
         AccessLevel::Player,
+        "Movement",
+        "Move northwest",
         commands::cmd_move,
     );
     server.register_command(
         "southeast",
         &["se"],
         AccessLevel::Player,
+        "Movement",
+        "Move southeast",
         commands::cmd_move,
     );
     server.register_command(
         "southwest",
         &["sw"],
         AccessLevel::Player,
+        "Movement",
+        "Move southwest",
         commands::cmd_move,
     );
 

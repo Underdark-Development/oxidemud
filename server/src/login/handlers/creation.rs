@@ -1548,10 +1548,21 @@ async fn load_character(
 
     drop(db_guard);
 
-    let room = char_row
-        .spawn_key
-        .as_deref()
-        .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
+    // Resolve starting room: last saved position → spawn_key → global spawn
+    let saved_room = char_row.room_id.and_then(|room_db_id| {
+        world
+            .query::<&DbId>()
+            .iter()
+            .find(|(_, dbid)| dbid.0 == room_db_id)
+            .map(|(raw, _)| Entity::from(raw))
+    });
+    let room = saved_room
+        .or_else(|| {
+            char_row
+                .spawn_key
+                .as_deref()
+                .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
+        })
         .unwrap_or(spawn_room);
 
     let player = world.spawn((

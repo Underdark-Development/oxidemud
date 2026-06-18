@@ -17,6 +17,8 @@ pub struct Command {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub access: AccessLevel,
+    pub category: &'static str,
+    pub help_text: &'static str,
     pub handler: CommandFn,
 }
 
@@ -58,6 +60,19 @@ impl CommandDispatch {
         } else {
             conn.send_line("Huh? Type 'help' for a list of commands.");
         }
+    }
+
+    /// Returns commands grouped by category in registration order.
+    pub fn help_groups(&self) -> Vec<(&'static str, Vec<&Command>)> {
+        let mut groups: Vec<(&'static str, Vec<&Command>)> = Vec::new();
+        for cmd in &self.commands {
+            if let Some(group) = groups.iter_mut().find(|(cat, _)| *cat == cmd.category) {
+                group.1.push(cmd);
+            } else {
+                groups.push((cmd.category, vec![cmd]));
+            }
+        }
+        groups
     }
 
     fn find(&self, name: &str) -> Option<&Command> {
@@ -109,12 +124,16 @@ mod tests {
             name: "test",
             aliases: &["t"],
             access: AccessLevel::Player,
+            category: "General",
+            help_text: "test command",
             handler: test_handler,
         });
         d.register(Command {
             name: "admin",
             aliases: &[],
             access: AccessLevel::Admin,
+            category: "Admin",
+            help_text: "admin command",
             handler: noop,
         });
         d
@@ -171,5 +190,14 @@ mod tests {
         let (mut conn, _rx) = TelnetConnection::new(1);
         let registry = empty_registry();
         dispatch.execute(&mut world, &mut conn, "test", &registry);
+    }
+
+    #[test]
+    fn test_help_groups_preserves_order() {
+        let dispatch = make_dispatch();
+        let groups = dispatch.help_groups();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, "General");
+        assert_eq!(groups[1].0, "Admin");
     }
 }
