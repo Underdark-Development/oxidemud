@@ -8,15 +8,20 @@ build:
 release:
     cargo build --workspace --release
 
-# ─── Run ────────────────────────────────────────────────────────────
+# ─── Server ─────────────────────────────────────────────────────────
 
 # Run the MUD server (default port 4000)
-run port="4000":
+server port="4000":
     cargo run -p mud-bin -- {{ port }}
 
 # Run spade (offline builder mode)
 spade *args="":
     cargo run -p spade -- {{ args }}
+
+# Run the MCP world-building server (stdio transport, pre-built binary)
+mcp content_path="content":
+    cargo build -p mud-mcp -q
+    ./target/debug/mud-mcp "{{ content_path }}"
 
 # ─── Connect ────────────────────────────────────────────────────────
 
