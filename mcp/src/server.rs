@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 
 use mud_core::templates::{
     AffixDef, AreaTemplate, ClassTemplate, HealthBounds, ItemTemplate, LootTable, MobTemplate,
     PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef, StanceDef,
-    TemplateRegistry,
 };
 use mud_core::SkillDef;
 use rmcp::{
@@ -17,24 +15,14 @@ use serde::Deserialize;
 
 use crate::content;
 
-struct ServerState {
-    registry: TemplateRegistry,
-    file_map: content::FileMap,
-}
-
 #[derive(Clone)]
 pub struct MudMcpServer {
     content_path: PathBuf,
-    state: Arc<RwLock<ServerState>>,
 }
 
 impl MudMcpServer {
     pub fn new(content_path: PathBuf) -> Self {
-        let (registry, file_map) = content::load_registry(&content_path);
-        MudMcpServer {
-            content_path,
-            state: Arc::new(RwLock::new(ServerState { registry, file_map })),
-        }
+        MudMcpServer { content_path }
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
@@ -43,9 +31,8 @@ impl MudMcpServer {
         Ok(())
     }
 
-    fn reload(&self) {
-        let (registry, file_map) = content::load_registry(&self.content_path);
-        *self.state.write().unwrap() = ServerState { registry, file_map };
+    fn load(&self) -> (mud_core::templates::TemplateRegistry, content::FileMap) {
+        content::load_registry(&self.content_path)
     }
 
     fn entity_list(items: &HashMap<String, impl AsRef<str>>, label: &str) -> String {
@@ -138,10 +125,9 @@ struct SearchParams {
 impl MudMcpServer {
     #[tool(description = "List all areas")]
     fn list_areas(&self) -> String {
-        let state = self.state.read().unwrap();
+        let (registry, _) = self.load();
         Self::entity_list(
-            &state
-                .registry
+            &registry
                 .areas
                 .iter()
                 .map(|(k, v)| (k.clone(), v.name.as_str()))
@@ -153,8 +139,8 @@ impl MudMcpServer {
     #[tool(description = "Get area details")]
     fn get_area(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match state.registry.get_area(&p.id) {
+        let (registry, _) = self.load();
+        match registry.get_area(&p.id) {
             Some(area) => {
                 let mut out = format!(
                     "id: {}\nname: {}\ndescription: {}",
@@ -226,19 +212,17 @@ impl MudMcpServer {
             return format!("Error: failed to write starter room: {e}");
         }
 
-        self.reload();
         format!("Created area '{}'", p.id)
     }
 
     #[tool(description = "Delete an area and its file")]
     fn delete_area(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        let area_path = match state.file_map.get("areas").and_then(|m| m.get(&p.id)) {
+        let (_, file_map) = self.load();
+        let area_path = match file_map.get("areas").and_then(|m| m.get(&p.id)) {
             Some(p) => p.clone(),
             None => return format!("Error: area '{}' not found", p.id),
         };
-        drop(state);
 
         // If it's a subdirectory-format area, delete the whole directory.
         // If it's a flat file, just delete the file.
@@ -251,15 +235,14 @@ impl MudMcpServer {
             return format!("Error: failed to delete {}: {e}", area_path.display());
         }
 
-        self.reload();
         format!("Deleted area '{}'", p.id)
     }
 
     #[tool(description = "List rooms in an area")]
     fn list_rooms(&self, params: Parameters<AreaIdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match state.registry.get_area(&p.area_id) {
+        let (registry, _) = self.load();
+        match registry.get_area(&p.area_id) {
             Some(area) => {
                 let mut ids: Vec<&String> = area.rooms.keys().collect();
                 ids.sort();
@@ -277,33 +260,57 @@ impl MudMcpServer {
     #[tool(description = "Get room details")]
     fn get_room(&self, params: Parameters<RoomIdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match state.registry.get_area(&p.area_id) {
-            Some(area) => match area.rooms.get(&p.room_id) {
-                Some(room) => {
-                    let mut out = format!(
-                        "room_id: {}\nname: {}\ndescription: {}",
-                        p.room_id, room.name, room.description
-                    );
-                    if !room.exits.is_empty() {
-                        out.push_str("\nexits:");
-                        let mut dirs: Vec<&String> = room.exits.keys().collect();
-                        dirs.sort();
-                        for dir in dirs {
-                            out.push_str(&format!("\n  {dir}: {}", room.exits[dir]));
+        let (registry, _) = self.load();
+        match registry.get_room(&p.area_id, &p.room_id) {
+            Some(room) => {
+                let mut out = format!(
+                    "room_id: {}\nname: {}\ndescription: {}",
+                    p.room_id, room.name, room.description
+                );
+                if !room.exits.is_empty() {
+                    out.push_str("\nexits:");
+                    let mut dirs: Vec<&String> = room.exits.keys().collect();
+                    dirs.sort();
+                    for dir in dirs {
+                        out.push_str(&format!("\n  {dir}: {}", room.exits[dir]));
+                    }
+                }
+                if !room.portals.is_empty() {
+                    out.push_str("\nportals:");
+                    for portal in &room.portals {
+                        out.push_str(&format!(
+                            "\n  {} -> {}: {}",
+                            portal.keyword, portal.dest, portal.description
+                        ));
+                        if !portal.flags.is_empty() {
+                            out.push_str(&format!(" [{}]", portal.flags.join(", ")));
                         }
                     }
-                    if !room.flags.is_empty() {
-                        out.push_str(&format!("\nflags: {}", room.flags.join(", ")));
-                    }
-                    out
                 }
-                None => format!(
-                    "Error: room '{}' not found in area '{}'",
-                    p.room_id, p.area_id
-                ),
-            },
-            None => format!("Error: area '{}' not found", p.area_id),
+                if !room.content.mobs.is_empty() {
+                    out.push_str("\nmob spawns:");
+                    for mob in &room.content.mobs {
+                        out.push_str(&format!("\n  {} x{}", mob.template_id, mob.count));
+                        if let Some(secs) = mob.respawn_secs {
+                            out.push_str(&format!(" (respawn {secs}s)"));
+                        }
+                    }
+                }
+                if !room.content.items.is_empty() {
+                    out.push_str("\nitem spawns:");
+                    for item in &room.content.items {
+                        out.push_str(&format!("\n  {} x{}", item.template_id, item.count));
+                    }
+                }
+                if !room.flags.is_empty() {
+                    out.push_str(&format!("\nflags: {}", room.flags.join(", ")));
+                }
+                out
+            }
+            None => format!(
+                "Error: room '{}' not found in area '{}'",
+                p.room_id, p.area_id
+            ),
         }
     }
 
@@ -312,13 +319,12 @@ impl MudMcpServer {
         let p = params.0;
         let area_id = &p.area_id;
         let room_id = &p.room_id;
-        let state = self.state.read().unwrap();
+        let (_, file_map) = self.load();
 
-        let area_dir = match content::area_dir_from_file(&state.file_map, area_id) {
+        let area_dir = match content::area_dir_from_file(&file_map, area_id) {
             Ok(d) => d,
             Err(e) => return format!("Error: {e}"),
         };
-        drop(state);
 
         let room_path = area_dir.join("rooms").join(format!("{room_id}.toml"));
         if room_path.exists() {
@@ -346,40 +352,44 @@ impl MudMcpServer {
         {
             return format!("Error: failed to write {}: {e}", room_path.display());
         }
-        self.reload();
         format!("Created room '{}' in area '{}'", room_id, area_id)
     }
 
     #[tool(description = "Delete a room from an area")]
     fn delete_room(&self, params: Parameters<RoomIdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        let room_path = match state.file_map.get("rooms").and_then(|m| m.get(&p.room_id)) {
+        let (_, file_map) = self.load();
+        let room_key = format!("{}:{}", p.area_id, p.room_id);
+        let room_path = match file_map.get("rooms").and_then(|m| m.get(&room_key)) {
             Some(p) => p.clone(),
-            None => return format!("Error: room '{}' not found", p.room_id),
+            None => {
+                return format!(
+                    "Error: room '{}' not found in area '{}'",
+                    p.room_id, p.area_id
+                )
+            }
         };
-        drop(state);
 
         if let Err(e) = fs::remove_file(&room_path) {
             return format!("Error: failed to delete {}: {e}", room_path.display());
         }
-        self.reload();
         format!("Deleted room '{}' from area '{}'", p.room_id, p.area_id)
     }
 
     #[tool(description = "Link two rooms together by adding an exit")]
     fn link_rooms(&self, params: Parameters<LinkRoomsParams>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        let room_path = match state
-            .file_map
-            .get("rooms")
-            .and_then(|m| m.get(&p.from_room))
-        {
+        let (_, file_map) = self.load();
+        let room_key = format!("{}:{}", p.area_id, p.from_room);
+        let room_path = match file_map.get("rooms").and_then(|m| m.get(&room_key)) {
             Some(p) => p.clone(),
-            None => return format!("Error: room '{}' not found", p.from_room),
+            None => {
+                return format!(
+                    "Error: room '{}' not found in area '{}'",
+                    p.from_room, p.area_id
+                )
+            }
         };
-        drop(state);
 
         let room_content = match fs::read_to_string(&room_path) {
             Ok(c) => c,
@@ -399,7 +409,6 @@ impl MudMcpServer {
             }
             Err(e) => return format!("Error: failed to serialize room: {e}"),
         }
-        self.reload();
         format!(
             "Linked {} -> {}:{} via {}.{}",
             p.from_room, p.to_area, p.to_room, p.area_id, p.direction
@@ -432,11 +441,11 @@ impl MudMcpServer {
     )]
     fn update_template(&self, params: Parameters<UpdateFieldsParams>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
+        let (_, file_map) = self.load();
         if p.category == "rooms" {
             return "Error: use update_room for room fields".to_string();
         }
-        let path = match content::find_file(&state.file_map, &p.category, &p.id) {
+        let path = match content::find_file(&file_map, &p.category, &p.id) {
             Ok(p) => p,
             Err(e) => return format!("Error: {e}"),
         };
@@ -595,8 +604,6 @@ impl MudMcpServer {
                         return format!("Error: failed to write {room_id}: {e}");
                     }
                 }
-                drop(state);
-                self.reload();
                 return format!(
                     "Updated {} field(s) on {}/{}",
                     p.fields.len(),
@@ -610,8 +617,6 @@ impl MudMcpServer {
         if let Err(e) = fs::write(&path, &out) {
             return format!("Error: failed to write {}: {e}", path.display());
         }
-        drop(state);
-        self.reload();
         format!(
             "Updated {} field(s) on {}/{}",
             p.fields.len(),
@@ -622,10 +627,9 @@ impl MudMcpServer {
 
     #[tool(description = "List all mob templates")]
     fn list_mobs(&self) -> String {
-        let state = self.state.read().unwrap();
+        let (registry, _) = self.load();
         Self::entity_list(
-            &state
-                .registry
+            &registry
                 .mobs
                 .iter()
                 .map(|(k, v)| (k.clone(), v.name.as_str()))
@@ -637,8 +641,8 @@ impl MudMcpServer {
     #[tool(description = "Get mob template details")]
     fn get_mob(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match state.registry.get_mob(&p.id) {
+        let (registry, _file_map) = self.load();
+        match registry.get_mob(&p.id) {
             Some(mob) => format!(
                 "id: {}\nname: {}\nlevel: {}\ndescription: {}\narmor: {}\nai: {}",
                 p.id, mob.name, mob.level, mob.description, mob.armor, mob.ai_mode
@@ -659,6 +663,7 @@ impl MudMcpServer {
             id: p.id.clone(),
             name,
             description: String::new(),
+            short_desc: String::new(),
             level: 1,
             attributes: RaceAttributes::default(),
             health: HealthBounds {
@@ -676,11 +681,14 @@ impl MudMcpServer {
             ai_mode: "idle".to_string(),
             aggro_range: 0,
             aggro_players: false,
+            aggro_mobs: false,
             aggro_race: Vec::new(),
             faction: None,
             faction_standing: 0,
             trainer_types: Vec::new(),
             languages: Vec::new(),
+            shop: None,
+            friendly: false,
             skills: Vec::new(),
             scripts: Vec::new(),
         };
@@ -691,7 +699,6 @@ impl MudMcpServer {
                 {
                     return format!("Error: failed to write mob: {e}");
                 }
-                self.reload();
                 format!("Created mob '{}'", p.id)
             }
             Err(e) => format!("Error: failed to serialize mob: {e}"),
@@ -701,23 +708,18 @@ impl MudMcpServer {
     #[tool(description = "Delete a mob template")]
     fn delete_mob(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match content::delete_file(&state.file_map, "mobs", &p.id) {
-            Ok(()) => {
-                drop(state);
-                self.reload();
-                format!("Deleted mob '{}'", p.id)
-            }
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "mobs", &p.id) {
+            Ok(()) => format!("Deleted mob '{}'", p.id),
             Err(e) => format!("Error: {e}"),
         }
     }
 
     #[tool(description = "List all item templates")]
     fn list_items(&self) -> String {
-        let state = self.state.read().unwrap();
+        let (registry, _) = self.load();
         Self::entity_list(
-            &state
-                .registry
+            &registry
                 .items
                 .iter()
                 .map(|(k, v)| (k.clone(), v.name.as_str()))
@@ -729,8 +731,8 @@ impl MudMcpServer {
     #[tool(description = "Get item template details")]
     fn get_item(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match state.registry.get_item(&p.id) {
+        let (registry, _file_map) = self.load();
+        match registry.get_item(&p.id) {
             Some(item) => format!(
                 "id: {}\nname: {}\ntype: {}\nquality: {}\ndescription: {}",
                 p.id, item.name, item.item_type, item.quality, item.description
@@ -774,7 +776,6 @@ impl MudMcpServer {
                 {
                     return format!("Error: failed to write item: {e}");
                 }
-                self.reload();
                 format!("Created item '{}'", p.id)
             }
             Err(e) => format!("Error: failed to serialize item: {e}"),
@@ -784,23 +785,18 @@ impl MudMcpServer {
     #[tool(description = "Delete an item template")]
     fn delete_item(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
-        match content::delete_file(&state.file_map, "items", &p.id) {
-            Ok(()) => {
-                drop(state);
-                self.reload();
-                format!("Deleted item '{}'", p.id)
-            }
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "items", &p.id) {
+            Ok(()) => format!("Deleted item '{}'", p.id),
             Err(e) => format!("Error: {e}"),
         }
     }
 
     #[tool(description = "List all skill templates")]
     fn list_skills(&self) -> String {
-        let state = self.state.read().unwrap();
+        let (registry, _) = self.load();
         Self::entity_list(
-            &state
-                .registry
+            &registry
                 .skills
                 .iter()
                 .map(|(k, v)| (k.clone(), v.name.as_str()))
@@ -811,10 +807,9 @@ impl MudMcpServer {
 
     #[tool(description = "List all race templates")]
     fn list_races(&self) -> String {
-        let state = self.state.read().unwrap();
+        let (registry, _) = self.load();
         Self::entity_list(
-            &state
-                .registry
+            &registry
                 .races
                 .iter()
                 .map(|(k, v)| (k.clone(), v.name.as_str()))
@@ -825,10 +820,9 @@ impl MudMcpServer {
 
     #[tool(description = "List all class templates")]
     fn list_classes(&self) -> String {
-        let state = self.state.read().unwrap();
+        let (registry, _) = self.load();
         Self::entity_list(
-            &state
-                .registry
+            &registry
                 .classes
                 .iter()
                 .map(|(k, v)| (k.clone(), v.name.as_str()))
@@ -840,9 +834,9 @@ impl MudMcpServer {
     #[tool(description = "Get template content as TOML for any type")]
     fn get_template_raw(&self, params: Parameters<UpdateFieldsParams>) -> String {
         let p = params.0;
-        let state = self.state.read().unwrap();
+        let (_registry, file_map) = self.load();
         let field = if p.id.is_empty() { &p.category } else { &p.id };
-        let path = match content::find_file(&state.file_map, &p.category, field) {
+        let path = match content::find_file(&file_map, &p.category, field) {
             Ok(p) => p,
             Err(e) => return format!("Error: {e}"),
         };
@@ -854,8 +848,8 @@ impl MudMcpServer {
 
     #[tool(description = "Validate all templates for cross-reference errors")]
     fn validate(&self) -> String {
-        let state = self.state.read().unwrap();
-        let errors = state.registry.validate();
+        let (registry, _file_map) = self.load();
+        let errors = registry.validate();
         if errors.is_empty() {
             return "All templates valid.".to_string();
         }
@@ -871,8 +865,8 @@ impl MudMcpServer {
 
     #[tool(description = "Get content statistics summary")]
     fn get_stats(&self) -> String {
-        let state = self.state.read().unwrap();
-        let r = &state.registry;
+        let (registry, _file_map) = self.load();
+        let r = &registry;
         let room_count: usize = r.areas.values().map(|a| a.rooms.len()).sum();
         format!(
             "Areas: {}\nRooms: {}\nItems: {}\nMobs: {}\nRaces: {}\nClasses: {}\nSkills: {}\nStances: {}\nSets: {}\nAffixes: {}\nPassives: {}",
@@ -893,8 +887,8 @@ impl MudMcpServer {
     #[tool(description = "Fuzzy search all template names and descriptions")]
     fn search(&self, params: Parameters<SearchParams>) -> String {
         let q = params.0.query.to_lowercase();
-        let state = self.state.read().unwrap();
-        let r = &state.registry;
+        let (registry, _file_map) = self.load();
+        let r = &registry;
         let mut results: Vec<String> = Vec::new();
 
         for (id, area) in &r.areas {
@@ -957,12 +951,12 @@ impl MudMcpServer {
         room_id: &str,
         fields: &serde_json::Map<String, serde_json::Value>,
     ) -> String {
-        let state = self.state.read().unwrap();
-        let room_path = match state.file_map.get("rooms").and_then(|m| m.get(room_id)) {
+        let (_registry, file_map) = self.load();
+        let room_key = format!("{area_id}:{room_id}");
+        let room_path = match file_map.get("rooms").and_then(|m| m.get(&room_key)) {
             Some(p) => p.clone(),
-            None => return format!("Error: room '{}' not found", room_id),
+            None => return format!("Error: room '{}' not found in area '{}'", room_id, area_id),
         };
-        drop(state);
 
         let content = match fs::read_to_string(&room_path) {
             Ok(c) => c,
@@ -994,7 +988,6 @@ impl MudMcpServer {
             }
             Err(e) => return format!("Error: failed to serialize room: {e}"),
         }
-        self.reload();
         format!(
             "Updated {} field(s) on room {}/{}",
             fields.len(),

@@ -60,6 +60,8 @@ pub struct EntityInspectorScreen {
     dropdown_rect: Option<Rect>,
     dropdown_hovered: Option<usize>,
     dropdown_scroll: usize,
+    /// Original file path at construction time, used to detect file relocation.
+    original_path: Option<PathBuf>,
 }
 
 impl EntityInspectorScreen {
@@ -89,8 +91,10 @@ impl EntityInspectorScreen {
             dropdown_rect: None,
             dropdown_hovered: None,
             dropdown_scroll: 0,
+            original_path: None,
         };
         screen.load_table();
+        screen.original_path = screen.resolve_save_path().ok();
         screen
     }
 
@@ -468,6 +472,7 @@ impl EntityInspectorScreen {
             if let Some(room) = area.rooms.get(&self.template_id) {
                 Self::add_field(table, "name", &room.name);
                 Self::add_field(table, "description", &room.description);
+                Self::add_field(table, "area", &area.id);
                 Self::add_field(table, "flags", room.flags.join(", "));
                 for (dir, dest) in &room.exits {
                     Self::add_field(table, &format!("exit.{dir}"), dest);
@@ -667,6 +672,16 @@ impl EntityInspectorScreen {
         self.validate_toml(&toml_str)?;
 
         let path = self.resolve_save_path()?;
+
+        // Detect room relocation: if original path differs from new path, delete old file.
+        if self.category == "rooms" && !self.is_draft {
+            if let Some(ref orig) = self.original_path {
+                if *orig != path {
+                    let _ = std::fs::remove_file(orig);
+                }
+            }
+        }
+
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("cannot create dirs: {e}"))?;
         }
@@ -770,17 +785,16 @@ impl EntityInspectorScreen {
             .ok_or_else(|| "no content_path for draft".to_string())?;
 
         if self.category == "rooms" {
-            // Need the parent area ID from the room data
             let area_id = self
                 .registry
                 .areas
                 .values()
                 .find_map(|a| a.rooms.get(&self.template_id))
-                .map(|r| r.area.clone())
+                .map(|r| &r.area)
                 .ok_or_else(|| "cannot resolve area for draft room".to_string())?;
             Ok(cp
                 .join("areas")
-                .join(&area_id)
+                .join(area_id)
                 .join("rooms")
                 .join(format!("{}.toml", self.template_id)))
         } else if self.category == "areas" {
@@ -848,10 +862,17 @@ impl EntityInspectorScreen {
             return Ok(());
         }
         if self.category == "rooms" {
+            let room = self
+                .registry
+                .areas
+                .values()
+                .find_map(|a| a.rooms.get(&self.template_id))
+                .ok_or_else(|| format!("room '{}' not found in registry", self.template_id))?;
+            let room_key = format!("{}:{}", room.area, self.template_id);
             let path = self
                 .file_map
                 .get("rooms")
-                .and_then(|m| m.get(&self.template_id))
+                .and_then(|m| m.get(&room_key))
                 .ok_or_else(|| format!("room file for '{}' not found", self.template_id))?;
             std::fs::remove_file(path)?;
             return Ok(());
@@ -921,13 +942,33 @@ impl EntityInspectorScreen {
                 }
             }
             "rooms" => {
-                // Rooms are nested within areas; sync the parent area's room
-                for area in self.registry.areas.values() {
-                    if let Some(room) = area.rooms.get(template_id) {
-                        if let Some(target_area) = registry.areas.get_mut(&area.id) {
-                            target_area.rooms.insert(template_id.clone(), room.clone());
+                // Rooms are nested within areas. If the room's area field was changed,
+                // relocate it from the old area to the new area in the main registry.
+                if let Some(room) = self
+                    .registry
+                    .areas
+                    .values()
+                    .find_map(|a| a.rooms.get(template_id))
+                    .cloned()
+                {
+                    let target_id = room.area.clone();
+                    // Remove from any area in main registry that still holds it
+                    if let Some(old_area) = registry
+                        .areas
+                        .values_mut()
+                        .find(|a| a.rooms.contains_key(template_id))
+                    {
+                        if old_area.id != target_id {
+                            old_area.rooms.remove(template_id);
+                        } else {
+                            // Same area — just update the room in-place
+                            old_area.rooms.insert(template_id.clone(), room);
+                            return;
                         }
-                        break;
+                    }
+                    // Insert into target area
+                    if let Some(target) = registry.areas.get_mut(&target_id) {
+                        target.rooms.insert(template_id.clone(), room);
                     }
                 }
             }
@@ -1781,6 +1822,13 @@ impl EntityInspectorScreen {
     }
 
     fn update_room(&mut self, field: &str, value: &str) -> Result<(), String> {
+        if field == "area" && !self.registry.areas.contains_key(value) {
+            let valid: Vec<String> = self.registry.areas.keys().cloned().collect();
+            return Err(format!(
+                "area '{value}' does not exist. Valid areas: {}",
+                valid.join(", ")
+            ));
+        }
         let room = self
             .registry
             .areas
@@ -1788,6 +1836,9 @@ impl EntityInspectorScreen {
             .find_map(|a| a.rooms.get_mut(&self.template_id))
             .ok_or_else(|| "room not found".to_string())?;
         match field {
+            "area" => {
+                room.area = value.to_string();
+            }
             "name" => room.name = value.to_string(),
             "description" => room.description = value.to_string(),
             "flags" => room.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
