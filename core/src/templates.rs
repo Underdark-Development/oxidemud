@@ -442,6 +442,8 @@ pub struct MobTemplate {
     pub name: String,
     pub description: String,
     #[serde(default)]
+    pub short_desc: String,
+    #[serde(default)]
     pub level: u8,
     #[serde(default)]
     pub attributes: RaceAttributes,
@@ -469,6 +471,8 @@ pub struct MobTemplate {
     #[serde(default)]
     pub aggro_players: bool,
     #[serde(default)]
+    pub aggro_mobs: bool,
+    #[serde(default)]
     pub aggro_race: Vec<String>,
     #[serde(default)]
     pub faction: Option<String>,
@@ -480,6 +484,10 @@ pub struct MobTemplate {
     pub languages: Vec<String>,
     #[serde(default)]
     pub skills: Vec<MobSkillEntry>,
+    #[serde(default)]
+    pub shop: Option<String>,
+    #[serde(default)]
+    pub friendly: bool,
     #[serde(default)]
     pub scripts: Vec<ScriptHookEntry>,
 }
@@ -706,7 +714,36 @@ pub struct AreaTemplate {
     #[serde(default)]
     pub spawns: Vec<SpawnEntry>,
     /// Map of room_id → RoomTemplate
+    #[serde(default)]
     pub rooms: HashMap<String, RoomTemplate>,
+}
+
+// ---------------------------------------------------------------------------
+// Shop template types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShopInventoryCount {
+    pub min: u64,
+    pub max: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShopInventoryEntry {
+    pub item: String,
+    pub count: ShopInventoryCount,
+    pub price: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShopTemplate {
+    pub id: String,
+    pub name: String,
+    pub buy_rate: f64,
+    pub sell_rate: f64,
+    pub restock_secs: u64,
+    #[serde(default)]
+    pub inventory: Vec<ShopInventoryEntry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -780,6 +817,7 @@ pub struct TemplateRegistry {
     pub passives: HashMap<String, PassiveDef>,
     pub areas: HashMap<String, AreaTemplate>,
     pub skills: HashMap<String, SkillDef>,
+    pub shops: HashMap<String, ShopTemplate>,
     pub indices: DerivedIndices,
 }
 
@@ -898,6 +936,17 @@ impl TemplateRegistry {
                     });
                 }
             }
+
+            if let Some(ref shop_id) = mob.shop {
+                if !self.shops.contains_key(shop_id) {
+                    errors.push(ValidationError {
+                        template_type: "mob",
+                        template_id: id.clone(),
+                        field: "shop".into(),
+                        message: format!("references unknown shop: {shop_id}"),
+                    });
+                }
+            }
         }
 
         // Validate passives referenced by race/class/items
@@ -929,7 +978,25 @@ impl TemplateRegistry {
             }
             for (room_id, room) in &area.rooms {
                 for dest in room.exits.values() {
-                    if !area.rooms.contains_key(dest) {
+                    if let Some((target_area, target_room)) = dest.split_once(':') {
+                        if !self.areas.contains_key(target_area) {
+                            errors.push(ValidationError {
+                                template_type: "area",
+                                template_id: area_id.clone(),
+                                field: format!("rooms.{room_id}.exits"),
+                                message: format!("references unknown area '{target_area}'"),
+                            });
+                        } else if !self.room_exists(target_area, target_room) {
+                            errors.push(ValidationError {
+                                template_type: "area",
+                                template_id: area_id.clone(),
+                                field: format!("rooms.{room_id}.exits"),
+                                message: format!(
+                                    "references unknown room '{target_room}' in area '{target_area}'"
+                                ),
+                            });
+                        }
+                    } else if !area.rooms.contains_key(dest) {
                         errors.push(ValidationError {
                             template_type: "area",
                             template_id: area_id.clone(),
@@ -941,7 +1008,25 @@ impl TemplateRegistry {
                     }
                 }
                 for portal in &room.portals {
-                    if !area.rooms.contains_key(&portal.dest) {
+                    if let Some((target_area, target_room)) = portal.dest.split_once(':') {
+                        if !self.areas.contains_key(target_area) {
+                            errors.push(ValidationError {
+                                template_type: "area",
+                                template_id: area_id.clone(),
+                                field: format!("rooms.{room_id}.portals"),
+                                message: format!("references unknown area '{target_area}'"),
+                            });
+                        } else if !self.room_exists(target_area, target_room) {
+                            errors.push(ValidationError {
+                                template_type: "area",
+                                template_id: area_id.clone(),
+                                field: format!("rooms.{room_id}.portals"),
+                                message: format!(
+                                    "references unknown room '{target_room}' in area '{target_area}'"
+                                ),
+                            });
+                        }
+                    } else if !area.rooms.contains_key(&portal.dest) {
                         errors.push(ValidationError {
                             template_type: "area",
                             template_id: area_id.clone(),
@@ -1180,6 +1265,22 @@ impl TemplateRegistry {
         self.areas.get(id)
     }
 
+    // ── Room helpers ──
+
+    pub fn get_room(&self, area_id: &str, room_id: &str) -> Option<&RoomTemplate> {
+        self.areas.get(area_id)?.rooms.get(room_id)
+    }
+
+    pub fn get_room_mut(&mut self, area_id: &str, room_id: &str) -> Option<&mut RoomTemplate> {
+        self.areas.get_mut(area_id)?.rooms.get_mut(room_id)
+    }
+
+    pub fn room_exists(&self, area_id: &str, room_id: &str) -> bool {
+        self.areas
+            .get(area_id)
+            .is_some_and(|a| a.rooms.contains_key(room_id))
+    }
+
     /// Returns all spawn entries across all areas that match the given
     /// race, class, and alignment constraints.
     ///
@@ -1219,6 +1320,12 @@ impl TemplateRegistry {
             }
         }
         None
+    }
+
+    // ── Shop helpers ──
+
+    pub fn get_shop(&self, id: &str) -> Option<&ShopTemplate> {
+        self.shops.get(id)
     }
 
     // ── Affix helpers ──
