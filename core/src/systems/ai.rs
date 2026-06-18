@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{CombatTarget, Entity, Health, Level, Npc, Position, RoomExits, World};
+use crate::{CombatTarget, Entity, Friendly, Health, Level, Npc, Position, RoomExits, World};
 
 /// Per-NPC AI state.
 #[derive(Debug, Clone)]
@@ -12,6 +12,7 @@ pub struct AiState {
     pub aggro_range: u32,
     pub aggro_players: bool,
     pub aggro_race: Vec<String>,
+    pub aggro_mobs: bool,
 }
 
 /// Run one AI pulse for all NPCs with AiState.
@@ -155,8 +156,17 @@ fn do_aggro_check(world: &mut World, entity: Entity, state: AiState) {
     };
 
     for target in targets {
+        // Aggro unfriendly NPCs (mobs without Friendly marker)
+        if state.aggro_mobs
+            && world.query_one::<&Npc>(target).is_ok()
+            && world.query_one::<&Friendly>(target).is_err()
+        {
+            let _ = world.insert(entity, (CombatTarget(target),));
+            return;
+        }
+
+        // Aggro weak players
         if state.aggro_players && world.query_one::<&crate::Player>(target).is_ok() {
-            // Check level range (aggro if target is weak enough)
             let target_level = world
                 .query_one::<&Level>(target)
                 .ok()
@@ -244,6 +254,7 @@ mod tests {
                 aggro_range: 0,
                 aggro_players: false,
                 aggro_race: vec![],
+                aggro_mobs: false,
             },
         ));
         (world, npc, room_a)

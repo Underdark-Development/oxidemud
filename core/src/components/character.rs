@@ -173,6 +173,14 @@ pub struct Race(pub String);
 #[derive(Debug, Clone)]
 pub struct Class(pub String);
 
+/// The entity's short description (for room look display).
+#[derive(Debug, Clone)]
+pub struct ShortDesc(pub String);
+
+/// Marker component for NPCs that should not be auto-attacked by guards.
+#[derive(Debug, Clone, Copy)]
+pub struct Friendly;
+
 impl Player {
     pub fn new(account_id: i64) -> Self {
         Player {
