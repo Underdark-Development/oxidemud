@@ -1,6 +1,7 @@
 id = "goblin_scavenger"
 name = "goblin scavenger"
 description = "A wiry green-skinned goblin clad in ragged cloth, clutching a crude cudgel."
+short_desc = "a goblin scavenger"
 level = 2
 armor = 2
 damage = "1d4+1"

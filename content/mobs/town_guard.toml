@@ -1,29 +1,39 @@
 id = "town_guard"
 name = "Town Guard"
 description = "A stern watchman in a leather vest, spear never far from reach. A silver badge glints on his chest."
-health = { current = 30, max = 30 }
-level = 3
-armor = 4
-damage = "1d6+1"
+short_desc = "a town guard"
+level = 20
+armor = 20
+damage = "2d8+4"
 damage_type = "pierce"
 race = "human"
+size = "medium"
+xp_value = 0
 ai_mode = "stationary"
 aggro_range = 8
-aggro_race = ["goblin"]
-languages = ["common"]
+aggro_players = false
+aggro_race = []
+faction_standing = 0
 trainer_types = ["combat"]
+languages = ["common"]
+skills = []
+scripts = []
 
-# attributes = { str = 14, dex = 12, int = 10, wis = 10, con = 13, cha = 8 }
-# size = "medium"
-# xp_value = 75
-# faction = "riverside_guard"
-# trainer_types = []
-# skills = ["shield_bash"]
-# scripts = [{ trigger = "on_death", path = "guards/fall_in_line.rhai" }]
-# flee_threshold = 0.1
-# patrol_route = ["town_square", "town_gate"]
-# return_home = "town_square"
+[attributes]
+strength = 10
+dexterity = 10
+intelligence = 10
+wisdom = 10
+constitution = 10
+charisma = 10
+
+[health]
+current = 200
+max = 200
 
 [[equipment]]
 template_id = "leather_vest"
 slot = "torso"
+
+[loot]
+entries = []

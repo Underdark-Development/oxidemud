@@ -1,6 +1,7 @@
 id = "river_rat"
 name = "river rat"
 description = "A mangy rat the size of a cat, with yellowed teeth and beady red eyes."
+short_desc = "a river rat"
 level = 1
 armor = 0
 damage = "1d2"

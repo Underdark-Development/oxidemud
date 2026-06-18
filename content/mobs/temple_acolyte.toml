@@ -1,6 +1,7 @@
 id = "temple_acolyte"
 name = "Temple Acolyte"
 description = "A serene young cleric in cream-colored robes, hands clasped in quiet contemplation."
+short_desc = "a temple acolyte"
 health = { current = 20, max = 20 }
 level = 5
 armor = 2

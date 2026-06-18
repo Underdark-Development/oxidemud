@@ -1,23 +1,35 @@
 id = "merchant"
 name = "Elias the Merchant"
 description = "A portly man with a warm smile and keen eyes, dressed in a well-worn canvas apron."
-health = { current = 15, max = 15 }
+short_desc = "Elias the Merchant"
 level = 2
 armor = 1
-ai_mode = "idle"
 race = "human"
-languages = ["common"]
-shop = "elias_wares"
+size = "medium"
+equipment = []
+xp_value = 0
+ai_mode = "idle"
+aggro_range = 0
+aggro_players = false
+aggro_race = []
+faction_standing = 0
 trainer_types = ["shop"]
+languages = ["common"]
+skills = []
+shop = "elias_wares"
+scripts = []
 
-# attributes = { str = 8, dex = 10, int = 12, wis = 14, con = 10, cha = 16 }
-# size = "medium"
-# damage = "1d4"
-# damage_type = "bludgeon"
-# xp_value = 20
-# faction = "riverside_merchant_guild"
-# trainer_types = ["shop"]
-# skills = ["identify", "enchant"]
-# scripts = [{ trigger = "on_use", path = "shops/elias_trade.rhai" }]
-# flee_threshold = 0.5
-# aggro_range = 0
+[attributes]
+strength = 10
+dexterity = 10
+intelligence = 10
+wisdom = 10
+constitution = 10
+charisma = 10
+
+[health]
+current = 15
+max = 15
+
+[loot]
+entries = []
