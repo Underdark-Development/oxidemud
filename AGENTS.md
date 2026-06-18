@@ -94,6 +94,8 @@ bin/        — Server binary entrypoint (main.rs)
 - **Minimal `pub`** — start everything `pub(crate)`; make `pub` only when another crate needs it. Re-export the public API at `lib.rs`.
 - **Dependency injection** — pass dependencies as function parameters, not globals. Systems receive `&mut World` and `&Resources`.
 - **No circular dependencies** — the crate DAG (`core → {server, data, scripting, tui, mcp} → bin`) is enforced at build time.
+- **Strongly prefer code reuse over reimplementation** — when an existing command, system, or function already provides the behavior you need, call it rather than duplicating its logic in a different layer. If the architecture lacks a clean connection point (callback, event, hook), introduce the needed abstraction instead of taking a shortcut.
+- **Strongly prefer clean modular boundaries** — every module, crate, and system has a defined responsibility. A change that spans layers should add a proper bridge, not blur the lines. Best practices over laziness: if doing it right requires a refactor, do the refactor.
 
 ### Maintainability
 - **Readability over cleverness** — prefer straightforward code over fancy one-liners. Name things for the reader, not the writer.
