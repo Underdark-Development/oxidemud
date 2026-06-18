@@ -1,11 +1,14 @@
+pub mod command_sidebar;
 mod context_menu;
 mod form;
+pub mod menu_bar;
 mod modal;
 mod scroll_state;
 mod table;
 mod tabs;
 mod tree;
 
+pub use command_sidebar::CommandAction;
 pub use context_menu::ContextMenu;
 pub use form::{FieldType, Form, FormField};
 pub use modal::Modal;

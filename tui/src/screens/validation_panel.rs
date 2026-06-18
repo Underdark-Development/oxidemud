@@ -82,12 +82,13 @@ impl Screen for ValidationPanelScreen {
         self.run_validation();
     }
 
-    fn handle_key(&mut self, key: KeyEvent) {
+    fn handle_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Up => self.table.select_prev(),
             KeyCode::Down => self.table.select_next(),
             _ => {}
         }
+        true
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent, _area: Rect) {
@@ -98,7 +99,7 @@ impl Screen for ValidationPanelScreen {
         }
     }
 
-    fn render(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>) {
         if area.width < 4 || area.height < 2 {
             return;
         }

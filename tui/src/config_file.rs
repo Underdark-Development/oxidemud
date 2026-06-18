@@ -53,6 +53,8 @@ pub struct PrefsConfig {
     pub mouse: bool,
     #[serde(default = "default_scrollback")]
     pub scrollback_size: usize,
+    #[serde(default = "default_true")]
+    pub sidebar_open: bool,
 }
 
 impl Default for PrefsConfig {
@@ -60,6 +62,7 @@ impl Default for PrefsConfig {
         PrefsConfig {
             mouse: true,
             scrollback_size: 5000,
+            sidebar_open: true,
         }
     }
 }

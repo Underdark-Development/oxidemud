@@ -1,7 +1,9 @@
+use std::path::PathBuf;
+
 use mud_core::templates::{DiceString, ResetInterval, TemplateRegistry};
 use ratatui::{
     buffer::Buffer,
-    crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},
+    crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
     layout::Rect,
     style::{Color, Modifier, Style},
     text::Span,
@@ -40,8 +42,8 @@ enum EditMode {
 
 pub struct EntityInspectorScreen {
     registry: TemplateRegistry,
-    category: String,
-    template_id: String,
+    pub category: String,
+    pub template_id: String,
     table: Table,
     scrollbar: ScrollState,
     edit_mode: EditMode,
@@ -49,7 +51,10 @@ pub struct EntityInspectorScreen {
     cursor_char: u8,
     file_map: FileMap,
     pub deleted: bool,
-    show_delete_confirm: bool,
+    pub show_delete_confirm: bool,
+    pub content_path: Option<PathBuf>,
+    pub is_draft: bool,
+    pub muted: bool,
 }
 
 impl EntityInspectorScreen {
@@ -58,6 +63,8 @@ impl EntityInspectorScreen {
         category: String,
         template_id: String,
         file_map: FileMap,
+        content_path: Option<PathBuf>,
+        is_draft: bool,
     ) -> Self {
         let mut screen = EntityInspectorScreen {
             registry,
@@ -71,6 +78,9 @@ impl EntityInspectorScreen {
             file_map,
             deleted: false,
             show_delete_confirm: false,
+            content_path,
+            is_draft,
+            muted: false,
         };
         screen.load_table();
         screen
@@ -103,6 +113,7 @@ impl EntityInspectorScreen {
             table.add_row(vec!["message".into(), "template not found".into()]);
         }
 
+        table.selected = Some(0);
         self.table = table;
     }
 
@@ -632,13 +643,6 @@ impl EntityInspectorScreen {
             if value != old_value {
                 if self.update_registry(&field, &value).is_ok() {
                     self.dirty = true;
-                    if let Err(e) = self.save_to_disk() {
-                        tracing::error!(
-                            "failed to save {}/{}: {e}",
-                            self.category,
-                            self.template_id
-                        );
-                    }
                 } else {
                     self.table.rows[row][1] = old_value;
                 }
@@ -646,117 +650,196 @@ impl EntityInspectorScreen {
         }
     }
 
-    fn save_to_disk(&self) -> Result<(), Box<dyn std::error::Error>> {
+    /// Persist the entity to disk with round-trip validation.
+    /// Returns Ok(()) on success, Err(msg) on failure.
+    pub fn save_to_disk(&self) -> Result<(), String> {
+        let toml_str = self.serialize_registry_data().map_err(|e| e.to_string())?;
+
+        // Round-trip validation: try to parse the serialized TOML back through the concrete struct.
+        self.validate_toml(&toml_str)?;
+
+        let path = self.resolve_save_path()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("cannot create dirs: {e}"))?;
+        }
+        std::fs::write(&path, &toml_str).map_err(|e| format!("write failed: {e}"))?;
+        Ok(())
+    }
+
+    fn serialize_registry_data(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let s = match self.category.as_str() {
+            "items" => toml::to_string_pretty(
+                self.registry
+                    .items
+                    .get(&self.template_id)
+                    .ok_or("item not found")?,
+            )?,
+            "mobs" => toml::to_string_pretty(
+                self.registry
+                    .mobs
+                    .get(&self.template_id)
+                    .ok_or("mob not found")?,
+            )?,
+            "races" => toml::to_string_pretty(
+                self.registry
+                    .races
+                    .get(&self.template_id)
+                    .ok_or("race not found")?,
+            )?,
+            "classes" => toml::to_string_pretty(
+                self.registry
+                    .classes
+                    .get(&self.template_id)
+                    .ok_or("class not found")?,
+            )?,
+            "skills" => toml::to_string_pretty(
+                self.registry
+                    .skills
+                    .get(&self.template_id)
+                    .ok_or("skill not found")?,
+            )?,
+            "stances" => toml::to_string_pretty(
+                self.registry
+                    .stances
+                    .get(&self.template_id)
+                    .ok_or("stance not found")?,
+            )?,
+            "sets" => toml::to_string_pretty(
+                self.registry
+                    .sets
+                    .get(&self.template_id)
+                    .ok_or("set not found")?,
+            )?,
+            "affixes" => toml::to_string_pretty(
+                self.registry
+                    .affixes
+                    .get(&self.template_id)
+                    .ok_or("affix not found")?,
+            )?,
+            "passives" => toml::to_string_pretty(
+                self.registry
+                    .passives
+                    .get(&self.template_id)
+                    .ok_or("passive not found")?,
+            )?,
+            "areas" => {
+                let area = self
+                    .registry
+                    .areas
+                    .get(&self.template_id)
+                    .ok_or("area not found")?;
+                // Write area metadata without rooms (rooms are separate files)
+                let mut area_meta = area.clone();
+                area_meta.rooms = std::collections::HashMap::new();
+                toml::to_string_pretty(&area_meta)?
+            }
+            "rooms" => toml::to_string_pretty(
+                &self
+                    .registry
+                    .areas
+                    .values()
+                    .find_map(|a| a.rooms.get(&self.template_id))
+                    .ok_or("room not found")?,
+            )?,
+            cat => return Err(format!("unknown category: {cat}").into()),
+        };
+        Ok(s)
+    }
+
+    fn resolve_save_path(&self) -> Result<std::path::PathBuf, String> {
+        if let Some(path) = self
+            .file_map
+            .get(&self.category)
+            .and_then(|m| m.get(&self.template_id))
+        {
+            return Ok(path.clone());
+        }
+
+        // Draft entity — construct path from content_path
+        let cp = self
+            .content_path
+            .as_ref()
+            .ok_or_else(|| "no content_path for draft".to_string())?;
+
         if self.category == "rooms" {
-            // Rooms are individual files in the hierarchical format.
-            let path = self
-                .file_map
-                .get("rooms")
-                .and_then(|m| m.get(&self.template_id))
-                .ok_or_else(|| format!("room file for '{}' not found", self.template_id))?;
-            let room = self
+            // Need the parent area ID from the room data
+            let area_id = self
                 .registry
                 .areas
                 .values()
                 .find_map(|a| a.rooms.get(&self.template_id))
-                .ok_or_else(|| format!("room {} not found", self.template_id))?;
-            std::fs::write(path, toml::to_string_pretty(room)?)?;
-            return Ok(());
+                .map(|r| r.area.clone())
+                .ok_or_else(|| "cannot resolve area for draft room".to_string())?;
+            Ok(cp
+                .join("areas")
+                .join(&area_id)
+                .join("rooms")
+                .join(format!("{}.toml", self.template_id)))
+        } else if self.category == "areas" {
+            Ok(cp.join("areas").join(&self.template_id).join("area.toml"))
+        } else {
+            let dir = cp.join(&self.category);
+            Ok(dir.join(format!("{}.toml", self.template_id)))
         }
+    }
 
-        let (lookup_category, lookup_id) = (self.category.as_str(), self.template_id.clone());
-
-        let path = self
-            .file_map
-            .get(lookup_category)
-            .and_then(|m| m.get(&lookup_id))
-            .ok_or_else(|| format!("no file mapping for {}/{lookup_id}", lookup_category,))?;
-
-        let content = std::fs::read_to_string(path)?;
-        let mut doc: toml::Value = content.parse()?;
-
-        let template_value: toml::Value = match self.category.as_str() {
-            "items" => toml::Value::try_from(
-                self.registry
-                    .items
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("item {} not found", self.template_id))?,
-            )?,
-            "mobs" => toml::Value::try_from(
-                self.registry
-                    .mobs
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("mob {} not found", self.template_id))?,
-            )?,
-            "races" => toml::Value::try_from(
-                self.registry
-                    .races
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("race {} not found", self.template_id))?,
-            )?,
-            "classes" => toml::Value::try_from(
-                self.registry
-                    .classes
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("class {} not found", self.template_id))?,
-            )?,
-            "skills" => toml::Value::try_from(
-                self.registry
-                    .skills
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("skill {} not found", self.template_id))?,
-            )?,
-            "stances" => toml::Value::try_from(
-                self.registry
-                    .stances
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("stance {} not found", self.template_id))?,
-            )?,
-            "sets" => toml::Value::try_from(
-                self.registry
-                    .sets
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("set {} not found", self.template_id))?,
-            )?,
-            "affixes" => toml::Value::try_from(
-                self.registry
-                    .affixes
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("affix {} not found", self.template_id))?,
-            )?,
-            "passives" => toml::Value::try_from(
-                self.registry
-                    .passives
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("passive {} not found", self.template_id))?,
-            )?,
-            "areas" => toml::Value::try_from(
-                self.registry
-                    .areas
-                    .get(&self.template_id)
-                    .ok_or_else(|| format!("area {} not found", self.template_id))?,
-            )?,
-            cat => return Err(format!("unknown category: {cat}").into()),
-        };
-
-        if let Some(array) = doc.get_mut(&self.category).and_then(|v| v.as_array_mut()) {
-            for entry in array.iter_mut() {
-                let is_match =
-                    entry.get("id").and_then(|v| v.as_str()) == Some(self.template_id.as_str());
-                if is_match {
-                    *entry = template_value;
-                    break;
-                }
+    fn validate_toml(&self, toml_str: &str) -> Result<(), String> {
+        match self.category.as_str() {
+            "items" => {
+                toml::from_str::<mud_core::templates::ItemTemplate>(toml_str)
+                    .map_err(|e| format!("invalid ItemTemplate: {e}"))?;
             }
+            "mobs" => {
+                toml::from_str::<mud_core::templates::MobTemplate>(toml_str)
+                    .map_err(|e| format!("invalid MobTemplate: {e}"))?;
+            }
+            "races" => {
+                toml::from_str::<mud_core::templates::RaceTemplate>(toml_str)
+                    .map_err(|e| format!("invalid RaceTemplate: {e}"))?;
+            }
+            "classes" => {
+                toml::from_str::<mud_core::templates::ClassTemplate>(toml_str)
+                    .map_err(|e| format!("invalid ClassTemplate: {e}"))?;
+            }
+            "skills" => {
+                toml::from_str::<mud_core::SkillDef>(toml_str)
+                    .map_err(|e| format!("invalid SkillDef: {e}"))?;
+            }
+            "stances" => {
+                toml::from_str::<mud_core::templates::StanceDef>(toml_str)
+                    .map_err(|e| format!("invalid StanceDef: {e}"))?;
+            }
+            "sets" => {
+                toml::from_str::<mud_core::templates::SetDef>(toml_str)
+                    .map_err(|e| format!("invalid SetDef: {e}"))?;
+            }
+            "affixes" => {
+                toml::from_str::<mud_core::templates::AffixDef>(toml_str)
+                    .map_err(|e| format!("invalid AffixDef: {e}"))?;
+            }
+            "passives" => {
+                toml::from_str::<mud_core::templates::PassiveDef>(toml_str)
+                    .map_err(|e| format!("invalid PassiveDef: {e}"))?;
+            }
+            "areas" => {
+                toml::from_str::<mud_core::templates::AreaTemplate>(toml_str)
+                    .map_err(|e| format!("invalid AreaTemplate: {e}"))?;
+            }
+            "rooms" => {
+                toml::from_str::<mud_core::templates::RoomTemplate>(toml_str)
+                    .map_err(|e| format!("invalid RoomTemplate: {e}"))?;
+            }
+            cat => return Err(format!("unknown category: {cat}")),
         }
-
-        std::fs::write(path, doc.to_string())?;
         Ok(())
     }
 
+    /// Delete the entity file from disk (no-op for drafts).
     fn delete_from_disk(&self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.is_draft {
+            return Ok(());
+        }
         if self.category == "rooms" {
-            // Delete the individual room file
             let path = self
                 .file_map
                 .get("rooms")
@@ -1009,6 +1092,155 @@ impl EntityInspectorScreen {
             | EditMode::Multiline { cursor, .. } => *cursor = len,
             _ => {}
         }
+    }
+
+    fn cursor_word_left(&mut self) {
+        let (row, cursor) = match &self.edit_mode {
+            EditMode::Text { row, cursor, .. }
+            | EditMode::Number { row, cursor, .. }
+            | EditMode::Multiline { row, cursor, .. } => (*row, *cursor),
+            _ => return,
+        };
+        let s = &self.table.rows[row][1];
+        if cursor == 0 {
+            return;
+        }
+        let mut pos = cursor;
+        let bytes = s.as_bytes();
+        // Skip trailing whitespace
+        while pos > 0 && bytes[pos - 1] == b' ' {
+            pos -= 1;
+        }
+        // Skip word characters
+        while pos > 0 && bytes[pos - 1] != b' ' {
+            pos -= 1;
+        }
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => *cursor = pos,
+            _ => {}
+        }
+    }
+
+    fn cursor_word_right(&mut self) {
+        let (row, cursor) = match &self.edit_mode {
+            EditMode::Text { row, cursor, .. }
+            | EditMode::Number { row, cursor, .. }
+            | EditMode::Multiline { row, cursor, .. } => (*row, *cursor),
+            _ => return,
+        };
+        let s = &self.table.rows[row][1];
+        let len = s.len();
+        if cursor >= len {
+            return;
+        }
+        let bytes = s.as_bytes();
+        let mut pos = cursor;
+        // Skip current word
+        while pos < len && bytes[pos] != b' ' {
+            pos += 1;
+        }
+        // Skip whitespace
+        while pos < len && bytes[pos] == b' ' {
+            pos += 1;
+        }
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => *cursor = pos,
+            _ => {}
+        }
+    }
+
+    fn delete_to_home(&mut self) {
+        let (row, cursor) = match &self.edit_mode {
+            EditMode::Text { row, cursor, .. }
+            | EditMode::Number { row, cursor, .. }
+            | EditMode::Multiline { row, cursor, .. } => (*row, *cursor),
+            _ => return,
+        };
+        if cursor == 0 {
+            return;
+        }
+        self.table.rows[row][1].drain(..cursor);
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => *cursor = 0,
+            _ => {}
+        }
+    }
+
+    fn delete_to_end(&mut self) {
+        let (row, cursor) = match &self.edit_mode {
+            EditMode::Text { row, cursor, .. }
+            | EditMode::Number { row, cursor, .. }
+            | EditMode::Multiline { row, cursor, .. } => (*row, *cursor),
+            _ => return,
+        };
+        let s = &mut self.table.rows[row][1];
+        if cursor >= s.len() {
+            return;
+        }
+        s.truncate(cursor);
+    }
+
+    fn delete_word_backward(&mut self) {
+        let (row, cursor) = match &self.edit_mode {
+            EditMode::Text { row, cursor, .. }
+            | EditMode::Number { row, cursor, .. }
+            | EditMode::Multiline { row, cursor, .. } => (*row, *cursor),
+            _ => return,
+        };
+        if cursor == 0 {
+            return;
+        }
+        let s = &self.table.rows[row][1].clone();
+        let bytes = s.as_bytes();
+        let mut pos = cursor;
+        // Skip trailing whitespace
+        while pos > 0 && bytes[pos - 1] == b' ' {
+            pos -= 1;
+        }
+        // Skip word characters
+        while pos > 0 && bytes[pos - 1] != b' ' {
+            pos -= 1;
+        }
+        let s = &mut self.table.rows[row][1];
+        s.drain(pos..cursor);
+        match &mut self.edit_mode {
+            EditMode::Text { cursor, .. }
+            | EditMode::Number { cursor, .. }
+            | EditMode::Multiline { cursor, .. } => *cursor = pos,
+            _ => {}
+        }
+    }
+
+    fn delete_word_forward(&mut self) {
+        let (row, cursor) = match &self.edit_mode {
+            EditMode::Text { row, cursor, .. }
+            | EditMode::Number { row, cursor, .. }
+            | EditMode::Multiline { row, cursor, .. } => (*row, *cursor),
+            _ => return,
+        };
+        let s = &self.table.rows[row][1].clone();
+        let len = s.len();
+        if cursor >= len {
+            return;
+        }
+        let bytes = s.as_bytes();
+        let mut pos = cursor;
+        // Skip word characters
+        while pos < len && bytes[pos] != b' ' {
+            pos += 1;
+        }
+        // Skip whitespace
+        while pos < len && bytes[pos] == b' ' {
+            pos += 1;
+        }
+        let s = &mut self.table.rows[row][1];
+        s.drain(cursor..pos);
     }
 
     fn multiline_newline(&mut self) {
@@ -1621,7 +1853,7 @@ impl Screen for EntityInspectorScreen {
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent) {
+    fn handle_key(&mut self, key: KeyEvent) -> bool {
         if self.show_delete_confirm {
             match key.code {
                 KeyCode::Enter => {
@@ -1639,7 +1871,7 @@ impl Screen for EntityInspectorScreen {
                 }
                 _ => {}
             }
-            return;
+            return true;
         }
         match self.edit_mode {
             EditMode::Idle => self.handle_key_idle(key),
@@ -1647,6 +1879,7 @@ impl Screen for EntityInspectorScreen {
             EditMode::Multiline { .. } => self.handle_key_multiline(key),
             EditMode::Dropdown { .. } => self.handle_key_dropdown(key),
         }
+        true
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
@@ -1657,22 +1890,43 @@ impl Screen for EntityInspectorScreen {
         }
     }
 
-    fn render(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
         if area.width < 3 || area.height < 2 {
             return;
         }
 
         let info = format!(" {} — {} ", self.category, self.template_id);
-        buf.set_string(area.x, area.y, &info, Style::default().fg(Color::DarkGray));
+        buf.set_string(
+            area.x,
+            area.y,
+            &info,
+            Style::default().fg(Color::Indexed(245)),
+        );
 
         let content_lines = area.height.saturating_sub(2) as usize;
         self.table.update_scroll(content_lines);
+
+        self.table.hovered = mouse_pos.and_then(|(col, row)| {
+            let table_top = area.y + 2;
+            if row >= table_top
+                && row < table_top + content_lines as u16
+                && col >= area.x
+                && col < area.x + area.width
+            {
+                let line = (row - table_top) as usize;
+                let idx = line + self.table.scroll.offset;
+                (idx < self.table.rows.len()).then_some(idx)
+            } else {
+                None
+            }
+        });
         self.scrollbar = ScrollState {
             offset: self.table.scroll.offset,
             visible_lines: self.table.scroll.visible_lines,
             total_lines: self.table.scroll.total_lines,
         };
 
+        self.table.muted = self.muted;
         let table_area = Rect::new(
             area.x,
             area.y + 1,
@@ -1735,12 +1989,12 @@ impl EntityInspectorScreen {
 
     fn handle_mouse_idle(&mut self, mouse: MouseEvent, area: Rect) {
         match mouse.kind {
-            MouseEventKind::ScrollUp => self.table.select_prev(),
-            MouseEventKind::ScrollDown => self.table.select_next(),
+            MouseEventKind::ScrollUp => self.table.scroll_up(),
+            MouseEventKind::ScrollDown => self.table.scroll_down(),
             MouseEventKind::Down(_) => {
                 let row = (mouse.row as usize)
                     .saturating_sub(area.y as usize)
-                    .saturating_sub(1)
+                    .saturating_sub(2)
                     .saturating_add(self.table.scroll.offset);
                 if row < self.table.rows.len() {
                     self.table.selected = Some(row);
@@ -1757,15 +2011,46 @@ impl EntityInspectorScreen {
 // ---------------------------------------------------------------------------
 impl EntityInspectorScreen {
     fn handle_key_inline(&mut self, key: KeyEvent) {
+        let m = key.modifiers;
         match key.code {
             KeyCode::Esc => self.cancel_edit(),
             KeyCode::Enter => self.commit_edit(),
-            KeyCode::Backspace => self.backspace_char(),
-            KeyCode::Delete => self.delete_char(),
-            KeyCode::Left => self.cursor_left(),
-            KeyCode::Right => self.cursor_right(),
+
+            // Line navigation
             KeyCode::Home => self.cursor_home(),
             KeyCode::End => self.cursor_end(),
+            KeyCode::Char('a') if m == KeyModifiers::CONTROL || m == KeyModifiers::SUPER => {
+                self.cursor_home()
+            }
+            KeyCode::Char('e') if m == KeyModifiers::CONTROL || m == KeyModifiers::SUPER => {
+                self.cursor_end()
+            }
+
+            // Word navigation
+            KeyCode::Left if m == KeyModifiers::CONTROL => self.cursor_word_left(),
+            KeyCode::Right if m == KeyModifiers::CONTROL => self.cursor_word_right(),
+            KeyCode::Char('b') if m == KeyModifiers::ALT => self.cursor_word_left(),
+            KeyCode::Char('f') if m == KeyModifiers::ALT => self.cursor_word_right(),
+
+            // Plain arrows
+            KeyCode::Left => self.cursor_left(),
+            KeyCode::Right => self.cursor_right(),
+
+            // Line deletion
+            KeyCode::Backspace if m == KeyModifiers::SUPER => self.delete_to_home(),
+            KeyCode::Delete if m == KeyModifiers::SUPER => self.delete_to_end(),
+            KeyCode::Char('u') if m == KeyModifiers::CONTROL => self.delete_to_home(),
+            KeyCode::Char('k') if m == KeyModifiers::CONTROL => self.delete_to_end(),
+
+            // Word deletion
+            KeyCode::Char('w') if m == KeyModifiers::CONTROL => self.delete_word_backward(),
+            KeyCode::Backspace if m == KeyModifiers::ALT => self.delete_word_backward(),
+            KeyCode::Char('d') if m == KeyModifiers::ALT => self.delete_word_forward(),
+
+            // Single char deletion
+            KeyCode::Backspace => self.backspace_char(),
+            KeyCode::Delete => self.delete_char(),
+
             KeyCode::Char(c) => self.insert_char(c),
             _ => {}
         }
@@ -2057,7 +2342,7 @@ impl EntityInspectorScreen {
             } else if line.starts_with("Delete") {
                 Style::default().fg(Color::Red)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::Indexed(245))
             };
             buf.set_string(inner.x, inner.y + i as u16, line, style);
         }

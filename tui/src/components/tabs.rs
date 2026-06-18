@@ -71,7 +71,7 @@ impl<T> Widget for &Tabs<T> {
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::Indexed(245))
             };
 
             let padding = tab_width.saturating_sub(title.len() as u16 + 2) / 2;

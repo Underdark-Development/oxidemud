@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::components::ScrollState;
 
+#[derive(Clone)]
 pub struct TreeNode<T> {
     pub label: String,
     pub data: T,
@@ -34,11 +35,14 @@ impl<T> TreeNode<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct Tree<T> {
     pub roots: Vec<TreeNode<T>>,
     pub selected: Option<usize>,
     pub indent: u16,
     pub scroll: ScrollState,
+    pub hovered: Option<usize>,
+    pub muted: bool,
 }
 
 impl<T> Tree<T> {
@@ -48,6 +52,8 @@ impl<T> Tree<T> {
             selected: None,
             indent: 2,
             scroll: ScrollState::new(),
+            hovered: None,
+            muted: false,
         }
     }
 
@@ -108,11 +114,66 @@ impl<T> Tree<T> {
         }
     }
 
+    pub fn scroll_up(&mut self) {
+        if self.scroll.offset > 0 {
+            self.scroll.offset -= 1;
+        }
+    }
+
+    pub fn scroll_down(&mut self) {
+        let max = self
+            .scroll
+            .total_lines
+            .saturating_sub(self.scroll.visible_lines);
+        if self.scroll.offset < max {
+            self.scroll.offset += 1;
+        }
+    }
+
     pub fn update_scroll(&mut self, area_height: usize) {
         let total = self.flatten().len();
         self.scroll.total_lines = total;
         self.scroll.visible_lines = area_height;
         self.ensure_selected_visible();
+    }
+
+    pub fn selected_parent_index(&self) -> Option<usize> {
+        let idx = self.selected?;
+        let flat = self.flatten();
+        let (depth, _) = flat.get(idx)?;
+        if *depth == 0 {
+            return None;
+        }
+        for i in (0..idx).rev() {
+            if let Some((d, _)) = flat.get(i) {
+                if *d < *depth {
+                    return Some(i);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn expand_all(&mut self) {
+        fn expand<T>(nodes: &mut [TreeNode<T>]) {
+            for node in nodes.iter_mut() {
+                node.collapsed = false;
+                expand(&mut node.children);
+            }
+        }
+        expand(&mut self.roots);
+    }
+
+    pub fn collapse_all(&mut self) {
+        fn collapse<T>(nodes: &mut [TreeNode<T>]) {
+            for node in nodes.iter_mut() {
+                if !node.is_leaf() {
+                    node.collapsed = true;
+                }
+                collapse(&mut node.children);
+            }
+        }
+        collapse(&mut self.roots);
     }
 }
 
@@ -161,6 +222,14 @@ impl<T> Widget for &Tree<T> {
             let is_selected = Some(idx) == self.selected;
             let y = area.y + i as u16;
 
+            if is_selected || self.hovered == Some(idx) {
+                for x in area.x..area.x + area.width {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_bg(Color::Indexed(240));
+                    }
+                }
+            }
+
             let indent_str = " ".repeat((depth * self.indent) as usize);
             let prefix = if node.is_leaf() {
                 " "
@@ -170,19 +239,26 @@ impl<T> Widget for &Tree<T> {
                 "▾"
             };
 
+            let text_fg = if self.muted {
+                Color::Indexed(245)
+            } else {
+                Color::White
+            };
             let label_style = if is_selected {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::DarkGray)
+                    .fg(text_fg)
+                    .bg(Color::Indexed(240))
                     .add_modifier(Modifier::BOLD)
+            } else if self.hovered == Some(idx) {
+                Style::default().fg(text_fg).bg(Color::Indexed(240))
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(text_fg)
             };
 
             let prefix_style = if is_selected {
                 label_style
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::Indexed(245))
             };
 
             let line = Line::from(vec![

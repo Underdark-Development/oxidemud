@@ -130,6 +130,21 @@ impl RichText {
         self.0.push(segment);
     }
 
+    /// Push a plain text segment.
+    pub fn push_str(&mut self, s: impl Into<String>) {
+        self.0.push(Segment::new(s));
+    }
+
+    /// Append all segments from another `RichText`.
+    pub fn extend(&mut self, other: RichText) {
+        self.0.extend(other.0);
+    }
+
+    /// Append segments from an iterator.
+    pub fn extend_iter(&mut self, iter: impl IntoIterator<Item = Segment>) {
+        self.0.extend(iter);
+    }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

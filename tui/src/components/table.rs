@@ -14,7 +14,9 @@ pub struct Table {
     pub column_widths: Vec<Constraint>,
     pub scroll: ScrollState,
     pub selected: Option<usize>,
+    pub hovered: Option<usize>,
     pub highlight_symbol: String,
+    pub muted: bool,
 }
 
 impl Table {
@@ -26,13 +28,31 @@ impl Table {
             column_widths: vec![Constraint::Length(20); count],
             scroll: ScrollState::new(),
             selected: None,
+            hovered: None,
             highlight_symbol: "▸ ".to_string(),
+            muted: false,
         }
     }
 
     pub fn add_row(&mut self, row: Vec<String>) {
         self.rows.push(row);
         self.scroll.total_lines = self.rows.len();
+    }
+
+    pub fn scroll_up(&mut self) {
+        if self.scroll.offset > 0 {
+            self.scroll.offset -= 1;
+        }
+    }
+
+    pub fn scroll_down(&mut self) {
+        let max = self
+            .scroll
+            .total_lines
+            .saturating_sub(self.scroll.visible_lines);
+        if self.scroll.offset < max {
+            self.scroll.offset += 1;
+        }
     }
 
     pub fn select_next(&mut self) {
@@ -142,15 +162,30 @@ impl Widget for &Table {
             }
 
             let is_selected = Some(idx) == self.selected;
+            let is_hovered = self.hovered == Some(idx);
+            if is_selected || is_hovered {
+                for x in area.x..area.x + area.width {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_bg(Color::Indexed(240));
+                    }
+                }
+            }
+            let text_fg = if self.muted {
+                Color::Indexed(245)
+            } else {
+                Color::White
+            };
             let row_style = if is_selected {
                 Style::default()
-                    .fg(Color::White)
-                    .bg(Color::DarkGray)
+                    .fg(text_fg)
+                    .bg(Color::Indexed(240))
                     .add_modifier(Modifier::BOLD)
+            } else if is_hovered {
+                Style::default().fg(text_fg).bg(Color::Indexed(240))
             } else if i % 2 == 0 {
-                Style::default().fg(Color::White)
+                Style::default().fg(text_fg)
             } else {
-                Style::default().fg(Color::Gray)
+                Style::default().fg(if self.muted { text_fg } else { Color::Gray })
             };
 
             let mut row_spans = Vec::new();

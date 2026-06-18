@@ -81,7 +81,7 @@ impl Widget for &ContextMenu {
             let style = if is_selected {
                 Style::default()
                     .fg(Color::White)
-                    .bg(Color::DarkGray)
+                    .bg(Color::Indexed(250))
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::White)

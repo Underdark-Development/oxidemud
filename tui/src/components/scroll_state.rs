@@ -1,10 +1,6 @@
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Color, Style},
-    widgets::Widget,
-};
+use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget};
 
+#[derive(Clone)]
 pub struct ScrollState {
     pub offset: usize,
     pub visible_lines: usize,
@@ -58,8 +54,8 @@ impl ScrollState {
     }
 
     pub fn thumb(&self, area_height: usize) -> (usize, usize) {
-        if self.total_lines <= self.visible_lines {
-            return (0, area_height);
+        if self.total_lines == 0 || self.total_lines <= self.visible_lines {
+            return (0, 0);
         }
         let max_offset = self.total_lines.saturating_sub(self.visible_lines);
         let thumb_height = (self.visible_lines * area_height / self.total_lines).max(1);
@@ -79,14 +75,20 @@ impl Widget for &ScrollState {
         if area.width < 1 || area.height < 1 {
             return;
         }
+        if self.total_lines <= self.visible_lines {
+            return;
+        }
         let height = area.height as usize;
         let (thumb_pos, thumb_height) = self.thumb(height);
 
         for y in 0..height {
             let cell = &mut buf[(area.x, area.y + y as u16)];
-            let is_thumb = y >= thumb_pos && y < thumb_pos + thumb_height;
-            cell.set_symbol(if is_thumb { "█" } else { "│" });
-            cell.set_style(Style::default().fg(Color::DarkGray));
+            cell.set_symbol(" ");
+            if y >= thumb_pos && y < thumb_pos + thumb_height {
+                cell.set_bg(Color::Indexed(240));
+            } else {
+                cell.set_bg(Color::Indexed(236));
+            }
         }
     }
 }

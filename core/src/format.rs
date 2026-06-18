@@ -8,6 +8,7 @@
 
 mod color;
 pub mod conventions;
+pub mod preview;
 mod rich_text;
 mod tag;
 

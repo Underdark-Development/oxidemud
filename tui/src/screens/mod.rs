@@ -1,6 +1,6 @@
+pub mod entities;
 pub mod entity_inspector;
 pub mod validation_panel;
-pub mod world_tree;
 
 use ratatui::{
     buffer::Buffer,
@@ -8,25 +8,60 @@ use ratatui::{
     layout::Rect,
 };
 
+use crate::components::CommandAction;
+
 #[derive(Debug, Clone)]
 pub enum ScreenAction {
     None,
     Inspect(String, String),
 }
 
+/// Information about the currently selected entity in a screen.
+#[derive(Debug, Clone)]
+pub struct EntityContext {
+    pub category: String,
+    pub id: String,
+    pub name: String,
+}
+
 pub trait Screen {
     fn name(&self) -> &str;
-    fn handle_key(&mut self, key: KeyEvent);
-    fn render(&mut self, area: Rect, buf: &mut Buffer);
+    fn handle_key(&mut self, key: KeyEvent) -> bool;
+    fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>);
     fn handle_mouse(&mut self, _mouse: MouseEvent, _area: Rect) {}
     fn reload(&mut self) {}
+
+    /// Called each frame with the sidebar focus state so the screen can adjust its visual focus.
+    fn set_sidebar_focused(&mut self, _focused: bool) {}
+
+    /// Called when the sidebar releases focus back to the main area.
+    /// `backward` is true if Shift+Tab was pressed, false for plain Tab.
+    fn sidebar_focus_lost(&mut self, _backward: bool) {}
+
+    /// Returns the currently selected entity, if any.
+    fn selection_context(&self) -> Option<EntityContext> {
+        None
+    }
+
+    /// Returns contextual commands for the current selection.
+    /// Each entry is (display_label, CommandAction).
+    fn contextual_commands(&self) -> Vec<(String, CommandAction)> {
+        Vec::new()
+    }
+
+    /// Handle a command action from the sidebar. Returns Ok(true) if handled,
+    /// Ok(false) if not handled, Err(msg) if handled but failed.
+    fn handle_command_action(&mut self, _action: &CommandAction) -> Result<bool, String> {
+        Ok(false)
+    }
+
     fn take_action(&mut self) -> ScreenAction {
         ScreenAction::None
     }
 }
 
 pub const SCREEN_TITLES: &[&str] = &[
-    "World Tree",
+    "Entities",
     "Template Editor",
     "Room Graph",
     "Entity Inspector",
@@ -54,10 +89,12 @@ impl Screen for PlaceholderScreen {
         &self.name
     }
 
-    fn handle_key(&mut self, _key: KeyEvent) {}
+    fn handle_key(&mut self, _key: KeyEvent) -> bool {
+        false
+    }
     fn reload(&mut self) {}
 
-    fn render(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>) {
         let msg = format!(" {} — coming soon ", self.name);
         let x = area.x + (area.width.saturating_sub(msg.len() as u16)) / 2;
         let y = area.y + area.height / 2;
@@ -66,7 +103,7 @@ impl Screen for PlaceholderScreen {
                 x,
                 y,
                 &msg,
-                ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray),
+                ratatui::style::Style::default().fg(ratatui::style::Color::Indexed(245)),
             );
         }
     }

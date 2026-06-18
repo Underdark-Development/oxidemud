@@ -75,7 +75,7 @@ impl Widget for &Modal {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw("  "),
-            Span::styled(&self.cancel_label, Style::default().fg(Color::DarkGray)),
+            Span::styled(&self.cancel_label, Style::default().fg(Color::Indexed(245))),
         ]));
 
         let paragraph = Paragraph::new(content_lines)

@@ -221,7 +221,7 @@ impl Widget for &Form {
             let value_style = if has_error {
                 Style::default().fg(Color::LightRed)
             } else if field.read_only {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::Indexed(245))
             } else {
                 Style::default().fg(Color::White)
             };
