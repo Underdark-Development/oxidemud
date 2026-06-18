@@ -11,7 +11,7 @@ use ratatui::{
     style::{Color, Modifier as RatModifier, Style},
     widgets::{Block, Borders, Widget},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -55,6 +55,8 @@ pub struct EntitiesScreen {
     preview: Option<PreviewState>,
     /// (category, id) -> raw TOML content for entities not yet written to disk.
     draft_data: HashMap<(String, String), String>,
+    /// Entities with in-memory edits not yet saved to disk.
+    unsaved: HashSet<(String, String)>,
 }
 
 impl EntitiesScreen {
@@ -84,6 +86,7 @@ impl EntitiesScreen {
             search_focus: false,
             preview: None,
             draft_data: HashMap::new(),
+            unsaved: HashSet::new(),
         };
         screen.rebuild_tree();
         screen
@@ -99,6 +102,7 @@ impl EntitiesScreen {
         self.registry = registry;
         self.file_map = file_map;
         self.draft_data = saved_drafts;
+        self.unsaved.clear();
         self.detail = None;
         self.focus = Focus::Tree;
         self.show_help = false;
@@ -153,8 +157,12 @@ impl EntitiesScreen {
                 for room_id in room_ids {
                     let room = &area.rooms[room_id];
                     if matches(&room.name) {
+                        let mut label = room.name.clone();
+                        if self.unsaved.contains(&("rooms".into(), room_id.clone())) {
+                            label += " *";
+                        }
                         area_child.add_child(TreeNode::new(
-                            room.name.clone(),
+                            label,
                             NodeInfo {
                                 category: "rooms".into(),
                                 id: room_id.clone(),
@@ -182,6 +190,7 @@ impl EntitiesScreen {
             "items",
             |i| i.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -190,6 +199,7 @@ impl EntitiesScreen {
             "mobs",
             |m| m.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -198,6 +208,7 @@ impl EntitiesScreen {
             "races",
             |r| r.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -206,6 +217,7 @@ impl EntitiesScreen {
             "classes",
             |c| c.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -214,6 +226,7 @@ impl EntitiesScreen {
             "skills",
             |s| s.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -222,6 +235,7 @@ impl EntitiesScreen {
             "stances",
             |s| s.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -230,6 +244,7 @@ impl EntitiesScreen {
             "sets",
             |s| s.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -238,6 +253,7 @@ impl EntitiesScreen {
             "affixes",
             |a| a.name.clone(),
             filter_str,
+            &self.unsaved,
         );
         add_group(
             &mut roots,
@@ -246,6 +262,7 @@ impl EntitiesScreen {
             "passives",
             |p| p.name.clone(),
             filter_str,
+            &self.unsaved,
         );
 
         self.tree = Tree::new(roots);
@@ -293,27 +310,28 @@ impl EntitiesScreen {
             }
         };
 
-        // Insert into registry
-        insert_draft_into_registry(&mut self.registry, category, &id, &toml_str);
-
-        // For rooms, also set the area field from context
+        // For rooms, directly insert into the parent area instead of
+        // insert_draft_into_registry (which can't handle area-less rooms).
         if category == "rooms" {
             if let Some(area_id) = context_id {
-                if let Some(area) = self.registry.areas.get_mut(area_id) {
-                    if let Some(room) = area.rooms.get_mut(&id) {
-                        room.area = area_id.to_string();
-                        // Re-serialize TOML with updated area field
-                        if let Ok(new_toml) = toml::to_string_pretty(room) {
+                if let Ok(mut room) = toml::from_str::<mud_core::templates::RoomTemplate>(&toml_str)
+                {
+                    room.area = area_id.to_string();
+                    if let Ok(new_toml) = toml::to_string_pretty(&room) {
+                        if let Some(area) = self.registry.areas.get_mut(area_id) {
+                            area.rooms.insert(id.clone(), room);
                             self.draft_data
                                 .insert((category.to_string(), id.clone()), new_toml);
                         }
                     }
                 }
             }
+        } else {
+            insert_draft_into_registry(&mut self.registry, category, &id, &toml_str);
+            self.draft_data
+                .insert((category.to_string(), id.clone()), toml_str);
         }
 
-        self.draft_data
-            .insert((category.to_string(), id.clone()), toml_str);
         self.rebuild_tree();
         self.open_detail(category.to_string(), id);
     }
@@ -421,6 +439,7 @@ impl EntitiesScreen {
                 let id = detail.template_id.clone();
                 let is_draft = detail.is_draft;
                 self.detail = None;
+                self.unsaved.remove(&(cat.clone(), id.clone()));
                 if is_draft {
                     // Remove from registry and drafts without reloading disk
                     self.draft_data.remove(&(cat.clone(), id.clone()));
@@ -691,6 +710,7 @@ fn add_group<T, F>(
     category: &str,
     display: F,
     filter: Option<&str>,
+    unsaved: &HashSet<(String, String)>,
 ) where
     F: Fn(&T) -> String,
 {
@@ -709,7 +729,10 @@ fn add_group<T, F>(
     ids.sort();
     for id in ids {
         if let Some(item) = items.get(id) {
-            let name = display(item);
+            let mut name = display(item);
+            if unsaved.contains(&(category.to_string(), id.clone())) {
+                name += " *";
+            }
             if filter.is_none_or(|f| name.to_lowercase().contains(&f.to_lowercase())) {
                 node.add_child(TreeNode::new(
                     name,
@@ -1038,9 +1061,14 @@ impl Screen for EntitiesScreen {
                     self.detail.as_mut().unwrap().handle_key(key);
                 } else {
                     if let Some(detail) = self.detail.take() {
-                        detail.apply_changes(&mut self.registry);
+                        if detail.dirty {
+                            detail.apply_changes(&mut self.registry);
+                            self.unsaved
+                                .insert((detail.category.clone(), detail.template_id.clone()));
+                        }
                     }
                     self.focus = Focus::Tree;
+                    self.rebuild_tree();
                 }
             }
             return true;
@@ -1108,6 +1136,16 @@ impl Screen for EntitiesScreen {
                     area.height.saturating_sub(1),
                 );
                 detail.handle_mouse(mouse, detail_area);
+                if detail.deleted {
+                    self.unsaved
+                        .remove(&(detail.category.clone(), detail.template_id.clone()));
+                    self.draft_data
+                        .remove(&(detail.category.clone(), detail.template_id.clone()));
+                    remove_from_registry(&mut self.registry, &detail.category, &detail.template_id);
+                    self.detail = None;
+                    self.focus = Focus::Tree;
+                    self.rebuild_tree();
+                }
             }
         }
     }
@@ -1207,12 +1245,15 @@ impl Screen for EntitiesScreen {
                     self.draft_data.remove(&(cat.clone(), id.clone()));
                     if !self.file_map.contains_key(&cat) || !self.file_map[&cat].contains_key(&id) {
                         let path = self.content_path.join(&cat).join(format!("{id}.toml"));
+                        let cat_key = cat.clone();
                         self.file_map
-                            .entry(cat)
+                            .entry(cat_key)
                             .or_default()
                             .insert(id.clone(), path);
                     }
                 }
+                self.unsaved.remove(&(cat, id));
+                self.rebuild_tree();
                 Ok(true)
             }
             CommandAction::EditEntity => {
@@ -1232,7 +1273,13 @@ impl Screen for EntitiesScreen {
                     self.open_detail(data.category.clone(), data.id.clone());
                 }
                 if let Some(ref mut detail) = self.detail {
-                    detail.show_delete_confirm = true;
+                    let singular = crate::screens::entity_inspector::singularize(&data.category);
+                    detail.delete_dialog = Some(crate::components::Dialog::new(
+                        ratatui::style::Color::Red,
+                        "Confirm Delete",
+                        &format!("Delete {} \"{}\"?", singular, data.id),
+                        &["Cancel".to_string(), "Delete".to_string()],
+                    ));
                 }
                 Ok(true)
             }
@@ -1349,11 +1396,16 @@ impl Screen for EntitiesScreen {
                 Ok(true)
             }
             CommandAction::SaveAllEntities => {
-                if self.draft_data.is_empty() {
+                let draft_ids: Vec<(String, String)> = if self.draft_data.is_empty() {
+                    // Save all unsaved entities that exist in registry
+                    self.unsaved.iter().cloned().collect()
+                } else {
+                    self.draft_data.keys().cloned().collect()
+                };
+                if draft_ids.is_empty() {
                     return Err("No unsaved entities".to_string());
                 }
                 let mut errors = Vec::new();
-                let draft_ids: Vec<(String, String)> = self.draft_data.keys().cloned().collect();
                 for (cat, id) in &draft_ids {
                     let inspector = EntityInspectorScreen::new(
                         self.registry.clone(),
@@ -1367,6 +1419,7 @@ impl Screen for EntitiesScreen {
                     match result {
                         Ok(()) => {
                             self.draft_data.remove(&(cat.clone(), id.clone()));
+                            self.unsaved.remove(&(cat.clone(), id.clone()));
                             let path = self.content_path.join(cat).join(format!("{id}.toml"));
                             self.file_map
                                 .entry(cat.clone())

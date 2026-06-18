@@ -122,6 +122,10 @@ impl App {
         self.status_message = Some((msg.into(), Instant::now()));
     }
 
+    pub fn clear_hover(&mut self) {
+        self.mouse_pos = None;
+    }
+
     pub fn handle_command_action(&mut self, action: CommandAction) {
         match action {
             CommandAction::ValidateContent => {
@@ -218,6 +222,8 @@ impl App {
                         }
                         continue;
                     }
+                    // Mouse left the menu bar area with no menu open — clear hover
+                    self.menu_bar.hovered_label = None;
 
                     let content_area = if self.sidebar_visible {
                         let h = Layout::horizontal([Constraint::Fill(1), Constraint::Length(24)]);

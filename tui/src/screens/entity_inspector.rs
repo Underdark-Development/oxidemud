@@ -6,12 +6,11 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind},
     layout::Rect,
     style::{Color, Modifier, Style},
-    text::Span,
     widgets::{Block, Borders, Widget},
 };
 
 use super::Screen;
-use crate::components::{ScrollState, Table};
+use crate::components::{Dialog, ScrollState, Table};
 use crate::content::FileMap;
 
 enum EditMode {
@@ -47,11 +46,11 @@ pub struct EntityInspectorScreen {
     table: Table,
     scrollbar: ScrollState,
     edit_mode: EditMode,
-    dirty: bool,
+    pub dirty: bool,
     cursor_char: u8,
     file_map: FileMap,
     pub deleted: bool,
-    pub show_delete_confirm: bool,
+    pub delete_dialog: Option<Dialog>,
     pub content_path: Option<PathBuf>,
     pub is_draft: bool,
     pub muted: bool,
@@ -77,7 +76,7 @@ impl EntityInspectorScreen {
             cursor_char: 0,
             file_map,
             deleted: false,
-            show_delete_confirm: false,
+            delete_dialog: None,
             content_path,
             is_draft,
             muted: false,
@@ -1854,9 +1853,13 @@ impl Screen for EntityInspectorScreen {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
-        if self.show_delete_confirm {
-            match key.code {
-                KeyCode::Enter => {
+        if let Some(ref mut dialog) = self.delete_dialog {
+            if let Some(btn) = dialog.handle_key(key) {
+                if btn == 0 {
+                    // Cancel
+                    self.delete_dialog = None;
+                } else if btn == 1 {
+                    // Confirm delete (convention: button[1] = destructive action)
                     if let Err(e) = self.delete_from_disk() {
                         tracing::error!(
                             "failed to delete {}/{}: {e}",
@@ -1866,10 +1869,6 @@ impl Screen for EntityInspectorScreen {
                     }
                     self.deleted = true;
                 }
-                KeyCode::Esc => {
-                    self.show_delete_confirm = false;
-                }
-                _ => {}
             }
             return true;
         }
@@ -1883,6 +1882,23 @@ impl Screen for EntityInspectorScreen {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
+        if let Some(ref mut dialog) = self.delete_dialog {
+            if let Some(btn) = dialog.handle_mouse(mouse) {
+                if btn == 0 {
+                    self.delete_dialog = None;
+                } else if btn == 1 {
+                    if let Err(e) = self.delete_from_disk() {
+                        tracing::error!(
+                            "failed to delete {}/{}: {e}",
+                            self.category,
+                            self.template_id
+                        );
+                    }
+                    self.deleted = true;
+                }
+            }
+            return;
+        }
         match self.edit_mode {
             EditMode::Idle => self.handle_mouse_idle(mouse, area),
             EditMode::Dropdown { .. } => self.handle_mouse_dropdown(mouse, area),
@@ -1895,7 +1911,7 @@ impl Screen for EntityInspectorScreen {
             return;
         }
 
-        let info = format!(" {} — {} ", self.category, self.template_id);
+        let info = format!(" {} > {} ", self.category, self.template_id);
         buf.set_string(
             area.x,
             area.y,
@@ -1961,8 +1977,8 @@ impl Screen for EntityInspectorScreen {
             EditMode::Idle => {}
         }
 
-        if self.show_delete_confirm {
-            self.render_delete_confirm(area, buf);
+        if let Some(ref mut dialog) = self.delete_dialog {
+            dialog.render(area, buf, mouse_pos);
         }
     }
 }
@@ -1981,7 +1997,16 @@ impl EntityInspectorScreen {
                 }
             }
             KeyCode::Char('D') => {
-                self.show_delete_confirm = true;
+                self.delete_dialog = Some(Dialog::new(
+                    Color::Red,
+                    "Confirm Delete",
+                    &format!(
+                        "Delete {} \"{}\"?",
+                        singularize(&self.category),
+                        self.template_id
+                    ),
+                    &["Cancel".to_string(), "Delete".to_string()],
+                ));
             }
             _ => {}
         }
@@ -2309,44 +2334,7 @@ impl EntityInspectorScreen {
         }
     }
 
-    fn render_delete_confirm(&mut self, area: Rect, buf: &mut Buffer) {
-        let lines = [
-            format!("Delete {} \"{}\"?", self.category, self.template_id),
-            String::new(),
-            "Enter: Confirm  Esc: Cancel".to_string(),
-        ];
-        let width = 40.max(lines.iter().map(|l| l.len()).max().unwrap_or(40) as u16 + 4);
-        let height = lines.len() as u16 + 2;
-        let x = area.x + (area.width.saturating_sub(width)) / 2;
-        let y = area.y + (area.height.saturating_sub(height)) / 2;
-        let overlay = Rect::new(x, y, width, height);
-
-        ratatui::widgets::Clear.render(overlay, buf);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Red))
-            .title(Span::styled(
-                "Confirm Delete",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            ))
-            .style(Style::default().bg(Color::Black));
-        let inner = block.inner(overlay);
-        block.render(overlay, buf);
-        for (i, line) in lines.iter().enumerate() {
-            let style = if line.starts_with("Enter") {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
-            } else if line.starts_with("Delete") {
-                Style::default().fg(Color::Red)
-            } else {
-                Style::default().fg(Color::Indexed(245))
-            };
-            buf.set_string(inner.x, inner.y + i as u16, line, style);
-        }
-    }
+    // end of EntityInspectorScreen
 }
 
 // ---------------------------------------------------------------------------
@@ -2404,6 +2392,23 @@ fn dropdown_options(field: &str) -> Option<Vec<&'static str>> {
         "type" => Some(vec!["prefix", "suffix"]),
         "quality_min" => Some(vec!["common", "uncommon", "rare", "epic", "legendary"]),
         _ => None,
+    }
+}
+
+pub fn singularize(s: &str) -> String {
+    if let Some(stripped) = s.strip_suffix("ies") {
+        format!("{}y", stripped)
+    } else if let Some(stripped) = s
+        .strip_suffix("ses")
+        .or_else(|| s.strip_suffix("xes"))
+        .or_else(|| s.strip_suffix("ches"))
+        .or_else(|| s.strip_suffix("shes"))
+    {
+        stripped.to_string()
+    } else if s.ends_with('s') && !s.ends_with("ss") {
+        s[..s.len() - 1].to_string()
+    } else {
+        s.to_string()
     }
 }
 

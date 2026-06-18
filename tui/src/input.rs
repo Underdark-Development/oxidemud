@@ -3,6 +3,8 @@ use crate::components::CommandAction;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
+    app.clear_hover();
+
     // Menu is open: route everything to menu bar
     if app.menu_bar.open_menu.is_some() {
         if key.code == KeyCode::Esc {

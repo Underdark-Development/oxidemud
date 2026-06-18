@@ -1,5 +1,6 @@
 pub mod command_sidebar;
 mod context_menu;
+pub mod dialog;
 mod form;
 pub mod menu_bar;
 mod modal;
@@ -10,6 +11,7 @@ mod tree;
 
 pub use command_sidebar::CommandAction;
 pub use context_menu::ContextMenu;
+pub use dialog::Dialog;
 pub use form::{FieldType, Form, FormField};
 pub use modal::Modal;
 pub use scroll_state::ScrollState;

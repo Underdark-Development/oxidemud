@@ -166,11 +166,8 @@ impl MenuBar {
                 vec![
                     MenuItem::submenu("New", new_items),
                     MenuItem::separator(),
-                    MenuItem::action(
-                        "Save All",
-                        Some("Ctrl+S".into()),
-                        CommandAction::SaveAllEntities,
-                    ),
+                    MenuItem::action("Save", Some("Ctrl+S".into()), CommandAction::SaveEntity),
+                    MenuItem::action("Save All", None, CommandAction::SaveAllEntities),
                     MenuItem::action(
                         "Reload",
                         Some("Ctrl+R".into()),
