@@ -173,13 +173,10 @@ impl Server {
         tracing::info!("All connections closed");
 
         if let Some(ref db) = db {
-            if let Ok(db_guard) = db.try_lock() {
-                let mut w = world.lock().await;
-                crate::game_loop::save_player_positions(&mut w, &db_guard);
-                tracing::info!("Player positions saved");
-            } else {
-                tracing::warn!("Could not lock DB at shutdown; player positions not saved");
-            }
+            let db_guard = db.lock().await;
+            let mut w = world.lock().await;
+            crate::game_loop::save_online_players(&mut w, &db_guard);
+            tracing::info!("Online player state saved");
         }
 
         shutdown_complete.notify_one();
@@ -354,7 +351,7 @@ async fn handle_connection(
         if let Some(entity) = conn.entity() {
             if let Some(ref db) = db {
                 if let Ok(db_guard) = db.try_lock() {
-                    crate::game_loop::save_player_positions(&mut w, &db_guard);
+                    crate::game_loop::save_online_players(&mut w, &db_guard);
                 }
             }
 

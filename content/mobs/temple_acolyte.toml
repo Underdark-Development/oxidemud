@@ -9,7 +9,17 @@ ai_mode = "idle"
 race = "human"
 languages = ["common"]
 trainer_types = ["magic"]
-skills = ["meditation", "magic_missile", "identify", "enchant"]
+[[skills]]
+id = "meditation"
+
+[[skills]]
+id = "magic_missile"
+
+[[skills]]
+id = "identify"
+
+[[skills]]
+id = "enchant"
 
 # attributes = { str = 8, dex = 10, int = 14, wis = 16, con = 10, cha = 12 }
 # damage = "1d4"

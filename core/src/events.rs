@@ -1,4 +1,4 @@
-use crate::{Entity, EquipmentSlot};
+use crate::{CombatState, Entity, EquipmentSlot};
 
 #[derive(Debug, Clone)]
 pub enum GameEvent {
@@ -68,6 +68,11 @@ pub enum GameEvent {
         player: Entity,
         set_id: String,
         active_tiers: Vec<u8>,
+    },
+    CombatStateChanged {
+        entity: Entity,
+        from: CombatState,
+        to: CombatState,
     },
     ScriptTrigger {
         entity: Entity,

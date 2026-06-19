@@ -5,7 +5,7 @@ short_desc = "a goblin scavenger"
 level = 2
 armor = 2
 damage = "1d4+1"
-damage_type = "bludgeoning"
+damage_type = "bludgeon"
 size = "small"
 xp_value = 35
 ai_mode = "wander"
@@ -27,8 +27,8 @@ constitution = 10
 charisma = 5
 
 [health]
-current = 12
-max = 12
+current = 120
+max = 120
 
 [[equipment]]
 template_id = "wooden_cudgel"

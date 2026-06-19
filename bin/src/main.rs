@@ -210,6 +210,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::cmd_kill,
     );
     server.register_command(
+        "flee",
+        &[],
+        AccessLevel::Player,
+        "Combat",
+        "Attempt to flee from combat",
+        commands::cmd_flee,
+    );
+    server.register_command(
         "inventory",
         &["inv", "i"],
         AccessLevel::Player,

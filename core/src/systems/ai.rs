@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{CombatTarget, Entity, Friendly, Health, Level, Npc, Position, RoomExits, World};
+use crate::{CombatState, Entity, Friendly, Health, Level, Npc, Position, RoomExits, World};
 
 /// Per-NPC AI state.
 #[derive(Debug, Clone)]
@@ -43,7 +43,12 @@ pub fn run_ai_pulse(world: &mut World) {
         };
 
         // Skip if already in combat
-        let in_combat = world.query_one::<&CombatTarget>(entity).is_ok();
+        let in_combat = world
+            .query_one::<&CombatState>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .unwrap_or(CombatState::NotInCombat)
+            .is_in_combat();
 
         if in_combat {
             let health = world
@@ -158,15 +163,32 @@ fn do_aggro_check(world: &mut World, entity: Entity, state: AiState) {
     for target in targets {
         // Aggro unfriendly NPCs (mobs without Friendly marker)
         if state.aggro_mobs
-            && world.query_one::<&Npc>(target).is_ok()
-            && world.query_one::<&Friendly>(target).is_err()
+            && world
+                .query_one::<&Npc>(target)
+                .is_ok_and(|mut q| q.get().is_some())
+            && !world
+                .query_one::<&Friendly>(target)
+                .is_ok_and(|mut q| q.get().is_some())
         {
-            let _ = world.insert(entity, (CombatTarget(target),));
+            let stance = crate::systems::stance::get_active_stance(world, entity);
+            crate::systems::combat::transition_combat_state(
+                world,
+                entity,
+                CombatState::Engaged {
+                    target,
+                    round_started: std::time::Instant::now(),
+                    stance,
+                },
+            );
             return;
         }
 
         // Aggro weak players
-        if state.aggro_players && world.query_one::<&crate::Player>(target).is_ok() {
+        if state.aggro_players
+            && world
+                .query_one::<&crate::Player>(target)
+                .is_ok_and(|mut q| q.get().is_some())
+        {
             let target_level = world
                 .query_one::<&Level>(target)
                 .ok()
@@ -180,7 +202,16 @@ fn do_aggro_check(world: &mut World, entity: Entity, state: AiState) {
                 .unwrap_or(Level(1));
 
             if target_level.0 <= npc_level.0 + 3 {
-                let _ = world.insert(entity, (CombatTarget(target),));
+                let stance = crate::systems::stance::get_active_stance(world, entity);
+                crate::systems::combat::transition_combat_state(
+                    world,
+                    entity,
+                    CombatState::Engaged {
+                        target,
+                        round_started: std::time::Instant::now(),
+                        stance,
+                    },
+                );
                 return;
             }
         }
@@ -200,31 +231,22 @@ fn do_patrol(world: &mut World, entity: Entity, mut state: AiState) {
 }
 
 fn try_flee(world: &mut World, entity: Entity) {
-    let room = match world
-        .query_one::<&Position>(entity)
+    let combat_state = world
+        .query_one::<&CombatState>(entity)
         .ok()
-        .and_then(|mut q| q.get().map(|p| p.room))
-    {
-        Some(r) => r,
-        None => return,
-    };
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or(CombatState::NotInCombat);
 
-    let exits = match world.query_one::<&RoomExits>(room) {
-        Ok(mut q) => q.get().map(|e| e.0.clone()),
-        Err(_) => None,
-    };
-
-    if let Some(exits) = exits {
-        let visible: Vec<_> = exits.iter().filter(|e| !e.is_hidden()).collect();
-        if !visible.is_empty() {
-            let idx = fastrand::usize(..visible.len());
-            let dest = visible[idx].dest;
-            let _ = world.insert(entity, (Position::new(dest),));
-        }
+    if let CombatState::Engaged { target, .. } = combat_state {
+        crate::systems::combat::transition_combat_state(
+            world,
+            entity,
+            CombatState::Fleeing {
+                target,
+                attempts: 0,
+            },
+        );
     }
-
-    // Clear combat target
-    let _ = world.remove_one::<CombatTarget>(entity);
 }
 
 fn update_ai_state(world: &mut World, entity: Entity, state: AiState) {

@@ -87,6 +87,7 @@ enum TargetKind {
     Mob,
     Player,
     Item,
+    Corpse,
 }
 
 fn get_entity_name(world: &World, entity: core::Entity) -> Option<String> {
@@ -153,6 +154,16 @@ fn find_target_in_room(
                     candidates.push((name, (TargetKind::Item, item)));
                 }
             }
+        }
+    }
+
+    let mut corpse_q = world.query::<(&core::Corpse, &Position, &Name)>();
+    for (raw, (_, pos, name)) in corpse_q.iter() {
+        if pos.room == room {
+            candidates.push((
+                name.as_str().to_lowercase(),
+                (TargetKind::Corpse, raw.into()),
+            ));
         }
     }
 
@@ -224,6 +235,21 @@ fn look_at_target(
             }
             conn.send_line("They are nothing special to look at.");
             conn.send_line("");
+        }
+        TargetKind::Corpse => {
+            if let Some(name) = get_name(world, target) {
+                conn.send_line(&name.0);
+            }
+            let item_count = world
+                .query_one::<&Inventory>(target)
+                .ok()
+                .and_then(|mut q| q.get().map(|inv| inv.0.len()))
+                .unwrap_or(0);
+            if item_count == 0 {
+                conn.send_line("It has nothing worth taking.");
+            } else {
+                conn.send_line(&format!("It contains {item_count} item(s)."));
+            }
         }
         TargetKind::Item => {
             if let Some(templates) = mud_server::get_templates() {
@@ -395,10 +421,18 @@ pub fn cmd_look(
         .copied()
         .collect();
 
+    let corpses: Vec<_> = {
+        let mut q = world.query::<(&Position, &core::Corpse)>();
+        q.iter()
+            .filter(|(_, (pos, _))| pos.room == room)
+            .map(|(raw, _)| core::Entity::from(raw))
+            .collect()
+    };
+
     // Collect display info for each entity in the room
     struct LookEntity {
         name: String,
-        group: u8, // 0 = mob (non-friendly), 1 = friendly NPC, 2 = player
+        group: u8, // 0 = mob, 1 = corpse, 2 = friendly NPC, 3 = player
     }
 
     let mut look_entities: Vec<LookEntity> = Vec::new();
@@ -407,7 +441,7 @@ pub fn cmd_look(
         if let Some(name) = get_name(world, *p) {
             look_entities.push(LookEntity {
                 name: name.0,
-                group: 2,
+                group: 3,
             });
         }
     }
@@ -416,7 +450,7 @@ pub fn cmd_look(
         if let Some(desc) = get_short_desc(world, *n) {
             look_entities.push(LookEntity {
                 name: desc,
-                group: 1,
+                group: 2,
             });
         }
     }
@@ -430,7 +464,16 @@ pub fn cmd_look(
         }
     }
 
-    // Sort: mobs first (0), then friendly NPCs (1), then players (2); alphabetical within groups
+    for corpse in &corpses {
+        if let Some(name) = get_name(world, *corpse) {
+            look_entities.push(LookEntity {
+                name: name.0,
+                group: 1,
+            });
+        }
+    }
+
+    // Sort: mobs first, then corpses, friendly NPCs, and players; alphabetical within groups
     look_entities.sort_by(|a, b| {
         a.group
             .cmp(&b.group)
@@ -1014,8 +1057,97 @@ pub fn cmd_kill(
         }
     }
 
-    let _ = world.insert(entity, (core::CombatTarget(target),));
+    let attacker_stance = core::systems::stance::get_active_stance(world, entity);
+    core::systems::combat::transition_combat_state(
+        world,
+        entity,
+        core::CombatState::Engaged {
+            target,
+            round_started: std::time::Instant::now(),
+            stance: attacker_stance,
+        },
+    );
+    if world
+        .query_one::<&core::Npc>(target)
+        .is_ok_and(|mut q| q.get().is_some())
+        && !world
+            .query_one::<&core::Friendly>(target)
+            .is_ok_and(|mut q| q.get().is_some())
+    {
+        let target_stance = core::systems::stance::get_active_stance(world, target);
+        core::systems::combat::transition_combat_state(
+            world,
+            target,
+            core::CombatState::Engaged {
+                target: entity,
+                round_started: std::time::Instant::now(),
+                stance: target_stance,
+            },
+        );
+    }
     conn.send_line("You attack!");
+}
+
+pub fn cmd_flee(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let combat_state = world
+        .query_one::<&core::CombatState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or(core::CombatState::NotInCombat);
+
+    let target = match combat_state {
+        core::CombatState::Engaged { target, .. } => target,
+        core::CombatState::Fleeing { .. } => {
+            conn.send_line("You are already trying to flee!");
+            return;
+        }
+        core::CombatState::NotInCombat => {
+            conn.send_line("You aren't in combat.");
+            return;
+        }
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let exits_exist = match world.query_one::<&core::RoomExits>(room) {
+        Ok(mut q) => q.get().is_some_and(|e| {
+            let visible_exits: Vec<_> = e.0.iter().filter(|x| !x.is_hidden()).collect();
+            !visible_exits.is_empty()
+        }),
+        Err(_) => false,
+    };
+
+    if !exits_exist {
+        conn.send_line("There is nowhere to flee!");
+        return;
+    }
+
+    let new_state = core::CombatState::Fleeing {
+        target,
+        attempts: 0,
+    };
+    core::systems::combat::transition_combat_state(world, entity, new_state);
+    conn.send_line("You attempt to flee from combat!");
 }
 
 // ---------------------------------------------------------------------------

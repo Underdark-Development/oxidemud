@@ -59,8 +59,34 @@ impl Armor {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct CombatTarget(pub Entity);
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum CombatState {
+    #[default]
+    NotInCombat,
+    Engaged {
+        target: Entity,
+        round_started: std::time::Instant,
+        stance: Option<String>,
+    },
+    Fleeing {
+        target: Entity,
+        attempts: u8,
+    },
+}
+
+impl CombatState {
+    pub fn is_in_combat(&self) -> bool {
+        !matches!(self, CombatState::NotInCombat)
+    }
+
+    pub fn target(&self) -> Option<Entity> {
+        match self {
+            CombatState::NotInCombat => None,
+            CombatState::Engaged { target, .. } => Some(*target),
+            CombatState::Fleeing { target, .. } => Some(*target),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DamageType {

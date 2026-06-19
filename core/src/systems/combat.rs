@@ -1,7 +1,8 @@
 use crate::dice::DiceRoll;
 use crate::{
-    Armor, Attributes, CombatTarget, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Health,
-    Inventory, Level, LootRule, Name, Position, Resistance, Weapon, WeaponHands, World,
+    Armor, Attributes, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Health,
+    Inventory, Level, LootRule, Name, Player, Position, Resistance, RoomExits, Weapon, WeaponHands,
+    World,
 };
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,8 @@ pub struct CombatOutcome {
     pub room: Entity,
     pub attacker_name: String,
     pub target_name: String,
+    pub attacker_is_player: bool,
+    pub target_is_player: bool,
     pub kind: CombatOutcomeKind,
 }
 
@@ -28,6 +31,13 @@ pub enum CombatOutcomeKind {
     Miss,
     Killed {
         xp_gained: u64,
+    },
+    FleeSuccess {
+        dest: Entity,
+        moved: bool,
+    },
+    FleeFail {
+        attempts: u8,
     },
 }
 
@@ -218,141 +228,314 @@ pub fn calculate_hit(world: &World, attacker: Entity, target: Entity, is_offhand
     roll + atk_level + ability_mod(str) + dw_penalty >= ac
 }
 
-/// Run one combat pulse for all entities with CombatTarget.
+pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: CombatState) {
+    let old_state = world
+        .query_one::<&CombatState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or(CombatState::NotInCombat);
+
+    if old_state != new_state {
+        let _ = world.insert(entity, (new_state.clone(),));
+
+        let _event = crate::GameEvent::CombatStateChanged {
+            entity,
+            from: old_state,
+            to: new_state,
+        };
+    }
+}
+
+/// Run one combat pulse for all entities with CombatState.
 /// Returns one outcome per attack swing for the server layer to dispatch as messages.
 pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
-    let targets: Vec<(Entity, Entity, Entity)> = {
-        let mut q = world.query::<(&CombatTarget, &Health, &Position)>();
+    let attackers: Vec<(Entity, CombatState, Entity)> = {
+        let mut q = world.query::<(&CombatState, &Health, &Position)>();
         q.iter()
-            .map(|(raw, (target, _health, pos))| {
+            .map(|(raw, (state, _health, pos))| {
                 let attacker = crate::Entity::from(raw);
-                (attacker, target.0, pos.room)
+                (attacker, state.clone(), pos.room)
             })
             .collect()
     };
 
     let mut outcomes = Vec::new();
 
-    for (attacker, target, room) in targets {
-        // Verify target still exists
-        if world.query_one::<&Health>(target).is_err() {
-            let _ = world.remove_one::<CombatTarget>(attacker);
+    for (attacker, state, room) in attackers {
+        // Verify attacker still exists and is alive
+        let attacker_alive = world
+            .query_one::<&Health>(attacker)
+            .ok()
+            .and_then(|mut q| q.get().map(|h| h.is_alive()))
+            .unwrap_or(false);
+
+        if !attacker_alive {
             continue;
         }
 
-        // Verify same room
-        let target_room = match world
-            .query_one::<&Position>(target)
-            .ok()
-            .and_then(|mut q| q.get().map(|p| p.room))
-        {
-            Some(r) => r,
-            None => {
-                let _ = world.remove_one::<CombatTarget>(attacker);
-                continue;
-            }
-        };
+        match state {
+            CombatState::NotInCombat => continue,
+            CombatState::Engaged {
+                target,
+                round_started: _,
+                stance: _,
+            } => {
+                // Verify target still exists
+                if world.query_one::<&Health>(target).is_err() {
+                    transition_combat_state(world, attacker, CombatState::NotInCombat);
+                    continue;
+                }
 
-        if target_room != room {
-            continue;
-        }
-
-        // Check if target is alive
-        let target_dead = world
-            .query_one::<&Health>(target)
-            .ok()
-            .and_then(|mut q| q.get().map(|h| h.is_dead()))
-            .unwrap_or(true);
-
-        if target_dead {
-            let _ = world.remove_one::<CombatTarget>(attacker);
-            continue;
-        }
-
-        // Pre-fetch names before any potential despawn
-        let attacker_name = world
-            .query_one::<&Name>(attacker)
-            .ok()
-            .and_then(|mut q| q.get().map(|n| n.to_string()))
-            .unwrap_or_else(|| "Someone".to_owned());
-        let target_name = world
-            .query_one::<&Name>(target)
-            .ok()
-            .and_then(|mut q| q.get().map(|n| n.to_string()))
-            .unwrap_or_else(|| "Something".to_owned());
-
-        // Main hand attack
-        let is_hit = calculate_hit(world, attacker, target, false);
-        if is_hit {
-            let (damage, damage_type) = calculate_damage(world, attacker, target, false);
-            let (final_damage, killed, xp_gained) =
-                apply_damage(world, attacker, target, damage, damage_type);
-            if final_damage > 0 {
-                let kind = if killed {
-                    CombatOutcomeKind::Killed { xp_gained }
-                } else {
-                    CombatOutcomeKind::Hit {
-                        damage: final_damage,
-                        damage_type,
+                // Verify same room
+                let target_room = match world
+                    .query_one::<&Position>(target)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room))
+                {
+                    Some(r) => r,
+                    None => {
+                        transition_combat_state(world, attacker, CombatState::NotInCombat);
+                        continue;
                     }
                 };
-                outcomes.push(CombatOutcome {
-                    attacker,
-                    target,
-                    room,
-                    attacker_name: attacker_name.clone(),
-                    target_name: target_name.clone(),
-                    kind,
-                });
-            }
-            if killed {
-                continue;
-            }
-        } else {
-            outcomes.push(CombatOutcome {
-                attacker,
-                target,
-                room,
-                attacker_name: attacker_name.clone(),
-                target_name: target_name.clone(),
-                kind: CombatOutcomeKind::Miss,
-            });
-        }
 
-        // Offhand attack if dual-wielding
-        if is_dual_wielding(world, attacker) {
-            let oh_hit = calculate_hit(world, attacker, target, true);
-            if oh_hit {
-                let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
-                let (final_damage, killed, xp_gained) =
-                    apply_damage(world, attacker, target, oh_dmg, oh_type);
-                if final_damage > 0 {
-                    let kind = if killed {
-                        CombatOutcomeKind::Killed { xp_gained }
-                    } else {
-                        CombatOutcomeKind::Hit {
-                            damage: final_damage,
-                            damage_type: oh_type,
+                if target_room != room {
+                    // Target has left the room; update combat state to NotInCombat
+                    transition_combat_state(world, attacker, CombatState::NotInCombat);
+                    continue;
+                }
+
+                // Check if target is alive
+                let target_dead = world
+                    .query_one::<&Health>(target)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|h| h.is_dead()))
+                    .unwrap_or(true);
+
+                if target_dead {
+                    transition_combat_state(world, attacker, CombatState::NotInCombat);
+                    continue;
+                }
+
+                // Pre-fetch names before any potential despawn
+                let attacker_name = world
+                    .query_one::<&Name>(attacker)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|n| n.to_string()))
+                    .unwrap_or_else(|| "Someone".to_owned());
+                let target_name = world
+                    .query_one::<&Name>(target)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|n| n.to_string()))
+                    .unwrap_or_else(|| "Something".to_owned());
+                let attacker_is_player = world
+                    .query_one::<&Player>(attacker)
+                    .is_ok_and(|mut q| q.get().is_some());
+                let target_is_player = world
+                    .query_one::<&Player>(target)
+                    .is_ok_and(|mut q| q.get().is_some());
+
+                // Main hand attack
+                let is_hit = calculate_hit(world, attacker, target, false);
+                if is_hit {
+                    let (damage, damage_type) = calculate_damage(world, attacker, target, false);
+                    let (final_damage, killed, xp_gained) =
+                        apply_damage(world, attacker, target, damage, damage_type);
+                    if final_damage > 0 {
+                        let kind = if killed {
+                            CombatOutcomeKind::Killed { xp_gained }
+                        } else {
+                            CombatOutcomeKind::Hit {
+                                damage: final_damage,
+                                damage_type,
+                            }
+                        };
+                        outcomes.push(CombatOutcome {
+                            attacker,
+                            target,
+                            room,
+                            attacker_name: attacker_name.clone(),
+                            target_name: target_name.clone(),
+                            attacker_is_player,
+                            target_is_player,
+                            kind,
+                        });
+                    }
+                    if killed {
+                        continue;
+                    }
+                } else {
+                    outcomes.push(CombatOutcome {
+                        attacker,
+                        target,
+                        room,
+                        attacker_name: attacker_name.clone(),
+                        target_name: target_name.clone(),
+                        attacker_is_player,
+                        target_is_player,
+                        kind: CombatOutcomeKind::Miss,
+                    });
+                }
+
+                // Offhand attack if dual-wielding
+                if is_dual_wielding(world, attacker) {
+                    let oh_hit = calculate_hit(world, attacker, target, true);
+                    if oh_hit {
+                        let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
+                        let (final_damage, killed, xp_gained) =
+                            apply_damage(world, attacker, target, oh_dmg, oh_type);
+                        if final_damage > 0 {
+                            let kind = if killed {
+                                CombatOutcomeKind::Killed { xp_gained }
+                            } else {
+                                CombatOutcomeKind::Hit {
+                                    damage: final_damage,
+                                    damage_type: oh_type,
+                                }
+                            };
+                            outcomes.push(CombatOutcome {
+                                attacker,
+                                target,
+                                room,
+                                attacker_name,
+                                target_name,
+                                attacker_is_player,
+                                target_is_player,
+                                kind,
+                            });
                         }
-                    };
+                    } else {
+                        outcomes.push(CombatOutcome {
+                            attacker,
+                            target,
+                            room,
+                            attacker_name,
+                            target_name,
+                            attacker_is_player,
+                            target_is_player,
+                            kind: CombatOutcomeKind::Miss,
+                        });
+                    }
+                }
+            }
+            CombatState::Fleeing { target, attempts } => {
+                // Verify target still exists and is in the same room
+                let is_valid_target = world.query_one::<&Health>(target).is_ok() && {
+                    let target_room = world
+                        .query_one::<&Position>(target)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|p| p.room));
+                    target_room == Some(room)
+                };
+
+                // Pre-fetch names
+                let attacker_name = world
+                    .query_one::<&Name>(attacker)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|n| n.to_string()))
+                    .unwrap_or_else(|| "Someone".to_owned());
+                let target_name = world
+                    .query_one::<&Name>(target)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|n| n.to_string()))
+                    .unwrap_or_else(|| "Something".to_owned());
+                let attacker_is_player = world
+                    .query_one::<&Player>(attacker)
+                    .is_ok_and(|mut q| q.get().is_some());
+                let target_is_player = world
+                    .query_one::<&Player>(target)
+                    .is_ok_and(|mut q| q.get().is_some());
+
+                if !is_valid_target {
+                    // Target has fled/died/left, so attacker succeeds in ending combat
+                    transition_combat_state(world, attacker, CombatState::NotInCombat);
                     outcomes.push(CombatOutcome {
                         attacker,
                         target,
                         room,
                         attacker_name,
                         target_name,
-                        kind,
+                        attacker_is_player,
+                        target_is_player,
+                        kind: CombatOutcomeKind::FleeSuccess {
+                            dest: room,
+                            moved: false,
+                        },
+                    });
+                    continue;
+                }
+
+                // Flee check: d20 + dex_mod >= 10
+                let dex = world
+                    .query_one::<&Attributes>(attacker)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|a| a.dexterity))
+                    .unwrap_or(10);
+                let dex_mod = (dex as i32 - 10) / 2;
+
+                let roll = fastrand::i32(1..=20);
+                let success = roll + dex_mod >= 10;
+
+                if success {
+                    // Move to random room exit if possible
+                    let exits = world
+                        .query_one::<&RoomExits>(room)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|e| e.0.clone()));
+
+                    let mut moved = false;
+                    let mut dest_room = room;
+                    if let Some(exits) = exits {
+                        let visible: Vec<_> = exits.iter().filter(|e| !e.is_hidden()).collect();
+                        if !visible.is_empty() {
+                            let idx = fastrand::usize(..visible.len());
+                            let dest = visible[idx].dest;
+                            let _ = world.insert(attacker, (Position::new(dest),));
+                            dest_room = dest;
+                            moved = true;
+                        }
+                    }
+
+                    transition_combat_state(world, attacker, CombatState::NotInCombat);
+                    outcomes.push(CombatOutcome {
+                        attacker,
+                        target,
+                        room,
+                        attacker_name,
+                        target_name,
+                        attacker_is_player,
+                        target_is_player,
+                        kind: CombatOutcomeKind::FleeSuccess {
+                            dest: dest_room,
+                            moved,
+                        },
+                    });
+                } else {
+                    // Flee failed: transition back to Engaged
+                    let active_stance = crate::systems::stance::get_active_stance(world, attacker);
+                    transition_combat_state(
+                        world,
+                        attacker,
+                        CombatState::Engaged {
+                            target,
+                            round_started: std::time::Instant::now(),
+                            stance: active_stance,
+                        },
+                    );
+
+                    outcomes.push(CombatOutcome {
+                        attacker,
+                        target,
+                        room,
+                        attacker_name,
+                        target_name,
+                        attacker_is_player,
+                        target_is_player,
+                        kind: CombatOutcomeKind::FleeFail {
+                            attempts: attempts + 1,
+                        },
                     });
                 }
-            } else {
-                outcomes.push(CombatOutcome {
-                    attacker,
-                    target,
-                    room,
-                    attacker_name,
-                    target_name,
-                    kind: CombatOutcomeKind::Miss,
-                });
             }
         }
     }
@@ -419,7 +602,7 @@ fn apply_damage(
             }
         }
 
-        let _ = world.remove_one::<CombatTarget>(attacker);
+        transition_combat_state(world, attacker, CombatState::NotInCombat);
         // Despawn the victim — the corpse entity replaces it in the room
         let _ = world.despawn(target);
 
@@ -505,9 +688,11 @@ mod tests {
             Health::new(100),
             Attributes::default(),
             Level(5),
-            CombatTarget(Entity::from(
-                hecs::Entity::from_bits(0x0000_0001_0000_0002).unwrap(),
-            )),
+            CombatState::Engaged {
+                target: Entity::from(hecs::Entity::from_bits(0x0000_0001_0000_0002).unwrap()),
+                round_started: std::time::Instant::now(),
+                stance: None,
+            },
             Experience::default(),
             Name::new("Attacker"),
         ));
@@ -518,8 +703,17 @@ mod tests {
             Level(3),
             Name::new("Target"),
         ));
-        // Fix CombatTarget to point to actual target
-        world.insert(attacker, (CombatTarget(target),)).unwrap();
+        // Fix CombatState to point to actual target
+        world
+            .insert(
+                attacker,
+                (CombatState::Engaged {
+                    target,
+                    round_started: std::time::Instant::now(),
+                    stance: None,
+                },),
+            )
+            .unwrap();
         (world, attacker, target)
     }
 
@@ -589,5 +783,133 @@ mod tests {
             .filter(|(_, (_, pos))| pos.room == room)
             .count();
         assert_eq!(corpse_count, 1);
+    }
+
+    #[test]
+    fn test_flee_attempt() {
+        let mut world = World::new();
+        let room = world.spawn(());
+        let attacker = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::new(10, 18, 10, 10, 10, 10),
+            Level(5),
+            CombatState::Fleeing {
+                target: Entity::from(hecs::Entity::from_bits(0x0000_0001_0000_0002).unwrap()),
+                attempts: 0,
+            },
+            Name::new("Attacker"),
+        ));
+        let target = world.spawn((
+            Position::new(room),
+            Health::new(50),
+            Attributes::default(),
+            Level(3),
+            Name::new("Target"),
+        ));
+        // Update Fleeing state to point to actual target
+        world
+            .insert(
+                attacker,
+                (CombatState::Fleeing {
+                    target,
+                    attempts: 0,
+                },),
+            )
+            .unwrap();
+
+        // Run combat pulse
+        let outcomes = run_combat_pulse(&mut world);
+
+        let state = world
+            .query_one::<&CombatState>(attacker)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+
+        assert!(matches!(
+            state,
+            CombatState::NotInCombat | CombatState::Engaged { .. }
+        ));
+        assert!(!outcomes.is_empty());
+    }
+
+    #[test]
+    fn test_mob_fight_back() {
+        let mut world = World::new();
+        let room = world.spawn(());
+
+        let player = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Player::new(1),
+            Name::new("Player"),
+        ));
+
+        let mob = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Npc::new("goblin"),
+            Name::new("Goblin"),
+        ));
+
+        let player_stance = crate::systems::stance::get_active_stance(&world, player);
+        transition_combat_state(
+            &mut world,
+            player,
+            CombatState::Engaged {
+                target: mob,
+                round_started: std::time::Instant::now(),
+                stance: player_stance,
+            },
+        );
+
+        if world
+            .query_one::<&crate::Npc>(mob)
+            .is_ok_and(|mut q| q.get().is_some())
+            && !world
+                .query_one::<&crate::Friendly>(mob)
+                .is_ok_and(|mut q| q.get().is_some())
+        {
+            let target_stance = crate::systems::stance::get_active_stance(&world, mob);
+            transition_combat_state(
+                &mut world,
+                mob,
+                CombatState::Engaged {
+                    target: player,
+                    round_started: std::time::Instant::now(),
+                    stance: target_stance,
+                },
+            );
+        }
+
+        let player_state = world
+            .query_one::<&CombatState>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        let mob_state = world
+            .query_one::<&CombatState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(player_state, CombatState::Engaged { target, .. } if target == mob));
+        assert!(matches!(mob_state, CombatState::Engaged { target, .. } if target == player));
+
+        let outcomes = run_combat_pulse(&mut world);
+
+        let mob_attacked = outcomes
+            .iter()
+            .any(|o| o.attacker == mob && o.target == player);
+        assert!(mob_attacked, "Mob did not attack the player!");
     }
 }

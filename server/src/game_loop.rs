@@ -5,7 +5,7 @@ use std::time::Duration;
 use mud_core::systems;
 use mud_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use mud_core::templates::SetDef;
-use mud_core::{DbId, Entity, Player, Position, World};
+use mud_core::{DbId, Entity, Experience, Health, Level, Player, Position, World};
 use tokio::sync::Mutex;
 use tokio::time::interval;
 
@@ -39,14 +39,17 @@ pub fn spawn_game_loop(
                     // Level-up check for kills
                     for outcome in &outcomes {
                         if let CombatOutcomeKind::Killed { .. } = &outcome.kind {
-                            if w.query_one::<&Player>(outcome.attacker)
-                                .is_ok_and(|mut q| q.get().is_some())
-                            {
+                            if outcome.attacker_is_player {
                                 crate::award_xp(&mut w, outcome.attacker);
+                                if let Some(ref db) = db {
+                                    if let Ok(db_guard) = db.try_lock() {
+                                        save_player_progress(&w, outcome.attacker, &db_guard);
+                                    }
+                                }
                             }
                         }
                     }
-                    dispatch_combat_outcomes(&w, &reg, outcomes);
+                    dispatch_combat_outcomes(&reg, outcomes);
                     systems::ai::run_ai_pulse(&mut w);
                     systems::stance::run_stance_pulse(&mut w);
                     drop(reg);
@@ -60,7 +63,12 @@ pub fn spawn_game_loop(
                 _ = maintenance_tick.tick() => {
                     let mut w = world.lock().await;
                     systems::corpse::run_corpse_pulse(&mut w);
-                    drop(w);
+                    if let Some(ref db) = db {
+                        if let Ok(db_guard) = db.try_lock() {
+                            save_online_players(&mut w, &db_guard);
+                            drop(w);
+                        }
+                    }
                 }
                 _ = set_bonus_tick.tick() => {
                     let mut w = world.lock().await;
@@ -84,48 +92,45 @@ pub fn spawn_game_loop(
     });
 }
 
-fn dispatch_combat_outcomes(
-    world: &World,
-    registry: &ConnectionRegistry,
-    outcomes: Vec<CombatOutcome>,
-) {
+fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatOutcome>) {
     for outcome in outcomes {
-        let attacker_is_player = world
-            .query_one::<&Player>(outcome.attacker)
-            .is_ok_and(|mut q| q.get().is_some());
-
         match outcome.kind {
             CombatOutcomeKind::Hit { damage, .. } => {
-                if attacker_is_player {
+                if outcome.attacker_is_player {
                     if let Some(tx) = registry.sender(outcome.attacker) {
                         let _ = tx.send(
                             format!("You hit {} for {} damage.\r\n", outcome.target_name, damage)
                                 .into_bytes(),
                         );
                     }
-                } else if let Some(tx) = registry.sender(outcome.target) {
-                    let _ = tx.send(
-                        format!(
-                            "{} hits you for {} damage.\r\n",
-                            outcome.attacker_name, damage
-                        )
-                        .into_bytes(),
-                    );
+                } else if outcome.target_is_player {
+                    if let Some(tx) = registry.sender(outcome.target) {
+                        let _ = tx.send(
+                            format!(
+                                "{} hits you for {} damage.\r\n",
+                                outcome.attacker_name, damage
+                            )
+                            .into_bytes(),
+                        );
+                    }
                 }
             }
             CombatOutcomeKind::Miss => {
-                if attacker_is_player {
+                if outcome.attacker_is_player {
                     if let Some(tx) = registry.sender(outcome.attacker) {
                         let _ =
                             tx.send(format!("You miss {}.\r\n", outcome.target_name).into_bytes());
                     }
-                } else if let Some(tx) = registry.sender(outcome.target) {
-                    let _ =
-                        tx.send(format!("{} misses you.\r\n", outcome.attacker_name).into_bytes());
+                } else if outcome.target_is_player {
+                    if let Some(tx) = registry.sender(outcome.target) {
+                        let _ = tx.send(
+                            format!("{} misses you.\r\n", outcome.attacker_name).into_bytes(),
+                        );
+                    }
                 }
             }
             CombatOutcomeKind::Killed { xp_gained } => {
-                if attacker_is_player {
+                if outcome.attacker_is_player {
                     if let Some(tx) = registry.sender(outcome.attacker) {
                         let _ = tx.send(
                             format!(
@@ -135,15 +140,123 @@ fn dispatch_combat_outcomes(
                             .into_bytes(),
                         );
                     }
-                } else if let Some(tx) = registry.sender(outcome.target) {
-                    let _ = tx.send(
-                        format!("You have been slain by {}!\r\n", outcome.attacker_name)
-                            .into_bytes(),
-                    );
+                } else if outcome.target_is_player {
+                    if let Some(tx) = registry.sender(outcome.target) {
+                        let _ = tx.send(
+                            format!("You have been slain by {}!\r\n", outcome.attacker_name)
+                                .into_bytes(),
+                        );
+                    }
+                }
+            }
+            CombatOutcomeKind::FleeSuccess { dest: _, moved } => {
+                if outcome.attacker_is_player {
+                    if let Some(tx) = registry.sender(outcome.attacker) {
+                        if moved {
+                            let _ = tx.send("You flee from combat!\r\n".to_string().into_bytes());
+                        } else {
+                            let _ = tx.send(
+                                "You flee from combat, but there is nowhere to go!\r\n"
+                                    .to_string()
+                                    .into_bytes(),
+                            );
+                        }
+                    }
+                }
+                if outcome.target_is_player {
+                    if let Some(tx) = registry.sender(outcome.target) {
+                        let _ = tx.send(
+                            format!("{} flees from combat!\r\n", outcome.attacker_name)
+                                .into_bytes(),
+                        );
+                    }
+                }
+            }
+            CombatOutcomeKind::FleeFail { attempts } => {
+                if outcome.attacker_is_player {
+                    if let Some(tx) = registry.sender(outcome.attacker) {
+                        let _ = tx.send(
+                            format!("You failed to flee! (Attempt {})\r\n", attempts).into_bytes(),
+                        );
+                    }
+                }
+                if outcome.target_is_player {
+                    if let Some(tx) = registry.sender(outcome.target) {
+                        let _ = tx.send(
+                            format!("{} attempts to flee, but fails!\r\n", outcome.attacker_name)
+                                .into_bytes(),
+                        );
+                    }
                 }
             }
         }
     }
+}
+
+pub(crate) fn save_online_players(world: &mut World, db: &mud_data::Database) {
+    save_player_positions(world, db);
+
+    let players: Vec<Entity> = world
+        .query::<(&Player, &DbId)>()
+        .iter()
+        .map(|(raw, _)| Entity::from(raw))
+        .collect();
+
+    for player in players {
+        save_player_progress(world, player, db);
+    }
+}
+
+pub(crate) fn save_player_progress(world: &World, player: Entity, db: &mud_data::Database) {
+    let Some(db_id) = world
+        .query_one::<&DbId>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .map(|db_id| db_id.0)
+    else {
+        return;
+    };
+
+    let conn = db.conn();
+
+    if let Some(level) = world
+        .query_one::<&Level>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+    {
+        let _ = mud_data::save_level_component(conn, db_id, level.0 as i64);
+        let _ = mud_data::update_character_level(
+            conn,
+            db_id,
+            level.0.into(),
+            current_xp(world, player) as i64,
+        );
+    }
+
+    if let Some(xp) = world
+        .query_one::<&Experience>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+    {
+        let _ = mud_data::save_experience_component(conn, db_id, xp.0 as i64);
+    }
+
+    if let Some(health) = world
+        .query_one::<&Health>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_health_component(conn, db_id, health.current, health.max);
+    }
+}
+
+fn current_xp(world: &World, player: Entity) -> u64 {
+    world
+        .query_one::<&Experience>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .map(|xp| xp.0)
+        .unwrap_or(0)
 }
 
 /// Save every online player's current room to the database.

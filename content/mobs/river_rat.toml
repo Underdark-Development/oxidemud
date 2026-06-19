@@ -28,8 +28,8 @@ constitution = 10
 charisma = 1
 
 [health]
-current = 6
-max = 6
+current = 60
+max = 60
 
 [[loot.entries]]
 item = "copper_coin"

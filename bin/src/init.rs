@@ -1,8 +1,10 @@
 use mud_core::templates::{AreaTemplate, TemplateRegistry};
 use mud_core::{
-    AiState, Direction, Entity, Exit, Friendly, Health, Level, Name, Npc, Position, Race, Room,
-    RoomExits, ShortDesc, World,
+    AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
+    Health, Item, Level, Name, Npc, Position, Race, Room, RoomExits, ShortDesc, Weapon,
+    WeaponHands, WeaponRange, World,
 };
+use std::str::FromStr;
 
 pub fn init_world() -> (World, Entity) {
     let mut world = World::new();
@@ -82,11 +84,24 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                     Position::new(room_entity),
                     Name::new(&mob_tpl.name),
                     Npc::new(&mob_tpl.id),
+                    Attributes::new(
+                        mob_tpl.attributes.strength,
+                        mob_tpl.attributes.dexterity,
+                        mob_tpl.attributes.intelligence,
+                        mob_tpl.attributes.wisdom,
+                        mob_tpl.attributes.constitution,
+                        mob_tpl.attributes.charisma,
+                    ),
                     Health {
                         current: mob_tpl.health.current,
                         max: mob_tpl.health.max,
                     },
                     Level(mob_tpl.level),
+                    Armor {
+                        base: mob_tpl.armor,
+                        bonus: 0,
+                    },
+                    Equipment::new(),
                     AiState {
                         ai_mode: mob_tpl.ai_mode.clone(),
                         threat_table: HashMap::new(),
@@ -116,9 +131,162 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                 if mob_tpl.friendly {
                     world.insert(npc, (Friendly,)).unwrap();
                 }
+
+                equip_mob_template_items(world, npc, mob_tpl, registry);
             }
         }
     }
 
     room_map[area.spawn_room.as_str()]
+}
+
+fn equip_mob_template_items(
+    world: &mut World,
+    npc: Entity,
+    mob_tpl: &mud_core::templates::MobTemplate,
+    registry: &TemplateRegistry,
+) {
+    if let (Some(damage), Some(damage_type)) = (&mob_tpl.damage, &mob_tpl.damage_type) {
+        if let Some(weapon) = make_weapon(damage, damage_type, 2.5, "melee") {
+            let natural_weapon = world.spawn((
+                Name::new(format!("{} attack", mob_tpl.name)),
+                Item::new(format!("{}:natural_attack", mob_tpl.id)),
+                weapon,
+            ));
+            equip_item(world, npc, EquipmentSlot::Weapon, natural_weapon);
+        }
+    }
+
+    for entry in &mob_tpl.equipment {
+        let Some(item_tpl) = registry.get_item(&entry.template_id) else {
+            tracing::warn!(
+                "Mob template '{}' references unknown equipment '{}'",
+                mob_tpl.id,
+                entry.template_id
+            );
+            continue;
+        };
+
+        let item = world.spawn((Name::new(&item_tpl.name), Item::new(&item_tpl.id)));
+
+        if let Some(weapon_def) = &item_tpl.weapon {
+            if let Some(weapon) = make_weapon(
+                &weapon_def.damage.0,
+                &weapon_def.damage_type,
+                weapon_def.speed,
+                &weapon_def.range,
+            ) {
+                world.insert(item, (weapon,)).unwrap();
+            }
+        }
+
+        let slot = EquipmentSlot::from_str(&entry.slot).ok().or_else(|| {
+            item_tpl
+                .equipment
+                .as_ref()
+                .and_then(|equipment| EquipmentSlot::from_str(&equipment.slot).ok())
+        });
+
+        if let Some(slot) = slot {
+            equip_item(world, npc, slot, item);
+        } else {
+            tracing::warn!(
+                "Mob template '{}' has invalid equipment slot '{}' for '{}'",
+                mob_tpl.id,
+                entry.slot,
+                entry.template_id
+            );
+        }
+    }
+}
+
+fn make_weapon(damage: &str, damage_type: &str, speed: f32, range: &str) -> Option<Weapon> {
+    let damage_dice = damage.parse().ok()?;
+    let damage_type = mud_core::DamageType::from_str(damage_type).ok()?;
+    let range = match range.to_lowercase().as_str() {
+        "ranged" => WeaponRange::Ranged,
+        "reach" => WeaponRange::Reach,
+        "thrown" => WeaponRange::Thrown,
+        _ => WeaponRange::Melee,
+    };
+
+    Some(Weapon {
+        damage_dice,
+        damage_type,
+        speed,
+        range,
+        hands: WeaponHands::OneHand,
+    })
+}
+
+fn equip_item(world: &mut World, npc: Entity, slot: EquipmentSlot, item: Entity) {
+    if let Ok(mut q) = world.query_one::<&mut Equipment>(npc) {
+        if let Some(equipment) = q.get() {
+            equipment.equip(slot, item);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn content_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../content")
+    }
+
+    #[test]
+    fn spawn_area_applies_mob_combat_template_fields() {
+        let (mut world, _) = init_world();
+        let (registry, _) = mud_core::content::load_registry(&content_path());
+        let area = registry
+            .get_area("starting_vale")
+            .expect("starting_vale should load");
+
+        spawn_area(&mut world, area, &registry);
+
+        let goblin = {
+            let mut q = world.query::<(&Npc, &Attributes, &Armor, &Equipment)>();
+            q.iter()
+                .find(|(_, (npc, _, _, _))| npc.template_id == "goblin_scavenger")
+                .map(|(entity, _)| Entity::from(entity))
+                .expect("goblin should spawn")
+        };
+
+        let mut attrs = world
+            .query_one::<&Attributes>(goblin)
+            .expect("goblin should exist");
+        assert_eq!(
+            attrs.get().expect("goblin should have attributes").strength,
+            10
+        );
+
+        let mut armor = world
+            .query_one::<&Armor>(goblin)
+            .expect("goblin should exist");
+        assert_eq!(armor.get().expect("goblin should have armor").base, 2);
+
+        let weapon = {
+            let mut equipment = world
+                .query_one::<&Equipment>(goblin)
+                .expect("goblin should exist");
+            *equipment
+                .get()
+                .expect("goblin should have equipment")
+                .equipped(&EquipmentSlot::Weapon)
+                .expect("goblin should have a weapon")
+        };
+
+        assert!(world.query_one::<&Weapon>(weapon).is_ok());
+    }
+
+    #[test]
+    fn actual_content_loads_all_mobs() {
+        let (registry, _) = mud_core::content::load_registry(&content_path());
+
+        assert!(registry.get_mob("temple_acolyte").is_some());
+        assert_eq!(registry.mobs.len(), 5);
+        assert!(registry.validate().is_empty());
+    }
 }
