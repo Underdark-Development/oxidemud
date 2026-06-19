@@ -371,6 +371,22 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         let _ = mud_data::save_practice_points(conn, db_id, pp.0 as i64);
     }
 
+    // 7.5. CombatStats
+    if let Some(cs) = world
+        .query_one::<&mud_core::CombatStats>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_combat_stats_component(
+            conn,
+            db_id,
+            cs.base_attack_bonus,
+            cs.fort_save,
+            cs.ref_save,
+            cs.will_save,
+        );
+    }
+
     // 8. Player component
     if let Some(player_comp) = world
         .query_one::<&Player>(player)

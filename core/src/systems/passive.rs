@@ -194,6 +194,10 @@ mod tests {
                     constitution: 1,
                     ..Default::default()
                 },
+                bab: "full".to_string(),
+                fort_save: "good".to_string(),
+                ref_save: "poor".to_string(),
+                will_save: "poor".to_string(),
                 allowed_races: vec!["human".into()],
                 allowed_alignments: vec![],
                 auto_skills: vec!["shield_bash".into()],

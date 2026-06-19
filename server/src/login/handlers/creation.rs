@@ -2,8 +2,9 @@ use tokio::sync::Mutex;
 
 use mud_core::templates::{SkillResolveError, TemplateRegistry};
 use mud_core::{
-    Alignment, Class, DbId, Description, Entity, Equipment, Experience, Gender, Health, Inventory,
-    Level, Mana, Name, Player, Position, PracticePoints, Race, Stamina, Wallet, World,
+    Alignment, Class, CombatStats, DbId, Description, Entity, Equipment, Experience, Gender,
+    Health, Inventory, Level, Mana, Name, Player, Position, PracticePoints, Race, Stamina, Wallet,
+    World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -1249,6 +1250,11 @@ async fn finalize_character(
     }
     let starting_gold = class_starting_gold(templates, &class_id);
     let class = templates.and_then(|t| t.get_class(&class_id));
+    let combat_stats = if let Some(c) = class {
+        c.calculate_combat_stats(1)
+    } else {
+        CombatStats::default()
+    };
 
     // Resolve spawn room from spawn key, falling back to area's spawn_room
     let room_entity = templates
@@ -1339,6 +1345,18 @@ async fn finalize_character(
 
     if let Err(e) = mud_data::save_experience_component(conn_db, entity_id, 0) {
         lines.push(format!("Error saving experience: {e}"));
+        return lines;
+    }
+
+    if let Err(e) = mud_data::save_combat_stats_component(
+        conn_db,
+        entity_id,
+        combat_stats.base_attack_bonus,
+        combat_stats.fort_save,
+        combat_stats.ref_save,
+        combat_stats.will_save,
+    ) {
+        lines.push(format!("Error saving combat stats: {e}"));
         return lines;
     }
 
@@ -1621,6 +1639,25 @@ async fn load_character(
         .map(|p| p as u32)
         .unwrap_or(0);
 
+    let combat_stats = mud_data::load_combat_stats_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|(bab, fort, ref_save, will)| CombatStats {
+            base_attack_bonus: bab,
+            fort_save: fort,
+            ref_save,
+            will_save: will,
+        })
+        .unwrap_or_else(|| {
+            let c_id = &char_row.class;
+            if let Some(t) = crate::get_templates() {
+                if let Some(class_template) = t.get_class(c_id) {
+                    return class_template.calculate_combat_stats(level.0);
+                }
+            }
+            CombatStats::default()
+        });
+
     tracing::debug!(
         entity_id,
         prompt = ?prompt,
@@ -1735,6 +1772,7 @@ async fn load_character(
             inventory,
             equipment,
             PracticePoints(practice_points),
+            combat_stats,
         ),
     );
 

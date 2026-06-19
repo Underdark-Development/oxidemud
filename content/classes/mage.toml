@@ -9,16 +9,10 @@ auto_skills = ["meditation"]
 skill_pool = ["magic_missile", "identify", "enchant"]
 starting_items = ["cloth_robe", "torch", "healing_salve"]
 
-# base_attack_bonus = "low"
-# skill_ranks_per_level = 4
-# class_skills = ["meditation", "magic_missile", "identify", "enchant"]
-# cross_class_skills = ["parry", "tactics"]
-# exclusive_skills = []
-# stances = ["defensive"]
-# passives = ["adaptability"]
-# fort_save = 6
-# ref_save = 6
-# will_save = 12
+bab = "poor"
+fort_save = "poor"
+ref_save = "poor"
+will_save = "good"
 
 [attribute_mods]
 intelligence = 2

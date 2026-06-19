@@ -837,7 +837,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         // HP gain: hit die + CON mod
         let attrs = get_attributes(world, entity);
         let con_mod = (attrs.constitution as i32 - 10) / 2;
-        let hit_die = get_hit_die();
+        let hit_die = get_hit_die(world, entity);
 
         // Update components
         if let Ok(mut q) = world.query_one::<&mut mud_core::Health>(entity) {
@@ -857,6 +857,18 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         if let Ok(mut q) = world.query_one::<&mut mud_core::Experience>(entity) {
             if let Some(xp) = q.get() {
                 xp.0 = excess;
+            }
+        }
+
+        // Recalculate CombatStats per class progression
+        let class_id = world
+            .query_one::<&mud_core::Class>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|c| c.0.clone()));
+        if let (Some(c_id), Some(t)) = (class_id, TEMPLATES.get()) {
+            if let Some(class_template) = t.get_class(&c_id) {
+                let new_combat_stats = class_template.calculate_combat_stats(new_level);
+                let _ = world.insert(entity, (new_combat_stats,));
             }
         }
 
@@ -931,11 +943,20 @@ fn get_attributes(world: &World, entity: Entity) -> mud_core::Attributes {
         .unwrap_or_default()
 }
 
-fn get_hit_die() -> i32 {
-    TEMPLATES
-        .get()
-        .and_then(|t| t.classes.values().next().map(|c| c.hit_die as i32))
-        .unwrap_or(8)
+fn get_hit_die(world: &World, entity: Entity) -> i32 {
+    let class_id = world
+        .query_one::<&mud_core::Class>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|c| c.0.clone()));
+
+    if let Some(c_id) = class_id {
+        if let Some(t) = TEMPLATES.get() {
+            if let Some(class_template) = t.get_class(&c_id) {
+                return class_template.hit_die as i32;
+            }
+        }
+    }
+    8
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,6 +1044,8 @@ pub async fn console_broadcast(message: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mud_core::templates::{ClassAttributeMods, ClassTemplate, WalletAmount};
+    use mud_core::CombatStats;
 
     fn make_player(world: &mut World, level: u8, xp: u64, attrs: Attributes) -> Entity {
         let e = world.spawn(());
@@ -1149,5 +1172,143 @@ mod tests {
         let mut q = world.query_one::<&Health>(e).unwrap();
         let health = q.get().unwrap();
         assert_eq!(health.current, health.max);
+    }
+
+    fn init_test_templates() {
+        let mut registry = TemplateRegistry::new();
+        let warrior = ClassTemplate {
+            id: "warrior".to_string(),
+            name: "Warrior".to_string(),
+            description: "A warrior".to_string(),
+            hit_die: 10,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "full".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            skill_pool: vec![],
+            starting_skill_slots: 3,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+        };
+        registry.classes.insert("warrior".to_string(), warrior);
+        let _ = TEMPLATES.set(Arc::new(registry));
+    }
+
+    #[test]
+    fn test_class_progression_calculations() {
+        let warrior = ClassTemplate {
+            id: "warrior".to_string(),
+            name: "Warrior".to_string(),
+            description: "A warrior".to_string(),
+            hit_die: 10,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "full".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            skill_pool: vec![],
+            starting_skill_slots: 3,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+        };
+
+        // Level 1
+        let cs1 = warrior.calculate_combat_stats(1);
+        assert_eq!(cs1.base_attack_bonus, 1);
+        assert_eq!(cs1.fort_save, 2);
+        assert_eq!(cs1.ref_save, 0);
+        assert_eq!(cs1.will_save, 0);
+
+        // Level 5
+        let cs5 = warrior.calculate_combat_stats(5);
+        assert_eq!(cs5.base_attack_bonus, 5);
+        assert_eq!(cs5.fort_save, 4);
+        assert_eq!(cs5.ref_save, 1);
+        assert_eq!(cs5.will_save, 1);
+
+        // Level 10
+        let cs10 = warrior.calculate_combat_stats(10);
+        assert_eq!(cs10.base_attack_bonus, 10);
+        assert_eq!(cs10.fort_save, 7);
+        assert_eq!(cs10.ref_save, 3);
+        assert_eq!(cs10.will_save, 3);
+
+        let mage = ClassTemplate {
+            id: "mage".to_string(),
+            name: "Mage".to_string(),
+            description: "A mage".to_string(),
+            hit_die: 6,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "poor".to_string(),
+            fort_save: "poor".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "good".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            skill_pool: vec![],
+            starting_skill_slots: 4,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+        };
+
+        // Level 5
+        let cs_m5 = mage.calculate_combat_stats(5);
+        assert_eq!(cs_m5.base_attack_bonus, 2);
+        assert_eq!(cs_m5.fort_save, 1);
+        assert_eq!(cs_m5.will_save, 4);
+    }
+
+    #[test]
+    fn test_level_up_recalculates_combat_stats() {
+        init_test_templates();
+
+        let mut world = World::new();
+        let e = world.spawn(());
+        world
+            .insert(
+                e,
+                (
+                    Health::new(50),
+                    Level(1),
+                    Experience(1000),
+                    Attributes::default(),
+                    PracticePoints(0),
+                    mud_core::Class("warrior".to_string()),
+                    CombatStats::default(),
+                ),
+            )
+            .unwrap();
+
+        award_xp(&mut world, e);
+
+        assert_eq!(get_level(&world, e), 2);
+
+        let mut q = world.query_one::<&CombatStats>(e).unwrap();
+        let cs = q.get().unwrap();
+        assert_eq!(cs.base_attack_bonus, 2);
+        assert_eq!(cs.fort_save, 3);
+        assert_eq!(cs.ref_save, 0);
+    }
+
+    #[test]
+    fn test_get_hit_die_custom_class() {
+        init_test_templates();
+
+        let mut world = World::new();
+        let e = world.spawn((mud_core::Class("warrior".to_string()),));
+        let hd = get_hit_die(&world, e);
+        assert_eq!(hd, 10);
+
+        let e_no_class = world.spawn(());
+        let hd_fallback = get_hit_die(&world, e_no_class);
+        assert_eq!(hd_fallback, 8);
     }
 }

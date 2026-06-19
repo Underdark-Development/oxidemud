@@ -1397,10 +1397,10 @@ mcp/
 - [x] Register all three commands in CommandDispatch
 
 ### Phase 6 — Class Progression
-- [ ] Add `bab`, `fort_save`, `ref_save`, `will_save` fields to `ClassTemplate`
-- [ ] Recalculate `CombatStats` on each level-up using class progression formulas
-- [ ] Fix `get_hit_die()` to use entity's actual class via `TemplateRegistry` lookup
-- [ ] Update class TOML files (warrior: full/mage: poor BAB, matching saves)
+- [x] Add `bab`, `fort_save`, `ref_save`, `will_save` fields to `ClassTemplate`
+- [x] Recalculate `CombatStats` on each level-up using class progression formulas
+- [x] Fix `get_hit_die()` to use entity's actual class via `TemplateRegistry` lookup
+- [x] Update class TOML files (warrior: full/mage: poor BAB, matching saves)
 
 ### Phase 7 — Enhanced Level-Up Effects
 - [ ] Recalculate Mana/Stamina pools via `from_formula()` on each level-up
@@ -1411,6 +1411,6 @@ mcp/
 - [x] Unit: `train` command (success + all failure cases)
 - [x] Unit: `practice` command (success + all failure cases)
 - [x] Unit: `entities_in_room()` utility
-- [ ] Unit: class progression (BAB/saves at various levels)
+- [x] Unit: class progression (BAB/saves at various levels)
 - [x] Unit: migration retroactive calculation
-- [ ] Integration: full level-up cycle
+- [x] Integration: full level-up cycle

@@ -1,4 +1,4 @@
-use crate::components::SkillDef;
+use crate::components::{CombatStats, SkillDef};
 use crate::dice::DiceRoll;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -232,6 +232,14 @@ pub struct ClassTemplate {
     pub hit_die: u8,
     #[serde(default)]
     pub attribute_mods: ClassAttributeMods,
+    #[serde(default = "default_bab")]
+    pub bab: String,
+    #[serde(default = "default_save_progression")]
+    pub fort_save: String,
+    #[serde(default = "default_save_progression")]
+    pub ref_save: String,
+    #[serde(default = "default_save_progression")]
+    pub will_save: String,
     #[serde(default)]
     pub allowed_races: Vec<String>,
     #[serde(default)]
@@ -248,12 +256,52 @@ pub struct ClassTemplate {
     pub starting_gold: WalletAmount,
 }
 
+impl ClassTemplate {
+    pub fn calculate_combat_stats(&self, level: u8) -> CombatStats {
+        let bab = match self.bab.as_str() {
+            "full" => level as i32,
+            "medium" => ((level as i32) * 3) / 4,
+            "poor" => (level as i32) / 2,
+            _ => 0,
+        };
+        let fort = match self.fort_save.as_str() {
+            "good" => 2 + (level as i32) / 2,
+            "poor" => (level as i32) / 3,
+            _ => 0,
+        };
+        let reflex = match self.ref_save.as_str() {
+            "good" => 2 + (level as i32) / 2,
+            "poor" => (level as i32) / 3,
+            _ => 0,
+        };
+        let will = match self.will_save.as_str() {
+            "good" => 2 + (level as i32) / 2,
+            "poor" => (level as i32) / 3,
+            _ => 0,
+        };
+        CombatStats {
+            base_attack_bonus: bab,
+            fort_save: fort,
+            ref_save: reflex,
+            will_save: will,
+        }
+    }
+}
+
 const fn default_starting_skill_slots() -> u8 {
     3
 }
 
 const fn default_hit_die() -> u8 {
     8
+}
+
+fn default_bab() -> String {
+    "poor".to_string()
+}
+
+fn default_save_progression() -> String {
+    "poor".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -1382,6 +1430,10 @@ mod tests {
                 constitution: 1,
                 ..Default::default()
             },
+            bab: "full".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
             allowed_races: vec!["human".into()],
             allowed_alignments: Vec::new(),
             auto_skills: vec!["power_attack".into(), "shield_bash".into()],
