@@ -1,3 +1,3 @@
-server_name = "Mud"
-max_clients = 256
-default_prompt = "<%hhp %hmhp> "
+server_name = "MUD"
+max_clients = 128
+default_prompt = "<%h/%Hhp %m/%Mmp> "
