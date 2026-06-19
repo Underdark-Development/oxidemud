@@ -1872,9 +1872,15 @@ pub fn cmd_train(
             .and_then(|mut q| q.get().cloned())
             .unwrap_or_default();
 
+        let practice_pts = world
+            .query_one::<&core::PracticePoints>(entity)
+            .ok()
+            .and_then(|mut q| q.get().copied())
+            .unwrap_or(core::PracticePoints(0));
+
         conn.send_line("");
         conn.send_line("--- Training ---");
-        conn.send_line(&format!("Unspent skill points: {}", skills.unspent_points));
+        conn.send_line(&format!("Practice points: {}", practice_pts.0));
         conn.send_line(&format!(
             "Max rank per skill at level {}: {}",
             level.0,
@@ -1935,6 +1941,20 @@ pub fn cmd_train(
         }
     };
 
+    let mut practice_pts = match world.query_one::<&mut core::PracticePoints>(entity) {
+        Ok(mut q) => match q.get() {
+            Some(p) => *p,
+            None => {
+                conn.send_line("You have no practice points.");
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line("You have no practice points.");
+            return;
+        }
+    };
+
     // Check if skill is known
     let current_rank = skills.rank(&skill_id);
     if current_rank == 0 {
@@ -1953,21 +1973,21 @@ pub fn cmd_train(
 
     // Check cost
     let cost = skill_point_cost(current_rank);
-    if skills.unspent_points < cost {
+    if practice_pts.0 < cost {
         conn.send_line(&format!(
             "Training '{skill_id}' costs {cost} point(s), but you only have {}.",
-            skills.unspent_points
+            practice_pts.0
         ));
         return;
     }
 
     // Apply training
-    skills.unspent_points -= cost;
+    practice_pts.0 -= cost;
     let new_rank = current_rank + 1;
     skills.set_rank(&skill_id, new_rank);
-    let remaining = skills.unspent_points;
+    let remaining = practice_pts.0;
 
-    let _ = world.insert(entity, (skills, core::Dirty));
+    let _ = world.insert(entity, (skills, practice_pts, core::Dirty));
     conn.send_line(&format!(
         "You train '{skill_id}' to rank {new_rank}. ({remaining} point(s) remaining)",
     ));

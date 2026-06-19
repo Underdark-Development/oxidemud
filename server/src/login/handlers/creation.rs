@@ -3,7 +3,7 @@ use tokio::sync::Mutex;
 use mud_core::templates::{SkillResolveError, TemplateRegistry};
 use mud_core::{
     Alignment, Class, DbId, Description, Entity, Equipment, Experience, Gender, Health, Inventory,
-    Level, Mana, Name, Player, Position, Race, Stamina, Wallet, World,
+    Level, Mana, Name, Player, Position, PracticePoints, Race, Stamina, Wallet, World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -1604,7 +1604,7 @@ async fn load_character(
         .map(Description)
         .unwrap_or_default();
 
-    let (prompt, screen_width, unspent_skill_points) =
+    let (prompt, screen_width, legacy_skill_points) =
         mud_data::load_player_component(conn_db, entity_id)
             .ok()
             .flatten()
@@ -1636,7 +1636,6 @@ async fn load_character(
     for (skill_id, rank) in skills_map {
         skills.set_rank(&skill_id, rank);
     }
-    skills.unspent_points = unspent_skill_points;
 
     // Load inventory
     let inv_rows = mud_data::load_inventory(conn_db, entity_id).unwrap_or_default();
@@ -1725,6 +1724,7 @@ async fn load_character(
             gold,
             inventory,
             equipment,
+            PracticePoints(legacy_skill_points),
         ),
     );
 

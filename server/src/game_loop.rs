@@ -7,7 +7,7 @@ use mud_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use mud_core::templates::SetDef;
 use mud_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Player, Position, SpawnKey, Wallet, World,
+    LearnedSkills, Level, Player, Position, PracticePoints, SpawnKey, Wallet, World,
 };
 use tokio::sync::Mutex;
 use tokio::time::interval;
@@ -60,7 +60,12 @@ pub fn spawn_game_loop(
                     for outcome in &outcomes {
                         if let CombatOutcomeKind::Killed { .. } = &outcome.kind {
                             if outcome.attacker_is_player {
-                                crate::award_xp(&mut w, outcome.attacker);
+                                let msgs = crate::award_xp(&mut w, outcome.attacker);
+                                for msg in &msgs {
+                                    if let Some(tx) = reg.sender(outcome.attacker) {
+                                        let _ = tx.send(format!("{msg}\r\n").into_bytes());
+                                    }
+                                }
                                 if let Some(ref db) = db {
                                     if let Ok(db_guard) = db.try_lock() {
                                         save_player_progress(&mut w, outcome.attacker, &db_guard);
@@ -356,6 +361,12 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
             tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save skills");
         }
 
+        let practice_points = world
+            .query_one::<&PracticePoints>(player)
+            .ok()
+            .and_then(|mut q| q.get().copied())
+            .map(|p| p.0)
+            .unwrap_or(0);
         if let Some(player_comp) = world
             .query_one::<&Player>(player)
             .ok()
@@ -367,7 +378,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
                 player_comp.account_id,
                 player_comp.prompt.as_deref(),
                 player_comp.screen_width,
-                skills.unspent_points,
+                practice_points,
             ) {
                 tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save player component");
             }

@@ -22,7 +22,7 @@ use crate::telnet::INITIAL_NEGOTIATION;
 use mud_core::templates::TemplateRegistry;
 use mud_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Name, Player, Position, Room, SpawnKey, Wallet, World,
+    LearnedSkills, Level, Name, Player, Position, PracticePoints, Room, SpawnKey, Wallet, World,
 };
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
@@ -398,6 +398,10 @@ async fn handle_connection(
                     .query_one::<&LearnedSkills>(entity)
                     .ok()
                     .and_then(|mut q| q.get().cloned());
+                let practice_points = w
+                    .query_one::<&PracticePoints>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().copied());
                 let player_comp = w
                     .query_one::<&Player>(entity)
                     .ok()
@@ -488,6 +492,7 @@ async fn handle_connection(
                     room_info,
                     wallet,
                     skills,
+                    practice_points,
                     player_comp,
                     attrs,
                     alignment,
@@ -514,6 +519,7 @@ async fn handle_connection(
             room_info,
             wallet,
             skills,
+            practice_points,
             player_comp,
             attrs,
             alignment,
@@ -595,13 +601,14 @@ async fn handle_connection(
                         tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save skills");
                     }
                     if let Some(ref player_comp) = player_comp {
+                        let pp = practice_points.map(|p| p.0).unwrap_or(0);
                         if let Err(e) = mud_data::save_player_component(
                             conn_db,
                             db_id.0,
                             player_comp.account_id,
                             player_comp.prompt.as_deref(),
                             player_comp.screen_width,
-                            skills.unspent_points,
+                            pp,
                         ) {
                             tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save player component");
                         } else {
@@ -828,13 +835,14 @@ fn send_server_greeting(conn: &mut dyn Connection, registry: &ConnectionRegistry
 // ---------------------------------------------------------------------------
 
 /// Grant XP to a player entity, checking for level-ups.
-pub fn award_xp(world: &mut World, entity: Entity) {
+/// Returns level-up messages to be sent to the player.
+pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
     let level = get_level(world, entity);
     let xp = get_experience(world, entity);
 
     let threshold = mud_core::Experience::for_level(level + 1);
     if xp < threshold {
-        return;
+        return Vec::new();
     }
 
     let db = DB.get().and_then(|d| d.try_lock().ok());
@@ -891,27 +899,22 @@ pub fn award_xp(world: &mut World, entity: Entity) {
             }
         }
 
-        // Attribute point every 5 levels
-        let attr_msg = if new_level % 5 == 0 {
-            " You gain an attribute point!"
-        } else {
-            ""
-        };
-
-        // Grant skill points on level-up
-        let skill_points = (new_level as u32 * 2) + con_mod.max(0) as u32;
-        if let Ok(mut q) = world.query_one::<&mut mud_core::LearnedSkills>(entity) {
-            if let Some(skills) = q.get() {
-                skills.unspent_points = skills.unspent_points.saturating_add(skill_points);
+        // Grant practice points on level-up: (2 + WIS_mod + INT_mod).max(1)
+        let wis_mod = (attrs.wisdom as i32 - 10) / 2;
+        let int_mod = (attrs.intelligence as i32 - 10) / 2;
+        let practice_gain = (2 + wis_mod + int_mod).max(1) as u32;
+        if let Ok(mut q) = world.query_one::<&mut mud_core::PracticePoints>(entity) {
+            if let Some(pp) = q.get() {
+                pp.0 = pp.0.saturating_add(practice_gain);
             }
         }
 
-        let sp_msg = format!(" {} skill point(s).", skill_points);
+        let pp_msg = format!(" {} practice point(s).", practice_gain);
 
         messages.push(format!(
-            "You advance to level {new_level}! HP increased by {}.{attr_msg}{}",
+            "You advance to level {new_level}! HP increased by {}.{}",
             (hit_die + con_mod).max(1),
-            sp_msg,
+            pp_msg,
         ));
     }
 
@@ -927,6 +930,8 @@ pub fn award_xp(world: &mut World, entity: Entity) {
             mud_core::systems::passive::apply_all_passives(world, entity, templates);
         }
     }
+
+    messages
 }
 
 fn get_level(world: &World, entity: Entity) -> u8 {
@@ -1040,4 +1045,136 @@ pub async fn console_broadcast(message: &str) -> usize {
         }
     }
     sent
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_player(world: &mut World, level: u8, xp: u64, attrs: Attributes) -> Entity {
+        let e = world.spawn(());
+        world
+            .insert(
+                e,
+                (
+                    Health::new(50),
+                    Level(level),
+                    Experience(xp),
+                    attrs,
+                    PracticePoints(0),
+                ),
+            )
+            .unwrap();
+        e
+    }
+
+    #[test]
+    fn no_level_up_below_threshold() {
+        let mut world = World::new();
+        let e = make_player(&mut world, 1, 50, Attributes::default());
+        award_xp(&mut world, e);
+
+        assert_eq!(get_level(&world, e), 1);
+        assert_eq!(get_experience(&world, e), 50);
+        let mut q = world.query_one::<&PracticePoints>(e).unwrap();
+        let pp = q.get().unwrap();
+        assert_eq!(pp.0, 0);
+    }
+
+    #[test]
+    fn single_level_up_grants_practice_points() {
+        let mut world = World::new();
+        let e = make_player(&mut world, 1, 1000, Attributes::default());
+        award_xp(&mut world, e);
+
+        assert_eq!(get_level(&world, e), 2);
+        assert_eq!(get_experience(&world, e), 200);
+
+        let mut q = world.query_one::<&Health>(e).unwrap();
+        let health = q.get().unwrap();
+        assert_eq!(health.max, 58);
+        assert_eq!(health.current, 58);
+
+        let mut q = world.query_one::<&PracticePoints>(e).unwrap();
+        let pp = q.get().unwrap();
+        assert_eq!(pp.0, 2);
+    }
+
+    #[test]
+    fn multiple_level_ups_grant_practice_points_each() {
+        let mut world = World::new();
+        let e = make_player(&mut world, 1, 5000, Attributes::default());
+        award_xp(&mut world, e);
+
+        assert_eq!(get_level(&world, e), 3);
+        assert_eq!(get_experience(&world, e), 1500);
+
+        let mut q = world.query_one::<&PracticePoints>(e).unwrap();
+        let pp = q.get().unwrap();
+        assert_eq!(pp.0, 4);
+    }
+
+    #[test]
+    fn practice_points_scales_with_wisdom_and_intelligence() {
+        let mut world = World::new();
+        let attrs = Attributes::new(10, 10, 12, 14, 10, 10);
+        let e = make_player(&mut world, 1, 1000, attrs);
+        award_xp(&mut world, e);
+
+        let mut q = world.query_one::<&PracticePoints>(e).unwrap();
+        let pp = q.get().unwrap();
+        assert_eq!(pp.0, 5);
+    }
+
+    #[test]
+    fn practice_points_minimum_of_one() {
+        let mut world = World::new();
+        let attrs = Attributes::new(10, 10, 4, 4, 10, 10);
+        let e = make_player(&mut world, 1, 1000, attrs);
+        award_xp(&mut world, e);
+
+        let mut q = world.query_one::<&PracticePoints>(e).unwrap();
+        let pp = q.get().unwrap();
+        assert_eq!(pp.0, 1);
+    }
+
+    #[test]
+    fn hp_gain_at_least_one() {
+        let mut world = World::new();
+        let attrs = Attributes::new(10, 10, 10, 10, 3, 10);
+        let e = make_player(&mut world, 1, 1000, attrs);
+        award_xp(&mut world, e);
+
+        let mut q = world.query_one::<&Health>(e).unwrap();
+        let health = q.get().unwrap();
+        let gain = health.max - 50;
+        assert!(gain >= 1, "HP gain should be at least 1, got {gain}");
+    }
+
+    #[test]
+    fn full_heal_on_level_up() {
+        let mut world = World::new();
+        let e = world.spawn(());
+        world
+            .insert(
+                e,
+                (
+                    Health {
+                        current: 10,
+                        max: 50,
+                    },
+                    Level(1),
+                    Experience(1000),
+                    Attributes::default(),
+                    PracticePoints(0),
+                ),
+            )
+            .unwrap();
+
+        award_xp(&mut world, e);
+
+        let mut q = world.query_one::<&Health>(e).unwrap();
+        let health = q.get().unwrap();
+        assert_eq!(health.current, health.max);
+    }
 }

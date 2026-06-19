@@ -72,14 +72,12 @@ impl SkillDef {
 #[derive(Debug, Clone)]
 pub struct LearnedSkills {
     pub skills: HashMap<String, u16>,
-    pub unspent_points: u32,
 }
 
 impl LearnedSkills {
     pub fn new() -> Self {
         LearnedSkills {
             skills: HashMap::new(),
-            unspent_points: 0,
         }
     }
 

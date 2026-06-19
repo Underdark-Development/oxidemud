@@ -1371,10 +1371,10 @@ mcp/
 
 ### Phase 1 — Core PracticePoints Component
 - [x] Add `PracticePoints(pub u32)` component to `core/src/components/character.rs`
-- [ ] Grant points in `award_xp()`: `(2 + WIS_mod + INT_mod).max(1)` per level, replacing old `skill_points` formula
-- [ ] Remove `unspent_points` field from `LearnedSkills`
-- [ ] Return level-up messages from `award_xp()` as `Vec<String>`, caller delivers
-- [ ] Update `save_player_progress()` to persist/load `PracticePoints` instead of `unspent_skill_points`
+- [x] Grant points in `award_xp()`: `(2 + WIS_mod + INT_mod).max(1)` per level, replacing old `skill_points` formula
+- [x] Remove `unspent_points` field from `LearnedSkills`
+- [x] Return level-up messages from `award_xp()` as `Vec<String>`, caller delivers
+- [x] Update `save_player_progress()` to persist/load `PracticePoints` instead of `unspent_skill_points`
 
 ### Phase 2 — Database Migration
 - [ ] Bump `VERSION` to 15, add `components_practice_points` table
@@ -1407,7 +1407,7 @@ mcp/
 - [ ] Emit `PlayerLeveled` event from `award_xp()`
 
 ### Phase 8 — Tests
-- [ ] Unit: practice points grant formula
+- [x] Unit: practice points grant formula
 - [ ] Unit: `train` command (success + all failure cases)
 - [ ] Unit: `practice` command (success + all failure cases)
 - [ ] Unit: `entities_in_room()` utility
