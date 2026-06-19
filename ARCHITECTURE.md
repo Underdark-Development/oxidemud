@@ -1387,8 +1387,8 @@ mcp/
 - [x] Add `entities_in_room(world, room) -> Vec<Entity>` utility in `core/src/`
 
 ### Phase 4 — Trainer NPC System
-- [ ] Attach `Trainer` component in mob spawn code (`bin/src/init.rs`) when `trainer_types` is non-empty
-- [ ] Create trainer mob template (`content/mobs/trainer.toml`, friendly, idle, `trainer_types = ["attributes"]`)
+- [x] Attach `Trainer` component in mob spawn code (`bin/src/init.rs`) when `trainer_types` is non-empty
+- [x] Create trainer mob template (`content/mobs/trainer.toml`, friendly, idle, `trainer_types = ["attributes"]`)
 
 ### Phase 5 — Commands
 - [ ] `train` command: validates trainer proximity, PracticePoints, stat bounds; deducts cost, increments stat
