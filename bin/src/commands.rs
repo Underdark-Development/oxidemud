@@ -2032,9 +2032,11 @@ pub fn cmd_practice(
     let room_entities = core::util::entities_in_room(world, room);
     let mut has_trainer = false;
     for e in &room_entities {
-        if world.query_one::<&core::Trainer>(*e).is_ok() {
-            has_trainer = true;
-            break;
+        if let Ok(mut q) = world.query_one::<&core::Trainer>(*e) {
+            if q.get().is_some() {
+                has_trainer = true;
+                break;
+            }
         }
     }
 
@@ -2293,9 +2295,11 @@ pub fn cmd_train(
     let room_entities = core::util::entities_in_room(world, room);
     let mut has_trainer = false;
     for e in &room_entities {
-        if world.query_one::<&core::Trainer>(*e).is_ok() {
-            has_trainer = true;
-            break;
+        if let Ok(mut q) = world.query_one::<&core::Trainer>(*e) {
+            if q.get().is_some() {
+                has_trainer = true;
+                break;
+            }
         }
     }
 
@@ -2931,5 +2935,406 @@ mod tests {
 
         let lines = conn.take_lines();
         assert!(lines.iter().any(|l| l.contains("Huh")));
+    }
+
+    // ── cmd_practice & cmd_train & cmd_score ─────────────────
+
+    #[test]
+    fn test_practice_success() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(1),
+        ));
+        let mut skills = core::LearnedSkills::new();
+        skills.set_rank("swords", 1);
+        world
+            .insert(player, (skills, core::PracticePoints(1)))
+            .unwrap();
+
+        // Spawn trainer
+        world.spawn((Position::new(room_a), core::Trainer::new(vec![])));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_practice(&mut world, &mut conn, "practice", "swords", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("You practice 'swords' to rank 2"),
+            "Expected success message in: {all}"
+        );
+
+        // Verify state
+        let practice_pts = world
+            .query_one::<&core::PracticePoints>(player)
+            .unwrap()
+            .get()
+            .copied()
+            .unwrap();
+        assert_eq!(practice_pts.0, 0);
+
+        let skills_comp = world
+            .query_one::<&core::LearnedSkills>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(skills_comp.rank("swords"), 2);
+
+        assert!(world.query_one::<&core::Dirty>(player).is_ok());
+    }
+
+    #[test]
+    fn test_practice_no_trainer() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(1),
+        ));
+        let mut skills = core::LearnedSkills::new();
+        skills.set_rank("swords", 1);
+        world
+            .insert(player, (skills, core::PracticePoints(1)))
+            .unwrap();
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_practice(&mut world, &mut conn, "practice", "swords", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("Seek out a trainer"),
+            "Expected trainer warning in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_practice_wrong_trainer() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(1),
+        ));
+        let mut skills = core::LearnedSkills::new();
+        skills.set_rank("swords", 1);
+        world
+            .insert(player, (skills, core::PracticePoints(1)))
+            .unwrap();
+
+        // Trainer who only teaches magic
+        world.spawn((
+            Position::new(room_a),
+            core::Trainer::new(vec!["magic".to_string()]),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_practice(&mut world, &mut conn, "practice", "swords", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("You can't practice that here"),
+            "Expected error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_practice_not_known_skill() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(1),
+        ));
+        world
+            .insert(
+                player,
+                (core::LearnedSkills::new(), core::PracticePoints(1)),
+            )
+            .unwrap();
+        world.spawn((Position::new(room_a), core::Trainer::new(vec![])));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_practice(&mut world, &mut conn, "practice", "swords", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("You don't know the skill 'swords'"),
+            "Expected error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_practice_max_rank() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(1), // Max rank = 1 * 5 + 5 = 10
+        ));
+        let mut skills = core::LearnedSkills::new();
+        skills.set_rank("swords", 10);
+        world
+            .insert(player, (skills, core::PracticePoints(1)))
+            .unwrap();
+        world.spawn((Position::new(room_a), core::Trainer::new(vec![])));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_practice(&mut world, &mut conn, "practice", "swords", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("beyond rank 10"),
+            "Expected max rank error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_practice_no_points() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(1),
+        ));
+        let mut skills = core::LearnedSkills::new();
+        skills.set_rank("swords", 1);
+        world
+            .insert(player, (skills, core::PracticePoints(0)))
+            .unwrap();
+        world.spawn((Position::new(room_a), core::Trainer::new(vec![])));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_practice(&mut world, &mut conn, "practice", "swords", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("only have 0"),
+            "Expected no points error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_train_success() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Attributes::new(10, 10, 10, 10, 10, 10),
+            core::PracticePoints(5),
+        ));
+
+        // Trainer who teaches attributes
+        world.spawn((
+            Position::new(room_a),
+            core::Trainer::new(vec!["attributes".to_string()]),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_train(&mut world, &mut conn, "train", "strength", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("You train Strength to 11"),
+            "Expected success message in: {all}"
+        );
+
+        // Verify state
+        let practice_pts = world
+            .query_one::<&core::PracticePoints>(player)
+            .unwrap()
+            .get()
+            .copied()
+            .unwrap();
+        assert_eq!(practice_pts.0, 0);
+
+        let attrs = world
+            .query_one::<&core::Attributes>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(attrs.strength, 11);
+
+        assert!(world.query_one::<&core::Dirty>(player).is_ok());
+    }
+
+    #[test]
+    fn test_train_no_trainer() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Attributes::new(10, 10, 10, 10, 10, 10),
+            core::PracticePoints(5),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_train(&mut world, &mut conn, "train", "strength", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("Seek out a trainer"),
+            "Expected trainer warning in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_train_wrong_trainer() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Attributes::new(10, 10, 10, 10, 10, 10),
+            core::PracticePoints(5),
+        ));
+
+        // Trainer who only teaches combat
+        world.spawn((
+            Position::new(room_a),
+            core::Trainer::new(vec!["combat".to_string()]),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_train(&mut world, &mut conn, "train", "strength", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("You can't train that here"),
+            "Expected error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_train_already_max() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Attributes::new(50, 10, 10, 10, 10, 10),
+            core::PracticePoints(5),
+        ));
+        world.spawn((
+            Position::new(room_a),
+            core::Trainer::new(vec!["attributes".to_string()]),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_train(&mut world, &mut conn, "train", "strength", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("maximum of 50"),
+            "Expected bounds error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_train_no_points() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Attributes::new(10, 10, 10, 10, 10, 10),
+            core::PracticePoints(4),
+        ));
+        world.spawn((
+            Position::new(room_a),
+            core::Trainer::new(vec!["attributes".to_string()]),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_train(&mut world, &mut conn, "train", "strength", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(
+            all.contains("only have 4"),
+            "Expected no points error in: {all}"
+        );
+    }
+
+    #[test]
+    fn test_score_displays_stats() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Level(5),
+            core::Experience(1200),
+            core::Attributes::new(18, 14, 12, 10, 15, 8),
+            core::Health::new(45),
+            core::PracticePoints(3),
+            core::CombatStats {
+                base_attack_bonus: 5,
+                fort_save: 4,
+                ref_save: 1,
+                will_save: 2,
+            },
+            core::Mana::new(30),
+            core::Stamina::new(100),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_score(&mut world, &mut conn, "score", "", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("TestPlayer"));
+        assert!(all.contains("Level:           5"));
+        assert!(all.contains("Practice Points: 3"));
+        assert!(all.contains("HP:              45 / 45"));
+        assert!(all.contains("Mana:            30 / 30"));
+        assert!(all.contains("Stamina:         100 / 100"));
+        assert!(all.contains("BAB:             +5"));
+        assert!(all.contains("Fort: +4, Ref: +1, Will: +2"));
+        assert!(all.contains("Strength:     18"));
     }
 }

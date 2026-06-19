@@ -1391,10 +1391,10 @@ mcp/
 - [x] Create trainer mob template (`content/mobs/trainer.toml`, friendly, idle, `trainer_types = ["attributes"]`)
 
 ### Phase 5 — Commands
-- [ ] `train` command: validates trainer proximity, PracticePoints, stat bounds; deducts cost, increments stat
-- [ ] `practice` command: validates trainer proximity, PracticePoints, skill known, skill cap; deducts 1, increments rank
-- [ ] `score/stats` command: character sheet (level, XP, HP, pools, all 6 attrs, BAB, saves, PracticePoints)
-- [ ] Register all three commands in CommandDispatch
+- [x] `train` command: validates trainer proximity, PracticePoints, stat bounds; deducts cost, increments stat
+- [x] `practice` command: validates trainer proximity, PracticePoints, skill known, skill cap; deducts 1, increments rank
+- [x] `score/stats` command: character sheet (level, XP, HP, pools, all 6 attrs, BAB, saves, PracticePoints)
+- [x] Register all three commands in CommandDispatch
 
 ### Phase 6 — Class Progression
 - [ ] Add `bab`, `fort_save`, `ref_save`, `will_save` fields to `ClassTemplate`
@@ -1408,8 +1408,8 @@ mcp/
 
 ### Phase 8 — Tests
 - [x] Unit: practice points grant formula
-- [ ] Unit: `train` command (success + all failure cases)
-- [ ] Unit: `practice` command (success + all failure cases)
+- [x] Unit: `train` command (success + all failure cases)
+- [x] Unit: `practice` command (success + all failure cases)
 - [x] Unit: `entities_in_room()` utility
 - [ ] Unit: class progression (BAB/saves at various levels)
 - [x] Unit: migration retroactive calculation
