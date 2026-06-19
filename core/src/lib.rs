@@ -11,12 +11,14 @@ mod resources;
 pub mod systems;
 pub mod templates;
 pub mod trie;
+pub mod util;
 
 pub use components::*;
 pub use events::*;
 pub use prompt::PromptVars;
 pub use resources::*;
 pub use systems::ai::AiState;
+pub use util::entities_in_room;
 
 use hecs as _hecs;
 
