@@ -661,7 +661,7 @@ fn move_player(
     }
 
     // Move the player
-    let _ = world.insert(entity, (Position::new(dest),));
+    let _ = world.insert(entity, (Position::new(dest), core::Dirty));
 
     // Broadcast leave
     let dir_long = direction.long_name();
@@ -761,12 +761,15 @@ pub fn cmd_help(
 }
 
 pub fn cmd_quit(
-    _world: &mut World,
+    world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
     _args: &str,
     _registry: &ConnectionRegistry,
 ) {
+    if let Some(entity) = conn.entity() {
+        let _ = world.insert(entity, (core::Dirty,));
+    }
     conn.send_line("Goodbye!");
     conn.disconnect();
 }
@@ -896,18 +899,15 @@ pub fn cmd_width(
 
     // Persist to Player component and DB
     if let Some(entity) = conn.entity() {
+        let mut updated = false;
         if let Ok(mut q) = world.query_one::<&mut core::Player>(entity) {
             if let Some(player) = q.get() {
                 player.screen_width = width;
+                updated = true;
             }
         }
-        if let Some(db) = mud_server::get_db() {
-            let db_guard = db.blocking_lock();
-            if let Ok(mut q) = world.query_one::<&core::DbId>(entity) {
-                if let Some(db_id) = q.get() {
-                    let _ = mud_data::update_player_screen_width(db_guard.conn(), db_id.0, width);
-                }
-            }
+        if updated {
+            let _ = world.insert(entity, (core::Dirty,));
         }
     }
 
@@ -1967,7 +1967,7 @@ pub fn cmd_train(
     skills.set_rank(&skill_id, new_rank);
     let remaining = skills.unspent_points;
 
-    let _ = world.insert(entity, (skills,));
+    let _ = world.insert(entity, (skills, core::Dirty));
     conn.send_line(&format!(
         "You train '{skill_id}' to rank {new_rank}. ({remaining} point(s) remaining)",
     ));

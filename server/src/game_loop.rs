@@ -5,7 +5,10 @@ use std::time::Duration;
 use mud_core::systems;
 use mud_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use mud_core::templates::SetDef;
-use mud_core::{DbId, Entity, Experience, Health, Level, Player, Position, World};
+use mud_core::{
+    Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
+    LearnedSkills, Level, Player, Position, SpawnKey, Wallet, World,
+};
 use tokio::sync::Mutex;
 use tokio::time::interval;
 
@@ -43,7 +46,7 @@ pub fn spawn_game_loop(
                                 crate::award_xp(&mut w, outcome.attacker);
                                 if let Some(ref db) = db {
                                     if let Ok(db_guard) = db.try_lock() {
-                                        save_player_progress(&w, outcome.attacker, &db_guard);
+                                        save_player_progress(&mut w, outcome.attacker, &db_guard);
                                     }
                                 }
                             }
@@ -65,7 +68,7 @@ pub fn spawn_game_loop(
                     systems::corpse::run_corpse_pulse(&mut w);
                     if let Some(ref db) = db {
                         if let Ok(db_guard) = db.try_lock() {
-                            save_online_players(&mut w, &db_guard);
+                            save_online_players(&mut w, &db_guard, false);
                             drop(w);
                         }
                     }
@@ -193,21 +196,30 @@ fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatO
     }
 }
 
-pub(crate) fn save_online_players(world: &mut World, db: &mud_data::Database) {
+pub(crate) fn save_online_players(world: &mut World, db: &mud_data::Database, force: bool) {
     save_player_positions(world, db);
 
-    let players: Vec<Entity> = world
-        .query::<(&Player, &DbId)>()
-        .iter()
-        .map(|(raw, _)| Entity::from(raw))
-        .collect();
+    let players: Vec<Entity> = if force {
+        world
+            .query::<(&Player, &DbId)>()
+            .iter()
+            .map(|(raw, _)| Entity::from(raw))
+            .collect()
+    } else {
+        world
+            .query::<(&Player, &DbId, &mud_core::Dirty)>()
+            .iter()
+            .map(|(raw, _)| Entity::from(raw))
+            .collect()
+    };
 
     for player in players {
         save_player_progress(world, player, db);
+        let _ = world.remove_one::<mud_core::Dirty>(player);
     }
 }
 
-pub(crate) fn save_player_progress(world: &World, player: Entity, db: &mud_data::Database) {
+pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_data::Database) {
     let Some(db_id) = world
         .query_one::<&DbId>(player)
         .ok()
@@ -219,6 +231,7 @@ pub(crate) fn save_player_progress(world: &World, player: Entity, db: &mud_data:
 
     let conn = db.conn();
 
+    // 1. Level & Experience
     if let Some(level) = world
         .query_one::<&Level>(player)
         .ok()
@@ -241,12 +254,191 @@ pub(crate) fn save_player_progress(world: &World, player: Entity, db: &mud_data:
         let _ = mud_data::save_experience_component(conn, db_id, xp.0 as i64);
     }
 
+    // 2. Health
     if let Some(health) = world
         .query_one::<&Health>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
         let _ = mud_data::save_health_component(conn, db_id, health.current, health.max);
+    }
+
+    // 3. Wallet / Golds
+    if let Some(wallet) = world
+        .query_one::<&Wallet>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_golds_component(
+            conn,
+            db_id,
+            wallet.copper as i64,
+            wallet.silver as i64,
+            wallet.gold as i64,
+            wallet.platinum as i64,
+        );
+    }
+
+    // 4. LearnedSkills
+    if let Some(skills) = world
+        .query_one::<&LearnedSkills>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_skills(conn, db_id, &skills.skills);
+
+        // Also save unspent points to components_player table
+        if let Some(player_comp) = world
+            .query_one::<&Player>(player)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+        {
+            let _ = mud_data::save_player_component(
+                conn,
+                db_id,
+                player_comp.account_id,
+                &player_comp.prompt,
+                player_comp.screen_width,
+                skills.unspent_points,
+            );
+        }
+    } else {
+        if let Some(player_comp) = world
+            .query_one::<&Player>(player)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+        {
+            let _ = mud_data::save_player_component(
+                conn,
+                db_id,
+                player_comp.account_id,
+                &player_comp.prompt,
+                player_comp.screen_width,
+                0,
+            );
+        }
+    }
+
+    // 5. Attributes
+    if let Some(attrs) = world
+        .query_one::<&Attributes>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_attributes_component(
+            conn,
+            db_id,
+            &mud_data::AttributesRow {
+                strength: attrs.strength,
+                dexterity: attrs.dexterity,
+                intelligence: attrs.intelligence,
+                wisdom: attrs.wisdom,
+                constitution: attrs.constitution,
+                charisma: attrs.charisma,
+            },
+        );
+    }
+
+    // 6. Alignment
+    if let Some(alignment) = world
+        .query_one::<&Alignment>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_alignment_component(conn, db_id, &alignment.0);
+    }
+
+    // 7. Description
+    if let Some(description) = world
+        .query_one::<&Description>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_description_component(conn, db_id, &description.0);
+    }
+
+    // 8. Inventory
+    let mut inventory_items = Vec::new();
+    if let Some(inventory) = world
+        .query_one::<&Inventory>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        for &item_entity in &inventory.0 {
+            if let Ok(mut item_q) = world.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+            {
+                if let Some((item, opt_db_id)) = item_q.get() {
+                    inventory_items.push((
+                        item_entity,
+                        item.template_id.clone(),
+                        opt_db_id.map(|d| d.0),
+                    ));
+                }
+            }
+        }
+    }
+
+    if !inventory_items.is_empty() {
+        let _ = mud_data::delete_all_inventory(conn, db_id);
+        for (slot_idx, (item_entity, template_id, opt_db_id)) in
+            inventory_items.into_iter().enumerate()
+        {
+            let item_db_id = match opt_db_id {
+                Some(id) => id,
+                None => {
+                    if let Ok(new_id) = mud_data::insert_entity(conn, "item") {
+                        let _ = world.insert(item_entity, (DbId::new(new_id),));
+                        new_id
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            let _ = mud_data::save_item_component(conn, item_db_id, &template_id);
+            let _ = mud_data::add_inventory_item(conn, db_id, item_db_id, slot_idx as i32);
+        }
+    }
+
+    // 9. Equipment
+    let mut equipment_items = Vec::new();
+    if let Some(equipment) = world
+        .query_one::<&Equipment>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        for &(slot, item_entity) in &equipment.slots {
+            if let Ok(mut item_q) = world.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+            {
+                if let Some((item, opt_db_id)) = item_q.get() {
+                    equipment_items.push((
+                        slot,
+                        item_entity,
+                        item.template_id.clone(),
+                        opt_db_id.map(|d| d.0),
+                    ));
+                }
+            }
+        }
+    }
+
+    if !equipment_items.is_empty() {
+        let _ = mud_data::delete_all_equipment(conn, db_id);
+        for (slot, item_entity, template_id, opt_db_id) in equipment_items {
+            let item_db_id = match opt_db_id {
+                Some(id) => id,
+                None => {
+                    if let Ok(new_id) = mud_data::insert_entity(conn, "item") {
+                        let _ = world.insert(item_entity, (DbId::new(new_id),));
+                        new_id
+                    } else {
+                        continue;
+                    }
+                }
+            };
+            let _ = mud_data::save_item_component(conn, item_db_id, &template_id);
+            let slot_str = format!("{:?}", slot).to_lowercase();
+            let _ = mud_data::save_equipment_slot(conn, db_id, &slot_str, item_db_id);
+        }
     }
 }
 
@@ -270,6 +462,13 @@ pub(crate) fn save_player_positions(world: &mut World, db: &mud_data::Database) 
         .collect();
 
     for (player_entity_id, room_entity) in players {
+        // Persist spawn_key for cross-restart room resolution
+        if let Ok(mut q) = world.query_one::<&SpawnKey>(room_entity) {
+            if let Some(sk) = q.get() {
+                let _ = mud_data::update_character_spawn_key(conn, player_entity_id, &sk.0);
+            }
+        }
+
         let existing_room_db_id = world
             .query_one::<&DbId>(room_entity)
             .ok()

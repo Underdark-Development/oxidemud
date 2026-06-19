@@ -584,6 +584,10 @@ fn apply_damage(
         }
     };
 
+    if world.query_one::<&crate::Player>(target).is_ok() {
+        let _ = world.insert(target, (crate::Dirty,));
+    }
+
     if killed {
         // Compute XP before despawning the target
         let xp_gained = world
@@ -596,10 +600,15 @@ fn apply_damage(
         spawn_corpse(world, target, None);
 
         // Grant XP to attacker
+        let mut xp_updated = false;
         if let Ok(mut q) = world.query_one::<&mut crate::Experience>(attacker) {
             if let Some(xp) = q.get() {
                 xp.0 = xp.0.saturating_add(xp_gained);
+                xp_updated = true;
             }
+        }
+        if xp_updated {
+            let _ = world.insert(attacker, (crate::Dirty,));
         }
 
         transition_combat_state(world, attacker, CombatState::NotInCombat);

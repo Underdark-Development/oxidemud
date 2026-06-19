@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS entities (
 CREATE TABLE IF NOT EXISTS components_room (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT ''
+    description TEXT NOT NULL DEFAULT '',
+    spawn_key TEXT
 );
 
 CREATE TABLE IF NOT EXISTS components_exit (
@@ -33,7 +34,8 @@ CREATE TABLE IF NOT EXISTS components_player (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     account_id INTEGER NOT NULL,
     prompt TEXT NOT NULL DEFAULT '<%hhp %hmhp> ',
-    screen_width INTEGER NOT NULL DEFAULT 80
+    screen_width INTEGER NOT NULL DEFAULT 80,
+    unspent_skill_points INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS components_npc (
@@ -192,7 +194,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 10;
+pub const VERSION: i64 = 12;
 
 #[cfg(test)]
 mod tests {

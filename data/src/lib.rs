@@ -126,6 +126,39 @@ impl Database {
             )?;
         }
 
+        if current < 11 {
+            // Migration 11: add unspent_skill_points to components_player
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT unspent_skill_points FROM components_player LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn.execute_batch(
+                    "ALTER TABLE components_player ADD COLUMN unspent_skill_points INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (11)",
+                [],
+            )?;
+        }
+
+        if current < 12 {
+            // Migration 12: add spawn_key to components_room
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT spawn_key FROM components_room LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn
+                    .execute_batch("ALTER TABLE components_room ADD COLUMN spawn_key TEXT;")?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (12)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

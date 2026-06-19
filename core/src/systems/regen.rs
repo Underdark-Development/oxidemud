@@ -25,10 +25,15 @@ pub fn run_regen_pulse(world: &mut World) {
 
     for (entity, amount) in hp_targets {
         if amount > 0 {
+            let mut healed = false;
             if let Ok(mut q) = world.query_one::<&mut Health>(entity) {
                 if let Some(hp) = q.get() {
                     hp.heal(amount);
+                    healed = true;
                 }
+            }
+            if healed && world.query_one::<&crate::Player>(entity).is_ok() {
+                let _ = world.insert(entity, (crate::Dirty,));
             }
         }
     }

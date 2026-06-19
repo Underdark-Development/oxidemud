@@ -1128,14 +1128,17 @@ impl TemplateRegistry {
             Some(r) => r,
             None => return Vec::new(),
         };
-        self.classes
+        let mut classes: Vec<&ClassTemplate> = self
+            .classes
             .values()
             .filter(|c| {
                 (race.allowed_classes.is_empty() || race.allowed_classes.contains(&c.id))
                     && (c.allowed_races.is_empty()
                         || c.allowed_races.contains(&race_id.to_string()))
             })
-            .collect()
+            .collect();
+        classes.sort_by(|a, b| a.id.cmp(&b.id));
+        classes
     }
 
     pub fn available_races_for_class(&self, class_id: &str) -> Vec<&RaceTemplate> {
@@ -1143,7 +1146,8 @@ impl TemplateRegistry {
             Some(c) => c,
             None => return Vec::new(),
         };
-        self.races
+        let mut races: Vec<&RaceTemplate> = self
+            .races
             .values()
             .filter(|r| {
                 r.allowed_classes.is_empty()
@@ -1151,7 +1155,9 @@ impl TemplateRegistry {
                     || (r.allowed_classes.contains(&class_id.to_string())
                         && class.allowed_races.contains(&r.id.to_string()))
             })
-            .collect()
+            .collect();
+        races.sort_by(|a, b| a.id.cmp(&b.id));
+        races
     }
 
     // ── Item helpers ──

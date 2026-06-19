@@ -2,8 +2,8 @@ use tokio::sync::Mutex;
 
 use mud_core::templates::{SkillResolveError, TemplateRegistry};
 use mud_core::{
-    Alignment, Class, DbId, Description, Entity, Experience, Gender, Health, Level, Name, Player,
-    Position, Race, Wallet, World,
+    Alignment, Class, DbId, Description, Entity, Equipment, Experience, Gender, Health, Inventory,
+    Level, Name, Player, Position, Race, Wallet, World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -1290,7 +1290,7 @@ async fn finalize_character(
     };
 
     if let Err(e) =
-        mud_data::save_player_component(conn_db, entity_id, account_id, "<%hhp %hmhp> ", 80)
+        mud_data::save_player_component(conn_db, entity_id, account_id, "<%hhp %hmhp> ", 80, 0)
     {
         lines.push(format!("Error saving character: {e}"));
         return lines;
@@ -1419,12 +1419,20 @@ async fn finalize_character(
         Health::new(hp),
         Level::default(),
         Experience::default(),
-        skills,
-        DbId::new(entity_id),
-        Alignment(alignment.clone()),
-        Description(description),
-        starting_gold,
     ));
+
+    let _ = world.insert(
+        player,
+        (
+            skills,
+            DbId::new(entity_id),
+            Alignment(alignment),
+            Description(description),
+            starting_gold,
+            Inventory::new(),
+            Equipment::new(),
+        ),
+    );
 
     if let Some(templates) = templates {
         mud_core::systems::passive::apply_all_passives(world, player, templates);
@@ -1450,7 +1458,7 @@ async fn finalize_character(
 /// Spawn a starting item from the template registry tied to the player.
 fn spawn_starting_item(
     world: &mut World,
-    _player: mud_core::Entity,
+    player: mud_core::Entity,
     templates: &TemplateRegistry,
     item_id: &str,
 ) {
@@ -1460,11 +1468,17 @@ fn spawn_starting_item(
         return;
     };
 
-    world.spawn((
+    let item_entity = world.spawn((
         Name::new(item_tmpl.name.clone()),
         SpawnKey(format!("starting_item:{}", item_id)),
         mud_core::Item::new(item_id),
     ));
+
+    if let Ok(mut q) = world.query_one::<&mut Inventory>(player) {
+        if let Some(inv) = q.get() {
+            inv.0.push(item_entity);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1530,6 +1544,17 @@ async fn load_character(
         .map(Description)
         .unwrap_or_default();
 
+    let (prompt, screen_width, unspent_skill_points) =
+        mud_data::load_player_component(conn_db, entity_id)
+            .ok()
+            .flatten()
+            .map(|(_, prompt, width, unspent)| (prompt, width, unspent))
+            .unwrap_or_else(|| ("<%hhp %hmhp> ".to_string(), 80, 0));
+
+    let mut player_comp = Player::new(char_row.account_id);
+    player_comp.prompt = prompt;
+    player_comp.screen_width = screen_width;
+
     let gold = mud_data::load_golds_component(conn_db, entity_id)
         .ok()
         .flatten()
@@ -1544,6 +1569,45 @@ async fn load_character(
     let mut skills = mud_core::LearnedSkills::new();
     for (skill_id, rank) in skills_map {
         skills.set_rank(&skill_id, rank);
+    }
+    skills.unspent_points = unspent_skill_points;
+
+    // Load inventory
+    let inv_rows = mud_data::load_inventory(conn_db, entity_id).unwrap_or_default();
+    let mut inventory = mud_core::Inventory::new();
+    if let Some(ref templates) = crate::get_templates() {
+        for (item_db_id, _) in inv_rows {
+            if let Ok(Some(template_id)) = mud_data::load_item_component(conn_db, item_db_id) {
+                if let Some(item_tmpl) = templates.get_item(&template_id) {
+                    let item_entity = world.spawn((
+                        mud_core::Name::new(item_tmpl.name.clone()),
+                        mud_core::Item::new(template_id),
+                        mud_core::DbId::new(item_db_id),
+                    ));
+                    inventory.0.push(item_entity);
+                }
+            }
+        }
+    }
+
+    // Load equipment
+    let eq_rows = mud_data::load_equipment(conn_db, entity_id).unwrap_or_default();
+    let mut equipment = mud_core::Equipment::new();
+    if let Some(ref templates) = crate::get_templates() {
+        for (slot_str, item_db_id) in eq_rows {
+            if let Ok(slot) = std::str::FromStr::from_str(&slot_str) {
+                if let Ok(Some(template_id)) = mud_data::load_item_component(conn_db, item_db_id) {
+                    if let Some(item_tmpl) = templates.get_item(&template_id) {
+                        let item_entity = world.spawn((
+                            mud_core::Name::new(item_tmpl.name.clone()),
+                            mud_core::Item::new(template_id),
+                            mud_core::DbId::new(item_db_id),
+                        ));
+                        equipment.equip(slot, item_entity);
+                    }
+                }
+            }
+        }
     }
 
     drop(db_guard);
@@ -1568,7 +1632,7 @@ async fn load_character(
     let player = world.spawn((
         Position::new(room),
         Name::new(char_row.name.clone()),
-        Player::new(char_row.account_id),
+        player_comp,
         Race(char_row.race.clone()),
         Class(char_row.class.clone()),
         Gender::new(
@@ -1581,12 +1645,20 @@ async fn load_character(
         hp,
         level,
         xp,
-        skills,
-        DbId::new(entity_id),
-        alignment,
-        description,
-        gold,
     ));
+
+    let _ = world.insert(
+        player,
+        (
+            skills,
+            DbId::new(entity_id),
+            alignment,
+            description,
+            gold,
+            inventory,
+            equipment,
+        ),
+    );
 
     if let Some(templates) = crate::get_templates() {
         mud_core::systems::passive::apply_all_passives(world, player, &templates);

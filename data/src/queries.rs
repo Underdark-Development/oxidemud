@@ -172,13 +172,13 @@ pub fn delete_character(conn: &Connection, character_id: i64) -> Result<(), rusq
 
 pub fn update_character_level(
     conn: &Connection,
-    character_id: i64,
+    entity_id: i64,
     level: i64,
     xp: i64,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE characters SET level = ?1, experience = ?2 WHERE id = ?3",
-        params![level, xp, character_id],
+        "UPDATE characters SET level = ?1, experience = ?2 WHERE entity_id = ?3",
+        params![level, xp, entity_id],
     )?;
     Ok(())
 }
@@ -191,6 +191,18 @@ pub fn update_character_position(
     conn.execute(
         "UPDATE characters SET room_id = ?1 WHERE entity_id = ?2",
         params![room_entity_id, entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn update_character_spawn_key(
+    conn: &Connection,
+    entity_id: i64,
+    spawn_key: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE characters SET spawn_key = ?1 WHERE entity_id = ?2",
+        params![spawn_key, entity_id],
     )?;
     Ok(())
 }
@@ -230,10 +242,11 @@ pub fn save_room_component(
     entity_id: i64,
     name: &str,
     description: &str,
+    spawn_key: Option<&str>,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO components_room (entity_id, name, description) VALUES (?1, ?2, ?3)",
-        params![entity_id, name, description],
+        "INSERT OR REPLACE INTO components_room (entity_id, name, description, spawn_key) VALUES (?1, ?2, ?3, ?4)",
+        params![entity_id, name, description, spawn_key],
     )?;
     Ok(())
 }
@@ -241,14 +254,25 @@ pub fn save_room_component(
 pub fn load_room_component(
     conn: &Connection,
     entity_id: i64,
-) -> Result<Option<(String, String)>, rusqlite::Error> {
-    let mut stmt =
-        conn.prepare("SELECT name, description FROM components_room WHERE entity_id = ?1")?;
+) -> Result<Option<(String, String, Option<String>)>, rusqlite::Error> {
+    let mut stmt = conn
+        .prepare("SELECT name, description, spawn_key FROM components_room WHERE entity_id = ?1")?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
-        Some(row) => Ok(Some((row.get(0)?, row.get(1)?))),
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))),
         None => Ok(None),
     }
+}
+
+pub fn load_all_room_spawn_keys(conn: &Connection) -> Result<Vec<(i64, String)>, rusqlite::Error> {
+    let mut stmt = conn
+        .prepare("SELECT entity_id, spawn_key FROM components_room WHERE spawn_key IS NOT NULL")?;
+    let mut rows = stmt.query([])?;
+    let mut results = Vec::new();
+    while let Some(row) = rows.next()? {
+        results.push((row.get(0)?, row.get(1)?));
+    }
+    Ok(results)
 }
 
 pub fn save_position_component(
@@ -282,10 +306,11 @@ pub fn save_player_component(
     account_id: i64,
     prompt: &str,
     screen_width: u16,
+    unspent_skill_points: u32,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, ?3, ?4)",
-        params![entity_id, account_id, prompt, screen_width],
+        "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![entity_id, account_id, prompt, screen_width, unspent_skill_points],
     )?;
     Ok(())
 }
@@ -293,9 +318,9 @@ pub fn save_player_component(
 pub fn load_player_component(
     conn: &Connection,
     entity_id: i64,
-) -> Result<Option<(i64, String, u16)>, rusqlite::Error> {
+) -> Result<Option<(i64, String, u16, u32)>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT account_id, prompt, screen_width FROM components_player WHERE entity_id = ?1",
+        "SELECT account_id, prompt, screen_width, unspent_skill_points FROM components_player WHERE entity_id = ?1",
     )?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
@@ -303,21 +328,10 @@ pub fn load_player_component(
             row.get(0)?,
             row.get(1)?,
             row.get::<_, i64>(2)? as u16,
+            row.get::<_, i64>(3)? as u32,
         ))),
         None => Ok(None),
     }
-}
-
-pub fn update_player_screen_width(
-    conn: &Connection,
-    entity_id: i64,
-    screen_width: u16,
-) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "UPDATE components_player SET screen_width = ?1 WHERE entity_id = ?2",
-        params![screen_width, entity_id],
-    )?;
-    Ok(())
 }
 
 pub fn save_npc_component(
@@ -904,6 +918,22 @@ pub fn remove_inventory_item(
     Ok(())
 }
 
+pub fn delete_all_inventory(conn: &Connection, entity_id: i64) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM components_inventory_items WHERE entity_id = ?1",
+        params![entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_all_equipment(conn: &Connection, entity_id: i64) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM components_equipment WHERE entity_id = ?1",
+        params![entity_id],
+    )?;
+    Ok(())
+}
+
 pub fn load_inventory(
     conn: &Connection,
     entity_id: i64,
@@ -1206,7 +1236,7 @@ mod tests {
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "levelowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
-        let char_id = create_character(
+        let _char_id = create_character(
             &conn,
             account_id,
             "Leveler",
@@ -1217,7 +1247,7 @@ mod tests {
             None,
         )
         .unwrap();
-        update_character_level(&conn, char_id, 5, 5000).unwrap();
+        update_character_level(&conn, eid, 5, 5000).unwrap();
 
         let char_row = get_character_by_name(&conn, "Leveler").unwrap().unwrap();
         assert_eq!(char_row.level, 5);
@@ -1286,10 +1316,18 @@ mod tests {
     fn test_save_and_load_room_component() {
         let conn = setup();
         let eid = insert_entity(&conn, "room").unwrap();
-        save_room_component(&conn, eid, "Test Room", "A test room.").unwrap();
-        let (name, desc) = load_room_component(&conn, eid).unwrap().unwrap();
+        save_room_component(
+            &conn,
+            eid,
+            "Test Room",
+            "A test room.",
+            Some("Riverside:town_square"),
+        )
+        .unwrap();
+        let (name, desc, spawn_key) = load_room_component(&conn, eid).unwrap().unwrap();
         assert_eq!(name, "Test Room");
         assert_eq!(desc, "A test room.");
+        assert_eq!(spawn_key, Some("Riverside:town_square".to_string()));
     }
 
     #[test]
@@ -1306,21 +1344,13 @@ mod tests {
     fn test_save_and_load_player_component() {
         let conn = setup();
         let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, "<%hhp> ", 80).unwrap();
-        let (account_id, prompt, width) = load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, "<%hhp> ", 80, 5).unwrap();
+        let (account_id, prompt, width, unspent) =
+            load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
         assert_eq!(prompt, "<%hhp> ");
         assert_eq!(width, 80);
-    }
-
-    #[test]
-    fn test_update_player_screen_width() {
-        let conn = setup();
-        let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, "<%hhp> ", 80).unwrap();
-        update_player_screen_width(&conn, eid, 132).unwrap();
-        let (_, _, width) = load_player_component(&conn, eid).unwrap().unwrap();
-        assert_eq!(width, 132);
+        assert_eq!(unspent, 5);
     }
 
     #[test]

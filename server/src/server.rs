@@ -20,7 +20,10 @@ use crate::registry::ConnectionRegistry;
 use crate::telnet::codec::TelnetReader;
 use crate::telnet::INITIAL_NEGOTIATION;
 use mud_core::templates::TemplateRegistry;
-use mud_core::{Entity, Name, Position, World};
+use mud_core::{
+    Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
+    LearnedSkills, Level, Name, Player, Position, Room, SpawnKey, Wallet, World,
+};
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
 static MOTD: OnceLock<String> = OnceLock::new();
@@ -175,7 +178,7 @@ impl Server {
         if let Some(ref db) = db {
             let db_guard = db.lock().await;
             let mut w = world.lock().await;
-            crate::game_loop::save_online_players(&mut w, &db_guard);
+            crate::game_loop::save_online_players(&mut w, &db_guard, true);
             tracing::info!("Online player state saved");
         }
 
@@ -309,6 +312,11 @@ async fn handle_connection(
                     if login_flow.take_entity_just_spawned() {
                         if let Some(entity) = login_flow.entity() {
                             conn.set_entity(entity);
+                            if let Ok(mut q) = w.query_one::<&Player>(entity) {
+                                if let Some(player) = q.get() {
+                                    conn.set_screen_width(player.screen_width);
+                                }
+                            }
                             if let Some(tx) = conn.output_sender() {
                                 reg.register(entity, tx);
                             }
@@ -343,16 +351,340 @@ async fn handle_connection(
         }
     }
 
-    // Player cleanup: broadcast departure, save position, unregister, despawn
-    {
-        let mut w = world.lock().await;
-        let mut reg = registry.lock().await;
+    // Player cleanup: save progress, broadcast departure, unregister, despawn
+    if let Some(entity) = conn.entity() {
+        // 1. Extract player data for saving
+        let player_save_data = {
+            let w = world.lock().await;
+            if let Some(db_id) = w
+                .query_one::<&DbId>(entity)
+                .ok()
+                .and_then(|mut q| q.get().copied())
+            {
+                let level = w
+                    .query_one::<&Level>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().copied());
+                let xp = w
+                    .query_one::<&Experience>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().copied());
+                let health = w
+                    .query_one::<&Health>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let position = w
+                    .query_one::<&Position>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room));
+                let wallet = w
+                    .query_one::<&Wallet>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let skills = w
+                    .query_one::<&LearnedSkills>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let player_comp = w
+                    .query_one::<&Player>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let attrs = w
+                    .query_one::<&Attributes>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let alignment = w
+                    .query_one::<&Alignment>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let description = w
+                    .query_one::<&Description>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
 
-        if let Some(entity) = conn.entity() {
-            if let Some(ref db) = db {
-                if let Ok(db_guard) = db.try_lock() {
-                    crate::game_loop::save_online_players(&mut w, &db_guard);
+                let room_db_id = position.and_then(|room_entity| {
+                    w.query_one::<&DbId>(room_entity)
+                        .ok()
+                        .and_then(|mut q| q.get().copied())
+                        .map(|dbid| dbid.0)
+                });
+
+                let room_spawn_key = position.and_then(|room_entity| {
+                    w.query_one::<&SpawnKey>(room_entity)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|sk| sk.0.clone()))
+                });
+
+                let mut room_info = None;
+                if room_db_id.is_none() {
+                    if let Some(room_entity) = position {
+                        if let Ok(mut q_room) = w.query_one::<(&Room, &SpawnKey)>(room_entity) {
+                            if let Some((r, sk)) = q_room.get() {
+                                room_info =
+                                    Some((r.name.clone(), r.description.clone(), sk.0.clone()));
+                            }
+                        }
+                    }
                 }
+
+                let mut inventory_items = Vec::new();
+                if let Ok(mut q) = w.query_one::<&Inventory>(entity) {
+                    if let Some(inv) = q.get() {
+                        for &item_entity in &inv.0 {
+                            if let Ok(mut item_q) =
+                                w.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+                            {
+                                if let Some((item, opt_db_id)) = item_q.get() {
+                                    inventory_items
+                                        .push((item.template_id.clone(), opt_db_id.map(|d| d.0)));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut equipment_items = Vec::new();
+                if let Ok(mut q) = w.query_one::<&Equipment>(entity) {
+                    if let Some(eq) = q.get() {
+                        for &(slot, item_entity) in &eq.slots {
+                            if let Ok(mut item_q) =
+                                w.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+                            {
+                                if let Some((item, opt_db_id)) = item_q.get() {
+                                    equipment_items.push((
+                                        slot,
+                                        item.template_id.clone(),
+                                        opt_db_id.map(|d| d.0),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Some((
+                    db_id,
+                    level,
+                    xp,
+                    health,
+                    position,
+                    room_db_id,
+                    room_spawn_key,
+                    room_info,
+                    wallet,
+                    skills,
+                    player_comp,
+                    attrs,
+                    alignment,
+                    description,
+                    inventory_items,
+                    equipment_items,
+                ))
+            } else {
+                None
+            }
+        };
+
+        // 2. Save player progress to DB while not holding world lock
+        let room_to_db_id = if let Some((
+            db_id,
+            level,
+            xp,
+            health,
+            room_entity,
+            mut room_db_id,
+            room_spawn_key,
+            room_info,
+            wallet,
+            skills,
+            player_comp,
+            attrs,
+            alignment,
+            description,
+            inventory_items,
+            equipment_items,
+        )) = player_save_data
+        {
+            let mut new_rid = None;
+            if let Some(ref db) = db {
+                let db_guard = db.lock().await;
+                let conn_db = db_guard.conn();
+
+                // If room has no DB record yet, insert it now
+                if room_db_id.is_none() {
+                    if let Some(_re) = room_entity {
+                        if let Ok(rid) = mud_data::insert_entity(conn_db, "room") {
+                            room_db_id = Some(rid);
+                            new_rid = Some(rid);
+                            if let Some((name, desc, spawn_key)) = &room_info {
+                                let _ = mud_data::save_room_component(
+                                    conn_db,
+                                    rid,
+                                    name,
+                                    desc,
+                                    Some(spawn_key),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Save Level & XP
+                if let Some(level) = level {
+                    let _ = mud_data::save_level_component(conn_db, db_id.0, level.0 as i64);
+                    let xp_val = xp.map(|x| x.0).unwrap_or(0);
+                    let _ = mud_data::update_character_level(
+                        conn_db,
+                        db_id.0,
+                        level.0.into(),
+                        xp_val as i64,
+                    );
+                }
+                if let Some(xp) = xp {
+                    let _ = mud_data::save_experience_component(conn_db, db_id.0, xp.0 as i64);
+                }
+                // Save Health
+                if let Some(health) = health {
+                    let _ = mud_data::save_health_component(
+                        conn_db,
+                        db_id.0,
+                        health.current,
+                        health.max,
+                    );
+                }
+                // Save Wallet
+                if let Some(wallet) = wallet {
+                    let _ = mud_data::save_golds_component(
+                        conn_db,
+                        db_id.0,
+                        wallet.copper as i64,
+                        wallet.silver as i64,
+                        wallet.gold as i64,
+                        wallet.platinum as i64,
+                    );
+                }
+                // Save LearnedSkills
+                if let Some(skills) = skills {
+                    let _ = mud_data::save_skills(conn_db, db_id.0, &skills.skills);
+                    if let Some(ref player_comp) = player_comp {
+                        let _ = mud_data::save_player_component(
+                            conn_db,
+                            db_id.0,
+                            player_comp.account_id,
+                            &player_comp.prompt,
+                            player_comp.screen_width,
+                            skills.unspent_points,
+                        );
+                    }
+                } else if let Some(ref player_comp) = player_comp {
+                    let _ = mud_data::save_player_component(
+                        conn_db,
+                        db_id.0,
+                        player_comp.account_id,
+                        &player_comp.prompt,
+                        player_comp.screen_width,
+                        0,
+                    );
+                }
+                // Save Attributes
+                if let Some(attrs) = attrs {
+                    let _ = mud_data::save_attributes_component(
+                        conn_db,
+                        db_id.0,
+                        &mud_data::AttributesRow {
+                            strength: attrs.strength,
+                            dexterity: attrs.dexterity,
+                            intelligence: attrs.intelligence,
+                            wisdom: attrs.wisdom,
+                            constitution: attrs.constitution,
+                            charisma: attrs.charisma,
+                        },
+                    );
+                }
+                // Save Alignment
+                if let Some(alignment) = alignment {
+                    let _ = mud_data::save_alignment_component(conn_db, db_id.0, &alignment.0);
+                }
+                // Save Description
+                if let Some(description) = description {
+                    let _ = mud_data::save_description_component(conn_db, db_id.0, &description.0);
+                }
+                // Save Position
+                if let Some(rid) = room_db_id {
+                    let _ = mud_data::update_character_position(conn_db, db_id.0, rid);
+                    let _ = mud_data::update_character_last_seen(conn_db, db_id.0);
+                }
+                if let Some(ref spawn_key) = room_spawn_key {
+                    let _ = mud_data::update_character_spawn_key(conn_db, db_id.0, spawn_key);
+                }
+
+                // Save Inventory
+                let _ = mud_data::delete_all_inventory(conn_db, db_id.0);
+                for (slot_idx, (template_id, opt_db_id)) in inventory_items.into_iter().enumerate()
+                {
+                    let item_db_id = match opt_db_id {
+                        Some(id) => id,
+                        None => {
+                            if let Ok(new_id) = mud_data::insert_entity(conn_db, "item") {
+                                new_id
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+                    let _ = mud_data::save_item_component(conn_db, item_db_id, &template_id);
+                    let _ =
+                        mud_data::add_inventory_item(conn_db, db_id.0, item_db_id, slot_idx as i32);
+                }
+
+                // Save Equipment
+                let _ = mud_data::delete_all_equipment(conn_db, db_id.0);
+                for (slot, template_id, opt_db_id) in equipment_items {
+                    let item_db_id = match opt_db_id {
+                        Some(id) => id,
+                        None => {
+                            if let Ok(new_id) = mud_data::insert_entity(conn_db, "item") {
+                                new_id
+                            } else {
+                                continue;
+                            }
+                        }
+                    };
+                    let _ = mud_data::save_item_component(conn_db, item_db_id, &template_id);
+                    let slot_str = format!("{:?}", slot).to_lowercase();
+                    let _ = mud_data::save_equipment_slot(conn_db, db_id.0, &slot_str, item_db_id);
+                }
+            }
+            (room_entity, new_rid)
+        } else {
+            (None, None)
+        };
+
+        // 3. Lock world and registry again to remove connection and despawn
+        {
+            let mut w = world.lock().await;
+            let mut reg = registry.lock().await;
+
+            if let (Some(re), Some(rid)) = room_to_db_id {
+                let _ = w.insert(re, (DbId(rid),));
+            }
+
+            // Despawn inventory and equipment items
+            let mut items_to_despawn = Vec::new();
+            if let Ok(mut q) = w.query_one::<&Inventory>(entity) {
+                if let Some(inv) = q.get() {
+                    items_to_despawn.extend(inv.0.iter().copied());
+                }
+            }
+            if let Ok(mut q) = w.query_one::<&Equipment>(entity) {
+                if let Some(eq) = q.get() {
+                    for &(_, item) in &eq.slots {
+                        items_to_despawn.push(item);
+                    }
+                }
+            }
+            for item in items_to_despawn {
+                let _ = w.despawn(item);
             }
 
             let name = w
@@ -472,6 +804,8 @@ pub fn award_xp(world: &mut World, entity: Entity) {
                 xp.0 = excess;
             }
         }
+
+        let _ = world.insert(entity, (mud_core::Dirty,));
 
         // Persist to DB
         if let Some(conn_db) = conn_db {
