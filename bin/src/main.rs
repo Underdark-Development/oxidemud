@@ -27,12 +27,18 @@ Examples:
   help l                works with aliases
   help ki               works with partial names"#;
 
-const HELP_TRAIN: &str = r#"View your skills and spend skill points to increase ranks.
+const HELP_TRAIN: &str = r#"Spend practice points to increase your core attributes.
 
 Examples:
-  train                 show your skills and unspent points
-  train list            list trainable skills
-  train swords          increase rank in the swords skill"#;
+  train                 show your attributes and cost to train
+  train strength        increase your strength by 1"#;
+
+const HELP_PRACTICE: &str = r#"View your skills and spend practice points to increase ranks.
+
+Examples:
+  practice              show your skills and unspent points
+  practice list         list trainable skills
+  practice swords       increase rank in the swords skill"#;
 
 const HELP_STANCE: &str = r#"View or change your combat stance.
 
@@ -187,7 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     server.register_command(
         "score",
-        &[],
+        &["stats"],
         AccessLevel::Player,
         "Character",
         "Display your character stats",
@@ -362,6 +368,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Character",
         HELP_TRAIN,
         commands::cmd_train,
+    );
+    server.register_command(
+        "practice",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        HELP_PRACTICE,
+        commands::cmd_practice,
     );
 
     // Builder commands

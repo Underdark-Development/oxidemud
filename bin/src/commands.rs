@@ -819,27 +819,94 @@ pub fn cmd_score(
         .and_then(|mut q| q.get().cloned())
         .unwrap_or(core::Health::new(20));
 
+    let practice_pts = world
+        .query_one::<&core::PracticePoints>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::PracticePoints(0));
+
+    let combat_stats = world
+        .query_one::<&core::CombatStats>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    let mana = world
+        .query_one::<&core::Mana>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied());
+
+    let stamina = world
+        .query_one::<&core::Stamina>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied());
+
+    let energy = world
+        .query_one::<&core::Energy>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied());
+
+    let psi = world
+        .query_one::<&core::Psi>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied());
+
     let xp_to_next = xp.to_next_level(level.0);
 
     conn.send_line("");
     conn.send_line("--- Character Score ---");
-    conn.send_line(&format!("  Name:       {name}"));
-    conn.send_line(&format!("  Level:      {}", level.0));
+    conn.send_line(&format!("  Name:            {}", name));
+    conn.send_line(&format!("  Level:           {}", level.0));
     conn.send_line(&format!(
-        "  Experience: {} / {} ({} to next level)",
+        "  Experience:      {} / {} ({} to next level)",
         xp.0,
         core::Experience::for_level(level.0 + 1),
         xp_to_next
     ));
-    conn.send_line(&format!("  HP:         {} / {}", hp.current, hp.max));
+    conn.send_line(&format!("  Practice Points: {}", practice_pts.0));
+    conn.send_line(&format!("  HP:              {} / {}", hp.current, hp.max));
+
+    if let Some(m) = mana {
+        conn.send_line(&format!("  Mana:            {} / {}", m.current, m.max));
+    }
+    if let Some(s) = stamina {
+        conn.send_line(&format!("  Stamina:         {} / {}", s.current, s.max));
+    }
+    if let Some(e) = energy {
+        conn.send_line(&format!("  Energy:          {} / {}", e.current, e.max));
+    }
+    if let Some(p) = psi {
+        conn.send_line(&format!("  Psi:             {} / {}", p.current, p.max));
+    }
+
+    let format_modifier = |val: i32| -> String {
+        if val >= 0 {
+            format!("+{}", val)
+        } else {
+            val.to_string()
+        }
+    };
+
+    conn.send_line("");
+    conn.send_line(&format!(
+        "  BAB:             {}",
+        format_modifier(combat_stats.base_attack_bonus)
+    ));
+    conn.send_line(&format!(
+        "  Saves:           Fort: {}, Ref: {}, Will: {}",
+        format_modifier(combat_stats.fort_save),
+        format_modifier(combat_stats.ref_save),
+        format_modifier(combat_stats.will_save)
+    ));
+
     conn.send_line("");
     conn.send_line("  Attributes:");
     conn.send_line(&format!("    Strength:     {}", attrs.strength));
     conn.send_line(&format!("    Dexterity:    {}", attrs.dexterity));
     conn.send_line(&format!("    Intelligence: {}", attrs.intelligence));
-    conn.send_line(&format!("    Wisdom:      {}", attrs.wisdom));
+    conn.send_line(&format!("    Wisdom:       {}", attrs.wisdom));
     conn.send_line(&format!("    Constitution: {}", attrs.constitution));
-    conn.send_line(&format!("    Charisma:    {}", attrs.charisma));
+    conn.send_line(&format!("    Charisma:     {}", attrs.charisma));
     conn.send_line("");
 }
 
@@ -1828,20 +1895,15 @@ pub fn cmd_stance(
 }
 
 // ---------------------------------------------------------------------------
-// Train command
+// Practice command
 // ---------------------------------------------------------------------------
-
-fn skill_point_cost(current_rank: u16) -> u32 {
-    // Cost = 1 + rank / 10 (so rank 0=1, rank 10=2, rank 50=6, rank 100=11)
-    1 + (current_rank / 10) as u32
-}
 
 fn max_rank_for_level(level: u8) -> u16 {
     // Max any skill rank = level * 5 + 5 (level 1 = 10, level 10 = 55, level 50 = 255)
     (level as u16 * 5) + 5
 }
 
-pub fn cmd_train(
+pub fn cmd_practice(
     world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
@@ -1864,7 +1926,7 @@ pub fn cmd_train(
 
     let args = args.trim();
 
-    // `train` with no args — show status
+    // `practice` with no args — show status
     if args.is_empty() {
         let skills = world
             .query_one::<&core::LearnedSkills>(entity)
@@ -1879,7 +1941,7 @@ pub fn cmd_train(
             .unwrap_or(core::PracticePoints(0));
 
         conn.send_line("");
-        conn.send_line("--- Training ---");
+        conn.send_line("--- Skill Practice ---");
         conn.send_line(&format!("Practice points: {}", practice_pts.0));
         conn.send_line(&format!(
             "Max rank per skill at level {}: {}",
@@ -1896,11 +1958,7 @@ pub fn cmd_train(
 
             conn.send_line("Known skills:");
             for (skill_id, rank) in &skills_vec {
-                let cost = skill_point_cost(**rank);
-                conn.send_line(&format!(
-                    "  {skill_id}: rank {rank} ({} point(s) to train)",
-                    cost
-                ));
+                conn.send_line(&format!("  {skill_id}: rank {rank} (1 point to practice)"));
             }
         }
 
@@ -1908,18 +1966,18 @@ pub fn cmd_train(
         return;
     }
 
-    // `train list` — show all available skills from templates
+    // `practice list` — show all available skills from templates
     if args == "list" {
         conn.send_line("");
         conn.send_line("Available skills:");
         conn.send_line("  Skills are granted through race/class selection.");
-        conn.send_line("  Use 'train <skill>' to increase a known skill's rank.");
+        conn.send_line("  Use 'practice <skill>' to increase a known skill's rank.");
         conn.send_line("");
         return;
     }
 
-    // `train <skill>` — train a specific skill
-    let skill_id = match resolve_skill_name_for_training(args, world, entity) {
+    // `practice <skill>` — practice a specific skill
+    let skill_id = match resolve_skill_name_for_practicing(args, world, entity) {
         Ok(id) => id,
         Err(msg) => {
             conn.send_line(&msg);
@@ -1962,26 +2020,73 @@ pub fn cmd_train(
         return;
     }
 
+    // Proximity check: room and trainer presence
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You can't do that here. Seek out a trainer.");
+            return;
+        }
+    };
+
+    let room_entities = core::util::entities_in_room(world, room);
+    let mut has_trainer = false;
+    for e in &room_entities {
+        if world.query_one::<&core::Trainer>(*e).is_ok() {
+            has_trainer = true;
+            break;
+        }
+    }
+
+    if !has_trainer {
+        conn.send_line("You can't do that here. Seek out a trainer.");
+        return;
+    }
+
+    // Retrieve skill type to verify if any trainer teaches it
+    let templates = mud_server::get_templates();
+    let skill_def = templates.as_ref().and_then(|t| t.get_skill(&skill_id));
+    let skill_type_str = skill_def
+        .map(|def| format!("{:?}", def.skill_type).to_lowercase())
+        .unwrap_or_else(|| "combat".to_string());
+
+    let mut can_train_skill = false;
+    for e in room_entities {
+        if let Ok(mut q) = world.query_one::<&core::Trainer>(e) {
+            if let Some(t) = q.get() {
+                if t.can_train(&skill_type_str) {
+                    can_train_skill = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if !can_train_skill {
+        conn.send_line("You can't practice that here.");
+        return;
+    }
+
     // Check skill cap by level
     let max_rank = max_rank_for_level(level.0);
     if current_rank >= max_rank {
         conn.send_line(&format!(
-            "You cannot train '{skill_id}' beyond rank {max_rank} at your level."
+            "You cannot practice '{skill_id}' beyond rank {max_rank} at your level."
         ));
         return;
     }
 
     // Check cost
-    let cost = skill_point_cost(current_rank);
+    let cost = 1;
     if practice_pts.0 < cost {
         conn.send_line(&format!(
-            "Training '{skill_id}' costs {cost} point(s), but you only have {}.",
+            "Practicing '{skill_id}' costs {cost} point(s), but you only have {}.",
             practice_pts.0
         ));
         return;
     }
 
-    // Apply training
+    // Apply practicing
     practice_pts.0 -= cost;
     let new_rank = current_rank + 1;
     skills.set_rank(&skill_id, new_rank);
@@ -1989,13 +2094,13 @@ pub fn cmd_train(
 
     let _ = world.insert(entity, (skills, practice_pts, core::Dirty));
     conn.send_line(&format!(
-        "You train '{skill_id}' to rank {new_rank}. ({remaining} point(s) remaining)",
+        "You practice '{skill_id}' to rank {new_rank}. ({remaining} point(s) remaining)",
     ));
 }
 
-/// Resolve a skill name (exact or partial) for the `train` command.
+/// Resolve a skill name (exact or partial) for the `practice` command.
 /// Falls back to exact match when the template registry is unavailable.
-fn resolve_skill_name_for_training(
+fn resolve_skill_name_for_practicing(
     input: &str,
     world: &World,
     entity: core::Entity,
@@ -2031,6 +2136,239 @@ fn resolve_skill_name_for_training(
             Err(format!("Which skill did you mean? {}", names.join(", ")))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Train command
+// ---------------------------------------------------------------------------
+
+pub fn cmd_train(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let args = args.trim();
+
+    let mut attrs = match world.query_one::<&mut core::Attributes>(entity) {
+        Ok(mut q) => match q.get() {
+            Some(a) => a.clone(),
+            None => {
+                conn.send_line("You have no attributes component.");
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line("You have no attributes component.");
+            return;
+        }
+    };
+
+    let mut practice_pts = match world.query_one::<&mut core::PracticePoints>(entity) {
+        Ok(mut q) => match q.get() {
+            Some(p) => *p,
+            None => {
+                conn.send_line("You have no practice points.");
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line("You have no practice points.");
+            return;
+        }
+    };
+
+    let class_id = world
+        .query_one::<&core::Class>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|c| c.0.clone()));
+
+    let templates = mud_server::get_templates();
+
+    // Helper closure to calculate cost for a given attribute name (lowercase)
+    let get_attr_cost = |attr_name: &str| -> u32 {
+        if let (Some(c_id), Some(t)) = (&class_id, &templates) {
+            if let Some(class_template) = t.get_class(c_id) {
+                let c = &class_template.attribute_mods;
+                let mods = [
+                    c.strength,
+                    c.dexterity,
+                    c.intelligence,
+                    c.wisdom,
+                    c.constitution,
+                    c.charisma,
+                ];
+                let max_val = mods.into_iter().max().unwrap_or(0);
+                let is_prime = match attr_name {
+                    "strength" => c.strength == max_val,
+                    "dexterity" => c.dexterity == max_val,
+                    "intelligence" => c.intelligence == max_val,
+                    "wisdom" => c.wisdom == max_val,
+                    "constitution" => c.constitution == max_val,
+                    "charisma" => c.charisma == max_val,
+                    _ => false,
+                };
+                if is_prime {
+                    return 3;
+                }
+            }
+        }
+        5
+    };
+
+    // `train` with no args — show status
+    if args.is_empty() {
+        conn.send_line("");
+        conn.send_line("--- Attribute Training ---");
+        conn.send_line(&format!("Practice points: {}", practice_pts.0));
+        conn.send_line("");
+        conn.send_line("Attributes:");
+        conn.send_line(&format!(
+            "  Strength:     {} (cost: {} pts)",
+            attrs.strength,
+            get_attr_cost("strength")
+        ));
+        conn.send_line(&format!(
+            "  Dexterity:    {} (cost: {} pts)",
+            attrs.dexterity,
+            get_attr_cost("dexterity")
+        ));
+        conn.send_line(&format!(
+            "  Intelligence: {} (cost: {} pts)",
+            attrs.intelligence,
+            get_attr_cost("intelligence")
+        ));
+        conn.send_line(&format!(
+            "  Wisdom:       {} (cost: {} pts)",
+            attrs.wisdom,
+            get_attr_cost("wisdom")
+        ));
+        conn.send_line(&format!(
+            "  Constitution: {} (cost: {} pts)",
+            attrs.constitution,
+            get_attr_cost("constitution")
+        ));
+        conn.send_line(&format!(
+            "  Charisma:     {} (cost: {} pts)",
+            attrs.charisma,
+            get_attr_cost("charisma")
+        ));
+        conn.send_line("");
+        return;
+    }
+
+    // `train <attribute>` — raise attribute
+    let input = args.to_lowercase();
+    let (target_attr, attr_name_cap) = match input.as_str() {
+        "str" | "strength" => ("strength", "Strength"),
+        "dex" | "dexterity" => ("dexterity", "Dexterity"),
+        "int" | "intelligence" => ("intelligence", "Intelligence"),
+        "wis" | "wisdom" => ("wisdom", "Wisdom"),
+        "con" | "constitution" => ("constitution", "Constitution"),
+        "cha" | "charisma" => ("charisma", "Charisma"),
+        _ => {
+            conn.send_line("Invalid attribute. Choose from: Strength, Dexterity, Intelligence, Wisdom, Constitution, Charisma.");
+            return;
+        }
+    };
+
+    // Proximity check: room and trainer presence
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You can't do that here. Seek out a trainer.");
+            return;
+        }
+    };
+
+    let room_entities = core::util::entities_in_room(world, room);
+    let mut has_trainer = false;
+    for e in &room_entities {
+        if world.query_one::<&core::Trainer>(*e).is_ok() {
+            has_trainer = true;
+            break;
+        }
+    }
+
+    if !has_trainer {
+        conn.send_line("You can't do that here. Seek out a trainer.");
+        return;
+    }
+
+    let mut can_train_attr = false;
+    for e in room_entities {
+        if let Ok(mut q) = world.query_one::<&core::Trainer>(e) {
+            if let Some(t) = q.get() {
+                if t.can_train("attributes") {
+                    can_train_attr = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if !can_train_attr {
+        conn.send_line("You can't train that here.");
+        return;
+    }
+
+    // Check bounds
+    let current_val = match target_attr {
+        "strength" => attrs.strength,
+        "dexterity" => attrs.dexterity,
+        "intelligence" => attrs.intelligence,
+        "wisdom" => attrs.wisdom,
+        "constitution" => attrs.constitution,
+        "charisma" => attrs.charisma,
+        _ => unreachable!(),
+    };
+
+    if current_val >= core::Attributes::MAX {
+        conn.send_line(&format!(
+            "Your {} is already at the maximum of {}.",
+            attr_name_cap,
+            core::Attributes::MAX
+        ));
+        return;
+    }
+
+    // Determine cost
+    let cost = get_attr_cost(target_attr);
+    if practice_pts.0 < cost {
+        conn.send_line(&format!(
+            "Training {} costs {} practice points, but you only have {}.",
+            attr_name_cap, cost, practice_pts.0
+        ));
+        return;
+    }
+
+    // Apply training
+    practice_pts.0 -= cost;
+    let new_val = current_val + 1;
+    match target_attr {
+        "strength" => attrs.strength = new_val,
+        "dexterity" => attrs.dexterity = new_val,
+        "intelligence" => attrs.intelligence = new_val,
+        "wisdom" => attrs.wisdom = new_val,
+        "constitution" => attrs.constitution = new_val,
+        "charisma" => attrs.charisma = new_val,
+        _ => unreachable!(),
+    }
+
+    let _ = world.insert(entity, (attrs, practice_pts, core::Dirty));
+    conn.send_line(&format!(
+        "You train {} to {}. ({} practice points remaining)",
+        attr_name_cap, new_val, practice_pts.0
+    ));
 }
 
 // ---------------------------------------------------------------------------
