@@ -30,6 +30,8 @@ pub enum CombatOutcomeKind {
     },
     Miss,
     Killed {
+        damage: i32,
+        damage_type: DamageType,
         xp_gained: u64,
     },
     FleeSuccess {
@@ -343,7 +345,11 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                         apply_damage(world, attacker, target, damage, damage_type);
                     if final_damage > 0 {
                         let kind = if killed {
-                            CombatOutcomeKind::Killed { xp_gained }
+                            CombatOutcomeKind::Killed {
+                                damage: final_damage,
+                                damage_type,
+                                xp_gained,
+                            }
                         } else {
                             CombatOutcomeKind::Hit {
                                 damage: final_damage,
@@ -386,7 +392,11 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                             apply_damage(world, attacker, target, oh_dmg, oh_type);
                         if final_damage > 0 {
                             let kind = if killed {
-                                CombatOutcomeKind::Killed { xp_gained }
+                                CombatOutcomeKind::Killed {
+                                    damage: final_damage,
+                                    damage_type: oh_type,
+                                    xp_gained,
+                                }
                             } else {
                                 CombatOutcomeKind::Hit {
                                     damage: final_damage,

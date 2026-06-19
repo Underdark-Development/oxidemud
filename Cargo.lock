@@ -881,7 +881,9 @@ dependencies = [
  "fastrand",
  "mud-core",
  "mud-data",
+ "serde",
  "tokio",
+ "toml",
  "tracing",
 ]
 

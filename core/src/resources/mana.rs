@@ -11,6 +11,11 @@ impl Mana {
         Mana { current: max, max }
     }
 
+    pub fn from_formula(level: u16, int: u16, wis: u16) -> Self {
+        let max = level * 4 + int * 2 + wis * 2;
+        Mana { current: max, max }
+    }
+
     pub fn fraction(&self) -> f32 {
         if self.max == 0 {
             0.0

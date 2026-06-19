@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 /// Trait for resource pools that regenerate over time.
 pub trait PoolRegen {
     fn current(&self) -> u16;
@@ -5,14 +7,15 @@ pub trait PoolRegen {
     fn set_current(&mut self, val: u16);
     fn base_regen() -> u16;
 
-    fn regen_amount(&self, rest_mult: f32) -> u16 {
+    fn regen_amount(&self, rest_mult: f32, tick_duration: Duration) -> u16 {
         let base = Self::base_regen();
-        let amount = (base as f32 * rest_mult).round() as u16;
+        let ticks = tick_duration.as_secs_f32() / 6.0;
+        let amount = (base as f32 * rest_mult * ticks).round() as u16;
         (self.max() - self.current()).min(amount.max(1))
     }
 
-    fn apply_regen(&mut self, rest_mult: f32) {
-        let amount = self.regen_amount(rest_mult);
+    fn apply_regen(&mut self, rest_mult: f32, tick_duration: Duration) {
+        let amount = self.regen_amount(rest_mult, tick_duration);
         if amount > 0 {
             let new = self.current().saturating_add(amount).min(self.max());
             self.set_current(new);
@@ -72,8 +75,8 @@ mod tests {
             current: 0,
             max: 100,
         };
-        // 10 base * 1.0 standing = 10, capped at 100
-        assert_eq!(pool.regen_amount(1.0), 10);
+        // 10 base * 1.0 standing * 1.0 ticks = 10, capped at 100
+        assert_eq!(pool.regen_amount(1.0, Duration::from_secs(6)), 10);
     }
 
     #[test]
@@ -83,7 +86,7 @@ mod tests {
             max: 100,
         };
         // 10 base * 1.0 = 10, but only 2 needed
-        assert_eq!(pool.regen_amount(1.0), 2);
+        assert_eq!(pool.regen_amount(1.0, Duration::from_secs(6)), 2);
     }
 
     #[test]
@@ -92,7 +95,7 @@ mod tests {
             current: 100,
             max: 100,
         };
-        assert_eq!(pool.regen_amount(1.0), 0);
+        assert_eq!(pool.regen_amount(1.0, Duration::from_secs(6)), 0);
     }
 
     #[test]
@@ -101,7 +104,7 @@ mod tests {
             current: 50,
             max: 100,
         };
-        pool.apply_regen(1.0);
+        pool.apply_regen(1.0, Duration::from_secs(6));
         assert_eq!(pool.current, 60); // 50 + 10
     }
 

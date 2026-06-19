@@ -1,7 +1,9 @@
 mod cmd;
+pub mod config;
 mod connection;
 pub mod game_loop;
 pub mod login;
+pub mod prompt;
 pub mod registry;
 mod server;
 mod telnet;

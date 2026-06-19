@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS components_position (
 CREATE TABLE IF NOT EXISTS components_player (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     account_id INTEGER NOT NULL,
-    prompt TEXT NOT NULL DEFAULT '<%hhp %hmhp> ',
+    prompt TEXT,
     screen_width INTEGER NOT NULL DEFAULT 80,
     unspent_skill_points INTEGER NOT NULL DEFAULT 0
 );
@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS components_health (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     current INTEGER NOT NULL,
     max INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_mana (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    current INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_stamina (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    current INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS components_attributes (
@@ -194,7 +204,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 12;
+pub const VERSION: i64 = 14;
 
 #[cfg(test)]
 mod tests {
@@ -237,11 +247,13 @@ mod tests {
             "components_inventory_items",
             "components_item",
             "components_level",
+            "components_mana",
             "components_npc",
             "components_player",
             "components_position",
             "components_room",
             "components_skills",
+            "components_stamina",
             "components_stance",
             "components_weapon",
             "entities",

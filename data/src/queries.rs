@@ -155,10 +155,17 @@ pub fn create_character(
     room_id: Option<i64>,
     spawn_key: Option<&str>,
 ) -> Result<i64, rusqlite::Error> {
-    conn.execute(
-        "INSERT INTO characters (account_id, name, race, class, entity_id, room_id, spawn_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![account_id, name, race, class, entity_id, room_id, spawn_key],
-    )?;
+    if let Some(spawn_key) = spawn_key {
+        conn.execute(
+            "INSERT INTO characters (account_id, name, race, class, entity_id, room_id, spawn_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![account_id, name, race, class, entity_id, room_id, spawn_key],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO characters (account_id, name, race, class, entity_id, room_id, spawn_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
+            params![account_id, name, race, class, entity_id, room_id],
+        )?;
+    }
     Ok(conn.last_insert_rowid())
 }
 
@@ -244,10 +251,17 @@ pub fn save_room_component(
     description: &str,
     spawn_key: Option<&str>,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT OR REPLACE INTO components_room (entity_id, name, description, spawn_key) VALUES (?1, ?2, ?3, ?4)",
-        params![entity_id, name, description, spawn_key],
-    )?;
+    if let Some(spawn_key) = spawn_key {
+        conn.execute(
+            "INSERT OR REPLACE INTO components_room (entity_id, name, description, spawn_key) VALUES (?1, ?2, ?3, ?4)",
+            params![entity_id, name, description, spawn_key],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT OR REPLACE INTO components_room (entity_id, name, description, spawn_key) VALUES (?1, ?2, ?3, NULL)",
+            params![entity_id, name, description],
+        )?;
+    }
     Ok(())
 }
 
@@ -304,21 +318,40 @@ pub fn save_player_component(
     conn: &Connection,
     entity_id: i64,
     account_id: i64,
-    prompt: &str,
+    prompt: Option<&str>,
     screen_width: u16,
     unspent_skill_points: u32,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![entity_id, account_id, prompt, screen_width, unspent_skill_points],
-    )?;
+    if let Some(prompt) = prompt {
+        let rows = conn.execute(
+            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![entity_id, account_id, prompt, screen_width, unspent_skill_points],
+        )?;
+        tracing::debug!(
+            entity_id,
+            rows_affected = rows,
+            "save_player_component: wrote prompt"
+        );
+    } else {
+        let rows = conn.execute(
+            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, ?2, NULL, ?3, ?4)",
+            params![entity_id, account_id, screen_width, unspent_skill_points],
+        )?;
+        tracing::debug!(
+            entity_id,
+            rows_affected = rows,
+            "save_player_component: wrote NULL prompt"
+        );
+    }
     Ok(())
 }
+
+type PlayerComponent = (i64, Option<String>, u16, u32);
 
 pub fn load_player_component(
     conn: &Connection,
     entity_id: i64,
-) -> Result<Option<(i64, String, u16, u32)>, rusqlite::Error> {
+) -> Result<Option<PlayerComponent>, rusqlite::Error> {
     let mut stmt = conn.prepare(
         "SELECT account_id, prompt, screen_width, unspent_skill_points FROM components_player WHERE entity_id = ?1",
     )?;
@@ -369,6 +402,54 @@ pub fn save_health_component(
         params![entity_id, current, max],
     )?;
     Ok(())
+}
+
+pub fn save_mana_component(
+    conn: &Connection,
+    entity_id: i64,
+    current: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_mana (entity_id, current) VALUES (?1, ?2)",
+        params![entity_id, current],
+    )?;
+    Ok(())
+}
+
+pub fn load_mana_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<i32>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT current FROM components_mana WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_stamina_component(
+    conn: &Connection,
+    entity_id: i64,
+    current: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_stamina (entity_id, current) VALUES (?1, ?2)",
+        params![entity_id, current],
+    )?;
+    Ok(())
+}
+
+pub fn load_stamina_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<i32>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT current FROM components_stamina WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
 }
 
 pub fn load_health_component(
@@ -976,6 +1057,11 @@ mod tests {
 
     fn setup() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA foreign_keys = ON;",
+        )
+        .unwrap();
         conn.execute_batch(SCHEMA).unwrap();
         conn
     }
@@ -1344,11 +1430,27 @@ mod tests {
     fn test_save_and_load_player_component() {
         let conn = setup();
         let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, "<%hhp> ", 80, 5).unwrap();
+        save_player_component(&conn, eid, 42, Some("<%hhp> "), 80, 5).unwrap();
         let (account_id, prompt, width, unspent) =
             load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
-        assert_eq!(prompt, "<%hhp> ");
+        assert_eq!(prompt, Some("<%hhp> ".to_string()));
+        assert_eq!(width, 80);
+        assert_eq!(unspent, 5);
+    }
+
+    #[test]
+    fn test_player_component_overwrite_with_none_prompt() {
+        let conn = setup();
+        let eid = insert_entity(&conn, "player").unwrap();
+        save_player_component(&conn, eid, 42, Some("<%hhp %hmhp> "), 80, 5).unwrap();
+        let (_, prompt, _, _) = load_player_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(prompt, Some("<%hhp %hmhp> ".to_string()));
+        save_player_component(&conn, eid, 42, None, 80, 5).unwrap();
+        let (account_id, prompt, width, unspent) =
+            load_player_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(account_id, 42);
+        assert_eq!(prompt, None);
         assert_eq!(width, 80);
         assert_eq!(unspent, 5);
     }
@@ -1460,5 +1562,52 @@ mod tests {
         assert!(load_attributes_component(&conn, 999).unwrap().is_none());
         assert!(load_level_component(&conn, 999).unwrap().is_none());
         assert!(load_experience_component(&conn, 999).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_player_component_overwrite_file_based() {
+        let tmp =
+            std::env::temp_dir().join(format!("test_prompt_overwrite_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&tmp);
+        for ext in ["db-wal", "db-shm"] {
+            let _ = std::fs::remove_file(tmp.with_extension(ext));
+        }
+
+        let conn = Connection::open(&tmp).unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+            .unwrap();
+        conn.execute_batch(SCHEMA).unwrap();
+
+        let eid = insert_entity(&conn, "player").unwrap();
+        save_player_component(&conn, eid, 42, Some("<%hhp %hmhp> "), 80, 5).unwrap();
+        let (_, prompt, _, _) = load_player_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(prompt, Some("<%hhp %hmhp> ".to_string()));
+
+        save_player_component(&conn, eid, 42, None, 80, 5).unwrap();
+        let (account_id, prompt, width, unspent) =
+            load_player_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(account_id, 42);
+        assert_eq!(prompt, None);
+        assert_eq!(width, 80);
+        assert_eq!(unspent, 5);
+
+        // Close and reopen to verify cross-connection persistence
+        drop(conn);
+        let conn2 = Connection::open(&tmp).unwrap();
+        conn2
+            .execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+            .unwrap();
+        let (account_id, prompt, width, unspent) =
+            load_player_component(&conn2, eid).unwrap().unwrap();
+        assert_eq!(account_id, 42);
+        assert_eq!(prompt, None);
+        assert_eq!(width, 80);
+        assert_eq!(unspent, 5);
+
+        // Cleanup temp files
+        std::fs::remove_file(&tmp).ok();
+        for ext in ["db-wal", "db-shm"] {
+            std::fs::remove_file(tmp.with_extension(ext)).ok();
+        }
     }
 }

@@ -9,5 +9,7 @@ license.workspace = true
 mud-core = { path = "../core" }
 mud-data = { path = "../data" }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "time", "rt"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 tracing = "0.1"
 fastrand = "2"

@@ -276,11 +276,16 @@ async fn handle_connection(
                     let reg = registry.lock().await;
                     commands.execute(&mut world_lock, &mut conn, trimmed, &reg);
                     drop(reg);
-                    drop(world_lock);
                     if conn.is_disconnected() {
+                        drop(world_lock);
                         break;
                     }
-                    conn.send("> ");
+                    if let Some(entity) = conn.entity() {
+                        let reg = registry.lock().await;
+                        crate::prompt::send_player_prompt(&world_lock, entity, &reg);
+                        drop(reg);
+                    }
+                    drop(world_lock);
                 } else {
                     let db_clone = db.clone();
                     let mut w = world.lock().await;
@@ -371,6 +376,14 @@ async fn handle_connection(
                     .and_then(|mut q| q.get().copied());
                 let health = w
                     .query_one::<&Health>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let mana = w
+                    .query_one::<&mud_core::Mana>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned());
+                let stamina = w
+                    .query_one::<&mud_core::Stamina>(entity)
                     .ok()
                     .and_then(|mut q| q.get().cloned());
                 let position = w
@@ -467,6 +480,8 @@ async fn handle_connection(
                     level,
                     xp,
                     health,
+                    mana,
+                    stamina,
                     position,
                     room_db_id,
                     room_spawn_key,
@@ -491,6 +506,8 @@ async fn handle_connection(
             level,
             xp,
             health,
+            mana,
+            stamina,
             room_entity,
             mut room_db_id,
             room_spawn_key,
@@ -552,6 +569,15 @@ async fn handle_connection(
                         health.max,
                     );
                 }
+                // Save Mana
+                if let Some(mana) = mana {
+                    let _ = mud_data::save_mana_component(conn_db, db_id.0, mana.current as i32);
+                }
+                // Save Stamina
+                if let Some(stamina) = stamina {
+                    let _ =
+                        mud_data::save_stamina_component(conn_db, db_id.0, stamina.current as i32);
+                }
                 // Save Wallet
                 if let Some(wallet) = wallet {
                     let _ = mud_data::save_golds_component(
@@ -565,26 +591,74 @@ async fn handle_connection(
                 }
                 // Save LearnedSkills
                 if let Some(skills) = skills {
-                    let _ = mud_data::save_skills(conn_db, db_id.0, &skills.skills);
+                    if let Err(e) = mud_data::save_skills(conn_db, db_id.0, &skills.skills) {
+                        tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save skills");
+                    }
                     if let Some(ref player_comp) = player_comp {
-                        let _ = mud_data::save_player_component(
+                        if let Err(e) = mud_data::save_player_component(
                             conn_db,
                             db_id.0,
                             player_comp.account_id,
-                            &player_comp.prompt,
+                            player_comp.prompt.as_deref(),
                             player_comp.screen_width,
                             skills.unspent_points,
-                        );
+                        ) {
+                            tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save player component");
+                        } else {
+                            // Readback verify
+                            match mud_data::load_player_component(conn_db, db_id.0) {
+                                Ok(Some((_, loaded_prompt, _, _))) => {
+                                    tracing::debug!(
+                                        entity_id = db_id.0,
+                                        saved_prompt = ?player_comp.prompt,
+                                        loaded_prompt = ?loaded_prompt,
+                                        "disconnect: player component readback verified"
+                                    );
+                                }
+                                Ok(None) => {
+                                    tracing::error!(
+                                        entity_id = db_id.0,
+                                        "disconnect: player component not found after save"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::error!(entity_id = db_id.0, error = %e, "disconnect: readback failed");
+                                }
+                            }
+                        }
                     }
                 } else if let Some(ref player_comp) = player_comp {
-                    let _ = mud_data::save_player_component(
+                    if let Err(e) = mud_data::save_player_component(
                         conn_db,
                         db_id.0,
                         player_comp.account_id,
-                        &player_comp.prompt,
+                        player_comp.prompt.as_deref(),
                         player_comp.screen_width,
                         0,
-                    );
+                    ) {
+                        tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save player component");
+                    } else {
+                        // Readback verify
+                        match mud_data::load_player_component(conn_db, db_id.0) {
+                            Ok(Some((_, loaded_prompt, _, _))) => {
+                                tracing::debug!(
+                                    entity_id = db_id.0,
+                                    saved_prompt = ?player_comp.prompt,
+                                    loaded_prompt = ?loaded_prompt,
+                                    "disconnect: player component readback verified"
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::error!(
+                                    entity_id = db_id.0,
+                                    "disconnect: player component not found after save"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(entity_id = db_id.0, error = %e, "disconnect: readback failed");
+                            }
+                        }
+                    }
                 }
                 // Save Attributes
                 if let Some(attrs) = attrs {

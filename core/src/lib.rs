@@ -5,6 +5,7 @@ pub mod content;
 pub mod dice;
 mod events;
 pub mod format;
+pub mod prompt;
 pub mod regen;
 mod resources;
 pub mod systems;
@@ -13,6 +14,7 @@ pub mod trie;
 
 pub use components::*;
 pub use events::*;
+pub use prompt::PromptVars;
 pub use resources::*;
 pub use systems::ai::AiState;
 

@@ -1,11 +1,13 @@
+use std::time::Duration;
+
 use crate::{
     regen::{rest_multiplier, PoolRegen},
     Attributes, Energy, Health, Mana, PlayerState, Psi, Stamina, World,
 };
 
 /// Run one regen pulse for all entities with Health and/or resource pools.
-/// Regen rate is modified by the entity's rest state.
-pub fn run_regen_pulse(world: &mut World) {
+/// Regen rate is modified by the entity's rest state and tick duration.
+pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) {
     // HP regen
     let hp_targets: Vec<(crate::Entity, i32)> = {
         let mut q = world.query::<(&Health, &Attributes)>();
@@ -17,7 +19,7 @@ pub fn run_regen_pulse(world: &mut World) {
                     .ok()
                     .and_then(|mut q| q.get().map(|ps| rest_multiplier(&ps.rest())))
                     .unwrap_or(1.0);
-                let amount = hp.regen_amount(attr.constitution, rest_mult);
+                let amount = hp.regen_amount(attr.constitution, rest_mult, tick_duration);
                 (entity, amount)
             })
             .collect()
@@ -39,13 +41,13 @@ pub fn run_regen_pulse(world: &mut World) {
     }
 
     // Resource pool regen — use a macro to avoid repeating the pattern
-    regen_pool::<Stamina>(world);
-    regen_pool::<Mana>(world);
-    regen_pool::<Energy>(world);
-    regen_pool::<Psi>(world);
+    regen_pool::<Stamina>(world, tick_duration);
+    regen_pool::<Mana>(world, tick_duration);
+    regen_pool::<Energy>(world, tick_duration);
+    regen_pool::<Psi>(world, tick_duration);
 }
 
-fn regen_pool<T: PoolRegen + Send + Sync + 'static>(world: &mut World) {
+fn regen_pool<T: PoolRegen + Send + Sync + 'static>(world: &mut World, tick_duration: Duration) {
     let targets: Vec<(crate::Entity, u16)> = {
         let mut q = world.query::<&T>();
         q.iter()
@@ -56,7 +58,7 @@ fn regen_pool<T: PoolRegen + Send + Sync + 'static>(world: &mut World) {
                     .ok()
                     .and_then(|mut q| q.get().map(|ps| rest_multiplier(&ps.rest())))
                     .unwrap_or(1.0);
-                let amount = pool.regen_amount(rest_mult);
+                let amount = pool.regen_amount(rest_mult, tick_duration);
                 (entity, amount)
             })
             .collect()
@@ -116,7 +118,7 @@ mod tests {
     #[test]
     fn test_regen_pulse_heals_hp() {
         let (mut world, player) = setup_world();
-        run_regen_pulse(&mut world);
+        run_regen_pulse(&mut world, Duration::from_secs(6));
         let hp = world
             .query_one::<&Health>(player)
             .unwrap()
@@ -129,7 +131,7 @@ mod tests {
     #[test]
     fn test_regen_pulse_regen_pools() {
         let (mut world, player) = setup_world();
-        run_regen_pulse(&mut world);
+        run_regen_pulse(&mut world, Duration::from_secs(6));
         let stam = world
             .query_one::<&Stamina>(player)
             .unwrap()
@@ -160,7 +162,7 @@ mod tests {
             PlayerState::default(),
             Name::new("Test"),
         ));
-        run_regen_pulse(&mut world);
+        run_regen_pulse(&mut world, Duration::from_secs(6));
         let hp = world
             .query_one::<&Health>(player)
             .unwrap()

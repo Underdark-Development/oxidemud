@@ -11,6 +11,11 @@ impl Stamina {
         Stamina { current: max, max }
     }
 
+    pub fn from_formula(level: u16, strength: u16, dexterity: u16) -> Self {
+        let max = level * 12 + strength * 2 + dexterity * 2;
+        Stamina { current: max, max }
+    }
+
     pub fn fraction(&self) -> f32 {
         if self.max == 0 {
             0.0

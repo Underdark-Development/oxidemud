@@ -2013,6 +2013,81 @@ fn resolve_skill_name_for_training(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Prompt command
+// ---------------------------------------------------------------------------
+
+pub fn cmd_prompt(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        let msg = conn
+            .entity()
+            .and_then(|e| {
+                world
+                    .query_one::<&mud_core::Player>(e)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned())
+                    .map(|p| match &p.prompt {
+                        Some(t) => format!("Current prompt: {t}"),
+                        None => format!(
+                            "Using default prompt: {}",
+                            mud_server::config::get().default_prompt
+                        ),
+                    })
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "Using default prompt: {}",
+                    mud_server::config::get().default_prompt
+                )
+            });
+        conn.send_line(&msg);
+        conn.send_line("Usage: prompt <template>");
+        conn.send_line("See 'help prompt' for available variables.");
+        conn.send_line("Type 'prompt reset' to revert to the server default.");
+        return;
+    }
+
+    if let Some(entity) = conn.entity() {
+        let updated = {
+            let mut q = match world.query_one::<&mut mud_core::Player>(entity) {
+                Ok(q) => q,
+                Err(_) => return conn.send_line("You can't change your prompt right now."),
+            };
+            match q.get() {
+                Some(player) => {
+                    if trimmed == "reset" {
+                        tracing::debug!(entity = ?entity, old_prompt = ?player.prompt, "cmd_prompt: resetting to None");
+                        player.prompt = None;
+                        true
+                    } else {
+                        tracing::debug!(entity = ?entity, new_prompt = %trimmed, "cmd_prompt: setting custom prompt");
+                        player.prompt = Some(trimmed.to_string());
+                        true
+                    }
+                }
+                None => false,
+            }
+        };
+        if updated {
+            let _ = world.insert(entity, (mud_core::Dirty,));
+            if trimmed == "reset" {
+                conn.send_line("Prompt reset to default.");
+            } else {
+                conn.send_line("Prompt updated.");
+            }
+            return;
+        }
+    }
+    conn.send_line("You can't change your prompt right now.");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

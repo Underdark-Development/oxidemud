@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use mud_core::systems;
 use mud_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
@@ -23,7 +23,12 @@ pub fn spawn_game_loop(
 ) {
     tokio::spawn(async move {
         let mut combat_tick = interval(Duration::from_secs(2));
-        let mut regen_tick = interval(Duration::from_secs(6));
+
+        // Big tick: regen + prompt broadcast (Merc-style, 30-90s randomized)
+        let initial_secs = fastrand::u64(30..=90);
+        let mut next_big_tick = tokio::time::Instant::now() + Duration::from_secs(initial_secs);
+        let mut last_tick_time = Instant::now();
+
         let mut maintenance_tick = interval(Duration::from_secs(5));
         let mut set_bonus_tick = interval(Duration::from_secs(10));
         let mut position_save_tick = interval(Duration::from_secs(60));
@@ -39,6 +44,18 @@ pub fn spawn_game_loop(
                     let mut w = world.lock().await;
                     let reg = registry.lock().await;
                     let outcomes = systems::combat::run_combat_pulse(&mut w);
+
+                    // Collect involved players before consuming outcomes
+                    let involved_players: Vec<Entity> = outcomes
+                        .iter()
+                        .flat_map(|o| {
+                            let mut v = Vec::new();
+                            if o.attacker_is_player { v.push(o.attacker); }
+                            if o.target_is_player { v.push(o.target); }
+                            v
+                        })
+                        .collect();
+
                     // Level-up check for kills
                     for outcome in &outcomes {
                         if let CombatOutcomeKind::Killed { .. } = &outcome.kind {
@@ -53,15 +70,33 @@ pub fn spawn_game_loop(
                         }
                     }
                     dispatch_combat_outcomes(&reg, outcomes);
+
+                    // Send prompt to players involved in combat outcomes
+                    for entity in involved_players {
+                        crate::prompt::send_player_prompt(&w, entity, &reg);
+                    }
+
                     systems::ai::run_ai_pulse(&mut w);
                     systems::stance::run_stance_pulse(&mut w);
                     drop(reg);
                     drop(w);
                 }
-                _ = regen_tick.tick() => {
+                _ = tokio::time::sleep_until(next_big_tick) => {
+                    let now = Instant::now();
+                    let tick_duration = now - last_tick_time;
+                    last_tick_time = now;
+
                     let mut w = world.lock().await;
-                    systems::regen::run_regen_pulse(&mut w);
+                    let reg = registry.lock().await;
+
+                    systems::regen::run_regen_pulse(&mut w, tick_duration);
+                    crate::prompt::broadcast_prompts(&w, &reg);
+
+                    drop(reg);
                     drop(w);
+
+                    next_big_tick = tokio::time::Instant::now()
+                        + Duration::from_secs(fastrand::u64(30..=90));
                 }
                 _ = maintenance_tick.tick() => {
                     let mut w = world.lock().await;
@@ -132,9 +167,15 @@ fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatO
                     }
                 }
             }
-            CombatOutcomeKind::Killed { xp_gained } => {
+            CombatOutcomeKind::Killed {
+                damage, xp_gained, ..
+            } => {
                 if outcome.attacker_is_player {
                     if let Some(tx) = registry.sender(outcome.attacker) {
+                        let _ = tx.send(
+                            format!("You hit {} for {} damage.\r\n", outcome.target_name, damage)
+                                .into_bytes(),
+                        );
                         let _ = tx.send(
                             format!(
                                 "You kill {}! You gain {} experience.\r\n",
@@ -143,8 +184,16 @@ fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatO
                             .into_bytes(),
                         );
                     }
-                } else if outcome.target_is_player {
+                }
+                if outcome.target_is_player {
                     if let Some(tx) = registry.sender(outcome.target) {
+                        let _ = tx.send(
+                            format!(
+                                "{} hits you for {} damage.\r\n",
+                                outcome.attacker_name, damage
+                            )
+                            .into_bytes(),
+                        );
                         let _ = tx.send(
                             format!("You have been slain by {}!\r\n", outcome.attacker_name)
                                 .into_bytes(),
@@ -263,7 +312,25 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         let _ = mud_data::save_health_component(conn, db_id, health.current, health.max);
     }
 
-    // 3. Wallet / Golds
+    // 3. Mana
+    if let Some(mana) = world
+        .query_one::<&mud_core::Mana>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_mana_component(conn, db_id, mana.current as i32);
+    }
+
+    // 4. Stamina
+    if let Some(stamina) = world
+        .query_one::<&mud_core::Stamina>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_stamina_component(conn, db_id, stamina.current as i32);
+    }
+
+    // 5. Wallet / Golds
     if let Some(wallet) = world
         .query_one::<&Wallet>(player)
         .ok()
@@ -279,47 +346,50 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         );
     }
 
-    // 4. LearnedSkills
+    // 6. LearnedSkills
     if let Some(skills) = world
         .query_one::<&LearnedSkills>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_skills(conn, db_id, &skills.skills);
+        if let Err(e) = mud_data::save_skills(conn, db_id, &skills.skills) {
+            tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save skills");
+        }
 
-        // Also save unspent points to components_player table
         if let Some(player_comp) = world
             .query_one::<&Player>(player)
             .ok()
             .and_then(|mut q| q.get().cloned())
         {
-            let _ = mud_data::save_player_component(
+            if let Err(e) = mud_data::save_player_component(
                 conn,
                 db_id,
                 player_comp.account_id,
-                &player_comp.prompt,
+                player_comp.prompt.as_deref(),
                 player_comp.screen_width,
                 skills.unspent_points,
-            );
+            ) {
+                tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save player component");
+            }
         }
-    } else {
-        if let Some(player_comp) = world
-            .query_one::<&Player>(player)
-            .ok()
-            .and_then(|mut q| q.get().cloned())
-        {
-            let _ = mud_data::save_player_component(
-                conn,
-                db_id,
-                player_comp.account_id,
-                &player_comp.prompt,
-                player_comp.screen_width,
-                0,
-            );
+    } else if let Some(player_comp) = world
+        .query_one::<&Player>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Err(e) = mud_data::save_player_component(
+            conn,
+            db_id,
+            player_comp.account_id,
+            player_comp.prompt.as_deref(),
+            player_comp.screen_width,
+            0,
+        ) {
+            tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save player component");
         }
     }
 
-    // 5. Attributes
+    // 7. Attributes
     if let Some(attrs) = world
         .query_one::<&Attributes>(player)
         .ok()
@@ -339,7 +409,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         );
     }
 
-    // 6. Alignment
+    // 8. Alignment
     if let Some(alignment) = world
         .query_one::<&Alignment>(player)
         .ok()
@@ -348,7 +418,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         let _ = mud_data::save_alignment_component(conn, db_id, &alignment.0);
     }
 
-    // 7. Description
+    // 9. Description
     if let Some(description) = world
         .query_one::<&Description>(player)
         .ok()
@@ -357,7 +427,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         let _ = mud_data::save_description_component(conn, db_id, &description.0);
     }
 
-    // 8. Inventory
+    // 10. Inventory
     let mut inventory_items = Vec::new();
     if let Some(inventory) = world
         .query_one::<&Inventory>(player)
@@ -399,7 +469,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         }
     }
 
-    // 9. Equipment
+    // 11. Equipment
     let mut equipment_items = Vec::new();
     if let Some(equipment) = world
         .query_one::<&Equipment>(player)

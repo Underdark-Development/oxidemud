@@ -159,6 +159,50 @@ impl Database {
             )?;
         }
 
+        if current < 13 {
+            // Migration 13: drop NOT NULL + DEFAULT from components_player.prompt
+            // so that prompt can be NULL ("use server config default").
+            // NOTE: guard uses column index (3 = notnull) to avoid keyword conflict
+            // in SQLite 3.51+.
+            let prompt_not_null: bool = self
+                .conn
+                .prepare(
+                    "SELECT * FROM pragma_table_info('components_player') \
+                     WHERE name = 'prompt'",
+                )
+                .and_then(|mut s| s.query_row([], |row| row.get::<_, i64>(3)))
+                .map(|v| v != 0)
+                .unwrap_or(false);
+            if prompt_not_null {
+                recreate_player_table(&self.conn)?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (13)",
+                [],
+            )?;
+        }
+
+        if current < 14 {
+            // Migration 14: redo migration 13 for databases where the guard
+            // was broken (notnull keyword not quoted).
+            let prompt_not_null: bool = self
+                .conn
+                .prepare(
+                    "SELECT * FROM pragma_table_info('components_player') \
+                     WHERE name = 'prompt'",
+                )
+                .and_then(|mut s| s.query_row([], |row| row.get::<_, i64>(3)))
+                .map(|v| v != 0)
+                .unwrap_or(false);
+            if prompt_not_null {
+                recreate_player_table(&self.conn)?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (14)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -169,4 +213,25 @@ impl Database {
     pub fn conn_mut(&mut self) -> &mut Connection {
         &mut self.conn
     }
+}
+
+fn recreate_player_table(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(
+        "PRAGMA defer_foreign_keys = ON;
+         CREATE TABLE components_player_v2 (
+             entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+             account_id INTEGER NOT NULL,
+             prompt TEXT,
+             screen_width INTEGER NOT NULL DEFAULT 80,
+             unspent_skill_points INTEGER NOT NULL DEFAULT 0
+         );
+         INSERT INTO components_player_v2
+             (entity_id, account_id, prompt, screen_width, unspent_skill_points)
+             SELECT entity_id, account_id, prompt, screen_width, unspent_skill_points
+             FROM components_player;
+         DROP TABLE components_player;
+         ALTER TABLE components_player_v2 RENAME TO components_player;
+         PRAGMA defer_foreign_keys = OFF;",
+    )?;
+    Ok(())
 }

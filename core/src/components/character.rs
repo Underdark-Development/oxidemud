@@ -62,7 +62,7 @@ impl PlayerState {
 #[derive(Debug, Clone)]
 pub struct Player {
     pub account_id: i64,
-    pub prompt: String,
+    pub prompt: Option<String>,
     pub screen_width: u16,
 }
 
@@ -185,7 +185,7 @@ impl Player {
     pub fn new(account_id: i64) -> Self {
         Player {
             account_id,
-            prompt: "<%hhp %hmhp> ".to_string(),
+            prompt: None,
             screen_width: 80,
         }
     }
@@ -461,7 +461,7 @@ mod tests {
     fn test_player_default_prompt() {
         let p = Player::new(42);
         assert_eq!(p.account_id, 42);
-        assert_eq!(p.prompt, "<%hhp %hmhp> ");
+        assert_eq!(p.prompt, None);
     }
 
     #[test]

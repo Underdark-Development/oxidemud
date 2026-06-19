@@ -3,7 +3,7 @@ use tokio::sync::Mutex;
 use mud_core::templates::{SkillResolveError, TemplateRegistry};
 use mud_core::{
     Alignment, Class, DbId, Description, Entity, Equipment, Experience, Gender, Health, Inventory,
-    Level, Name, Player, Position, Race, Wallet, World,
+    Level, Mana, Name, Player, Position, Race, Stamina, Wallet, World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -1241,6 +1241,8 @@ async fn finalize_character(
 
     let (attrs, hp, mut skills) =
         compute_final_attributes(templates, &race_id, &class_id, &player_base_attrs);
+    let mana = Mana::from_formula(1, attrs.intelligence as u16, attrs.wisdom as u16);
+    let stamina = Stamina::from_formula(1, attrs.strength as u16, attrs.dexterity as u16);
     // Grant player-chosen skills
     for skill_id in &flow.create_buffer.selected_skills {
         skills.grant(skill_id);
@@ -1289,9 +1291,7 @@ async fn finalize_character(
         }
     };
 
-    if let Err(e) =
-        mud_data::save_player_component(conn_db, entity_id, account_id, "<%hhp %hmhp> ", 80, 0)
-    {
+    if let Err(e) = mud_data::save_player_component(conn_db, entity_id, account_id, None, 80, 0) {
         lines.push(format!("Error saving character: {e}"));
         return lines;
     }
@@ -1314,6 +1314,16 @@ async fn finalize_character(
 
     if let Err(e) = mud_data::save_health_component(conn_db, entity_id, hp, hp) {
         lines.push(format!("Error saving health: {e}"));
+        return lines;
+    }
+
+    if let Err(e) = mud_data::save_mana_component(conn_db, entity_id, mana.current as i32) {
+        lines.push(format!("Error saving mana: {e}"));
+        return lines;
+    }
+
+    if let Err(e) = mud_data::save_stamina_component(conn_db, entity_id, stamina.current as i32) {
+        lines.push(format!("Error saving stamina: {e}"));
         return lines;
     }
 
@@ -1417,6 +1427,8 @@ async fn finalize_character(
         ),
         attrs,
         Health::new(hp),
+        mana,
+        stamina,
         Level::default(),
         Experience::default(),
     ));
@@ -1520,6 +1532,54 @@ async fn load_character(
         .map(|(current, max)| Health { current, max })
         .unwrap_or_else(|| Health::new(20));
 
+    let mana = {
+        let level = mud_data::load_level_component(conn_db, entity_id)
+            .ok()
+            .flatten()
+            .unwrap_or(1);
+        let max =
+            Mana::from_formula(level as u16, attrs.intelligence as u16, attrs.wisdom as u16).max;
+        let current = mud_data::load_mana_component(conn_db, entity_id)
+            .ok()
+            .flatten()
+            .unwrap_or(max as i32)
+            .min(max as i32)
+            .max(0) as u16;
+        Mana { current, max }
+    };
+
+    let stamina = {
+        let level = mud_data::load_level_component(conn_db, entity_id)
+            .ok()
+            .flatten()
+            .unwrap_or(1);
+        let max =
+            Stamina::from_formula(level as u16, attrs.strength as u16, attrs.dexterity as u16).max;
+        let current = mud_data::load_stamina_component(conn_db, entity_id)
+            .ok()
+            .flatten()
+            .unwrap_or(max as i32)
+            .min(max as i32)
+            .max(0) as u16;
+        Stamina { current, max }
+    };
+
+    // Save back if either was missing (migration: fill components_mana/stamina)
+    if mud_data::load_mana_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        let _ = mud_data::save_mana_component(conn_db, entity_id, mana.current as i32);
+    }
+    if mud_data::load_stamina_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        let _ = mud_data::save_stamina_component(conn_db, entity_id, stamina.current as i32);
+    }
+
     let level = mud_data::load_level_component(conn_db, entity_id)
         .ok()
         .flatten()
@@ -1549,7 +1609,13 @@ async fn load_character(
             .ok()
             .flatten()
             .map(|(_, prompt, width, unspent)| (prompt, width, unspent))
-            .unwrap_or_else(|| ("<%hhp %hmhp> ".to_string(), 80, 0));
+            .unwrap_or_else(|| (None, 80, 0));
+
+    tracing::debug!(
+        entity_id,
+        prompt = ?prompt,
+        "load_character: loaded prompt from DB"
+    );
 
     let mut player_comp = Player::new(char_row.account_id);
     player_comp.prompt = prompt;
@@ -1643,6 +1709,8 @@ async fn load_character(
         ),
         attrs,
         hp,
+        mana,
+        stamina,
         level,
         xp,
     ));

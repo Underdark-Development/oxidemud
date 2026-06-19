@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::time::Duration;
 
 use crate::dice::DiceRoll;
 use crate::Entity;
@@ -33,13 +34,13 @@ impl Health {
 }
 
 impl Health {
-    /// Base HP regen per tick (6s) at constitution 10.
     pub const BASE_REGEN: i32 = 1;
 
-    pub fn regen_amount(&self, constitution: u8, rest_mult: f32) -> i32 {
+    pub fn regen_amount(&self, constitution: u8, rest_mult: f32, tick_duration: Duration) -> i32 {
         let con_bonus = (constitution as i32 - 10) / 2;
-        let base = Self::BASE_REGEN + con_bonus.max(0);
-        let amount = (base as f32 * rest_mult).round() as i32;
+        let base_per_6s = Self::BASE_REGEN + con_bonus.max(0);
+        let ticks = tick_duration.as_secs_f32() / 6.0;
+        let amount = (base_per_6s as f32 * rest_mult * ticks).round() as i32;
         (self.max - self.current).min(amount.max(1))
     }
 }

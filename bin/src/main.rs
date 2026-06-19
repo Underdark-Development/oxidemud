@@ -50,11 +50,45 @@ Examples:
   width 80              set to 80 columns
   width 0               disable wrapping (unlimited)"#;
 
+const HELP_PROMPT: &str = r#"View or change your prompt template.
+
+Type 'prompt <template>' to set a custom prompt. Available variables:
+
+  %h  %H    current / max hit points
+  %m  %M    current / max mana
+  %v  %V    current / max vitality (stamina)
+  %l        level
+  %x        total experience
+  %X        experience to next level
+  %n        character name
+  %g        total wealth (copper)
+  %a        alignment
+  %r        room name
+  %e        exits
+  %s  %d    strength / dexterity
+  %i  %w    intelligence / wisdom
+  %o  %u    constitution / charisma
+  %R        rest state (Standing/Sitting/...)
+  %C        combat state (In Combat / Not In Combat)
+  %c        carriage return (newline)
+  %%        literal percent sign
+
+Example:
+  prompt [%h/%H]          show just health
+  prompt <%h/%Hhp %m/%Mmn>  ROM-style prompt
+  prompt reset            revert to server default prompt"#;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     let config = Config::parse();
+    mud_server::config::init(
+        config
+            .config_path
+            .as_deref()
+            .unwrap_or(Path::new("content/server.toml")),
+    );
     mud_server::load_motd(config.motd_path.as_deref());
 
     let db = mud_data::Database::open(&config.db_path).unwrap_or_else(|e| {
@@ -198,6 +232,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "General",
         HELP_WIDTH,
         commands::cmd_width,
+    );
+    server.register_command(
+        "prompt",
+        &[],
+        AccessLevel::Player,
+        "General",
+        HELP_PROMPT,
+        commands::cmd_prompt,
     );
 
     // Phase 3 — Combat
