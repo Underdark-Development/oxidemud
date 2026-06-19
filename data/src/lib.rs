@@ -203,6 +203,80 @@ impl Database {
             )?;
         }
 
+        if current < 15 {
+            // Migration 15: components_practice_points table and retro calculation
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_practice_points (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    points INTEGER NOT NULL DEFAULT 0
+                );",
+            )?;
+
+            // Check if the legacy unspent_skill_points column exists in components_player
+            let has_unspent: bool = self
+                .conn
+                .prepare("SELECT unspent_skill_points FROM components_player LIMIT 0")
+                .is_ok();
+
+            let query = if has_unspent {
+                "SELECT 
+                    p.entity_id, 
+                    COALESCE(l.level, 1) as level, 
+                    COALESCE(a.wisdom, 10) as wisdom, 
+                    COALESCE(a.intelligence, 10) as intelligence, 
+                    COALESCE(p.unspent_skill_points, 0) as unspent 
+                 FROM components_player p
+                 LEFT JOIN components_level l ON p.entity_id = l.entity_id
+                 LEFT JOIN components_attributes a ON p.entity_id = a.entity_id;"
+            } else {
+                "SELECT 
+                    p.entity_id, 
+                    COALESCE(l.level, 1) as level, 
+                    COALESCE(a.wisdom, 10) as wisdom, 
+                    COALESCE(a.intelligence, 10) as intelligence, 
+                    0 as unspent 
+                 FROM components_player p
+                 LEFT JOIN components_level l ON p.entity_id = l.entity_id
+                 LEFT JOIN components_attributes a ON p.entity_id = a.entity_id;"
+            };
+
+            let mut stmt = self.conn.prepare(query)?;
+            let mut rows = stmt.query([])?;
+
+            let mut updates = Vec::new();
+            while let Some(row) = rows.next()? {
+                let entity_id: i64 = row.get(0)?;
+                let level: i64 = row.get(1)?;
+                let wisdom: i64 = row.get(2)?;
+                let intelligence: i64 = row.get(3)?;
+                let unspent: i64 = row.get(4)?;
+
+                let wis_mod = (wisdom - 10) / 2;
+                let int_mod = (intelligence - 10) / 2;
+                let gain_per_level = (2 + wis_mod + int_mod).max(1);
+                let retro_points = level * gain_per_level + unspent;
+                updates.push((entity_id, retro_points));
+            }
+            drop(rows);
+            drop(stmt);
+
+            let tx = self.conn.transaction()?;
+            {
+                let mut insert_stmt = tx.prepare(
+                    "INSERT INTO components_practice_points (entity_id, points) VALUES (?1, ?2)",
+                )?;
+                for (entity_id, points) in updates {
+                    insert_stmt.execute(rusqlite::params![entity_id, points])?;
+                }
+            }
+            tx.commit()?;
+
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (15)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -234,4 +308,84 @@ fn recreate_player_table(conn: &Connection) -> Result<(), rusqlite::Error> {
          PRAGMA defer_foreign_keys = OFF;",
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_migration_15() {
+        // 1. Setup a version 14 database structure
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+            .unwrap();
+
+        // Execute the SCHEMA. Note that schema::SCHEMA has version 15 (no unspent_skill_points, components_practice_points exists).
+        conn.execute_batch(crate::schema::SCHEMA).unwrap();
+
+        // Let's drop components_practice_points to simulate version 14.
+        conn.execute_batch("DROP TABLE IF EXISTS components_practice_points;")
+            .unwrap();
+
+        // Re-create components_player with the unspent_skill_points column to match version 14.
+        conn.execute_batch(
+            "
+            DROP TABLE IF EXISTS components_player;
+            CREATE TABLE components_player (
+                entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                account_id INTEGER NOT NULL,
+                prompt TEXT,
+                screen_width INTEGER NOT NULL DEFAULT 80,
+                unspent_skill_points INTEGER NOT NULL DEFAULT 0
+            );
+        ",
+        )
+        .unwrap();
+
+        // Delete version 15 from schema_version.
+        conn.execute_batch("DELETE FROM schema_version WHERE version = 15;")
+            .unwrap();
+
+        // 2. Insert test data
+        let eid = queries::insert_entity(&conn, "player").unwrap();
+
+        // Player components
+        conn.execute(
+            "INSERT INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, 42, NULL, 80, 5)",
+            rusqlite::params![eid],
+        ).unwrap();
+
+        // Level component (level = 5)
+        queries::save_level_component(&conn, eid, 5).unwrap();
+
+        // Attributes component (wisdom = 14, intelligence = 12)
+        queries::save_attributes_component(
+            &conn,
+            eid,
+            &queries::AttributesRow {
+                strength: 10,
+                dexterity: 10,
+                intelligence: 12,
+                wisdom: 14,
+                constitution: 10,
+                charisma: 10,
+            },
+        )
+        .unwrap();
+
+        // 3. Wrap in Database struct and run migrations (which will run Migration 15)
+        let mut db = Database { conn };
+        db.run_migrations().unwrap();
+
+        // 4. Verify results
+        // wis_mod = (14 - 10) / 2 = 2
+        // int_mod = (12 - 10) / 2 = 1
+        // gain_per_level = max(1, 2 + 2 + 1) = 5
+        // expected_points = 5 (level) * 5 (gain) + 5 (unspent) = 30
+        let points = queries::load_practice_points(&db.conn, eid)
+            .unwrap()
+            .unwrap();
+        assert_eq!(points, 30);
+    }
 }

@@ -360,30 +360,19 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         if let Err(e) = mud_data::save_skills(conn, db_id, &skills.skills) {
             tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save skills");
         }
+    }
 
-        let practice_points = world
-            .query_one::<&PracticePoints>(player)
-            .ok()
-            .and_then(|mut q| q.get().copied())
-            .map(|p| p.0)
-            .unwrap_or(0);
-        if let Some(player_comp) = world
-            .query_one::<&Player>(player)
-            .ok()
-            .and_then(|mut q| q.get().cloned())
-        {
-            if let Err(e) = mud_data::save_player_component(
-                conn,
-                db_id,
-                player_comp.account_id,
-                player_comp.prompt.as_deref(),
-                player_comp.screen_width,
-                practice_points,
-            ) {
-                tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save player component");
-            }
-        }
-    } else if let Some(player_comp) = world
+    // 7. PracticePoints
+    if let Some(pp) = world
+        .query_one::<&PracticePoints>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+    {
+        let _ = mud_data::save_practice_points(conn, db_id, pp.0 as i64);
+    }
+
+    // 8. Player component
+    if let Some(player_comp) = world
         .query_one::<&Player>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
@@ -394,13 +383,12 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
             player_comp.account_id,
             player_comp.prompt.as_deref(),
             player_comp.screen_width,
-            0,
         ) {
             tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save player component");
         }
     }
 
-    // 7. Attributes
+    // 9. Attributes
     if let Some(attrs) = world
         .query_one::<&Attributes>(player)
         .ok()
@@ -420,7 +408,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         );
     }
 
-    // 8. Alignment
+    // 10. Alignment
     if let Some(alignment) = world
         .query_one::<&Alignment>(player)
         .ok()
@@ -429,7 +417,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         let _ = mud_data::save_alignment_component(conn, db_id, &alignment.0);
     }
 
-    // 9. Description
+    // 11. Description
     if let Some(description) = world
         .query_one::<&Description>(player)
         .ok()
@@ -438,7 +426,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         let _ = mud_data::save_description_component(conn, db_id, &description.0);
     }
 
-    // 10. Inventory
+    // 12. Inventory
     let mut inventory_items = Vec::new();
     if let Some(inventory) = world
         .query_one::<&Inventory>(player)
@@ -480,7 +468,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         }
     }
 
-    // 11. Equipment
+    // 13. Equipment
     let mut equipment_items = Vec::new();
     if let Some(equipment) = world
         .query_one::<&Equipment>(player)

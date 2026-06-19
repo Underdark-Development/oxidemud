@@ -34,8 +34,7 @@ CREATE TABLE IF NOT EXISTS components_player (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     account_id INTEGER NOT NULL,
     prompt TEXT,
-    screen_width INTEGER NOT NULL DEFAULT 80,
-    unspent_skill_points INTEGER NOT NULL DEFAULT 0
+    screen_width INTEGER NOT NULL DEFAULT 80
 );
 
 CREATE TABLE IF NOT EXISTS components_npc (
@@ -77,6 +76,11 @@ CREATE TABLE IF NOT EXISTS components_level (
 CREATE TABLE IF NOT EXISTS components_experience (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     xp INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS components_practice_points (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    points INTEGER NOT NULL DEFAULT 0
 );
 
 -- Phase 3 tables
@@ -204,7 +208,7 @@ CREATE TABLE IF NOT EXISTS characters (
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
 ";
 
-pub const VERSION: i64 = 14;
+pub const VERSION: i64 = 15;
 
 #[cfg(test)]
 mod tests {
@@ -250,6 +254,7 @@ mod tests {
             "components_mana",
             "components_npc",
             "components_player",
+            "components_practice_points",
             "components_position",
             "components_room",
             "components_skills",

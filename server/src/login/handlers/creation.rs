@@ -1291,8 +1291,13 @@ async fn finalize_character(
         }
     };
 
-    if let Err(e) = mud_data::save_player_component(conn_db, entity_id, account_id, None, 80, 0) {
+    if let Err(e) = mud_data::save_player_component(conn_db, entity_id, account_id, None, 80) {
         lines.push(format!("Error saving character: {e}"));
+        return lines;
+    }
+
+    if let Err(e) = mud_data::save_practice_points(conn_db, entity_id, 0) {
+        lines.push(format!("Error saving practice points: {e}"));
         return lines;
     }
 
@@ -1604,12 +1609,17 @@ async fn load_character(
         .map(Description)
         .unwrap_or_default();
 
-    let (prompt, screen_width, legacy_skill_points) =
-        mud_data::load_player_component(conn_db, entity_id)
-            .ok()
-            .flatten()
-            .map(|(_, prompt, width, unspent)| (prompt, width, unspent))
-            .unwrap_or_else(|| (None, 80, 0));
+    let (prompt, screen_width) = mud_data::load_player_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|(_, prompt, width)| (prompt, width))
+        .unwrap_or_else(|| (None, 80));
+
+    let practice_points = mud_data::load_practice_points(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|p| p as u32)
+        .unwrap_or(0);
 
     tracing::debug!(
         entity_id,
@@ -1724,7 +1734,7 @@ async fn load_character(
             gold,
             inventory,
             equipment,
-            PracticePoints(legacy_skill_points),
+            PracticePoints(practice_points),
         ),
     );
 

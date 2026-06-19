@@ -320,12 +320,11 @@ pub fn save_player_component(
     account_id: i64,
     prompt: Option<&str>,
     screen_width: u16,
-    unspent_skill_points: u32,
 ) -> Result<(), rusqlite::Error> {
     if let Some(prompt) = prompt {
         let rows = conn.execute(
-            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![entity_id, account_id, prompt, screen_width, unspent_skill_points],
+            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, ?3, ?4)",
+            params![entity_id, account_id, prompt, screen_width],
         )?;
         tracing::debug!(
             entity_id,
@@ -334,8 +333,8 @@ pub fn save_player_component(
         );
     } else {
         let rows = conn.execute(
-            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width, unspent_skill_points) VALUES (?1, ?2, NULL, ?3, ?4)",
-            params![entity_id, account_id, screen_width, unspent_skill_points],
+            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, NULL, ?3)",
+            params![entity_id, account_id, screen_width],
         )?;
         tracing::debug!(
             entity_id,
@@ -346,14 +345,14 @@ pub fn save_player_component(
     Ok(())
 }
 
-type PlayerComponent = (i64, Option<String>, u16, u32);
+type PlayerComponent = (i64, Option<String>, u16);
 
 pub fn load_player_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<PlayerComponent>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT account_id, prompt, screen_width, unspent_skill_points FROM components_player WHERE entity_id = ?1",
+        "SELECT account_id, prompt, screen_width FROM components_player WHERE entity_id = ?1",
     )?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
@@ -361,7 +360,6 @@ pub fn load_player_component(
             row.get(0)?,
             row.get(1)?,
             row.get::<_, i64>(2)? as u16,
-            row.get::<_, i64>(3)? as u32,
         ))),
         None => Ok(None),
     }
@@ -551,6 +549,31 @@ pub fn load_experience_component(
     entity_id: i64,
 ) -> Result<Option<i64>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT xp FROM components_experience WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_practice_points(
+    conn: &Connection,
+    entity_id: i64,
+    points: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_practice_points (entity_id, points) VALUES (?1, ?2)",
+        params![entity_id, points],
+    )?;
+    Ok(())
+}
+
+pub fn load_practice_points(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<i64>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT points FROM components_practice_points WHERE entity_id = ?1")?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some(row.get(0)?)),
@@ -1430,29 +1453,25 @@ mod tests {
     fn test_save_and_load_player_component() {
         let conn = setup();
         let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, Some("<%hhp> "), 80, 5).unwrap();
-        let (account_id, prompt, width, unspent) =
-            load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, Some("<%hhp> "), 80).unwrap();
+        let (account_id, prompt, width) = load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
         assert_eq!(prompt, Some("<%hhp> ".to_string()));
         assert_eq!(width, 80);
-        assert_eq!(unspent, 5);
     }
 
     #[test]
     fn test_player_component_overwrite_with_none_prompt() {
         let conn = setup();
         let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, Some("<%hhp %hmhp> "), 80, 5).unwrap();
-        let (_, prompt, _, _) = load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, Some("<%hhp %hmhp> "), 80).unwrap();
+        let (_, prompt, _) = load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(prompt, Some("<%hhp %hmhp> ".to_string()));
-        save_player_component(&conn, eid, 42, None, 80, 5).unwrap();
-        let (account_id, prompt, width, unspent) =
-            load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, None, 80).unwrap();
+        let (account_id, prompt, width) = load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
         assert_eq!(prompt, None);
         assert_eq!(width, 80);
-        assert_eq!(unspent, 5);
     }
 
     #[test]
@@ -1519,6 +1538,15 @@ mod tests {
     }
 
     #[test]
+    fn test_save_and_load_practice_points() {
+        let conn = setup();
+        let eid = insert_entity(&conn, "player").unwrap();
+        save_practice_points(&conn, eid, 42).unwrap();
+        let points = load_practice_points(&conn, eid).unwrap().unwrap();
+        assert_eq!(points, 42);
+    }
+
+    #[test]
     fn test_save_load_delete_entity_attributes() {
         let conn = setup();
         let eid = insert_entity(&conn, "room").unwrap();
@@ -1579,17 +1607,15 @@ mod tests {
         conn.execute_batch(SCHEMA).unwrap();
 
         let eid = insert_entity(&conn, "player").unwrap();
-        save_player_component(&conn, eid, 42, Some("<%hhp %hmhp> "), 80, 5).unwrap();
-        let (_, prompt, _, _) = load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, Some("<%hhp %hmhp> "), 80).unwrap();
+        let (_, prompt, _) = load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(prompt, Some("<%hhp %hmhp> ".to_string()));
 
-        save_player_component(&conn, eid, 42, None, 80, 5).unwrap();
-        let (account_id, prompt, width, unspent) =
-            load_player_component(&conn, eid).unwrap().unwrap();
+        save_player_component(&conn, eid, 42, None, 80).unwrap();
+        let (account_id, prompt, width) = load_player_component(&conn, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
         assert_eq!(prompt, None);
         assert_eq!(width, 80);
-        assert_eq!(unspent, 5);
 
         // Close and reopen to verify cross-connection persistence
         drop(conn);
@@ -1597,12 +1623,10 @@ mod tests {
         conn2
             .execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
             .unwrap();
-        let (account_id, prompt, width, unspent) =
-            load_player_component(&conn2, eid).unwrap().unwrap();
+        let (account_id, prompt, width) = load_player_component(&conn2, eid).unwrap().unwrap();
         assert_eq!(account_id, 42);
         assert_eq!(prompt, None);
         assert_eq!(width, 80);
-        assert_eq!(unspent, 5);
 
         // Cleanup temp files
         std::fs::remove_file(&tmp).ok();
