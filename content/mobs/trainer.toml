@@ -1,0 +1,12 @@
+id = "trainer"
+name = "Trainer"
+description = "A seasoned mentor who can help train your primary and secondary attributes."
+short_desc = "a training instructor"
+health = { current = 100, max = 100 }
+level = 10
+armor = 5
+ai_mode = "idle"
+race = "human"
+languages = ["common"]
+trainer_types = ["attributes"]
+friendly = true

@@ -14,3 +14,7 @@ exits = { north = "market_stall", east = "temple_of_light", south = "town_gate" 
 [[content.mobs]]
 template_id = "town_guard"
 count = 2
+
+[[content.mobs]]
+template_id = "trainer"
+count = 1

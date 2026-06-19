@@ -132,6 +132,16 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                     world.insert(npc, (Friendly,)).unwrap();
                 }
 
+                // Add Trainer component if trainer_types is non-empty
+                if !mob_tpl.trainer_types.is_empty() {
+                    world
+                        .insert(
+                            npc,
+                            (mud_core::Trainer::new(mob_tpl.trainer_types.clone()),),
+                        )
+                        .unwrap();
+                }
+
                 equip_mob_template_items(world, npc, mob_tpl, registry);
             }
         }
@@ -286,7 +296,33 @@ mod tests {
         let (registry, _) = mud_core::content::load_registry(&content_path());
 
         assert!(registry.get_mob("temple_acolyte").is_some());
-        assert_eq!(registry.mobs.len(), 5);
+        assert!(registry.get_mob("trainer").is_some());
+        assert_eq!(registry.mobs.len(), 6);
         assert!(registry.validate().is_empty());
+    }
+
+    #[test]
+    fn spawn_trainer_npc_attaches_trainer_component() {
+        let (mut world, _) = init_world();
+        let (registry, _) = mud_core::content::load_registry(&content_path());
+        let area = registry
+            .get_area("starting_vale")
+            .expect("starting_vale should load");
+
+        spawn_area(&mut world, area, &registry);
+
+        let trainer = {
+            let mut q = world.query::<(&Npc, &mud_core::Trainer)>();
+            q.iter()
+                .find(|(_, (npc, _))| npc.template_id == "trainer")
+                .map(|(entity, _)| Entity::from(entity))
+                .expect("trainer should spawn and have Trainer component")
+        };
+
+        let mut q_trainer = world
+            .query_one::<&mud_core::Trainer>(trainer)
+            .expect("trainer should exist in world");
+        let t = q_trainer.get().expect("should have Trainer component");
+        assert_eq!(t.trainer_types, vec!["attributes".to_string()]);
     }
 }
