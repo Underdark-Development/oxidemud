@@ -1377,14 +1377,14 @@ mcp/
 - [x] Update `save_player_progress()` to persist/load `PracticePoints` instead of `unspent_skill_points`
 
 ### Phase 2 — Database Migration
-- [ ] Bump `VERSION` to 15, add `components_practice_points` table
-- [ ] Migration 15: for each existing character, compute retroactive points:
+- [x] Bump `VERSION` to 15, add `components_practice_points` table
+- [x] Migration 15: for each existing character, compute retroactive points:
       `level × MAX(1, 2 + (wis-10)/2 + (int-10)/2) + existing unspent_skill_points`
-- [ ] Add `save_practice_points()` and `load_practice_points()` queries
-- [ ] Update `save_player_progress()` to save new component
+- [x] Add `save_practice_points()` and `load_practice_points()` queries
+- [x] Update `save_player_progress()` to save new component
 
 ### Phase 3 — Room Entity Finder
-- [ ] Add `entities_in_room(world, room) -> Vec<Entity>` utility in `core/src/`
+- [x] Add `entities_in_room(world, room) -> Vec<Entity>` utility in `core/src/`
 
 ### Phase 4 — Trainer NPC System
 - [ ] Attach `Trainer` component in mob spawn code (`bin/src/init.rs`) when `trainer_types` is non-empty
@@ -1410,7 +1410,7 @@ mcp/
 - [x] Unit: practice points grant formula
 - [ ] Unit: `train` command (success + all failure cases)
 - [ ] Unit: `practice` command (success + all failure cases)
-- [ ] Unit: `entities_in_room()` utility
+- [x] Unit: `entities_in_room()` utility
 - [ ] Unit: class progression (BAB/saves at various levels)
-- [ ] Unit: migration retroactive calculation
+- [x] Unit: migration retroactive calculation
 - [ ] Integration: full level-up cycle
