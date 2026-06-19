@@ -141,6 +141,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Attributes { str, dex, int, wis, con, cha }` — 6 core stats (u8)
 - `Health { current, max }` — HP (i32)
 - `Level(u8)` / `Experience(u64)` — level and XP
+- `PracticePoints(u32)` — unified practice pool for training stats and skills
 - `Immortal { incognito, holylight, build_mode }` — immortal status flags
 - `Teleportable(bool)` — teleport target opt-out
 - `RestState` — Standing, Sitting, Resting, Sleeping, Unconscious, Dead
@@ -193,6 +194,7 @@ Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources disp
 - `CombatStats { base_attack_bonus, fort_save, ref_save, will_save }`
 - `ActiveStance(Option<String>)` — name of active stance
 - `PassiveEffect { id, effect }`, `LearnedSkills { skills, cooldowns }`
+- `PracticePoints(u32)` — unified pool, gained per level, spent via `train`/`practice`
 - `SkillRank(u16)`, `MultiClassInfo { classes: Vec<ClassEntry> }`
 - `FactionStanding { standings: HashMap<String, i32> }`
 - `QuestLog { active, completed }`, `QuestProgress { quest_id, objectives, started_at }`, `ObjectiveState { index, current, completed }`
@@ -327,7 +329,7 @@ Skills consume from appropriate pool. `RegenSystem`: `current += max / 20` per R
 
 ### Learned Skills
 
-`LearnedSkills { skills: HashMap<skill_id, SkillRank>, cooldowns }`. Auto-learn on level-up from class `auto_skills`. Trainer NPCs: `train` command shows menu with costs.
+`LearnedSkills { skills: HashMap<skill_id, SkillRank>, cooldowns }`. Auto-learn on level-up from class `auto_skills`. Skill training via `practice <skill>` at a trainer NPC, costing 1 practice point per rank.
 
 ### Partial Name Resolution
 
@@ -368,7 +370,7 @@ Resolution is case-insensitive. If the template registry is unavailable
 
 ### Skill Caps & Training
 
-Class templates define three categories: `class_skills` (level+3 max), `cross_class_skills` ((level+3)/2), `exclusive_skills` (per-class). Training cost formula in `mud.toml`. Skills require prerequisites (DAG, validated at load).
+Class templates define three categories: `class_skills` (full SkillCap), `cross_class_skills` (half SkillCap), `exclusive_skills` (per-class). Skills require prerequisites (DAG, validated at load). Training uses the unified practice system — see [Training & Practice System](#training--practice-system).
 
 ### Stances & Passives
 
@@ -397,9 +399,11 @@ Races are template definitions, not enums. All behavior in `content/races/*.toml
 
 Classes are template definitions, not enums. All behavior in `content/classes/*.toml`.
 
-**ClassTemplate:** id, name, description, attribute_mods, hit_die, base_attack_bonus, skill_ranks_per_level, save progression, prestige, allowed_races, allowed_alignments, class/cross_class/exclusive_skills, auto_skills, stances, passives, multi_classing
+**ClassTemplate:** id, name, description, attribute_mods, hit_die, bab, fort_save, ref_save, will_save, skill_ranks_per_level, prestige, allowed_races, allowed_alignments, class/cross_class/exclusive_skills, auto_skills, stances, passives, multi_classing
 
 - BAB & saves: `ClassProgression` computed at level-up, stored in `CombatStats`
+- `bab`: `"full"` (+1/level), `"medium"` (+3/4), `"poor"` (+1/2) — controls `CombatStats.base_attack_bonus` recalculation on level-up
+- Save fields (`fort_save`, `ref_save`, `will_save`): `"good"` (+½×(level+2)) or `"poor"` (+⅓×level) — controls `CombatStats.*_save` recalculation
 - Alignment gates on creation; violations warn during gameplay
 - Stances: toggleable combat modes with trade-offs; one active at a time
 - Passives: always-on bonuses applied by `PassiveApplicationSystem`
@@ -439,11 +443,95 @@ Template with `prestige = true` + `[prestige_gate]`. Gates: requires_class, requ
 
 ### Level-Up
 
-When `current_xp >= xp_for_next_level()`: roll HP (hit die + CON), unlock skills, +1 attribute every 5 levels, full heal + restore mana.
+When `current_xp >= xp_for_next_level()`: automatic immediate level-up with:
+
+| Effect | Detail |
+|---|---|
+| HP gain | `hit_die + CON_mod` (min 1), max increases |
+| Full heal | HP set to new max |
+| Resource pools | Mana/Stamina recalculated via `from_formula(level, int, wis)` / `(level, str, dex)`. Current clamped to new max. |
+| BAB & saves | Recalculated per class progression: `bab` (full/medium/poor), saves (good/poor) |
+| Practice points | `(2 + WIS_mod + INT_mod).max(1)` added to `PracticePoints` pool |
+| Passives | Re-applied via `apply_all_passives()` |
+| Event | `PlayerLeveled { entity, old_level, new_level }` emitted |
+
+Multiple levels gained at once if XP far exceeds threshold; the loop processes each increment sequentially. Level-up messages returned to the caller for delivery to the player's connection.
 
 ### Death Penalty
 
 `xp_loss = 10%` (configurable), capped at 5 levels' worth. Never de-levels.
+
+---
+
+## Training & Practice System
+
+DIKU-style unified practice pool: one resource funds both stat training and skill practice, giving players a meaningful choice between improving attributes or broadening abilities.
+
+### Practice Points
+
+`PracticePoints(u32)` is a per-character component. Gained on each level-up:
+
+```
+gain = (2 + WIS_mod + INT_mod).max(1)
+```
+
+Where `WIS_mod = (wisdom - 10) / 2` and `INT_mod = (intelligence - 10) / 2`. Minimum 1 point per level regardless of stats.
+
+### Trainer NPCs
+
+Both `train` and `practice` commands require a trainer NPC in the same room. Trainer NPCs have a `Trainer` component with a `trainer_types` field:
+
+- **Empty list** — general trainer, can train anything
+- **Specific types** — restricted to matching categories (e.g. `["attributes"]`, `["combat"]`, `["magic"]`)
+
+Mob templates define `trainer_types` in their TOML; the component is attached at spawn time via `bin/src/init.rs`.
+
+### `train <stat>` — Attribute Training
+
+Increases one of the six core attributes (strength, dexterity, intelligence, wisdom, constitution, charisma).
+
+| Condition | Failure message |
+|---|---|
+| Trainer with `"attributes"` type in room? | "You can't do that here. Seek out a trainer." |
+| PracticePoints >= cost? | "You don't have enough practice points." |
+| Stat < MAX (50)? | "Your strength is already at its maximum." |
+
+**Cost:** 5 points (3 for the class's prime attribute — one with highest class modifier).
+
+**On success:** deduct cost, increment stat by 1, set Dirty, persist.
+
+### `practice <skill>` — Skill Practice
+
+Increases a learned skill's rank by 1.
+
+| Condition | Failure message |
+|---|---|
+| Trainer with matching skill type in room? | "You can't practice that here." |
+| PracticePoints >= 1? | "You don't have enough practice points." |
+| Skill in LearnedSkills? | "You don't know that skill." |
+| Rank < SkillCap.for_level(level)? | "You have mastered that skill for your level." |
+
+**Cost:** 1 point per rank attempt.
+
+**On success:** spend 1 point, rank += 1, set Dirty, persist.
+
+### Skill Caps
+
+Skill ranks bounded by character level:
+
+```
+cap = SkillCap.base_cap + SkillCap.per_level × level
+```
+
+Default: `base_cap = 5`, `per_level = 5` → `5 + 5 × level`. Class templates define three categories: `class_skills` (full cap), `cross_class_skills` (half cap), `exclusive_skills` (per-class).
+
+### Database
+
+`PracticePoints` persisted in `components_practice_points` table. Migration from legacy `unspent_skill_points` computes retroactive points for existing characters:
+
+```
+retro = level × MAX(1, 2 + (wis - 10)/2 + (int - 10)/2) + existing_unspent
+```
 
 ---
 
@@ -642,7 +730,7 @@ Commands are stored as a flat `Vec<Command>` with linear prefix matching (trie p
 
 ### Player Commands
 
-`look/l`, directional (`n/s/e/w/u/d/ne/nw/se/sw`), `enter`, `say`, `tell/whisper`, `reply/r`, `shout`, `emote/:`, `channels`/`channel`, `kill`, `get/drop`, `put/in`, `give/to`, `inventory/i`, `equipment/eq`, `wear/wield/remove`, `examine/exam`, `use/cast`, `train`, `craft`, `recipes`, `repair`, `stance`, `group`, `follow`, `quests/quest/quest abandon`, `factions/faction`, `sit/rest/sleep/wake/stand`, `loot`, `time`, `weather`, `motd`, `help/?`, `who`, `config`, `@prestige`, `@multi_class`
+`look/l`, directional (`n/s/e/w/u/d/ne/nw/se/sw`), `enter`, `say`, `tell/whisper`, `reply/r`, `shout`, `emote/:`, `channels`/`channel`, `kill`, `get/drop`, `put/in`, `give/to`, `inventory/i`, `equipment/eq`, `wear/wield/remove`, `examine/exam`, `use/cast`, `score/stats`, `train`, `practice`, `craft`, `recipes`, `repair`, `stance`, `group`, `follow`, `quests/quest/quest abandon`, `factions/faction`, `sit/rest/sleep/wake/stand`, `loot`, `time`, `weather`, `motd`, `help/?`, `who`, `config`, `@prestige`, `@multi_class`
 
 ### Builder Commands
 
@@ -1209,6 +1297,15 @@ mcp/
 - [ ] Passive system (login/level-up application)
 - [ ] Skill cap system
 - [ ] Training system
+  - [x] PracticePoints component + unified pool
+  - [ ] Trainer NPC system (spawn attachment, room check)
+  - [ ] train command (attributes)
+  - [ ] practice command (skills)
+  - [ ] score/stats command
+  - [ ] Class progression (BAB, saves) on level-up
+  - [ ] Resource pool recalculation on level-up
+  - [ ] PlayerLeveled event emission
+  - [ ] Migration: retroactive practice points
 - [ ] Item triggers
 - [ ] Item sets TOML + SetTracker
 - [ ] Random loot quality/affix rolling
@@ -1267,3 +1364,53 @@ mcp/
 - [ ] **MCP online mode** — REST bridge to game server
 - [ ] **MCP prompts** — guided workflows
 - [ ] Performance profiling & optimization
+
+---
+
+## Implementation Plan: Level-Up & Training
+
+### Phase 1 — Core PracticePoints Component
+- [x] Add `PracticePoints(pub u32)` component to `core/src/components/character.rs`
+- [ ] Grant points in `award_xp()`: `(2 + WIS_mod + INT_mod).max(1)` per level, replacing old `skill_points` formula
+- [ ] Remove `unspent_points` field from `LearnedSkills`
+- [ ] Return level-up messages from `award_xp()` as `Vec<String>`, caller delivers
+- [ ] Update `save_player_progress()` to persist/load `PracticePoints` instead of `unspent_skill_points`
+
+### Phase 2 — Database Migration
+- [ ] Bump `VERSION` to 15, add `components_practice_points` table
+- [ ] Migration 15: for each existing character, compute retroactive points:
+      `level × MAX(1, 2 + (wis-10)/2 + (int-10)/2) + existing unspent_skill_points`
+- [ ] Add `save_practice_points()` and `load_practice_points()` queries
+- [ ] Update `save_player_progress()` to save new component
+
+### Phase 3 — Room Entity Finder
+- [ ] Add `entities_in_room(world, room) -> Vec<Entity>` utility in `core/src/`
+
+### Phase 4 — Trainer NPC System
+- [ ] Attach `Trainer` component in mob spawn code (`bin/src/init.rs`) when `trainer_types` is non-empty
+- [ ] Create trainer mob template (`content/mobs/trainer.toml`, friendly, idle, `trainer_types = ["attributes"]`)
+
+### Phase 5 — Commands
+- [ ] `train` command: validates trainer proximity, PracticePoints, stat bounds; deducts cost, increments stat
+- [ ] `practice` command: validates trainer proximity, PracticePoints, skill known, skill cap; deducts 1, increments rank
+- [ ] `score/stats` command: character sheet (level, XP, HP, pools, all 6 attrs, BAB, saves, PracticePoints)
+- [ ] Register all three commands in CommandDispatch
+
+### Phase 6 — Class Progression
+- [ ] Add `bab`, `fort_save`, `ref_save`, `will_save` fields to `ClassTemplate`
+- [ ] Recalculate `CombatStats` on each level-up using class progression formulas
+- [ ] Fix `get_hit_die()` to use entity's actual class via `TemplateRegistry` lookup
+- [ ] Update class TOML files (warrior: full/mage: poor BAB, matching saves)
+
+### Phase 7 — Enhanced Level-Up Effects
+- [ ] Recalculate Mana/Stamina pools via `from_formula()` on each level-up
+- [ ] Emit `PlayerLeveled` event from `award_xp()`
+
+### Phase 8 — Tests
+- [ ] Unit: practice points grant formula
+- [ ] Unit: `train` command (success + all failure cases)
+- [ ] Unit: `practice` command (success + all failure cases)
+- [ ] Unit: `entities_in_room()` utility
+- [ ] Unit: class progression (BAB/saves at various levels)
+- [ ] Unit: migration retroactive calculation
+- [ ] Integration: full level-up cycle

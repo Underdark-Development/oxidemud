@@ -255,6 +255,12 @@ impl Default for Level {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Experience(pub u64);
 
+/// Unified practice pool for training stats and skills.
+/// Gained on level-up: (2 + WIS_mod + INT_mod).max(1).
+/// Spent via `train` (attributes) and `practice` (skills).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PracticePoints(pub u32);
+
 #[derive(Debug, Clone, Default)]
 pub struct Golds {
     pub copper: u64,
