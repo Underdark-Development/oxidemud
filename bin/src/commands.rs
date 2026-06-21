@@ -2656,6 +2656,59 @@ pub fn cmd_pray(
                 conn.send_line("Moonlight replenishes your magical energy.");
             }
         }
+    } else if deity_id == "astra" {
+        if let Ok(mut q) = world.query_one::<&mut core::Mana>(entity) {
+            if let Some(m) = q.get() {
+                let restore = m.max / 4;
+                m.current = (m.current + restore).min(m.max);
+                conn.send_line("Starlight clears your mind and replenishes your mana.");
+            }
+        }
+        if let Ok(mut q) = world.query_one::<&mut core::Stamina>(entity) {
+            if let Some(s) = q.get() {
+                let restore = s.max / 4;
+                s.current = (s.current + restore).min(s.max);
+                conn.send_line("Starlight fills your limbs with light energy.");
+            }
+        }
+    } else if deity_id == "kronos" {
+        if let Ok(mut q) = world.query_one::<&mut core::Stamina>(entity) {
+            if let Some(s) = q.get() {
+                let restore = s.max / 2;
+                s.current = (s.current + restore).min(s.max);
+                conn.send_line("You feel a moment of stillness, and your stamina is restored.");
+            }
+        }
+    } else if deity_id == "vulgath" {
+        if let Ok(mut q) = world.query_one::<&mut core::Health>(entity) {
+            if let Some(h) = q.get() {
+                let restore = h.max / 6;
+                h.current = (h.current + restore).min(h.max);
+                conn.send_line("Sinuous shadows envelope you, drawing away pain.");
+            }
+        }
+        if let Ok(mut q) = world.query_one::<&mut core::Mana>(entity) {
+            if let Some(m) = q.get() {
+                let restore = m.max / 6;
+                m.current = (m.current + restore).min(m.max);
+                conn.send_line("Sinuous shadows seep into your mind, replenishing your mana.");
+            }
+        }
+    } else if deity_id == "karrgath" {
+        if let Ok(mut q) = world.query_one::<&mut core::Health>(entity) {
+            if let Some(h) = q.get() {
+                let restore = h.max / 8;
+                h.current = (h.current + restore).min(h.max);
+                conn.send_line("A surge of iron fury knit your minor wounds.");
+            }
+        }
+        if let Ok(mut q) = world.query_one::<&mut core::Stamina>(entity) {
+            if let Some(s) = q.get() {
+                let restore = s.max / 3;
+                s.current = (s.current + restore).min(s.max);
+                conn.send_line("A surge of war-fury restores your stamina.");
+            }
+        }
     }
 
     // Apply the active effect
