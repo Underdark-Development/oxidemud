@@ -860,6 +860,32 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
             }
         }
 
+        // Recalculate Mana pool: from_formula(level, int, wis), current clamped to new max
+        if let Ok(mut q) = world.query_one::<&mut mud_core::Mana>(entity) {
+            if let Some(mana) = q.get() {
+                let formula_mana = mud_core::Mana::from_formula(
+                    new_level as u16,
+                    attrs.intelligence as u16,
+                    attrs.wisdom as u16,
+                );
+                mana.max = formula_mana.max;
+                mana.current = mana.current.min(mana.max);
+            }
+        }
+
+        // Recalculate Stamina pool: from_formula(level, str, dex), current clamped to new max
+        if let Ok(mut q) = world.query_one::<&mut mud_core::Stamina>(entity) {
+            if let Some(stamina) = q.get() {
+                let formula_stamina = mud_core::Stamina::from_formula(
+                    new_level as u16,
+                    attrs.strength as u16,
+                    attrs.dexterity as u16,
+                );
+                stamina.max = formula_stamina.max;
+                stamina.current = stamina.current.min(stamina.max);
+            }
+        }
+
         // Recalculate CombatStats per class progression
         let class_id = world
             .query_one::<&mud_core::Class>(entity)
@@ -871,6 +897,13 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
                 let _ = world.insert(entity, (new_combat_stats,));
             }
         }
+
+        // Emit PlayerLeveled event
+        let _event = mud_core::GameEvent::PlayerLeveled {
+            entity,
+            old_level: current_level,
+            new_level,
+        };
 
         let _ = world.insert(entity, (mud_core::Dirty,));
 
@@ -1310,5 +1343,89 @@ mod tests {
         let e_no_class = world.spawn(());
         let hd_fallback = get_hit_die(&world, e_no_class);
         assert_eq!(hd_fallback, 8);
+    }
+
+    #[test]
+    fn test_level_up_recalculates_mana_and_stamina() {
+        init_test_templates();
+
+        let mut world = World::new();
+        let e = world.spawn(());
+
+        // Attributes: INT = 12, WIS = 14, STR = 10, DEX = 10
+        let attrs = Attributes::new(10, 10, 12, 14, 10, 10);
+
+        world
+            .insert(
+                e,
+                (
+                    Health::new(50),
+                    Level(1),
+                    Experience(1000),
+                    attrs,
+                    PracticePoints(0),
+                    mud_core::Mana {
+                        current: 20,
+                        max: 56,
+                    },
+                    mud_core::Stamina {
+                        current: 15,
+                        max: 52,
+                    },
+                ),
+            )
+            .unwrap();
+
+        award_xp(&mut world, e);
+
+        assert_eq!(get_level(&world, e), 2);
+
+        // Level 2 Mana should be: 2 * 4 + 12 * 2 + 14 * 2 = 8 + 24 + 28 = 60.
+        // Current mana should be preserved: 20/60.
+        let mut q_mana = world.query_one::<&mud_core::Mana>(e).unwrap();
+        let mana = q_mana.get().unwrap();
+        assert_eq!(mana.max, 60);
+        assert_eq!(mana.current, 20);
+
+        // Level 2 Stamina should be: 2 * 12 + 10 * 2 + 10 * 2 = 24 + 20 + 20 = 64.
+        // Current stamina should be preserved: 15/64.
+        let mut q_stamina = world.query_one::<&mud_core::Stamina>(e).unwrap();
+        let stamina = q_stamina.get().unwrap();
+        assert_eq!(stamina.max, 64);
+        assert_eq!(stamina.current, 15);
+
+        // Now let's test clamping if current is somehow above max.
+        drop(q_mana);
+        drop(q_stamina);
+
+        {
+            let mut q_mana = world.query_one::<&mut mud_core::Mana>(e).unwrap();
+            let mana = q_mana.get().unwrap();
+            mana.current = 100;
+        }
+        {
+            let mut q_stamina = world.query_one::<&mut mud_core::Stamina>(e).unwrap();
+            let stamina = q_stamina.get().unwrap();
+            stamina.current = 100;
+        }
+        {
+            let mut q_xp = world.query_one::<&mut Experience>(e).unwrap();
+            let xp = q_xp.get().unwrap();
+            xp.0 = 3000; // Enough for next level (for_level(3) = 2700)
+        }
+
+        award_xp(&mut world, e);
+
+        assert_eq!(get_level(&world, e), 3);
+
+        let mut q_mana = world.query_one::<&mud_core::Mana>(e).unwrap();
+        let mana = q_mana.get().unwrap();
+        assert_eq!(mana.max, 64);
+        assert_eq!(mana.current, 64); // Clamped to max
+
+        let mut q_stamina = world.query_one::<&mud_core::Stamina>(e).unwrap();
+        let stamina = q_stamina.get().unwrap();
+        assert_eq!(stamina.max, 76);
+        assert_eq!(stamina.current, 76); // Clamped to max
     }
 }

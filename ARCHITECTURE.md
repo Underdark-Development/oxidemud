@@ -1403,8 +1403,8 @@ mcp/
 - [x] Update class TOML files (warrior: full/mage: poor BAB, matching saves)
 
 ### Phase 7 — Enhanced Level-Up Effects
-- [ ] Recalculate Mana/Stamina pools via `from_formula()` on each level-up
-- [ ] Emit `PlayerLeveled` event from `award_xp()`
+- [x] Recalculate Mana/Stamina pools via `from_formula()` on each level-up
+- [x] Emit `PlayerLeveled` event from `award_xp()`
 
 ### Phase 8 — Tests
 - [x] Unit: practice points grant formula
