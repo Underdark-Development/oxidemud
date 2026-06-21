@@ -1276,13 +1276,11 @@ mcp/
 - [x] Auto-grant racial abilities + class auto-skills
 - [x] Starting room spawn on character confirm
 - [x] motd command
-- [ ] Gender component + DB column + creation step
-- [ ] Appearance component + DB table + creation step + race-bounded validation
-- [ ] Age component
-- [ ] Deity component + template system + creation step + in-game adopt
-- [ ] DeityTemplate loader + validation
-- [ ] pray command (basic: own deity + optional target heal)
-- [ ] Class deity_policy enforcement in creation
+- [x] Gender component + DB column + creation wizard step
+- [x] Appearance component + DB table + creation wizard step with race-bounded validation
+- [x] Age component + DB column + creation wizard step
+- [x] Deity component + template loading + validation + creation wizard step + pray command
+- [x] Class deity_policy enforcement in creation
 
 ### Phase 3 — Combat & Equipment
 - [x] Health, Damage components
@@ -1294,18 +1292,9 @@ mcp/
 - [x] NPC mobiles with basic AI
 - [x] Mob template system
 - [x] Stance subsystem
-- [ ] Passive system (login/level-up application)
-- [ ] Skill cap system
-- [ ] Training system
-  - [x] PracticePoints component + unified pool
-  - [ ] Trainer NPC system (spawn attachment, room check)
-  - [ ] train command (attributes)
-  - [ ] practice command (skills)
-  - [ ] score/stats command
-  - [ ] Class progression (BAB, saves) on level-up
-  - [ ] Resource pool recalculation on level-up
-  - [ ] PlayerLeveled event emission
-  - [ ] Migration: retroactive practice points
+- [x] Passive system (login/level-up application)
+- [x] Skill cap system ((level * 5) + 5 cap on practice)
+- [x] Training & Practice system (PracticePoints pool, trainer NPC proximity checks, train/practice/score commands, class BAB/saves progression, level-up resource pool recalculation, PlayerLeveled event emission, retroactive migration)
 - [ ] Item triggers
 - [ ] Item sets TOML + SetTracker
 - [ ] Random loot quality/affix rolling
@@ -1364,53 +1353,3 @@ mcp/
 - [ ] **MCP online mode** — REST bridge to game server
 - [ ] **MCP prompts** — guided workflows
 - [ ] Performance profiling & optimization
-
----
-
-## Implementation Plan: Level-Up & Training
-
-### Phase 1 — Core PracticePoints Component
-- [x] Add `PracticePoints(pub u32)` component to `core/src/components/character.rs`
-- [x] Grant points in `award_xp()`: `(2 + WIS_mod + INT_mod).max(1)` per level, replacing old `skill_points` formula
-- [x] Remove `unspent_points` field from `LearnedSkills`
-- [x] Return level-up messages from `award_xp()` as `Vec<String>`, caller delivers
-- [x] Update `save_player_progress()` to persist/load `PracticePoints` instead of `unspent_skill_points`
-
-### Phase 2 — Database Migration
-- [x] Bump `VERSION` to 15, add `components_practice_points` table
-- [x] Migration 15: for each existing character, compute retroactive points:
-      `level × MAX(1, 2 + (wis-10)/2 + (int-10)/2) + existing unspent_skill_points`
-- [x] Add `save_practice_points()` and `load_practice_points()` queries
-- [x] Update `save_player_progress()` to save new component
-
-### Phase 3 — Room Entity Finder
-- [x] Add `entities_in_room(world, room) -> Vec<Entity>` utility in `core/src/`
-
-### Phase 4 — Trainer NPC System
-- [x] Attach `Trainer` component in mob spawn code (`bin/src/init.rs`) when `trainer_types` is non-empty
-- [x] Create trainer mob template (`content/mobs/trainer.toml`, friendly, idle, `trainer_types = ["attributes"]`)
-
-### Phase 5 — Commands
-- [x] `train` command: validates trainer proximity, PracticePoints, stat bounds; deducts cost, increments stat
-- [x] `practice` command: validates trainer proximity, PracticePoints, skill known, skill cap; deducts 1, increments rank
-- [x] `score/stats` command: character sheet (level, XP, HP, pools, all 6 attrs, BAB, saves, PracticePoints)
-- [x] Register all three commands in CommandDispatch
-
-### Phase 6 — Class Progression
-- [x] Add `bab`, `fort_save`, `ref_save`, `will_save` fields to `ClassTemplate`
-- [x] Recalculate `CombatStats` on each level-up using class progression formulas
-- [x] Fix `get_hit_die()` to use entity's actual class via `TemplateRegistry` lookup
-- [x] Update class TOML files (warrior: full/mage: poor BAB, matching saves)
-
-### Phase 7 — Enhanced Level-Up Effects
-- [x] Recalculate Mana/Stamina pools via `from_formula()` on each level-up
-- [x] Emit `PlayerLeveled` event from `award_xp()`
-
-### Phase 8 — Tests
-- [x] Unit: practice points grant formula
-- [x] Unit: `train` command (success + all failure cases)
-- [x] Unit: `practice` command (success + all failure cases)
-- [x] Unit: `entities_in_room()` utility
-- [x] Unit: class progression (BAB/saves at various levels)
-- [x] Unit: migration retroactive calculation
-- [x] Integration: full level-up cycle
