@@ -1069,17 +1069,15 @@ Lightweight endpoints: GET `/api/who`, `/api/characters`, `/api/characters/:id`,
 
 | Key | Screen | Description |
 |---|---|---|
-| Ctrl+1 | World Tree | Collapsible area/room/mob/item tree |
-| Ctrl+2 | Template Editor | TOML field form editor |
-| Ctrl+3 | Room Graph | ASCII room map with mouse navigation |
-| Ctrl+4 | Entity Inspector | Detail table with scrolling |
-| Ctrl+5 | Command Palette | Fuzzy-searchable commands |
-| Ctrl+6 | Live Dashboard | Server status gauges (online only) |
-| Ctrl+7 | Validation Panel | Error/warning list with jump-to-source |
-| Ctrl+8 | File Browser | Content directory tree |
-| Ctrl+9 | Script Console | Inline Rhai REPL |
+| Ctrl+1 | Entities Editor | World Tree, Template Editor, and Entity Inspector integrated panel |
+| Ctrl+2 | Room Graph | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
+| Ctrl+3 | Validation Panel | Error/warning list with jump-to-source |
+| Ctrl+4 | File Browser | Content directory tree + raw syntax-highlighted TOML/Rhai preview |
+| Ctrl+5 | Script Console | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks) |
+| Ctrl+6 | Live Dashboard | Performance gauges + real-time system log tail with toggle sidebar |
 
-Layout: World Tree (left), Editor/Inspector/Preview (center), Validator Panel (right). Status bar (bottom): mode, active screen, current file, mouse state.
+Command Palette is a global modal overlay summoned by `Ctrl+P`.
+Layout: Entities Editor (left tree, center form), Room Graph (center map, right exits/commands), File Browser (left tree, right raw view). Status bar (bottom): mode, active screen, current file, mouse state.
 
 ### UI Design Principles
 
@@ -1130,7 +1128,8 @@ Modal overlay (Ctrl+H / ?), center 70% of terminal. Data-driven sections. Dismis
 | / | Search / filter | All |
 | F5 | Validate / refresh | All |
 | F10 | Toggle rich TOML preview | Builder |
-| Ctrl+1-9 | Switch screen | Builder |
+| Ctrl+1-6 | Switch screen | Builder |
+| Ctrl+P | Toggle command palette | All |
 | Ctrl+S | Save (offline) / Send (online) | Builder |
 | Ctrl+Z | Undo | Editor |
 | Ctrl+C/V | Copy / paste | All |
@@ -1144,7 +1143,7 @@ Modal overlay (Ctrl+H / ?), center 70% of terminal. Data-driven sections. Dismis
 | Ctrl+A/E | Beginning / end of line | MUD Input |
 | Tab | Autocomplete | MUD Input |
 | F9 | Toggle split view | All |
-| Ctrl+Shift+M | Toggle MUD / builder mode | All |
+| F12 | Toggle MUD / builder mode | All |
 | ↑↓ | Navigate / scroll | All |
 | PgUp/PgDn | Page scroll | All |
 | Home/End | Jump to top / bottom | All |
