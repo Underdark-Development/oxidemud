@@ -1,0 +1,15 @@
+id = "vulgath"
+name = "Vulgath"
+description = "The Shadowlord, who thrives in deceit, decay, and dominance."
+alignment = "neutral_evil"
+symbol = "A blackened, weeping skull"
+favored_weapon = "scythe"
+tenets = ["Conceal your true intent", "Exploit the weak", "Embrace the shadows"]
+domains = ["Shadow", "Decay", "Tyranny"]
+allowed_alignments = ["lawful_neutral", "true_neutral", "chaotic_neutral", "lawful_evil", "neutral_evil", "chaotic_evil"]
+
+[prayer_effect]
+buff_id = "shadow_veil"
+duration_secs = 60
+cooldown_secs = 10
+description = "Shrouds the target in decay and shadow, granting minor health regen."

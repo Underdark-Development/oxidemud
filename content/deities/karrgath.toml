@@ -1,0 +1,16 @@
+id = "karrgath"
+name = "Karrgath"
+description = "The Blood-Iron, deity of brutal war, raw strength, and conquest."
+alignment = "chaotic_neutral"
+symbol = "A blood-stained iron axe"
+favored_weapon = "greataxe"
+tenets = ["Crush your foes", "Only the strong survive", "Forged in battle"]
+domains = ["War", "Strength", "Blood"]
+allowed_races = ["orc"]
+allowed_alignments = ["lawful_good", "neutral_good", "chaotic_good", "lawful_neutral", "true_neutral", "chaotic_neutral", "lawful_evil", "neutral_evil", "chaotic_evil"]
+
+[prayer_effect]
+buff_id = "blood_fury"
+duration_secs = 60
+cooldown_secs = 10
+description = "Incites a blood fury, boosting attack power."

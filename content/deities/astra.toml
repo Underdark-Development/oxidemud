@@ -1,0 +1,15 @@
+id = "astra"
+name = "Astra"
+description = "The Starbringer, keeper of hope, navigation, and dreams."
+alignment = "neutral_good"
+symbol = "A cluster of seven shining stars"
+favored_weapon = "longbow"
+tenets = ["Guide lost travelers", "Inspire hope in despair", "Watch the heavens"]
+domains = ["Stars", "Hope", "Travel"]
+allowed_alignments = ["lawful_good", "neutral_good", "chaotic_good", "lawful_neutral", "true_neutral", "chaotic_neutral"]
+
+[prayer_effect]
+buff_id = "star_blessing"
+duration_secs = 60
+cooldown_secs = 10
+description = "Grants the guidance of the stars, increasing vision and accuracy."

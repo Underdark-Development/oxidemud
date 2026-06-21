@@ -2273,3 +2273,188 @@ fn clear_create_buffer(flow: &mut LoginFlow) {
     flow.create_buffer.description = None;
     flow.create_buffer.selected_skills.clear();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::login::LoginFlow;
+    use mud_core::templates::{
+        ClassAttributeMods, ClassTemplate, DeityPolicy, DeityTemplate, TemplateRegistry,
+        WalletAmount,
+    };
+
+    #[test]
+    fn test_deity_filtering() {
+        let mut registry = TemplateRegistry::new();
+
+        // Register a mock warrior class with DeityPolicy::Any
+        let warrior = ClassTemplate {
+            id: "warrior".to_string(),
+            name: "Warrior".to_string(),
+            description: "A warrior".to_string(),
+            hit_die: 10,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "full".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            skill_pool: vec![],
+            starting_skill_slots: 3,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
+        };
+        registry.classes.insert(warrior.id.clone(), warrior);
+
+        // Register Astra (good deity, good/neutral can choose)
+        let astra = DeityTemplate {
+            id: "astra".to_string(),
+            name: "Astra".to_string(),
+            description: "Good deity".to_string(),
+            alignment: Some("neutral_good".to_string()),
+            symbol: "Stars".to_string(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_races: vec![],
+            allowed_classes: vec![],
+            allowed_alignments: vec![
+                "lawful_good".to_string(),
+                "neutral_good".to_string(),
+                "chaotic_good".to_string(),
+                "lawful_neutral".to_string(),
+                "true_neutral".to_string(),
+                "chaotic_neutral".to_string(),
+            ],
+            prayer_effect: None,
+        };
+        registry.deities.insert(astra.id.clone(), astra);
+
+        // Register Kronos (neutral deity, any alignment can choose)
+        let kronos = DeityTemplate {
+            id: "kronos".to_string(),
+            name: "Kronos".to_string(),
+            description: "Neutral deity".to_string(),
+            alignment: Some("true_neutral".to_string()),
+            symbol: "Hourglass".to_string(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_races: vec![],
+            allowed_classes: vec![],
+            allowed_alignments: vec![
+                "lawful_good".to_string(),
+                "neutral_good".to_string(),
+                "chaotic_good".to_string(),
+                "lawful_neutral".to_string(),
+                "true_neutral".to_string(),
+                "chaotic_neutral".to_string(),
+                "lawful_evil".to_string(),
+                "neutral_evil".to_string(),
+                "chaotic_evil".to_string(),
+            ],
+            prayer_effect: None,
+        };
+        registry.deities.insert(kronos.id.clone(), kronos);
+
+        // Register Vulgath (evil deity, neutral/evil can choose)
+        let vulgath = DeityTemplate {
+            id: "vulgath".to_string(),
+            name: "Vulgath".to_string(),
+            description: "Evil deity".to_string(),
+            alignment: Some("neutral_evil".to_string()),
+            symbol: "Skull".to_string(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_races: vec![],
+            allowed_classes: vec![],
+            allowed_alignments: vec![
+                "lawful_neutral".to_string(),
+                "true_neutral".to_string(),
+                "chaotic_neutral".to_string(),
+                "lawful_evil".to_string(),
+                "neutral_evil".to_string(),
+                "chaotic_evil".to_string(),
+            ],
+            prayer_effect: None,
+        };
+        registry.deities.insert(vulgath.id.clone(), vulgath);
+
+        // Register Karrgath (orc deity, war focused, any alignment, Orc only)
+        let karrgath = DeityTemplate {
+            id: "karrgath".to_string(),
+            name: "Karrgath".to_string(),
+            description: "Orc war deity".to_string(),
+            alignment: Some("chaotic_neutral".to_string()),
+            symbol: "Axe".to_string(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_races: vec!["orc".to_string()],
+            allowed_classes: vec![],
+            allowed_alignments: vec![
+                "lawful_good".to_string(),
+                "neutral_good".to_string(),
+                "chaotic_good".to_string(),
+                "lawful_neutral".to_string(),
+                "true_neutral".to_string(),
+                "chaotic_neutral".to_string(),
+                "lawful_evil".to_string(),
+                "neutral_evil".to_string(),
+                "chaotic_evil".to_string(),
+            ],
+            prayer_effect: None,
+        };
+        registry.deities.insert(karrgath.id.clone(), karrgath);
+
+        // Test Case A: Human Warrior, Lawful Good
+        let mut flow = LoginFlow::new();
+        flow.create_buffer.race = Some("human".to_string());
+        flow.create_buffer.class = Some("warrior".to_string());
+        flow.create_buffer.alignment = Some("lawful_good".to_string());
+        let allowed = get_allowed_deities(&flow, Some(&registry));
+        assert_eq!(allowed, vec!["astra".to_string(), "kronos".to_string()]);
+
+        // Test Case B: Human Warrior, True Neutral
+        let mut flow = LoginFlow::new();
+        flow.create_buffer.race = Some("human".to_string());
+        flow.create_buffer.class = Some("warrior".to_string());
+        flow.create_buffer.alignment = Some("true_neutral".to_string());
+        let allowed = get_allowed_deities(&flow, Some(&registry));
+        assert_eq!(
+            allowed,
+            vec![
+                "astra".to_string(),
+                "kronos".to_string(),
+                "vulgath".to_string()
+            ]
+        );
+
+        // Test Case C: Human Warrior, Chaotic Evil
+        let mut flow = LoginFlow::new();
+        flow.create_buffer.race = Some("human".to_string());
+        flow.create_buffer.class = Some("warrior".to_string());
+        flow.create_buffer.alignment = Some("chaotic_evil".to_string());
+        let allowed = get_allowed_deities(&flow, Some(&registry));
+        assert_eq!(allowed, vec!["kronos".to_string(), "vulgath".to_string()]);
+
+        // Test Case D: Orc Warrior, Chaotic Evil
+        let mut flow = LoginFlow::new();
+        flow.create_buffer.race = Some("orc".to_string());
+        flow.create_buffer.class = Some("warrior".to_string());
+        flow.create_buffer.alignment = Some("chaotic_evil".to_string());
+        let allowed = get_allowed_deities(&flow, Some(&registry));
+        assert_eq!(
+            allowed,
+            vec![
+                "karrgath".to_string(),
+                "kronos".to_string(),
+                "vulgath".to_string()
+            ]
+        );
+    }
+}
