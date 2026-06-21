@@ -851,6 +851,25 @@ pub fn cmd_score(
         .ok()
         .and_then(|mut q| q.get().copied());
 
+    let deity = world
+        .query_one::<&core::Deity>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .map(|d| d.0.unwrap_or_else(|| "none".to_string()))
+        .unwrap_or_else(|| "none".to_string());
+
+    let age = world
+        .query_one::<&core::Age>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .map(|a| a.0)
+        .unwrap_or(20);
+
+    let appearance = world
+        .query_one::<&core::Appearance>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned());
+
     let xp_to_next = xp.to_next_level(level.0);
 
     conn.send_line("");
@@ -865,6 +884,18 @@ pub fn cmd_score(
     ));
     conn.send_line(&format!("  Practice Points: {}", practice_pts.0));
     conn.send_line(&format!("  HP:              {} / {}", hp.current, hp.max));
+    conn.send_line(&format!("  Deity:           {}", deity));
+    conn.send_line(&format!("  Age:             {} years", age));
+    if let Some(app) = appearance {
+        conn.send_line(&format!(
+            "  Appearance:      {}in, {}lbs, {} build",
+            app.height, app.weight, app.build
+        ));
+        conn.send_line(&format!(
+            "                   Hair: {} ({}), Eyes: {}, Skin: {}",
+            app.hair_style, app.hair_color, app.eye_color, app.skin_tone
+        ));
+    }
 
     if let Some(m) = mana {
         conn.send_line(&format!("  Mana:            {} / {}", m.current, m.max));
@@ -2450,6 +2481,205 @@ pub fn cmd_prompt(
     conn.send_line("You can't change your prompt right now.");
 }
 
+fn room_has_shrine_for_deity(world: &World, player: core::Entity, deity_id: &str) -> bool {
+    let Some(room) = get_pos_room(world, player) else {
+        return false;
+    };
+    let Ok(mut q) = world.query_one::<&FloorItems>(room) else {
+        return false;
+    };
+    let Some(floor_items) = q.get() else {
+        return false;
+    };
+    for &item_entity in &floor_items.0 {
+        if let Ok(mut item_q) = world.query_one::<(&Name, &Item)>(item_entity) {
+            if let Some((name, item)) = item_q.get() {
+                let name_lower = name.0.to_lowercase();
+                if name_lower.contains("shrine") && name_lower.contains(&deity_id.to_lowercase()) {
+                    return true;
+                }
+                if item.template_id.to_lowercase().contains("shrine")
+                    && item
+                        .template_id
+                        .to_lowercase()
+                        .contains(&deity_id.to_lowercase())
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn cmd_pray(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let target = args.trim();
+    let player_deity = world
+        .query_one::<&core::Deity>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .and_then(|d| d.0);
+
+    let templates = match mud_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Server error: templates unavailable.");
+            return;
+        }
+    };
+
+    let deity_id = if target.is_empty() {
+        match player_deity {
+            Some(d) => d,
+            None => {
+                conn.send_line("You do not follow a deity. Who do you wish to pray to?");
+                return;
+            }
+        }
+    } else {
+        let resolved = templates
+            .deities
+            .keys()
+            .find(|k| k.to_lowercase() == target.to_lowercase())
+            .cloned();
+        let deity_id = match resolved {
+            Some(d) => d,
+            None => {
+                conn.send_line(&format!("There is no deity named '{}'.", target));
+                return;
+            }
+        };
+
+        if Some(&deity_id) != player_deity.as_ref() {
+            let room_has_shrine = room_has_shrine_for_deity(world, entity, &deity_id);
+            if !room_has_shrine {
+                conn.send_line(&format!(
+                    "You do not follow {}, and there is no shrine to them here.",
+                    deity_id
+                ));
+                return;
+            }
+        }
+        deity_id
+    };
+
+    let deity_tmpl = match templates.deities.get(&deity_id) {
+        Some(d) => d,
+        None => {
+            conn.send_line(&format!(
+                "The deity '{}' does not exist in our archives.",
+                deity_id
+            ));
+            return;
+        }
+    };
+
+    let effect = match &deity_tmpl.prayer_effect {
+        Some(e) => e,
+        None => {
+            conn.send_line(&format!(
+                "You pray to {}, but feel no response.",
+                deity_tmpl.name
+            ));
+            return;
+        }
+    };
+
+    // Check cooldown
+    let now = std::time::Instant::now();
+    let on_cooldown = if let Ok(mut q) = world.query_one::<&core::PrayerCooldown>(entity) {
+        if let Some(cooldown) = q.get() {
+            let elapsed = now.duration_since(cooldown.last_prayed).as_secs();
+            if elapsed < effect.cooldown_secs {
+                let wait = effect.cooldown_secs - elapsed;
+                conn.send_line(&format!("Your prayers to {} have been answered too recently. You must wait {} more seconds.", deity_tmpl.name, wait));
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if on_cooldown {
+        return;
+    }
+
+    // Update cooldown
+    let _ = world.remove_one::<core::PrayerCooldown>(entity);
+    let _ = world.insert(entity, (core::PrayerCooldown { last_prayed: now },));
+
+    conn.send_line(&format!(
+        "You bow your head and pray to {}.",
+        deity_tmpl.name
+    ));
+    conn.send_line(&format!("You feel a response: {}", effect.description));
+
+    // Apply heal / mana / stamina restoration based on template values
+    if deity_id == "solaris" {
+        if let Ok(mut q) = world.query_one::<&mut core::Health>(entity) {
+            if let Some(h) = q.get() {
+                let restore = h.max / 4;
+                h.current = (h.current + restore).min(h.max);
+                conn.send_line("Your wounds are knit by Solaris' light.");
+            }
+        }
+        if let Ok(mut q) = world.query_one::<&mut core::Stamina>(entity) {
+            if let Some(s) = q.get() {
+                let restore = s.max / 2;
+                s.current = (s.current + restore).min(s.max);
+                conn.send_line("You feel a surge of solar stamina.");
+            }
+        }
+    } else if deity_id == "luna" {
+        if let Ok(mut q) = world.query_one::<&mut core::Mana>(entity) {
+            if let Some(m) = q.get() {
+                let restore = m.max / 3;
+                m.current = (m.current + restore).min(m.max);
+                conn.send_line("Moonlight replenishes your magical energy.");
+            }
+        }
+    }
+
+    // Apply the active effect
+    let active_effect = core::ActiveEffect {
+        source: format!("prayer:{}", deity_id),
+        stat: Some(effect.buff_id.clone()),
+        amount: Some(1),
+        aura_id: None,
+        radius: None,
+    };
+    let mut effects = world
+        .query_one::<&Vec<core::ActiveEffect>>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+    effects.retain(|e| !e.source.starts_with("prayer:"));
+    effects.push(active_effect);
+    let _ = world.remove_one::<Vec<core::ActiveEffect>>(entity);
+    let _ = world.insert(entity, (effects,));
+
+    // Mark entity as dirty so progress persists
+    let _ = world.insert(entity, (core::Dirty,));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3336,5 +3566,83 @@ mod tests {
         assert!(all.contains("BAB:             +5"));
         assert!(all.contains("Fort: +4, Ref: +1, Will: +2"));
         assert!(all.contains("Strength:     18"));
+    }
+
+    fn init_test_templates() {
+        let mut registry = core::templates::TemplateRegistry::new();
+
+        let solaris = core::templates::DeityTemplate {
+            id: "solaris".into(),
+            name: "Solaris".into(),
+            description: "The sun god.".into(),
+            alignment: Some("lawful_good".into()),
+            symbol: "Sunburst".into(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_races: vec![],
+            allowed_classes: vec![],
+            allowed_alignments: vec![],
+            prayer_effect: Some(core::templates::PrayerEffect {
+                buff_id: "sun_blessing".into(),
+                duration_secs: 60,
+                cooldown_secs: 2,
+                description: "Solar blessing".into(),
+            }),
+        };
+        registry.deities.insert("solaris".into(), solaris);
+
+        let mut world = World::new();
+        let void_room = world.spawn((Room::new("Void", "Empty"), VoidRoom));
+        let _server =
+            mud_server::Server::new("127.0.0.1:0", world, void_room).with_templates(registry);
+    }
+
+    #[test]
+    fn test_pray_command() {
+        init_test_templates();
+
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let mut hp = core::Health::new(20);
+        hp.current = 10;
+        let mut stamina = core::Stamina::new(100);
+        stamina.current = 20;
+        let mut mana = core::Mana::new(30);
+        mana.current = 30;
+
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Deity(Some("solaris".to_string())),
+            hp,
+            stamina,
+            mana,
+            Vec::<core::ActiveEffect>::new(),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_pray(&mut world, &mut conn, "pray", "", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("You bow your head and pray to Solaris"));
+        assert!(all.contains("Solar blessing"));
+        assert!(all.contains("Solaris' light"));
+
+        let hp = world
+            .query_one::<&core::Health>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(hp.current, 15);
+
+        cmd_pray(&mut world, &mut conn, "pray", "", &registry);
+        let lines2 = conn.take_lines();
+        let all2 = lines2.join("|");
+        assert!(all2.contains("answered too recently"));
     }
 }

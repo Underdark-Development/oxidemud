@@ -83,6 +83,27 @@ CREATE TABLE IF NOT EXISTS components_practice_points (
     points INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS components_appearance (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    height INTEGER NOT NULL,
+    weight INTEGER NOT NULL,
+    build TEXT NOT NULL,
+    hair_color TEXT NOT NULL,
+    hair_style TEXT NOT NULL,
+    eye_color TEXT NOT NULL,
+    skin_tone TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_age (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    age INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_deity (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    deity TEXT NOT NULL
+);
+
 -- Phase 3 tables
 CREATE TABLE IF NOT EXISTS components_item (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
@@ -237,10 +258,13 @@ mod tests {
             "accounts",
             "attributes",
             "characters",
+            "components_age",
             "components_alignment",
+            "components_appearance",
             "components_armor",
             "components_attributes",
             "components_combat_stats",
+            "components_deity",
             "components_description",
             "components_durability",
             "components_equipment",

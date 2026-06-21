@@ -254,6 +254,8 @@ pub struct ClassTemplate {
     pub starting_items: Vec<String>,
     #[serde(default)]
     pub starting_gold: WalletAmount,
+    #[serde(default = "default_deity_policy")]
+    pub deity_policy: DeityPolicy,
 }
 
 impl ClassTemplate {
@@ -302,6 +304,121 @@ fn default_bab() -> String {
 
 fn default_save_progression() -> String {
     "poor".to_string()
+}
+
+fn default_deity_policy() -> DeityPolicy {
+    DeityPolicy::Any
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeityPolicy {
+    Any,
+    None,
+    Required,
+    Subset(Vec<String>),
+}
+
+impl<'de> Deserialize<'de> for DeityPolicy {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct DeityPolicyVisitor;
+        impl<'de> serde::de::Visitor<'de> for DeityPolicyVisitor {
+            type Value = DeityPolicy;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter
+                    .write_str("a string ('any', 'none', 'required') or a map with a 'subset' key")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "any" => Ok(DeityPolicy::Any),
+                    "none" => Ok(DeityPolicy::None),
+                    "required" => Ok(DeityPolicy::Required),
+                    _ => Err(serde::de::Error::custom(format!(
+                        "invalid deity policy string: {}",
+                        value
+                    ))),
+                }
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut subset = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "subset" {
+                        subset = Some(map.next_value::<Vec<String>>()?);
+                    } else {
+                        let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                if let Some(list) = subset {
+                    Ok(DeityPolicy::Subset(list))
+                } else {
+                    Err(serde::de::Error::custom(
+                        "missing 'subset' key for deity policy",
+                    ))
+                }
+            }
+        }
+
+        deserializer.deserialize_any(DeityPolicyVisitor)
+    }
+}
+
+impl Serialize for DeityPolicy {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            DeityPolicy::Any => serializer.serialize_str("any"),
+            DeityPolicy::None => serializer.serialize_str("none"),
+            DeityPolicy::Required => serializer.serialize_str("required"),
+            DeityPolicy::Subset(list) => {
+                use serde::ser::SerializeMap;
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("subset", list)?;
+                map.end()
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrayerEffect {
+    pub buff_id: String,
+    pub duration_secs: u64,
+    pub cooldown_secs: u64,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeityTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub alignment: Option<String>,
+    pub symbol: String,
+    pub favored_weapon: Option<String>,
+    #[serde(default)]
+    pub tenets: Vec<String>,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub allowed_races: Vec<String>,
+    #[serde(default)]
+    pub allowed_classes: Vec<String>,
+    #[serde(default)]
+    pub allowed_alignments: Vec<String>,
+    pub prayer_effect: Option<PrayerEffect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -866,6 +983,7 @@ pub struct TemplateRegistry {
     pub areas: HashMap<String, AreaTemplate>,
     pub skills: HashMap<String, SkillDef>,
     pub shops: HashMap<String, ShopTemplate>,
+    pub deities: HashMap<String, DeityTemplate>,
     pub indices: DerivedIndices,
 }
 
@@ -901,6 +1019,18 @@ impl TemplateRegistry {
                         field: "allowed_races".into(),
                         message: format!("references unknown race template: {race_id}"),
                     });
+                }
+            }
+            if let DeityPolicy::Subset(list) = &class.deity_policy {
+                for deity_id in list {
+                    if !self.deities.contains_key(deity_id) {
+                        errors.push(ValidationError {
+                            template_type: "class",
+                            template_id: id.clone(),
+                            field: "deity_policy".into(),
+                            message: format!("subset references unknown deity: {deity_id}"),
+                        });
+                    }
                 }
             }
         }
@@ -1124,6 +1254,50 @@ impl TemplateRegistry {
                             "references unknown room '{}' in area '{}'",
                             spawn.room, area_id
                         ),
+                    });
+                }
+            }
+        }
+
+        // Validate deities
+        for (id, deity) in &self.deities {
+            if let Some(align) = &deity.alignment {
+                if !crate::components::Alignment::is_valid(align) {
+                    errors.push(ValidationError {
+                        template_type: "deity",
+                        template_id: id.clone(),
+                        field: "alignment".into(),
+                        message: format!("invalid alignment: {align}"),
+                    });
+                }
+            }
+            for race_id in &deity.allowed_races {
+                if !self.races.contains_key(race_id) {
+                    errors.push(ValidationError {
+                        template_type: "deity",
+                        template_id: id.clone(),
+                        field: "allowed_races".into(),
+                        message: format!("references unknown race: {race_id}"),
+                    });
+                }
+            }
+            for class_id in &deity.allowed_classes {
+                if !self.classes.contains_key(class_id) {
+                    errors.push(ValidationError {
+                        template_type: "deity",
+                        template_id: id.clone(),
+                        field: "allowed_classes".into(),
+                        message: format!("references unknown class: {class_id}"),
+                    });
+                }
+            }
+            for align in &deity.allowed_alignments {
+                if !crate::components::Alignment::is_valid(align) {
+                    errors.push(ValidationError {
+                        template_type: "deity",
+                        template_id: id.clone(),
+                        field: "allowed_alignments".into(),
+                        message: format!("invalid alignment constraint: {align}"),
                     });
                 }
             }
@@ -1445,6 +1619,7 @@ mod tests {
             starting_skill_slots: 3,
             starting_items: Vec::new(),
             starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
         }
     }
 

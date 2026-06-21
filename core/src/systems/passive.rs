@@ -141,7 +141,9 @@ fn apply_passive_effects(world: &mut World, entity: Entity, new_effects: &[Activ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::templates::{ClassAttributeMods, ClassTemplate, PassiveDef, RaceTemplate};
+    use crate::templates::{
+        ClassAttributeMods, ClassTemplate, DeityPolicy, PassiveDef, RaceTemplate,
+    };
     use crate::{Attributes, Class, Race};
 
     fn make_templates() -> TemplateRegistry {
@@ -205,6 +207,7 @@ mod tests {
                 starting_skill_slots: 3,
                 starting_items: vec![],
                 starting_gold: crate::templates::WalletAmount::default(),
+                deity_policy: DeityPolicy::Any,
             },
         );
         t

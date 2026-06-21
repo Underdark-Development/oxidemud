@@ -277,6 +277,34 @@ impl Database {
             )?;
         }
 
+        if current < 16 {
+            // Migration 16: components_appearance, components_age, components_deity tables
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_appearance (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    height INTEGER NOT NULL,
+                    weight INTEGER NOT NULL,
+                    build TEXT NOT NULL,
+                    hair_color TEXT NOT NULL,
+                    hair_style TEXT NOT NULL,
+                    eye_color TEXT NOT NULL,
+                    skin_tone TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS components_age (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    age INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS components_deity (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    deity TEXT NOT NULL
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (16)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

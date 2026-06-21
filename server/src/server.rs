@@ -1077,7 +1077,7 @@ pub async fn console_broadcast(message: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mud_core::templates::{ClassAttributeMods, ClassTemplate, WalletAmount};
+    use mud_core::templates::{ClassAttributeMods, ClassTemplate, DeityPolicy, WalletAmount};
     use mud_core::CombatStats;
 
     fn make_player(world: &mut World, level: u8, xp: u64, attrs: Attributes) -> Entity {
@@ -1226,6 +1226,7 @@ mod tests {
             starting_skill_slots: 3,
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
         };
         registry.classes.insert("warrior".to_string(), warrior);
         let _ = TEMPLATES.set(Arc::new(registry));
@@ -1250,6 +1251,7 @@ mod tests {
             starting_skill_slots: 3,
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
         };
 
         // Level 1
@@ -1290,6 +1292,7 @@ mod tests {
             starting_skill_slots: 4,
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
         };
 
         // Level 5

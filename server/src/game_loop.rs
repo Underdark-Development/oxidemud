@@ -525,6 +525,45 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
             let _ = mud_data::save_equipment_slot(conn, db_id, &slot_str, item_db_id);
         }
     }
+
+    // 14. Appearance
+    if let Some(appearance) = world
+        .query_one::<&mud_core::Appearance>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let _ = mud_data::save_appearance_component(
+            conn,
+            db_id,
+            appearance.height as i32,
+            appearance.weight as i32,
+            &appearance.build,
+            &appearance.hair_color,
+            &appearance.hair_style,
+            &appearance.eye_color,
+            &appearance.skin_tone,
+        );
+    }
+
+    // 15. Age
+    if let Some(age) = world
+        .query_one::<&mud_core::Age>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+    {
+        let _ = mud_data::save_age_component(conn, db_id, age.0 as i32);
+    }
+
+    // 16. Deity
+    if let Some(deity) = world
+        .query_one::<&mud_core::Deity>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Some(ref deity_id) = deity.0 {
+            let _ = mud_data::save_deity_component(conn, db_id, deity_id);
+        }
+    }
 }
 
 fn current_xp(world: &World, player: Entity) -> u64 {

@@ -165,6 +165,12 @@ pub struct Age(pub u16);
 #[derive(Debug, Clone)]
 pub struct Deity(pub Option<String>);
 
+/// Tracks the last time a player offered a prayer to their deity.
+#[derive(Debug, Clone, Copy)]
+pub struct PrayerCooldown {
+    pub last_prayed: std::time::Instant,
+}
+
 /// The entity's race (e.g. "human", "elf").
 #[derive(Debug, Clone)]
 pub struct Race(pub String);

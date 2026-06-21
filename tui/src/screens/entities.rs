@@ -1,8 +1,8 @@
 use mud_core::templates::TemplateRegistry;
 use mud_core::templates::{
-    AffixDef, AppearanceBounds, AreaTemplate, ClassAttributeMods, ClassTemplate, HealthBounds,
-    ItemTemplate, LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate, RoomContent,
-    RoomTemplate, SetDef, StanceDef, WalletAmount,
+    AffixDef, AppearanceBounds, AreaTemplate, ClassAttributeMods, ClassTemplate, DeityPolicy,
+    HealthBounds, ItemTemplate, LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate,
+    RoomContent, RoomTemplate, SetDef, StanceDef, WalletAmount,
 };
 use ratatui::{
     buffer::Buffer,
@@ -862,6 +862,7 @@ fn generate_default_content(
             starting_skill_slots: 3,
             starting_items: Vec::new(),
             starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
         })?,
         "skills" => toml::to_string_pretty(&mud_core::SkillDef {
             id: id.to_string(),

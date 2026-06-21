@@ -463,6 +463,94 @@ pub fn load_health_component(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn save_appearance_component(
+    conn: &Connection,
+    entity_id: i64,
+    height: i32,
+    weight: i32,
+    build: &str,
+    hair_color: &str,
+    hair_style: &str,
+    eye_color: &str,
+    skin_tone: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_appearance (entity_id, height, weight, build, hair_color, hair_style, eye_color, skin_tone) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![entity_id, height, weight, build, hair_color, hair_style, eye_color, skin_tone],
+    )?;
+    Ok(())
+}
+
+#[allow(clippy::type_complexity)]
+pub fn load_appearance_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<(i32, i32, String, String, String, String, String)>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT height, weight, build, hair_color, hair_style, eye_color, skin_tone FROM components_appearance WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+            row.get(5)?,
+            row.get(6)?,
+        ))),
+        None => Ok(None),
+    }
+}
+
+pub fn save_age_component(
+    conn: &Connection,
+    entity_id: i64,
+    age: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_age (entity_id, age) VALUES (?1, ?2)",
+        params![entity_id, age],
+    )?;
+    Ok(())
+}
+
+pub fn load_age_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<i32>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT age FROM components_age WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_deity_component(
+    conn: &Connection,
+    entity_id: i64,
+    deity: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_deity (entity_id, deity) VALUES (?1, ?2)",
+        params![entity_id, deity],
+    )?;
+    Ok(())
+}
+
+pub fn load_deity_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT deity FROM components_deity WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AttributesRow {
     pub strength: u8,
@@ -1633,5 +1721,36 @@ mod tests {
         for ext in ["db-wal", "db-shm"] {
             std::fs::remove_file(tmp.with_extension(ext)).ok();
         }
+    }
+
+    #[test]
+    fn test_save_and_load_appearance_age_deity() {
+        let conn = setup();
+        let eid = insert_entity(&conn, "player").unwrap();
+
+        // 1. Appearance
+        save_appearance_component(
+            &conn, eid, 70, 180, "athletic", "blonde", "spiky", "blue", "tan",
+        )
+        .unwrap();
+        let (height, weight, build, hair_color, hair_style, eye_color, skin_tone) =
+            load_appearance_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(height, 70);
+        assert_eq!(weight, 180);
+        assert_eq!(build, "athletic");
+        assert_eq!(hair_color, "blonde");
+        assert_eq!(hair_style, "spiky");
+        assert_eq!(eye_color, "blue");
+        assert_eq!(skin_tone, "tan");
+
+        // 2. Age
+        save_age_component(&conn, eid, 25).unwrap();
+        let age = load_age_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(age, 25);
+
+        // 3. Deity
+        save_deity_component(&conn, eid, "solaris").unwrap();
+        let deity = load_deity_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(deity, "solaris");
     }
 }

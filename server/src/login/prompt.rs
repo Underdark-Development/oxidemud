@@ -1,6 +1,6 @@
 use tokio::sync::Mutex;
 
-use mud_core::templates::TemplateRegistry;
+use mud_core::templates::{DeityPolicy, TemplateRegistry};
 use mud_core::{Alignment, Name, World};
 
 use crate::registry::ConnectionRegistry;
@@ -615,6 +615,57 @@ pub fn show_character_confirm(flow: &mut LoginFlow, templates: &TemplateRegistry
         "  Gender:     {gender_display} ({pronoun_s}/{pronoun_o}/{pronoun_p})"
     ));
     lines.push(format!("  Alignment:  {}", alignment.replace('_', " ")));
+
+    let deity_display = flow.create_buffer.deity.as_deref().unwrap_or("none");
+    let age_display = flow
+        .create_buffer
+        .age
+        .map(|a| a.to_string())
+        .unwrap_or_else(|| "?".to_string());
+    let height_display = flow
+        .create_buffer
+        .appearance_height
+        .map(|h| format!("{}in", h))
+        .unwrap_or_else(|| "?".to_string());
+    let weight_display = flow
+        .create_buffer
+        .appearance_weight
+        .map(|w| format!("{}lbs", w))
+        .unwrap_or_else(|| "?".to_string());
+    let build_display = flow
+        .create_buffer
+        .appearance_build
+        .as_deref()
+        .unwrap_or("?");
+    let hair_color = flow
+        .create_buffer
+        .appearance_hair_color
+        .as_deref()
+        .unwrap_or("?");
+    let hair_style = flow
+        .create_buffer
+        .appearance_hair_style
+        .as_deref()
+        .unwrap_or("?");
+    let eye_color = flow
+        .create_buffer
+        .appearance_eye_color
+        .as_deref()
+        .unwrap_or("?");
+    let skin_tone = flow
+        .create_buffer
+        .appearance_skin_tone
+        .as_deref()
+        .unwrap_or("?");
+
+    lines.push(format!("  Deity:      {deity_display}"));
+    lines.push(format!("  Age:        {age_display}"));
+    lines.push(format!(
+        "  Appearance: Height: {height_display}, Weight: {weight_display}, Build: {build_display}"
+    ));
+    lines.push(format!(
+        "              Hair: {hair_style} ({hair_color}), Eyes: {eye_color}, Skin: {skin_tone}"
+    ));
     lines.push(String::new());
     lines.push(format!("  STR: {str}   DEX: {dex}   INT: {int}"));
     lines.push(format!("  WIS: {wis}   CON: {con}   CHA: {cha}"));
@@ -739,5 +790,179 @@ pub fn list_who(world: &World, registry: &ConnectionRegistry) -> Vec<String> {
         }
     }
     lines.push(String::new());
+    lines
+}
+
+// ---------------------------------------------------------------------------
+// Deity & Appearance Wizard Prompts
+// ---------------------------------------------------------------------------
+
+pub fn show_character_deity_prompt(
+    flow: &LoginFlow,
+    templates: Option<&TemplateRegistry>,
+    options: &[String],
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    lines.push("--- Choose a Deity ---".to_string());
+    if options.is_empty() {
+        lines.push("No deities are available.".to_string());
+        return lines;
+    }
+    for deity_id in options {
+        if let Some(t) = templates.and_then(|reg| reg.deities.get(deity_id)) {
+            lines.push(format!("  {} - {}", t.name, t.description));
+            lines.push(format!("    Symbol:   {}", t.symbol));
+            if let Some(ref align) = t.alignment {
+                lines.push(format!("    Alignment:{}", align));
+            }
+            if !t.domains.is_empty() {
+                lines.push(format!("    Domains:  {}", t.domains.join(", ")));
+            }
+        } else {
+            lines.push(format!("  {}", deity_id));
+        }
+    }
+    lines.push(String::new());
+
+    let class_policy = flow
+        .create_buffer
+        .class
+        .as_deref()
+        .and_then(|c_id| templates.and_then(|t| t.get_class(c_id)))
+        .map(|class| &class.deity_policy)
+        .unwrap_or(&DeityPolicy::Any);
+
+    match class_policy {
+        DeityPolicy::Any | DeityPolicy::None => {
+            lines.push("Enter deity name (or 'none'):".to_string());
+        }
+        _ => {
+            lines.push("Enter deity name:".to_string());
+        }
+    }
+    lines
+}
+
+pub fn show_appearance_height_prompt(
+    flow: &LoginFlow,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    let race_bounds = flow
+        .create_buffer
+        .race
+        .as_deref()
+        .and_then(|r_id| templates.and_then(|t| t.get_race(r_id)))
+        .map(|r| &r.appearance_bounds);
+
+    if let Some(bounds) = race_bounds {
+        lines.push(format!(
+            "Enter height in inches (allowed range: {} to {}):",
+            bounds.height_min, bounds.height_max
+        ));
+    } else {
+        lines.push("Enter height in inches:".to_string());
+    }
+    lines
+}
+
+pub fn show_appearance_weight_prompt(
+    flow: &LoginFlow,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    let race_bounds = flow
+        .create_buffer
+        .race
+        .as_deref()
+        .and_then(|r_id| templates.and_then(|t| t.get_race(r_id)))
+        .map(|r| &r.appearance_bounds);
+
+    if let Some(bounds) = race_bounds {
+        lines.push(format!(
+            "Enter weight in pounds (allowed range: {} to {}):",
+            bounds.weight_min, bounds.weight_max
+        ));
+    } else {
+        lines.push("Enter weight in pounds:".to_string());
+    }
+    lines
+}
+
+pub fn show_appearance_build_prompt(_flow: &LoginFlow, options: &[String]) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    lines.push("--- Choose a Build ---".to_string());
+    for build in options {
+        lines.push(format!("  {}", build));
+    }
+    lines.push(String::new());
+    lines.push("Enter build:".to_string());
+    lines
+}
+
+pub fn show_appearance_hair_color_prompt(_flow: &LoginFlow, options: &[String]) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    lines.push("--- Choose a Hair Color ---".to_string());
+    for opt in options {
+        lines.push(format!("  {}", opt));
+    }
+    lines.push(String::new());
+    lines.push("Enter hair color:".to_string());
+    lines
+}
+
+pub fn show_appearance_hair_style_prompt() -> Vec<String> {
+    vec![
+        String::new(),
+        "Enter hair style (e.g. short, long, curly, bald):".to_string(),
+    ]
+}
+
+pub fn show_appearance_eye_color_prompt(_flow: &LoginFlow, options: &[String]) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    lines.push("--- Choose an Eye Color ---".to_string());
+    for opt in options {
+        lines.push(format!("  {}", opt));
+    }
+    lines.push(String::new());
+    lines.push("Enter eye color:".to_string());
+    lines
+}
+
+pub fn show_appearance_skin_tone_prompt(_flow: &LoginFlow, options: &[String]) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    lines.push("--- Choose a Skin Tone ---".to_string());
+    for opt in options {
+        lines.push(format!("  {}", opt));
+    }
+    lines.push(String::new());
+    lines.push("Enter skin tone:".to_string());
+    lines
+}
+
+pub fn show_age_prompt(flow: &LoginFlow, templates: Option<&TemplateRegistry>) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    let race = flow
+        .create_buffer
+        .race
+        .as_deref()
+        .and_then(|r_id| templates.and_then(|t| t.get_race(r_id)));
+
+    if let Some(r) = race {
+        lines.push(format!(
+            "Enter age (default is {}, maximum is {}):",
+            r.age_default, r.age_max
+        ));
+    } else {
+        lines.push("Enter age:".to_string());
+    }
     lines
 }

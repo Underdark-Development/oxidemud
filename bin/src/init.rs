@@ -298,7 +298,11 @@ mod tests {
         assert!(registry.get_mob("temple_acolyte").is_some());
         assert!(registry.get_mob("trainer").is_some());
         assert_eq!(registry.mobs.len(), 6);
-        assert!(registry.validate().is_empty());
+        let errs = registry.validate();
+        if !errs.is_empty() {
+            println!("VALIDATION ERRORS: {:#?}", errs);
+        }
+        assert!(errs.is_empty());
     }
 
     #[test]

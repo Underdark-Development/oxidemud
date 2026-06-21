@@ -84,6 +84,12 @@ Example:
   prompt <%h/%Hhp %m/%Mmn>  ROM-style prompt
   prompt reset            revert to server default prompt"#;
 
+const HELP_PRAY: &str = r#"Offer a prayer to your chosen deity to seek their favor and blessing.
+Prayers trigger a deity-specific blessing and incur a cooldown.
+
+Example:
+  pray                  pray to your deity"#;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -246,6 +252,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "General",
         HELP_PROMPT,
         commands::cmd_prompt,
+    );
+    server.register_command(
+        "pray",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        HELP_PRAY,
+        commands::cmd_pray,
     );
 
     // Phase 3 — Combat

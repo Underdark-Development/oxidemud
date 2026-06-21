@@ -885,9 +885,82 @@ pub fn handle_alignment_state(
         }
     }
 
-    flow.create_buffer.alignment = Some(alignment.to_string());
+    lines.extend(transition_to_deity(flow, templates));
+    lines
+}
 
-    // Transition to skill selection if the class has a skill pool
+fn get_allowed_deities(flow: &LoginFlow, templates: Option<&TemplateRegistry>) -> Vec<String> {
+    let mut allowed = Vec::new();
+    let templates = match templates {
+        Some(t) => t,
+        None => return allowed,
+    };
+
+    let race_id = flow.create_buffer.race.as_deref().unwrap_or("");
+    let class_id = flow.create_buffer.class.as_deref().unwrap_or("");
+    let alignment_str = flow.create_buffer.alignment.as_deref().unwrap_or("");
+
+    let class = templates.get_class(class_id);
+    let policy = class
+        .map(|c| &c.deity_policy)
+        .unwrap_or(&mud_core::templates::DeityPolicy::Any);
+
+    if matches!(policy, mud_core::templates::DeityPolicy::None) {
+        return allowed;
+    }
+
+    for (id, deity) in &templates.deities {
+        if let mud_core::templates::DeityPolicy::Subset(subset) = policy {
+            if !subset.contains(id) {
+                continue;
+            }
+        }
+        if !deity.allowed_classes.is_empty()
+            && !deity.allowed_classes.contains(&class_id.to_string())
+        {
+            continue;
+        }
+        if !deity.allowed_races.is_empty() && !deity.allowed_races.contains(&race_id.to_string()) {
+            continue;
+        }
+        if !deity.allowed_alignments.is_empty()
+            && !deity
+                .allowed_alignments
+                .contains(&alignment_str.to_string())
+        {
+            continue;
+        }
+        allowed.push(id.clone());
+    }
+
+    allowed.sort();
+    allowed
+}
+
+fn transition_to_deity(flow: &mut LoginFlow, templates: Option<&TemplateRegistry>) -> Vec<String> {
+    let lines = Vec::new();
+    let class_id = flow.create_buffer.class.as_deref().unwrap_or("");
+    let class_policy = templates
+        .and_then(|t| t.get_class(class_id))
+        .map(|c| &c.deity_policy)
+        .unwrap_or(&mud_core::templates::DeityPolicy::Any);
+
+    if matches!(class_policy, mud_core::templates::DeityPolicy::None) {
+        flow.create_buffer.deity = None;
+        transition_from_deity(flow, templates);
+    } else {
+        let options = get_allowed_deities(flow, templates);
+        if options.is_empty() {
+            flow.create_buffer.deity = None;
+            transition_from_deity(flow, templates);
+        } else {
+            flow.state = LoginState::CharacterCreateDeity(options);
+        }
+    }
+    lines
+}
+
+fn transition_from_deity(flow: &mut LoginFlow, templates: Option<&TemplateRegistry>) {
     let class = flow
         .create_buffer
         .class
@@ -902,9 +975,289 @@ pub fn handle_alignment_state(
             slots: c.starting_skill_slots,
         };
     } else {
-        flow.state = LoginState::CharacterCreateDescription { lines: Vec::new() };
+        flow.state = LoginState::CharacterCreateAppearanceHeight;
+    }
+}
+
+fn get_race_appearance_bounds(
+    flow: &LoginFlow,
+    templates: Option<&TemplateRegistry>,
+) -> mud_core::templates::AppearanceBounds {
+    let race_id = flow.create_buffer.race.as_deref().unwrap_or("");
+    templates
+        .and_then(|t| t.get_race(race_id))
+        .map(|r| r.appearance_bounds.clone())
+        .unwrap_or_default()
+}
+
+pub fn handle_character_create_deity_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let input_lower = input.to_lowercase();
+
+    let options = match &flow.state {
+        LoginState::CharacterCreateDeity(opts) => opts.clone(),
+        _ => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let class_id = flow.create_buffer.class.as_deref().unwrap_or("");
+    let class_policy = templates
+        .and_then(|t| t.get_class(class_id))
+        .map(|c| &c.deity_policy)
+        .unwrap_or(&mud_core::templates::DeityPolicy::Any);
+
+    if input_lower == "none" {
+        if matches!(
+            class_policy,
+            mud_core::templates::DeityPolicy::Any | mud_core::templates::DeityPolicy::None
+        ) {
+            flow.create_buffer.deity = None;
+            transition_from_deity(flow, templates);
+            return lines;
+        } else {
+            lines.push(
+                "Your class requires you to choose a deity. 'none' is not allowed.".to_string(),
+            );
+            return lines;
+        }
     }
 
+    let matched_deity = options.iter().find(|d| d.to_lowercase() == input_lower);
+    if let Some(deity_id) = matched_deity {
+        flow.create_buffer.deity = Some(deity_id.clone());
+        transition_from_deity(flow, templates);
+    } else {
+        lines.push(format!("'{}' is not a valid deity option.", input));
+    }
+    lines
+}
+
+pub fn handle_appearance_height_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let bounds = get_race_appearance_bounds(flow, templates);
+
+    match input.parse::<u8>() {
+        Ok(height) if height >= bounds.height_min && height <= bounds.height_max => {
+            flow.create_buffer.appearance_height = Some(height);
+            flow.state = LoginState::CharacterCreateAppearanceWeight;
+        }
+        _ => {
+            lines.push(format!(
+                "Invalid height. Must be a number between {} and {}.",
+                bounds.height_min, bounds.height_max
+            ));
+        }
+    }
+    lines
+}
+
+pub fn handle_appearance_weight_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let bounds = get_race_appearance_bounds(flow, templates);
+
+    match input.parse::<u16>() {
+        Ok(weight) if weight >= bounds.weight_min && weight <= bounds.weight_max => {
+            flow.create_buffer.appearance_weight = Some(weight);
+            flow.state = LoginState::CharacterCreateAppearanceBuild(bounds.allowed_builds.clone());
+        }
+        _ => {
+            lines.push(format!(
+                "Invalid weight. Must be a number between {} and {}.",
+                bounds.weight_min, bounds.weight_max
+            ));
+        }
+    }
+    lines
+}
+
+pub fn handle_appearance_build_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    _templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let input_lower = input.to_lowercase();
+
+    let options = match &flow.state {
+        LoginState::CharacterCreateAppearanceBuild(opts) => opts.clone(),
+        _ => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    if let Some(build) = matched {
+        flow.create_buffer.appearance_build = Some(build.clone());
+        flow.state = LoginState::CharacterCreateAppearanceHairStyle;
+    } else {
+        lines.push(format!("'{}' is not a valid build option.", input));
+    }
+    lines
+}
+
+pub fn handle_appearance_hair_style_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    if input.is_empty() {
+        lines.push("Hair style cannot be empty.".to_string());
+        return lines;
+    }
+    flow.create_buffer.appearance_hair_style = Some(input.to_string());
+    let bounds = get_race_appearance_bounds(flow, templates);
+    flow.state = LoginState::CharacterCreateAppearanceHairColor(bounds.allowed_hair_colors.clone());
+    lines
+}
+
+pub fn handle_appearance_hair_color_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let input_lower = input.to_lowercase();
+
+    let options = match &flow.state {
+        LoginState::CharacterCreateAppearanceHairColor(opts) => opts.clone(),
+        _ => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    if let Some(color) = matched {
+        flow.create_buffer.appearance_hair_color = Some(color.clone());
+        let bounds = get_race_appearance_bounds(flow, templates);
+        flow.state =
+            LoginState::CharacterCreateAppearanceEyeColor(bounds.allowed_eye_colors.clone());
+    } else {
+        lines.push(format!("'{}' is not a valid hair color option.", input));
+    }
+    lines
+}
+
+pub fn handle_appearance_eye_color_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let input_lower = input.to_lowercase();
+
+    let options = match &flow.state {
+        LoginState::CharacterCreateAppearanceEyeColor(opts) => opts.clone(),
+        _ => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    if let Some(color) = matched {
+        flow.create_buffer.appearance_eye_color = Some(color.clone());
+        let bounds = get_race_appearance_bounds(flow, templates);
+        flow.state =
+            LoginState::CharacterCreateAppearanceSkinTone(bounds.allowed_skin_tones.clone());
+    } else {
+        lines.push(format!("'{}' is not a valid eye color option.", input));
+    }
+    lines
+}
+
+pub fn handle_appearance_skin_tone_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    _templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+    let input_lower = input.to_lowercase();
+
+    let options = match &flow.state {
+        LoginState::CharacterCreateAppearanceSkinTone(opts) => opts.clone(),
+        _ => {
+            lines.push("Session error. Starting over.".to_string());
+            flow.state = LoginState::CharacterCreateName;
+            return lines;
+        }
+    };
+
+    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    if let Some(tone) = matched {
+        flow.create_buffer.appearance_skin_tone = Some(tone.clone());
+        flow.state = LoginState::CharacterCreateAge;
+    } else {
+        lines.push(format!("'{}' is not a valid skin tone option.", input));
+    }
+    lines
+}
+
+pub fn handle_age_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    templates: Option<&TemplateRegistry>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let input = input.trim();
+
+    let race = flow
+        .create_buffer
+        .race
+        .as_deref()
+        .and_then(|r_id| templates.and_then(|t| t.get_race(r_id)));
+
+    let (age_default, age_max) = match race {
+        Some(r) => (r.age_default, r.age_max),
+        None => (20, 100),
+    };
+
+    if input.is_empty() {
+        flow.create_buffer.age = Some(age_default);
+        flow.state = LoginState::CharacterCreateDescription { lines: Vec::new() };
+        return lines;
+    }
+
+    match input.parse::<u16>() {
+        Ok(age) if age >= age_default && age <= age_max => {
+            flow.create_buffer.age = Some(age);
+            flow.state = LoginState::CharacterCreateDescription { lines: Vec::new() };
+        }
+        _ => {
+            lines.push(format!(
+                "Invalid age. Must be a number between {} and {}.",
+                age_default, age_max
+            ));
+        }
+    }
     lines
 }
 
@@ -931,7 +1284,7 @@ pub fn handle_skill_selection_state(
 
     if input == "done" || input == "d" {
         flow.create_buffer.selected_skills = selected;
-        flow.state = LoginState::CharacterCreateDescription { lines: Vec::new() };
+        flow.state = LoginState::CharacterCreateAppearanceHeight;
         return lines;
     }
 
@@ -1389,6 +1742,62 @@ async fn finalize_character(
         return lines;
     }
 
+    let height = flow.create_buffer.appearance_height.unwrap_or(66) as i32;
+    let weight = flow.create_buffer.appearance_weight.unwrap_or(160) as i32;
+    let build = flow
+        .create_buffer
+        .appearance_build
+        .clone()
+        .unwrap_or_else(|| "average".into());
+    let hair_style = flow
+        .create_buffer
+        .appearance_hair_style
+        .clone()
+        .unwrap_or_else(|| "straight".into());
+    let hair_color = flow
+        .create_buffer
+        .appearance_hair_color
+        .clone()
+        .unwrap_or_else(|| "brown".into());
+    let eye_color = flow
+        .create_buffer
+        .appearance_eye_color
+        .clone()
+        .unwrap_or_else(|| "brown".into());
+    let skin_tone = flow
+        .create_buffer
+        .appearance_skin_tone
+        .clone()
+        .unwrap_or_else(|| "fair".into());
+
+    if let Err(e) = mud_data::save_appearance_component(
+        conn_db,
+        entity_id,
+        height,
+        weight,
+        &build,
+        &hair_color,
+        &hair_style,
+        &eye_color,
+        &skin_tone,
+    ) {
+        lines.push(format!("Error saving appearance: {e}"));
+        return lines;
+    }
+
+    let age = flow.create_buffer.age.unwrap_or(20) as i32;
+    if let Err(e) = mud_data::save_age_component(conn_db, entity_id, age) {
+        lines.push(format!("Error saving age: {e}"));
+        return lines;
+    }
+
+    if let Some(ref deity_id) = flow.create_buffer.deity {
+        if let Err(e) = mud_data::save_deity_component(conn_db, entity_id, deity_id) {
+            lines.push(format!("Error saving deity: {e}"));
+            return lines;
+        }
+    }
+
     let char_id = match mud_data::create_character(
         conn_db,
         account_id,
@@ -1456,6 +1865,18 @@ async fn finalize_character(
         Experience::default(),
     ));
 
+    let appearance = mud_core::Appearance {
+        height: height as u8,
+        weight: weight as u16,
+        build,
+        hair_color,
+        hair_style,
+        eye_color,
+        skin_tone,
+    };
+    let age_comp = mud_core::Age(age as u16);
+    let deity_comp = mud_core::Deity(flow.create_buffer.deity.clone());
+
     let _ = world.insert(
         player,
         (
@@ -1466,6 +1887,9 @@ async fn finalize_character(
             starting_gold,
             Inventory::new(),
             Equipment::new(),
+            appearance,
+            age_comp,
+            deity_comp,
         ),
     );
 
@@ -1722,6 +2146,36 @@ async fn load_character(
         }
     }
 
+    let appearance = mud_data::load_appearance_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(
+            |(height, weight, build, hair_color, hair_style, eye_color, skin_tone)| {
+                mud_core::Appearance {
+                    height: height as u8,
+                    weight: weight as u16,
+                    build,
+                    hair_color,
+                    hair_style,
+                    eye_color,
+                    skin_tone,
+                }
+            },
+        )
+        .unwrap_or_default();
+
+    let age = mud_data::load_age_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|a| mud_core::Age(a as u16))
+        .unwrap_or_default();
+
+    let deity = mud_core::Deity(
+        mud_data::load_deity_component(conn_db, entity_id)
+            .ok()
+            .flatten(),
+    );
+
     drop(db_guard);
 
     // Resolve starting room: last saved position → spawn_key → global spawn
@@ -1773,6 +2227,9 @@ async fn load_character(
             equipment,
             PracticePoints(practice_points),
             combat_stats,
+            appearance,
+            age,
+            deity,
         ),
     );
 
@@ -1804,5 +2261,15 @@ fn clear_create_buffer(flow: &mut LoginFlow) {
     flow.create_buffer.spawn_key = None;
     flow.create_buffer.attributes = None;
     flow.create_buffer.alignment = None;
+    flow.create_buffer.deity = None;
+    flow.create_buffer.appearance_height = None;
+    flow.create_buffer.appearance_weight = None;
+    flow.create_buffer.appearance_build = None;
+    flow.create_buffer.appearance_hair_style = None;
+    flow.create_buffer.appearance_hair_color = None;
+    flow.create_buffer.appearance_eye_color = None;
+    flow.create_buffer.appearance_skin_tone = None;
+    flow.create_buffer.age = None;
     flow.create_buffer.description = None;
+    flow.create_buffer.selected_skills.clear();
 }

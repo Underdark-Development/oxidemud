@@ -1,0 +1,15 @@
+id = "solaris"
+name = "Solaris"
+description = "The Lord of Light and Sun, who drives away the darkness."
+alignment = "lawful_good"
+symbol = "A golden sunburst"
+favored_weapon = "mace"
+tenets = ["Uphold the light", "Destroy undead", "Show mercy to the weak"]
+domains = ["Sun", "Healing", "Glory"]
+allowed_alignments = ["lawful_good", "neutral_good", "lawful_neutral"]
+
+[prayer_effect]
+buff_id = "sun_blessing"
+duration_secs = 60
+cooldown_secs = 10
+description = "Grants the blessing of Solaris, restoring health and stamina."

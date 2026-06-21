@@ -1,0 +1,15 @@
+id = "luna"
+name = "Luna"
+description = "The Moonweaver, goddess of secrets, night, and dreams."
+alignment = "true_neutral"
+symbol = "A silver crescent moon"
+favored_weapon = "dagger"
+tenets = ["Guard the night", "Seek hidden wisdom", "Respect the cycles"]
+domains = ["Moon", "Knowledge", "Trickery"]
+allowed_alignments = ["neutral_good", "true_neutral", "neutral_evil", "chaotic_neutral"]
+
+[prayer_effect]
+buff_id = "moon_veil"
+duration_secs = 60
+cooldown_secs = 10
+description = "Veils the target in silver moonlight, restoring mana."

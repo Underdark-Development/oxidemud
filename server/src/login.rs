@@ -27,6 +27,15 @@ pub struct CharacterCreateBuffer {
     pub spawn_key: Option<String>,
     pub attributes: Option<mud_core::Attributes>,
     pub alignment: Option<String>,
+    pub deity: Option<String>,
+    pub appearance_height: Option<u8>,
+    pub appearance_weight: Option<u16>,
+    pub appearance_build: Option<String>,
+    pub appearance_hair_style: Option<String>,
+    pub appearance_hair_color: Option<String>,
+    pub appearance_eye_color: Option<String>,
+    pub appearance_skin_tone: Option<String>,
+    pub age: Option<u16>,
     pub description: Option<String>,
     pub selected_skills: Vec<String>,
 }
@@ -193,9 +202,34 @@ impl LoginFlow {
             LoginState::CharacterCreateAlignment => {
                 handlers::handle_alignment_state(self, input, templates)
             }
+            LoginState::CharacterCreateDeity(..) => {
+                handlers::handle_character_create_deity_state(self, input, templates)
+            }
             LoginState::CharacterCreateSkillSelection { .. } => {
                 handlers::handle_skill_selection_state(self, input, templates)
             }
+            LoginState::CharacterCreateAppearanceHeight => {
+                handlers::handle_appearance_height_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAppearanceWeight => {
+                handlers::handle_appearance_weight_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAppearanceBuild(..) => {
+                handlers::handle_appearance_build_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAppearanceHairStyle => {
+                handlers::handle_appearance_hair_style_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAppearanceHairColor(..) => {
+                handlers::handle_appearance_hair_color_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAppearanceEyeColor(..) => {
+                handlers::handle_appearance_eye_color_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAppearanceSkinTone(..) => {
+                handlers::handle_appearance_skin_tone_state(self, input, templates)
+            }
+            LoginState::CharacterCreateAge => handlers::handle_age_state(self, input, templates),
             LoginState::CharacterCreateDescription { .. } => {
                 handlers::handle_description_state(self, input)
             }
@@ -274,9 +308,34 @@ impl LoginFlow {
             }
             LoginState::CharacterCreateAttributesRoll { .. } => prompt::show_roll_prompt(self),
             LoginState::CharacterCreateAlignment => prompt::show_alignment_prompt(self, templates),
+            LoginState::CharacterCreateDeity(options) => {
+                prompt::show_character_deity_prompt(self, templates, options)
+            }
             LoginState::CharacterCreateSkillSelection { .. } => {
                 prompt::show_skill_selection_prompt(self, templates)
             }
+            LoginState::CharacterCreateAppearanceHeight => {
+                prompt::show_appearance_height_prompt(self, templates)
+            }
+            LoginState::CharacterCreateAppearanceWeight => {
+                prompt::show_appearance_weight_prompt(self, templates)
+            }
+            LoginState::CharacterCreateAppearanceBuild(options) => {
+                prompt::show_appearance_build_prompt(self, options)
+            }
+            LoginState::CharacterCreateAppearanceHairStyle => {
+                prompt::show_appearance_hair_style_prompt()
+            }
+            LoginState::CharacterCreateAppearanceHairColor(options) => {
+                prompt::show_appearance_hair_color_prompt(self, options)
+            }
+            LoginState::CharacterCreateAppearanceEyeColor(options) => {
+                prompt::show_appearance_eye_color_prompt(self, options)
+            }
+            LoginState::CharacterCreateAppearanceSkinTone(options) => {
+                prompt::show_appearance_skin_tone_prompt(self, options)
+            }
+            LoginState::CharacterCreateAge => prompt::show_age_prompt(self, templates),
             LoginState::CharacterCreateDescription { .. } => {
                 vec![
                     String::new(),
