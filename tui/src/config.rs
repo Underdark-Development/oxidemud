@@ -1,39 +1,44 @@
 use crate::app::Mode;
+use clap::Parser;
 
+#[derive(Parser, Debug)]
+#[command(name = "spade", about = "MUD Game Engine Builder TUI & MUD Client")]
 pub struct Config {
+    /// Execution mode: offline, online, or split
+    #[arg(short, long, value_enum, default_value = "offline")]
     pub mode: Mode,
+
+    /// Connection host (optional, defaults to config file value)
+    #[arg(long)]
     pub connect_host: Option<String>,
+
+    /// Connection port (optional, defaults to config file value)
+    #[arg(long)]
     pub connect_port: Option<u16>,
+
+    #[command(subcommand)]
+    pub subcommand: Option<SubCommand>,
+}
+
+#[derive(clap::Subcommand, Debug, Clone)]
+pub enum SubCommand {
+    /// Connect to a MUD server directly
+    Connect {
+        /// Connection host
+        host: String,
+        /// Connection port
+        port: u16,
+    },
 }
 
 impl Config {
     pub fn parse() -> Self {
-        let args: Vec<String> = std::env::args().collect();
-        let mut mode = Mode::Offline;
-        let mut connect_host = None;
-        let mut connect_port = None;
-
-        let mut i = 1;
-        while i < args.len() {
-            match args[i].as_str() {
-                "online" => mode = Mode::Online,
-                "split" => mode = Mode::Split,
-                "connect" => {
-                    mode = Mode::Online;
-                    i += 1;
-                    connect_host = args.get(i).cloned();
-                    i += 1;
-                    connect_port = args.get(i).and_then(|p| p.parse().ok());
-                }
-                _ => {}
-            }
-            i += 1;
+        let mut cli = <Self as Parser>::parse();
+        if let Some(SubCommand::Connect { host, port }) = cli.subcommand.take() {
+            cli.mode = Mode::Online;
+            cli.connect_host = Some(host);
+            cli.connect_port = Some(port);
         }
-
-        Config {
-            mode,
-            connect_host,
-            connect_port,
-        }
+        cli
     }
 }

@@ -1,8 +1,7 @@
 use ratatui::{
     buffer::Buffer,
-    layout::{Constraint, Rect},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
     widgets::Widget,
 };
 
@@ -105,22 +104,19 @@ impl Table {
         self.ensure_selected_visible();
     }
 
-    pub fn col_x(&self, col: usize) -> u16 {
-        let mut x = 0;
-        for (i, w) in self.column_widths.iter().enumerate() {
-            if i >= col {
-                break;
-            }
-            match w {
-                Constraint::Length(len) => x += len + 2,
-                Constraint::Min(len) => x += len + 2,
-                Constraint::Max(len) => x += len + 2,
-                Constraint::Percentage(p) => x += p / 10 + 2,
-                Constraint::Ratio(num, den) => x += ((num * 20 / den) + 2) as u16,
-                Constraint::Fill(_) => x += 20 + 2,
-            }
+    pub fn col_x(&self, col: usize, area: Rect) -> u16 {
+        let cols_area = Rect::new(
+            area.x.saturating_add(2),
+            area.y,
+            area.width.saturating_sub(2),
+            area.height,
+        );
+        let col_areas = Layout::horizontal(self.column_widths.clone()).split(cols_area);
+        if let Some(col_area) = col_areas.get(col) {
+            col_area.x.saturating_sub(cols_area.x)
+        } else {
+            0
         }
-        x
     }
 }
 
@@ -133,24 +129,40 @@ impl Widget for &Table {
         let offset = self.scroll.offset;
         let visible = self.scroll.visible_lines.max(1);
 
+        let cols_area = Rect::new(
+            area.x.saturating_add(2),
+            area.y,
+            area.width.saturating_sub(2),
+            area.height,
+        );
+        let col_areas = Layout::horizontal(self.column_widths.clone()).split(cols_area);
+
+        // Render header background
+        for x in area.x..area.x + area.width {
+            if let Some(cell) = buf.cell_mut((x, area.y)) {
+                cell.set_bg(Color::White);
+            }
+        }
+
+        // Render header strings
         let header_style = Style::default()
             .fg(Color::Black)
             .bg(Color::White)
             .add_modifier(Modifier::BOLD);
-
-        let mut header_spans = Vec::new();
         for (i, header) in self.headers.iter().enumerate() {
-            let width = match self.column_widths.get(i) {
-                Some(Constraint::Length(len)) => *len as usize,
-                _ => 20,
-            };
-            header_spans.push(Span::styled(
-                format!(" {:width$} ", header, width = width),
-                header_style,
-            ));
+            if let Some(col_area) = col_areas.get(i) {
+                let text = format!(" {}", header);
+                buf.set_stringn(
+                    col_area.x,
+                    area.y,
+                    &text,
+                    col_area.width as usize,
+                    header_style,
+                );
+            }
         }
-        buf.set_line(area.x, area.y, &Line::from(header_spans), area.width);
 
+        // Render rows
         for i in 0..visible {
             let idx = offset + i;
             if idx >= self.rows.len() {
@@ -188,28 +200,26 @@ impl Widget for &Table {
                 Style::default().fg(if self.muted { text_fg } else { Color::Gray })
             };
 
-            let mut row_spans = Vec::new();
-
-            if is_selected {
-                row_spans.push(Span::styled(
-                    self.highlight_symbol.clone(),
-                    Style::default().fg(Color::Cyan),
-                ));
+            // Selection symbol
+            let symbol_style = if is_selected {
+                Style::default().fg(Color::Cyan)
             } else {
-                row_spans.push(Span::raw("  "));
-            }
+                Style::default()
+            };
+            let symbol = if is_selected {
+                &self.highlight_symbol
+            } else {
+                "  "
+            };
+            buf.set_stringn(area.x, y, symbol, 2, symbol_style);
 
+            // Columns data
             for (col, value) in self.rows[idx].iter().enumerate() {
-                let width = match self.column_widths.get(col) {
-                    Some(Constraint::Length(len)) => *len as usize,
-                    _ => 20,
-                };
-                row_spans.push(Span::styled(
-                    format!(" {:width$} ", value, width = width),
-                    row_style,
-                ));
+                if let Some(col_area) = col_areas.get(col) {
+                    let text = format!(" {}", value);
+                    buf.set_stringn(col_area.x, y, &text, col_area.width as usize, row_style);
+                }
             }
-            buf.set_line(area.x, y, &Line::from(row_spans), area.width);
         }
     }
 }

@@ -22,7 +22,7 @@ use std::time::Instant;
 
 type Tui = Terminal<CrosstermBackend<io::Stdout>>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Mode {
     Offline,
     Online,

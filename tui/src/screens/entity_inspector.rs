@@ -2176,7 +2176,7 @@ impl EntityInspectorScreen {
             return;
         }
 
-        let value_col_x = area.x + 2 + self.table.col_x(1) + 1;
+        let value_col_x = area.x + 2 + self.table.col_x(1, area) + 1;
         let y = area.y + 1 + 1 + visible_row as u16;
 
         if y >= area.y + area.height {
@@ -2418,7 +2418,7 @@ impl EntityInspectorScreen {
             box_y = row_y.saturating_sub(box_height);
         }
 
-        let box_x = area.x + 2 + self.table.col_x(1);
+        let box_x = area.x + 2 + self.table.col_x(1, area);
         let overlay = Rect::new(box_x, box_y, max_width, box_height);
         self.dropdown_rect = Some(overlay);
 
