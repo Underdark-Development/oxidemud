@@ -80,12 +80,12 @@ pub trait Screen {
 
 pub mod file_browser;
 pub mod live_dashboard;
-pub mod room_graph;
+pub mod room_grid;
 pub mod script_console;
 
 pub const SCREEN_TITLES: &[&str] = &[
     "Entities Editor",
-    "Room Graph",
+    "Room Grid",
     "Validation Panel",
     "File Browser",
     "Script Console",

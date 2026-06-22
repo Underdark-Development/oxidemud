@@ -7,7 +7,7 @@ use crate::content::{self, FileMap};
 use crate::screens::entities::EntitiesScreen;
 use crate::screens::file_browser::FileBrowserScreen;
 use crate::screens::live_dashboard::LiveDashboardScreen;
-use crate::screens::room_graph::RoomGraphScreen;
+use crate::screens::room_grid::RoomGridScreen;
 use crate::screens::script_console::ScriptConsoleScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::Screen;
@@ -74,15 +74,15 @@ impl App {
         let (registry, file_map) = content::load_templates(&content_path);
         let entities =
             EntitiesScreen::new_shared(content_path.clone(), registry.clone(), file_map.clone());
-        let room_graph =
-            RoomGraphScreen::new(content_path.clone(), registry.clone(), file_map.clone());
+        let room_grid =
+            RoomGridScreen::new(content_path.clone(), registry.clone(), file_map.clone());
         let file_browser = FileBrowserScreen::new(content_path.clone());
         let script_console = ScriptConsoleScreen::new();
         let live_dashboard = LiveDashboardScreen::new();
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(entities),
-            Box::new(room_graph),
+            Box::new(room_grid),
             Box::new(ValidationPanelScreen::new(registry.clone())),
             Box::new(file_browser),
             Box::new(script_console),

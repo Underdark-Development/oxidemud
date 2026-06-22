@@ -90,7 +90,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         let ctx = app.active_screen().selection_context();
         let contextual = app.active_screen().contextual_commands();
 
-        // Pass room details if on Room Graph screen
+        // Pass room details if on Room Grid screen
         let selected_room = if app.active_screen == 1 {
             ctx.as_ref().and_then(|c| {
                 app.registry

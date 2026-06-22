@@ -137,7 +137,7 @@ impl MenuBar {
 
         let screen_names = [
             "Entities Editor",
-            "Room Graph",
+            "Room Grid",
             "Validation Panel",
             "File Browser",
             "Script Console",

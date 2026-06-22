@@ -1069,15 +1069,15 @@ Lightweight endpoints: GET `/api/who`, `/api/characters`, `/api/characters/:id`,
 
 | Key | Screen | Description |
 |---|---|---|
-| Ctrl+1 | Entities Editor | World Tree, Template Editor, and Entity Inspector integrated panel |
-| Ctrl+2 | Room Graph | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
-| Ctrl+3 | Validation Panel | Error/warning list with jump-to-source |
-| Ctrl+4 | File Browser | Content directory tree + raw syntax-highlighted TOML/Rhai preview |
-| Ctrl+5 | Script Console | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks) |
-| Ctrl+6 | Live Dashboard | Performance gauges + real-time system log tail with toggle sidebar |
+| Alt+1 | Entities Editor | World Tree, Template Editor, and Entity Inspector integrated panel |
+| Alt+2 | Room Grid | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
+| Alt+3 | Validation Panel | Error/warning list with jump-to-source |
+| Alt+4 | File Browser | Content directory tree + raw syntax-highlighted TOML/Rhai preview |
+| Alt+5 | Script Console | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks) |
+| Alt+6 | Live Dashboard | Performance gauges + real-time system log tail with toggle sidebar |
 
 Command Palette is a global modal overlay summoned by `Ctrl+P`.
-Layout: Entities Editor (left tree, center form), Room Graph (center map, right exits/commands), File Browser (left tree, right raw view). Status bar (bottom): mode, active screen, current file, mouse state.
+Layout: Entities Editor (left tree, center form), Room Grid (center map, right exits/commands), File Browser (left tree, right raw view). Status bar (bottom): mode, active screen, current file, mouse state.
 
 ### UI Design Principles
 
@@ -1327,7 +1327,7 @@ mcp/
 - [ ] **spade mouse support** — click/double-click/right-click/scroll
 - [ ] **spade scroll support** — per-pane ScrollState, scrollbar
 - [ ] **spade validator panel** — cross-reference diagnostics
-- [ ] **spade room graph** — ASCII map view
+- [ ] **spade room grid** — ASCII map view
 - [ ] **MCP crate scaffold** — Cargo.toml, server.rs, stdio transport
 - [ ] **MCP offline mode** — area/room/mob/item CRUD
 - [ ] **MCP validate tool** — run validator, return diagnostics
