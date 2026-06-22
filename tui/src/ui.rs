@@ -40,7 +40,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     }
 
     let (content_area, sidebar_area) = if app.sidebar_visible {
-        let h = Layout::horizontal([Constraint::Fill(1), Constraint::Length(24)]);
+        let h = Layout::horizontal([Constraint::Fill(1), Constraint::Length(36)]);
         let [c, s] = h.areas(main_area);
         (c, Some(s))
     } else {
@@ -66,10 +66,15 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         } else {
             Color::Indexed(245)
         };
+        let sidebar_title = if app.active_screen == 1 {
+            " Attributes "
+        } else {
+            " Commands "
+        };
         buf.set_string(
             sidebar_area.x,
             sidebar_area.y,
-            " Commands ",
+            sidebar_title,
             Style::default()
                 .fg(sidebar_title_fg)
                 .bg(Color::Indexed(236)),
@@ -84,6 +89,21 @@ pub fn render(app: &mut App, frame: &mut Frame) {
 
         let ctx = app.active_screen().selection_context();
         let contextual = app.active_screen().contextual_commands();
+
+        // Pass room details if on Room Graph screen
+        let selected_room = if app.active_screen == 1 {
+            ctx.as_ref().and_then(|c| {
+                app.registry
+                    .areas
+                    .values()
+                    .find_map(|a| a.rooms.get(&c.id))
+                    .cloned()
+            })
+        } else {
+            None
+        };
+        app.command_sidebar.room_details = selected_room;
+
         app.command_sidebar.update_context(
             ctx.as_ref().map(|c| (c.name.clone(), c.category.clone())),
             &contextual,

@@ -1,3 +1,4 @@
+use mud_core::templates::RoomTemplate;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
@@ -60,6 +61,7 @@ pub struct CommandSidebar {
     actions_hovered: Option<usize>,
     /// Stored rects for action command items (mouse hit-testing).
     action_rects: Vec<Rect>,
+    pub room_details: Option<RoomTemplate>,
 }
 
 impl Default for CommandSidebar {
@@ -77,6 +79,7 @@ impl CommandSidebar {
             actions_selected: None,
             actions_hovered: None,
             action_rects: Vec::new(),
+            room_details: None,
         };
         sb.tree.selected = Some(0);
         sb
@@ -141,37 +144,136 @@ impl CommandSidebar {
             area.width.saturating_sub(1),
             tree_height as u16,
         );
-        self.tree.indent = 1;
-        self.tree.update_scroll(tree_height);
-        self.tree.muted = !focused;
+        if let Some(ref room) = self.room_details {
+            let bold_label = Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD);
+            let val_style = Style::default().fg(Color::White);
+            let desc_style = Style::default().fg(Color::Indexed(250));
 
-        // Tree hover (only tree region)
-        self.tree.hovered = mouse_pos.and_then(|(col, row)| {
-            if row >= tree_area.y
-                && row < tree_area.y + tree_area.height
-                && col >= area.x
-                && col < area.x + area.width
-            {
-                let line = (row - tree_area.y) as usize;
-                let idx = line + self.tree.scroll.offset;
-                (idx < self.tree.flatten().len()).then_some(idx)
-            } else {
-                None
+            let mut y = tree_area.y + 1;
+            let x = tree_area.x + 1;
+            let w = tree_area.width.saturating_sub(2) as usize;
+
+            // Title
+            buf.set_string(x, y, " Room Attributes", bold_label.fg(Color::Green));
+            y += 2;
+
+            // ID
+            if y < tree_area.y + tree_area.height {
+                buf.set_string(x, y, "ID:", bold_label);
+                let id_str = format!(" {}", room.id);
+                buf.set_string(x + 6, y, &id_str, val_style);
+                y += 1;
             }
-        });
 
-        self.tree.render(tree_area, buf);
+            // Area
+            if y < tree_area.y + tree_area.height {
+                buf.set_string(x, y, "Area:", bold_label);
+                let area_str = format!(" {}", room.area);
+                buf.set_string(x + 6, y, &area_str, val_style);
+                y += 1;
+            }
 
-        // Scrollbar for tree area
-        let scrollbar_area = Rect::new(
-            area.x + area.width.saturating_sub(1),
-            area.y,
-            1,
-            tree_height as u16,
-        );
-        // Only render tree scroll if tree doesn't fit
-        if self.tree.scroll.total_lines > self.tree.scroll.visible_lines {
-            self.tree.scroll.render(scrollbar_area, buf);
+            // Name
+            if y < tree_area.y + tree_area.height {
+                buf.set_string(x, y, "Name:", bold_label);
+                let name_str = format!(" {}", room.name);
+                buf.set_string(x + 6, y, &name_str, val_style);
+                y += 2;
+            }
+
+            // Description
+            if y < tree_area.y + tree_area.height {
+                buf.set_string(x, y, "Description:", bold_label);
+                y += 1;
+                let wrapped_desc = wrap_text(&room.description, w);
+                for line in wrapped_desc.iter().take(4) {
+                    if y >= tree_area.y + tree_area.height {
+                        break;
+                    }
+                    buf.set_string(x, y, line, desc_style);
+                    y += 1;
+                }
+                if wrapped_desc.len() > 4 && y < tree_area.y + tree_area.height {
+                    buf.set_string(
+                        x,
+                        y - 1,
+                        "... (truncated)",
+                        desc_style.fg(Color::Indexed(244)),
+                    );
+                }
+            }
+            y += 1;
+
+            // Exits
+            if y < tree_area.y + tree_area.height {
+                buf.set_string(x, y, "Exits:", bold_label);
+                y += 1;
+                if room.exits.is_empty() {
+                    buf.set_string(x, y, "  none", desc_style);
+                    y += 1;
+                } else {
+                    let mut exits_sorted: Vec<(&String, &String)> = room.exits.iter().collect();
+                    exits_sorted.sort_by_key(|(dir, _)| dir.to_lowercase());
+                    for (dir, dest) in exits_sorted {
+                        if y >= tree_area.y + tree_area.height {
+                            break;
+                        }
+                        let exit_line = format!("  {} -> {}", dir, dest);
+                        buf.set_string(x, y, &exit_line, desc_style);
+                        y += 1;
+                    }
+                }
+            }
+            y += 1;
+
+            // Portals
+            if y < tree_area.y + tree_area.height && !room.portals.is_empty() {
+                buf.set_string(x, y, "Portals:", bold_label);
+                y += 1;
+                for portal in &room.portals {
+                    if y >= tree_area.y + tree_area.height {
+                        break;
+                    }
+                    let portal_line = format!("  {} -> {}", portal.keyword, portal.dest);
+                    buf.set_string(x, y, &portal_line, desc_style);
+                    y += 1;
+                }
+            }
+        } else {
+            self.tree.indent = 1;
+            self.tree.update_scroll(tree_height);
+            self.tree.muted = !focused;
+
+            // Tree hover (only tree region)
+            self.tree.hovered = mouse_pos.and_then(|(col, row)| {
+                if row >= tree_area.y
+                    && row < tree_area.y + tree_area.height
+                    && col >= area.x
+                    && col < area.x + area.width
+                {
+                    let line = (row - tree_area.y) as usize;
+                    let idx = line + self.tree.scroll.offset;
+                    (idx < self.tree.flatten().len()).then_some(idx)
+                } else {
+                    None
+                }
+            });
+
+            self.tree.render(tree_area, buf);
+
+            // Scrollbar for tree area
+            let scrollbar_area = Rect::new(
+                area.x + area.width.saturating_sub(1),
+                area.y,
+                1,
+                tree_height as u16,
+            );
+            // Only render tree scroll if tree doesn't fit
+            if self.tree.scroll.total_lines > self.tree.scroll.visible_lines {
+                self.tree.scroll.render(scrollbar_area, buf);
+            }
         }
 
         // ---- Actions section (bottom) ----
@@ -493,4 +595,30 @@ impl CommandSidebar {
 
         roots
     }
+}
+
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        if paragraph.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut current_line = String::new();
+        for word in paragraph.split_whitespace() {
+            if current_line.is_empty() {
+                current_line.push_str(word);
+            } else if current_line.len() + 1 + word.len() <= max_width {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                lines.push(current_line);
+                current_line = word.to_string();
+            }
+        }
+        if !current_line.is_empty() {
+            lines.push(current_line);
+        }
+    }
+    lines
 }

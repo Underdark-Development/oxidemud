@@ -302,7 +302,7 @@ impl App {
                     self.menu_bar.hovered_label = None;
 
                     let content_area = if self.sidebar_visible {
-                        let h = Layout::horizontal([Constraint::Fill(1), Constraint::Length(24)]);
+                        let h = Layout::horizontal([Constraint::Fill(1), Constraint::Length(36)]);
                         let [c, _] = h.areas(main_area);
                         c
                     } else {
@@ -311,9 +311,9 @@ impl App {
 
                     if self.sidebar_visible {
                         let sidebar_area = Rect::new(
-                            size.width.saturating_sub(24),
+                            size.width.saturating_sub(36),
                             main_area.y,
-                            24,
+                            36,
                             main_area.height,
                         );
                         let inner_area = Rect::new(
