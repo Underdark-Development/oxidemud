@@ -4,6 +4,7 @@ use crate::components::CommandAction;
 use crate::config_file::{PrefsConfig, SpadeConfig};
 use crate::content::{self, FileMap};
 use crate::screens::entities::EntitiesScreen;
+use crate::screens::file_browser::FileBrowserScreen;
 use crate::screens::room_graph::RoomGraphScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::{PlaceholderScreen, Screen};
@@ -70,12 +71,13 @@ impl App {
             EntitiesScreen::new_shared(content_path.clone(), registry.clone(), file_map.clone());
         let room_graph =
             RoomGraphScreen::new(content_path.clone(), registry.clone(), file_map.clone());
+        let file_browser = FileBrowserScreen::new(content_path.clone());
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(entities),
             Box::new(room_graph),
             Box::new(ValidationPanelScreen::new(registry.clone())),
-            Box::new(PlaceholderScreen::new("File Browser")),
+            Box::new(file_browser),
             Box::new(PlaceholderScreen::new("Script Console")),
             Box::new(PlaceholderScreen::new("Live Dashboard")),
         ];
@@ -220,6 +222,11 @@ impl App {
                 self.active_screen = 0;
                 self.screens[0].inspect_entity(&category, &id);
                 self.set_status(format!("Inspecting {} {}", category, id));
+            }
+            crate::screens::ScreenAction::LoadScript(path) => {
+                self.active_screen = 4;
+                self.screens[4].load_script_file(&path);
+                self.set_status(format!("Loaded script {}", path.display()));
             }
             crate::screens::ScreenAction::None => {}
         }

@@ -16,6 +16,7 @@ use crate::components::CommandAction;
 pub enum ScreenAction {
     None,
     Inspect(String, String),
+    LoadScript(std::path::PathBuf),
 }
 
 /// Information about the currently selected entity in a screen.
@@ -73,8 +74,11 @@ pub trait Screen {
     fn update_registry(&mut self, _registry: &TemplateRegistry) {}
 
     fn inspect_entity(&mut self, _category: &str, _id: &str) {}
+
+    fn load_script_file(&mut self, _path: &std::path::Path) {}
 }
 
+pub mod file_browser;
 pub mod room_graph;
 
 pub const SCREEN_TITLES: &[&str] = &[
