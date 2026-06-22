@@ -4,6 +4,7 @@ use crate::components::CommandAction;
 use crate::config_file::{PrefsConfig, SpadeConfig};
 use crate::content::{self, FileMap};
 use crate::screens::entities::EntitiesScreen;
+use crate::screens::room_graph::RoomGraphScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::{PlaceholderScreen, Screen};
 use mud_core::templates::TemplateRegistry;
@@ -67,17 +68,16 @@ impl App {
         let (registry, file_map) = content::load_templates(&content_path);
         let entities =
             EntitiesScreen::new_shared(content_path.clone(), registry.clone(), file_map.clone());
+        let room_graph =
+            RoomGraphScreen::new(content_path.clone(), registry.clone(), file_map.clone());
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(entities),
-            Box::new(PlaceholderScreen::new("Template Editor")),
-            Box::new(PlaceholderScreen::new("Room Graph")),
-            Box::new(PlaceholderScreen::new("Entity Inspector")),
-            Box::new(PlaceholderScreen::new("Command Palette")),
-            Box::new(PlaceholderScreen::new("Live Dashboard")),
+            Box::new(room_graph),
             Box::new(ValidationPanelScreen::new(registry.clone())),
             Box::new(PlaceholderScreen::new("File Browser")),
             Box::new(PlaceholderScreen::new("Script Console")),
+            Box::new(PlaceholderScreen::new("Live Dashboard")),
         ];
 
         Self {
@@ -116,6 +116,13 @@ impl App {
 
     pub fn reload_content(&mut self) {
         self.screens[0].reload();
+        if let Some(registry) = self.screens[0].registry() {
+            let registry = registry.clone();
+            self.registry = registry.clone();
+            for i in 1..self.screens.len() {
+                self.screens[i].update_registry(&registry);
+            }
+        }
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
@@ -130,7 +137,7 @@ impl App {
         match action {
             CommandAction::ValidateContent => {
                 self.set_status("Opening Validation Panel");
-                self.switch_screen(6);
+                self.switch_screen(2);
             }
             CommandAction::Quit => {
                 self.set_status("Quitting...");
@@ -154,37 +161,48 @@ impl App {
             CommandAction::ShowAbout => {
                 self.set_status("MUD Game Engine — spade v0.1.0");
             }
-            ref action => match self.active_screen_mut().handle_command_action(action) {
-                Ok(true) => {
-                    let msg = match action {
-                        CommandAction::CreateEntity(cat) => format!("Created new {cat}"),
-                        CommandAction::SaveEntity => "Entity saved".into(),
-                        CommandAction::SaveAllEntities => "All entities saved".into(),
-                        CommandAction::EditEntity => "Editing entity".into(),
-                        CommandAction::DeleteEntity => "Deleting entity...".into(),
-                        CommandAction::LookRoom => "Showing room preview".into(),
-                        CommandAction::LookMobRoom => "Showing mob preview".into(),
-                        CommandAction::LookMobDetail => "Showing mob detail".into(),
-                        CommandAction::LookItem => "Showing item preview".into(),
-                        CommandAction::GoToParent => "Navigated to parent".into(),
-                        CommandAction::ExpandAll => "Expanded all nodes".into(),
-                        CommandAction::CollapseAll => "Collapsed all nodes".into(),
-                        CommandAction::ToggleSearch => "Search mode activated".into(),
-                        CommandAction::ReloadContent => "Content reloaded".into(),
-                        CommandAction::ToggleHelp => "Help toggled".into(),
-                        _ => String::new(),
-                    };
-                    if !msg.is_empty() {
-                        self.set_status(msg);
+            ref action => {
+                let active = self.active_screen;
+                match self.screens[active].handle_command_action(action) {
+                    Ok(true) => {
+                        if let Some(registry) = self.screens[0].registry() {
+                            let registry = registry.clone();
+                            self.registry = registry.clone();
+                            for i in 1..self.screens.len() {
+                                self.screens[i].update_registry(&registry);
+                            }
+                        }
+
+                        let msg = match action {
+                            CommandAction::CreateEntity(cat) => format!("Created new {cat}"),
+                            CommandAction::SaveEntity => "Entity saved".into(),
+                            CommandAction::SaveAllEntities => "All entities saved".into(),
+                            CommandAction::EditEntity => "Editing entity".into(),
+                            CommandAction::DeleteEntity => "Deleting entity...".into(),
+                            CommandAction::LookRoom => "Showing room preview".into(),
+                            CommandAction::LookMobRoom => "Showing mob preview".into(),
+                            CommandAction::LookMobDetail => "Showing mob detail".into(),
+                            CommandAction::LookItem => "Showing item preview".into(),
+                            CommandAction::GoToParent => "Navigated to parent".into(),
+                            CommandAction::ExpandAll => "Expanded all nodes".into(),
+                            CommandAction::CollapseAll => "Collapsed all nodes".into(),
+                            CommandAction::ToggleSearch => "Search mode activated".into(),
+                            CommandAction::ReloadContent => "Content reloaded".into(),
+                            CommandAction::ToggleHelp => "Help toggled".into(),
+                            _ => String::new(),
+                        };
+                        if !msg.is_empty() {
+                            self.set_status(msg);
+                        }
+                    }
+                    Ok(false) => {
+                        self.set_status(format!("Not yet implemented: {action:?}"));
+                    }
+                    Err(e) => {
+                        self.set_status(format!("Error: {e}"));
                     }
                 }
-                Ok(false) => {
-                    self.set_status(format!("Not yet implemented: {action:?}"));
-                }
-                Err(e) => {
-                    self.set_status(format!("Error: {e}"));
-                }
-            },
+            }
         }
     }
 
@@ -194,6 +212,16 @@ impl App {
             if ts.elapsed() > std::time::Duration::from_secs(5) {
                 self.status_message = None;
             }
+        }
+
+        let action = self.screens[self.active_screen].take_action();
+        match action {
+            crate::screens::ScreenAction::Inspect(category, id) => {
+                self.active_screen = 0;
+                self.screens[0].inspect_entity(&category, &id);
+                self.set_status(format!("Inspecting {} {}", category, id));
+            }
+            crate::screens::ScreenAction::None => {}
         }
     }
 

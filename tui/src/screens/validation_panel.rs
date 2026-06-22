@@ -82,6 +82,11 @@ impl Screen for ValidationPanelScreen {
         self.run_validation();
     }
 
+    fn update_registry(&mut self, registry: &TemplateRegistry) {
+        self.registry = registry.clone();
+        self.run_validation();
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> bool {
         match key.code {
             KeyCode::Up => self.table.select_prev(),

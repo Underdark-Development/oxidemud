@@ -849,6 +849,19 @@ impl Screen for EntitiesScreen {
         "Entities Editor"
     }
 
+    fn registry(&self) -> Option<&TemplateRegistry> {
+        Some(&self.registry)
+    }
+
+    fn update_registry(&mut self, registry: &TemplateRegistry) {
+        self.registry = registry.clone();
+        self.rebuild_tree();
+    }
+
+    fn inspect_entity(&mut self, category: &str, id: &str) {
+        self.open_detail(category.to_string(), id.to_string());
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> bool {
         if self.search_focus {
             self.handle_search_key(key);

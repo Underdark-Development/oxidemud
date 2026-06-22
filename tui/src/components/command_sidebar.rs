@@ -30,6 +30,8 @@ pub enum CommandAction {
     ToggleSidebar,
     ShowAbout,
     Quit,
+    MoveToRoom(String),
+    DigRoom(String),
     Separator,
 }
 

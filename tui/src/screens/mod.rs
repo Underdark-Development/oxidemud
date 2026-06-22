@@ -2,6 +2,8 @@ pub mod entities;
 pub mod entity_inspector;
 pub mod validation_panel;
 
+use mud_core::templates::TemplateRegistry;
+
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyEvent, MouseEvent},
@@ -63,18 +65,25 @@ pub trait Screen {
     fn take_action(&mut self) -> ScreenAction {
         ScreenAction::None
     }
+
+    fn registry(&self) -> Option<&TemplateRegistry> {
+        None
+    }
+
+    fn update_registry(&mut self, _registry: &TemplateRegistry) {}
+
+    fn inspect_entity(&mut self, _category: &str, _id: &str) {}
 }
 
+pub mod room_graph;
+
 pub const SCREEN_TITLES: &[&str] = &[
-    "Entities",
-    "Template Editor",
+    "Entities Editor",
     "Room Graph",
-    "Entity Inspector",
-    "Command Palette",
-    "Live Dashboard",
     "Validation Panel",
     "File Browser",
     "Script Console",
+    "Live Dashboard",
 ];
 
 pub struct PlaceholderScreen {
