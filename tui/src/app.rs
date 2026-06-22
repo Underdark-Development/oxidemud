@@ -6,6 +6,7 @@ use crate::content::{self, FileMap};
 use crate::screens::entities::EntitiesScreen;
 use crate::screens::file_browser::FileBrowserScreen;
 use crate::screens::room_graph::RoomGraphScreen;
+use crate::screens::script_console::ScriptConsoleScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::{PlaceholderScreen, Screen};
 use mud_core::templates::TemplateRegistry;
@@ -72,13 +73,14 @@ impl App {
         let room_graph =
             RoomGraphScreen::new(content_path.clone(), registry.clone(), file_map.clone());
         let file_browser = FileBrowserScreen::new(content_path.clone());
+        let script_console = ScriptConsoleScreen::new();
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(entities),
             Box::new(room_graph),
             Box::new(ValidationPanelScreen::new(registry.clone())),
             Box::new(file_browser),
-            Box::new(PlaceholderScreen::new("Script Console")),
+            Box::new(script_console),
             Box::new(PlaceholderScreen::new("Live Dashboard")),
         ];
 
