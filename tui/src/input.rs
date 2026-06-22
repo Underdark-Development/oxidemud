@@ -39,12 +39,27 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Alt+letter: open menus
-    if key.modifiers == KeyModifiers::ALT && matches!(key.code, KeyCode::Char(_)) {
+    // Alt+letter: open menus (excluding digits)
+    if key.modifiers == KeyModifiers::ALT
+        && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit())
+    {
         if let Some(action) = app.menu_bar.handle_key(key) {
             app.handle_command_action(action);
         }
         return;
+    }
+
+    // Alt+digit: screen switching
+    if key.modifiers == KeyModifiers::ALT {
+        if let KeyCode::Char(c) = key.code {
+            if c.is_ascii_digit() {
+                let idx = c.to_digit(10).unwrap_or(0) as usize;
+                if idx > 0 {
+                    app.switch_screen(idx - 1);
+                }
+                return;
+            }
+        }
     }
 
     // Global: Ctrl+D to quit
@@ -62,16 +77,9 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Ctrl shortcuts (screen switching, reload, save)
+    // Ctrl shortcuts (reload, save)
     if key.modifiers == KeyModifiers::CONTROL {
         match key.code {
-            KeyCode::Char(c) if c.is_ascii_digit() => {
-                let idx = c.to_digit(10).unwrap_or(0) as usize;
-                if idx > 0 {
-                    app.switch_screen(idx - 1);
-                }
-                return;
-            }
             KeyCode::Char('r') => {
                 app.reload_content();
                 return;

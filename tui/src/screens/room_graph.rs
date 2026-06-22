@@ -329,29 +329,29 @@ impl Screen for RoomGraphScreen {
                 };
 
                 // Coordinates for cells
-                let rx_a = center_x - 6; // Center cell x
+                let rx_a = center_x - 8; // Center cell x
                 let ry_a = center_y - 1; // Center cell y
 
-                let rx_b = center_x + dx * 16 - 6;
+                let rx_b = center_x + dx * 20 - 8;
                 let ry_b = center_y + dy * 5 - 1;
 
                 if dx == 0 && dy == -1 {
                     // North
                     if has_reverse {
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a - 1, '│', line_style);
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a - 2, '│', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a - 1, '│', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a - 2, '│', line_style);
                     } else {
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a - 1, '^', line_style);
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a - 2, '│', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a - 1, '^', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a - 2, '│', line_style);
                     }
                 } else if dx == 0 && dy == 1 {
                     // South
                     if has_reverse {
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a + 3, '│', line_style);
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a + 4, '│', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a + 3, '│', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a + 4, '│', line_style);
                     } else {
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a + 3, '│', line_style);
-                        set_char_safe(buf, map_area, rx_a + 6, ry_a + 4, 'v', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a + 3, '│', line_style);
+                        set_char_safe(buf, map_area, rx_a + 8, ry_a + 4, 'v', line_style);
                     }
                 } else if dx == 1 && dy == 0 {
                     // East
@@ -360,7 +360,7 @@ impl Screen for RoomGraphScreen {
                     } else {
                         "───>"
                     };
-                    set_str_safe(buf, map_area, rx_a + 12, ry_a + 1, label, line_style);
+                    set_str_safe(buf, map_area, rx_a + 16, ry_a + 1, label, line_style);
                 } else if dx == -1 && dy == 0 {
                     // West
                     let label = if has_reverse {
@@ -368,19 +368,19 @@ impl Screen for RoomGraphScreen {
                     } else {
                         "<───"
                     };
-                    set_str_safe(buf, map_area, rx_b + 12, ry_b + 1, label, line_style);
+                    set_str_safe(buf, map_area, rx_b + 16, ry_b + 1, label, line_style);
                 } else if dx == 1 && dy == -1 {
                     // Northeast
-                    set_char_safe(buf, map_area, rx_a + 12, ry_a, '/', line_style);
-                    set_char_safe(buf, map_area, rx_a + 13, ry_a - 1, '/', line_style);
+                    set_char_safe(buf, map_area, rx_a + 16, ry_a, '/', line_style);
+                    set_char_safe(buf, map_area, rx_a + 17, ry_a - 1, '/', line_style);
                 } else if dx == -1 && dy == -1 {
                     // Northwest
                     set_char_safe(buf, map_area, rx_a - 1, ry_a, '\\', line_style);
                     set_char_safe(buf, map_area, rx_a - 2, ry_a - 1, '\\', line_style);
                 } else if dx == 1 && dy == 1 {
                     // Southeast
-                    set_char_safe(buf, map_area, rx_a + 12, ry_a + 2, '\\', line_style);
-                    set_char_safe(buf, map_area, rx_a + 13, ry_a + 3, '\\', line_style);
+                    set_char_safe(buf, map_area, rx_a + 16, ry_a + 2, '\\', line_style);
+                    set_char_safe(buf, map_area, rx_a + 17, ry_a + 3, '\\', line_style);
                 } else if dx == -1 && dy == 1 {
                     // Southwest
                     set_char_safe(buf, map_area, rx_a - 1, ry_a + 2, '/', line_style);
@@ -391,7 +391,7 @@ impl Screen for RoomGraphScreen {
 
         // 2. Draw cell boxes
         for (&(dx, dy), cell) in &cells {
-            let rx = center_x + dx * 16 - 6;
+            let rx = center_x + dx * 20 - 8;
             let ry = center_y + dy * 5 - 1;
 
             let is_selected = selected_coord == (dx, dy);
@@ -430,9 +430,9 @@ impl Screen for RoomGraphScreen {
             let mut clicked_coord = None;
             for dx in -2..=2 {
                 for dy in -1..=1 {
-                    let rx = center_x + dx * 16 - 6;
+                    let rx = center_x + dx * 20 - 8;
                     let ry = center_y + dy * 5 - 1;
-                    if col >= rx && col < rx + 12 && row >= ry && row < ry + 3 {
+                    if col >= rx && col < rx + 16 && row >= ry && row < ry + 3 {
                         clicked_coord = Some((dx, dy));
                         break;
                     }
@@ -721,13 +721,13 @@ fn draw_box(
         Style::default().fg(Color::Indexed(250))
     };
 
-    set_str_safe(buf, area, x, y, "┌──────────┐", border_style);
-    set_str_safe(buf, area, x, y + 1, "│          │", border_style);
-    set_str_safe(buf, area, x, y + 2, "└──────────┘", border_style);
+    set_str_safe(buf, area, x, y, "┌──────────────┐", border_style);
+    set_str_safe(buf, area, x, y + 1, "│              │", border_style);
+    set_str_safe(buf, area, x, y + 2, "└──────────────┘", border_style);
 
     let padded_label = format!(" {} ", label);
-    if padded_label.len() <= 10 {
-        let pad = (10 - padded_label.len()) / 2;
+    if padded_label.len() <= 14 {
+        let pad = (14 - padded_label.len()) / 2;
         set_str_safe(
             buf,
             area,
@@ -738,12 +738,12 @@ fn draw_box(
         );
     }
 
-    let display_id = if room_id.len() > 10 {
-        &room_id[..10]
+    let display_id = if room_id.len() > 14 {
+        &room_id[..14]
     } else {
         room_id
     };
-    let pad = (10 - display_id.len()) / 2;
+    let pad = (14 - display_id.len()) / 2;
     set_str_safe(buf, area, x + 1 + pad as i32, y + 1, display_id, text_style);
 }
 
@@ -764,13 +764,13 @@ fn draw_dig_box(buf: &mut Buffer, area: Rect, x: i32, y: i32, dir_label: &str, i
         Style::default().fg(Color::Indexed(242))
     };
 
-    set_str_safe(buf, area, x, y, "┌╌╌╌╌╌╌╌╌╌╌┐", border_style);
-    set_str_safe(buf, area, x, y + 1, "╎          ╎", border_style);
-    set_str_safe(buf, area, x, y + 2, "└╌╌╌╌╌╌╌╌╌╌┘", border_style);
+    set_str_safe(buf, area, x, y, "┌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐", border_style);
+    set_str_safe(buf, area, x, y + 1, "╎              ╎", border_style);
+    set_str_safe(buf, area, x, y + 2, "└╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘", border_style);
 
     let display_str = format!("+ Dig {}", dir_label);
-    if display_str.len() <= 10 {
-        let pad = (10 - display_str.len()) / 2;
+    if display_str.len() <= 14 {
+        let pad = (14 - display_str.len()) / 2;
         set_str_safe(
             buf,
             area,
@@ -781,7 +781,7 @@ fn draw_dig_box(buf: &mut Buffer, area: Rect, x: i32, y: i32, dir_label: &str, i
         );
     } else {
         // Fallback truncation
-        let truncated = &display_str[..10];
+        let truncated = &display_str[..14];
         set_str_safe(buf, area, x + 1, y + 1, truncated, text_style);
     }
 }

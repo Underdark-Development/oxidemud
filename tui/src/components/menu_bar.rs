@@ -148,7 +148,7 @@ impl MenuBar {
             .enumerate()
             .map(|(i, name)| {
                 let shortcut = if i < 9 {
-                    Some(format!("Ctrl+{}", i + 1))
+                    Some(format!("Alt+{}", i + 1))
                 } else {
                     None
                 };
