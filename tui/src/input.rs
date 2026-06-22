@@ -40,7 +40,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
 
     // Alt+letter: open menus (excluding digits)
-    if key.modifiers == KeyModifiers::ALT
+    if key.modifiers.contains(KeyModifiers::ALT)
         && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit())
     {
         if let Some(action) = app.menu_bar.handle_key(key) {
@@ -49,16 +49,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Alt+digit: screen switching
-    if key.modifiers == KeyModifiers::ALT {
-        if let KeyCode::Char(c) = key.code {
-            if c.is_ascii_digit() {
-                let idx = c.to_digit(10).unwrap_or(0) as usize;
-                if idx > 0 {
-                    app.switch_screen(idx - 1);
-                }
-                return;
-            }
+    // F1..F6: screen switching
+    if let KeyCode::F(n) = key.code {
+        if (1..=6).contains(&n) {
+            app.switch_screen((n - 1) as usize);
+            return;
         }
     }
 

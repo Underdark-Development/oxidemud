@@ -252,7 +252,7 @@ impl Screen for ScriptConsoleScreen {
                     self.move_cursor_right();
                     true
                 }
-                KeyCode::F(5) => {
+                KeyCode::F(9) => {
                     self.run_script();
                     true
                 }
@@ -275,7 +275,7 @@ impl Screen for ScriptConsoleScreen {
                     }
                     true
                 }
-                KeyCode::F(5) => {
+                KeyCode::F(9) => {
                     self.run_script();
                     true
                 }
@@ -285,8 +285,7 @@ impl Screen for ScriptConsoleScreen {
     }
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>) {
-        // Draw instructions
-        let instr = " [Tab] Switch pane  [F5] Run script & tests  [Arrows] Move cursor / scroll ";
+        let instr = " [Tab] Switch pane  [F9] Run script & tests  [Arrows] Move cursor / scroll ";
         let instr_style = Style::default()
             .fg(Color::Indexed(245))
             .bg(Color::Indexed(236));

@@ -147,8 +147,8 @@ impl MenuBar {
             .iter()
             .enumerate()
             .map(|(i, name)| {
-                let shortcut = if i < 9 {
-                    Some(format!("Alt+{}", i + 1))
+                let shortcut = if i < 6 {
+                    Some(format!("F{}", i + 1))
                 } else {
                     None
                 };
@@ -582,7 +582,7 @@ impl MenuBar {
             }
         } else {
             match key.code {
-                KeyCode::Char(c) if key.modifiers == KeyModifiers::ALT => {
+                KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::ALT) => {
                     let lower = c.to_ascii_lowercase();
                     for (i, menu) in self.menus.iter().enumerate() {
                         if menu.hotkey == lower {

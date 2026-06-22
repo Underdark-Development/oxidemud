@@ -1202,25 +1202,25 @@ impl EntityInspectorScreen {
             }
 
             // Word navigation
-            KeyCode::Left if m == KeyModifiers::CONTROL => self.cursor_word_left(),
-            KeyCode::Right if m == KeyModifiers::CONTROL => self.cursor_word_right(),
-            KeyCode::Char('b') if m == KeyModifiers::ALT => self.cursor_word_left(),
-            KeyCode::Char('f') if m == KeyModifiers::ALT => self.cursor_word_right(),
+            KeyCode::Left if m.contains(KeyModifiers::CONTROL) => self.cursor_word_left(),
+            KeyCode::Right if m.contains(KeyModifiers::CONTROL) => self.cursor_word_right(),
+            KeyCode::Char('b') if m.contains(KeyModifiers::ALT) => self.cursor_word_left(),
+            KeyCode::Char('f') if m.contains(KeyModifiers::ALT) => self.cursor_word_right(),
 
             // Plain arrows
             KeyCode::Left => self.cursor_left(),
             KeyCode::Right => self.cursor_right(),
 
             // Line deletion
-            KeyCode::Backspace if m == KeyModifiers::SUPER => self.delete_to_home(),
-            KeyCode::Delete if m == KeyModifiers::SUPER => self.delete_to_end(),
-            KeyCode::Char('u') if m == KeyModifiers::CONTROL => self.delete_to_home(),
-            KeyCode::Char('k') if m == KeyModifiers::CONTROL => self.delete_to_end(),
+            KeyCode::Backspace if m.contains(KeyModifiers::SUPER) => self.delete_to_home(),
+            KeyCode::Delete if m.contains(KeyModifiers::SUPER) => self.delete_to_end(),
+            KeyCode::Char('u') if m.contains(KeyModifiers::CONTROL) => self.delete_to_home(),
+            KeyCode::Char('k') if m.contains(KeyModifiers::CONTROL) => self.delete_to_end(),
 
             // Word deletion
-            KeyCode::Char('w') if m == KeyModifiers::CONTROL => self.delete_word_backward(),
-            KeyCode::Backspace if m == KeyModifiers::ALT => self.delete_word_backward(),
-            KeyCode::Char('d') if m == KeyModifiers::ALT => self.delete_word_forward(),
+            KeyCode::Char('w') if m.contains(KeyModifiers::CONTROL) => self.delete_word_backward(),
+            KeyCode::Backspace if m.contains(KeyModifiers::ALT) => self.delete_word_backward(),
+            KeyCode::Char('d') if m.contains(KeyModifiers::ALT) => self.delete_word_forward(),
 
             // Single char deletion
             KeyCode::Backspace => self.backspace_char(),

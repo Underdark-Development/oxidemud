@@ -1069,12 +1069,12 @@ Lightweight endpoints: GET `/api/who`, `/api/characters`, `/api/characters/:id`,
 
 | Key | Screen | Description |
 |---|---|---|
-| Alt+1 | Entities Editor | World Tree, Template Editor, and Entity Inspector integrated panel |
-| Alt+2 | Room Grid | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
-| Alt+3 | Validation Panel | Error/warning list with jump-to-source |
-| Alt+4 | File Browser | Content directory tree + raw syntax-highlighted TOML/Rhai preview |
-| Alt+5 | Script Console | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks) |
-| Alt+6 | Live Dashboard | Performance gauges + real-time system log tail with toggle sidebar |
+| F1 | Entities Editor | World Tree, Template Editor, and Entity Inspector integrated panel |
+| F2 | Room Grid | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
+| F3 | Validation Panel | Error/warning list with jump-to-source |
+| F4 | File Browser | Content directory tree + raw syntax-highlighted TOML/Rhai preview |
+| F5 | Script Console | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks) |
+| F6 | Live Dashboard | Performance gauges + real-time system log tail with toggle sidebar |
 
 Command Palette is a global modal overlay summoned by `Ctrl+P`.
 Layout: Entities Editor (left tree, center form), Room Grid (center map, right exits/commands), File Browser (left tree, right raw view). Status bar (bottom): mode, active screen, current file, mouse state.

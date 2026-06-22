@@ -38,32 +38,32 @@ impl CommandPalette {
         let items = vec![
             PaletteItem::new(
                 "Switch to Entities Editor",
-                Some("Alt+1"),
+                Some("F1"),
                 CommandAction::SwitchScreen(0),
             ),
             PaletteItem::new(
                 "Switch to Room Grid",
-                Some("Alt+2"),
+                Some("F2"),
                 CommandAction::SwitchScreen(1),
             ),
             PaletteItem::new(
                 "Switch to Validation Panel",
-                Some("Alt+3"),
+                Some("F3"),
                 CommandAction::SwitchScreen(2),
             ),
             PaletteItem::new(
                 "Switch to File Browser",
-                Some("Alt+4"),
+                Some("F4"),
                 CommandAction::SwitchScreen(3),
             ),
             PaletteItem::new(
                 "Switch to Script Console",
-                Some("Alt+5"),
+                Some("F5"),
                 CommandAction::SwitchScreen(4),
             ),
             PaletteItem::new(
                 "Switch to Live Dashboard",
-                Some("Alt+6"),
+                Some("F6"),
                 CommandAction::SwitchScreen(5),
             ),
             PaletteItem::new(
