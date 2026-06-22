@@ -5,10 +5,11 @@ use crate::config_file::{PrefsConfig, SpadeConfig};
 use crate::content::{self, FileMap};
 use crate::screens::entities::EntitiesScreen;
 use crate::screens::file_browser::FileBrowserScreen;
+use crate::screens::live_dashboard::LiveDashboardScreen;
 use crate::screens::room_graph::RoomGraphScreen;
 use crate::screens::script_console::ScriptConsoleScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
-use crate::screens::{PlaceholderScreen, Screen};
+use crate::screens::Screen;
 use mud_core::templates::TemplateRegistry;
 use ratatui::{
     backend::CrosstermBackend,
@@ -74,6 +75,7 @@ impl App {
             RoomGraphScreen::new(content_path.clone(), registry.clone(), file_map.clone());
         let file_browser = FileBrowserScreen::new(content_path.clone());
         let script_console = ScriptConsoleScreen::new();
+        let live_dashboard = LiveDashboardScreen::new();
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(entities),
@@ -81,7 +83,7 @@ impl App {
             Box::new(ValidationPanelScreen::new(registry.clone())),
             Box::new(file_browser),
             Box::new(script_console),
-            Box::new(PlaceholderScreen::new("Live Dashboard")),
+            Box::new(live_dashboard),
         ];
 
         Self {

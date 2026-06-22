@@ -79,6 +79,7 @@ pub trait Screen {
 }
 
 pub mod file_browser;
+pub mod live_dashboard;
 pub mod room_graph;
 pub mod script_console;
 

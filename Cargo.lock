@@ -1502,6 +1502,7 @@ dependencies = [
  "color-eyre",
  "dirs",
  "mud-core",
+ "mud-scripting",
  "ratatui",
  "serde",
  "tokio",
