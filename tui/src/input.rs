@@ -5,6 +5,28 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub fn handle_key(app: &mut App, key: KeyEvent) {
     app.clear_hover();
 
+    // Command palette is open: route to command palette
+    if app.command_palette_open {
+        if key.code == KeyCode::Esc
+            || (key.code == KeyCode::Char('p') && key.modifiers == KeyModifiers::CONTROL)
+        {
+            app.command_palette_open = false;
+            return;
+        }
+        if let Some(action) = app.command_palette.handle_key(key) {
+            app.command_palette_open = false;
+            app.handle_command_action(action);
+        }
+        return;
+    }
+
+    // Global: Ctrl+P to toggle command palette
+    if key.code == KeyCode::Char('p') && key.modifiers == KeyModifiers::CONTROL {
+        app.command_palette_open = true;
+        app.command_palette.reset();
+        return;
+    }
+
     // Menu is open: route everything to menu bar
     if app.menu_bar.open_menu.is_some() {
         if key.code == KeyCode::Esc {

@@ -92,6 +92,22 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             .render(inner_area, buf, app.sidebar_focused, mouse_pos);
     }
 
+    // --- Command Palette Overlay ---
+    if app.command_palette_open {
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_style(cell.style().add_modifier(ratatui::style::Modifier::DIM));
+                    if cell.fg == Color::White {
+                        cell.set_fg(Color::Indexed(242));
+                    }
+                }
+            }
+        }
+        let mouse_pos = app.mouse_pos;
+        app.command_palette.render(area, buf, mouse_pos);
+    }
+
     // --- Menu dropdown overlays (render last, on top of everything) ---
     app.menu_bar.render_dropdowns(buf, area);
 

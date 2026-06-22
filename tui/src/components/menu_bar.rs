@@ -136,15 +136,12 @@ impl MenuBar {
         ];
 
         let screen_names = [
-            "Entities",
-            "Template Editor",
+            "Entities Editor",
             "Room Graph",
-            "Entity Inspector",
-            "Command Palette",
-            "Live Dashboard",
             "Validation Panel",
             "File Browser",
             "Script Console",
+            "Live Dashboard",
         ];
         let screen_items: Vec<MenuItem> = screen_names
             .iter()

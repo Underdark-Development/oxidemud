@@ -1,3 +1,4 @@
+pub mod command_palette;
 pub mod command_sidebar;
 mod context_menu;
 pub mod dialog;
@@ -10,6 +11,7 @@ mod table;
 mod tabs;
 mod tree;
 
+pub use command_palette::{CommandPalette, PaletteItem};
 pub use command_sidebar::CommandAction;
 pub use context_menu::ContextMenu;
 pub use dialog::Dialog;

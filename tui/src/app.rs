@@ -1,3 +1,4 @@
+use crate::components::command_palette::CommandPalette;
 use crate::components::command_sidebar::CommandSidebar;
 use crate::components::menu_bar::MenuBar;
 use crate::components::CommandAction;
@@ -50,6 +51,8 @@ pub struct App {
     pub menu_bar: MenuBar,
     pub sidebar_visible: bool,
     pub sidebar_focused: bool,
+    pub command_palette_open: bool,
+    pub command_palette: CommandPalette,
 }
 
 struct TerminalGuard;
@@ -103,6 +106,8 @@ impl App {
             command_sidebar: CommandSidebar::new(),
             menu_bar: MenuBar::new(),
             sidebar_focused: false,
+            command_palette_open: false,
+            command_palette: CommandPalette::new(),
         }
     }
 
@@ -250,6 +255,38 @@ impl App {
                     self.mouse_pos = Some((mouse.column, mouse.row));
                     let size = terminal.size()?;
                     let main_area = Rect::new(0, 2, size.width, size.height.saturating_sub(4));
+
+                    // Route mouse to command palette if open
+                    if self.command_palette_open {
+                        if let Some(action) = self
+                            .command_palette
+                            .handle_mouse(mouse, Rect::new(0, 0, size.width, size.height))
+                        {
+                            self.command_palette_open = false;
+                            self.handle_command_action(action);
+                        }
+
+                        // Close palette if clicking outside its area
+                        if mouse.kind
+                            == ratatui::crossterm::event::MouseEventKind::Down(
+                                ratatui::crossterm::event::MouseButton::Left,
+                            )
+                        {
+                            let width = 60.min(size.width.saturating_sub(4));
+                            let height = 15.min(size.height.saturating_sub(4));
+                            let x = (size.width.saturating_sub(width)) / 2;
+                            let y = (size.height.saturating_sub(height)) / 2;
+                            let palette_rect = Rect::new(x, y, width, height);
+                            if mouse.column < palette_rect.x
+                                || mouse.column >= palette_rect.x + palette_rect.width
+                                || mouse.row < palette_rect.y
+                                || mouse.row >= palette_rect.y + palette_rect.height
+                            {
+                                self.command_palette_open = false;
+                            }
+                        }
+                        continue;
+                    }
 
                     // Route mouse to menu bar (top bar + dropdowns)
                     if mouse.row <= 1 || self.menu_bar.open_menu.is_some() {
