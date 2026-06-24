@@ -18,6 +18,7 @@ pub use events::*;
 pub use prompt::PromptVars;
 pub use resources::*;
 pub use systems::ai::AiState;
+pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use util::entities_in_room;
 
 use hecs as _hecs;

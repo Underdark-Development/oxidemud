@@ -1,4 +1,5 @@
 use crate::dice::DiceRoll;
+use crate::systems::trigger::process_triggers;
 use crate::{
     Armor, Attributes, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Health,
     Inventory, Level, LootRule, Name, Player, Position, Resistance, RoomExits, Weapon, WeaponHands,
@@ -577,6 +578,10 @@ fn apply_damage(
     if final_damage <= 0 {
         return (0, false, 0);
     }
+
+    // Process on_hit triggers on attacker and defender
+    process_triggers(world, attacker, "on_hit");
+    process_triggers(world, target, "on_hit");
 
     // Apply damage to target
     let killed = {

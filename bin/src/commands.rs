@@ -10,6 +10,16 @@ use oxide_core::{
 };
 use oxide_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
+fn trigger_message(trigger: &core::TriggeredEffect, world: &World) -> String {
+    let item_name = world
+        .query_one::<&Name>(trigger.item)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .map(|n| n.0)
+        .unwrap_or_else(|| "something".to_owned());
+    format!("Your {item_name} {}.", trigger.cast)
+}
+
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
     let ansi = conn.flags().has(ConnectionFlag::Ansi);
     let blink = conn.flags().has(ConnectionFlag::Blink);
@@ -1477,6 +1487,11 @@ pub fn cmd_wear(
     if let Some(msg) = evaluate_equipment_sets(world, entity) {
         conn.send_line(&msg);
     }
+
+    // Process on_wear triggers
+    for trigger in core::systems::trigger::process_triggers(world, entity, "on_wear") {
+        conn.send_line(&trigger_message(&trigger, world));
+    }
 }
 
 pub fn cmd_wield(
@@ -1542,6 +1557,11 @@ pub fn cmd_wield(
     if let Some(msg) = evaluate_equipment_sets(world, entity) {
         conn.send_line(&msg);
     }
+
+    // Process on_wear triggers (wielding also counts as "wearing")
+    for trigger in core::systems::trigger::process_triggers(world, entity, "on_wear") {
+        conn.send_line(&trigger_message(&trigger, world));
+    }
 }
 
 pub fn cmd_remove(
@@ -1590,6 +1610,11 @@ pub fn cmd_remove(
 
     if let Some(msg) = evaluate_equipment_sets(world, entity) {
         conn.send_line(&msg);
+    }
+
+    // Process on_remove triggers
+    for trigger in core::systems::trigger::process_triggers(world, entity, "on_remove") {
+        conn.send_line(&trigger_message(&trigger, world));
     }
 }
 

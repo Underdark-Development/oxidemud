@@ -196,6 +196,13 @@ fn equip_mob_template_items(
             world.insert(item, (membership,)).unwrap();
         }
 
+        // Populate ItemTriggers from template
+        if !item_tpl.triggers.is_empty() {
+            world
+                .insert(item, (oxide_core::ItemTriggers(item_tpl.triggers.clone()),))
+                .unwrap();
+        }
+
         let slot = EquipmentSlot::from_str(&entry.slot).ok().or_else(|| {
             item_tpl
                 .equipment
