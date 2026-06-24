@@ -103,6 +103,7 @@ bin/        — Server binary entrypoint (main.rs)
 - **Tests** — every system and utility function should have unit tests. Use table-driven tests for multiple cases.
 - **No magic numbers** — name constants with `const` or `enum`. Use `Default` impls for sensible defaults.
 - **Consistent formatting** — `cargo fmt` is non-negotiable. The pre-commit hook enforces it.
+- **Keep docs updated** — when implementing features that affect game mechanics, template fields, or builder-facing capabilities, update the relevant docs in `docs/` (`builder_manual.md`, `game_mechanics.md`, etc.) alongside the code.
 
 ## Commit style
 
@@ -215,14 +216,14 @@ docs: add commit type rules and decision flowchart
 These areas have partial/implicit state machines that should be formalized
 to match the pattern documented in `ARCHITECTURE.md#state-machine-pattern`:
 
-### NPC AI (`core/src/systems/ai.rs`)
+### [x] (COMPLETED) NPC AI (`core/src/systems/ai.rs`)
 `AiState` is already an enum with variants (`Idle`, `Wander`, `Aggro`, `Combat`,
 `Flee`, `Patrol`, `Return`) but transitions are ad-hoc. Refactor:
 - Define a transition matrix (valid next states per state + trigger conditions)
 - Emit `AiStateChanged { entity, from, to }` on every transition
 - Move transition logic into a single `tick_ai(state, context) -> AiState` function
 
-### Combat (`core/src/systems/combat.rs`, `core/src/components/combat.rs`)
+### [x] (COMPLETED) Combat (`core/src/systems/combat.rs`, `core/src/components/combat.rs`)
 Replace `CombatTarget(Entity)` newtype with `CombatState` enum:
 - `NotInCombat` — default, no engagement
 - `Engaged { target: Entity, round_started: Instant }` — active combat

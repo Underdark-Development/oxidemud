@@ -14,3 +14,4 @@ Select the guide below that corresponds to your area of responsibility:
 | **Offline/Online Builders & Players** | [Spade Manual](spade_manual.md) | Complete guide to using the `spade` tool in both offline builder and online client modes. |
 | **AI Agents & Integrators** | [MCP Integration Guide](mcp_integration.md) | Setting up and utilizing the Model Context Protocol (MCP) server for automated building. |
 | **Gameplay Scriptwriters** | [Scripting Guide](scripting_guide.md) | Customizing behavior using sandboxed Rhai scripts for NPCs, items, and spells. |
+| **Game Mechanics Reference** | [Game Mechanics](game_mechanics.md) | Reference documentation for builders and admins to understand general game engine mechanics |

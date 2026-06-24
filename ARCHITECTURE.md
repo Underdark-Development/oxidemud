@@ -246,46 +246,30 @@ CombatState:
 | Flee | — | — | — | — | cornered | — | dist>safe |
 | Return | — | reached_home | reached_home | — | — | — | — |
 
-`AISystem` ticks each NPC on Combat phase. Emits `AiStateChanged { entity, from, to }` per transition. Configuration from mob template: `ai_mode`, `aggro_range`, `flee_threshold`, `patrol_route`, `return_home`.
+`AISystem` ticks each NPC on Combat phase. Emits `AiStateChanged { entity, from, to }` per transition. Configuration (such as `ai_mode`, `patrol_route`, and wander settings) is loaded from the mob template. Aggro configurations are stored on the `Npc` component. Post-combat transitions are fully implemented: when a combat target is dead, the NPC transitions back to `Return` state (to return home) and then resumes `Patrol`, `Wander`, or `Idle` behavior.
 
 ---
 
 ## Combat System
 
-### Attack Flow (Combat pulse every 2s)
+The core combat formulas, including the attack flow, to-hit checks, defense/Armor Class, damage calculation, damage types, resistances, and weapon styles are documented in [game_mechanics.md](file:///Users/therealklanni/Projects/mud/docs/game_mechanics.md).
 
-1. Check same room (melee) or line-of-sight (ranged)
-2. Hit: `d20 + level + str_mod ≥ AC` (melee) / `d20 + level + dex_mod ≥ AC` (ranged) — Natural 1 auto miss; Natural 20 auto crit (×2)
-3. Damage: `weapon_damage + str_mod + level/5`
-4. Apply damage, emit `PlayerAttacked` / `MobAttacked`
-5. If target dead: emit death event, grant XP (`victim.level² × 50`), spawn corpse, clear combat
+### Weapon Styles (Planned Extensions)
 
-**Defense:** `AC = 10 + level + dex_mod + armor.total()`
-
-### Damage Types & Resistances
-
-Resistances are multipliers from race, class, equipment, buffs (stacked multiplicatively). Configured via TOML.
-
-| Mult | Meaning |
-|---|---|
-| `2.0` | Vulnerable |
-| `1.0` | Normal |
-| `0.5` | Resistant |
-| `0.0` | Immune |
-| `-1.0` | Absorbed (healed) |
-
-### Weapon Styles
-
-- **Two-handed:** 1.5× STR mod damage, 1.2× speed, no shield
-- **Dual-wield:** Primary −4 hit, off-hand −8 hit + 0.5× STR; penalties halved with `ambidexterity`
+The following weapon style mechanics are planned but not yet implemented:
+- **Two-handed weapon speed**: Two-handed weapons are planned to have a 1.2x speed modifier.
+- **Ambidexterity skill**: The ambidexterity skill is planned to halve the dual-wield hit penalties (halving the primary hand -2 and off-hand -4 penalties).
 
 ---
 
 ## Corpse & Loot
 
-On death, a corpse entity spawns containing the victim's Inventory + Equipment. Player corpses: `GroupOnly` loot rule, 10min decay. NPC corpses: `Public`, 5min decay. CorpseSystem sweeps expired corpses, transfers items to room floor, emits `CorpseDecayed`. Corpses are transient (no SQL persistence). Lootable via `loot <corpse>` / `get <item> corpse`.
+For detailed loot rules, decay timers, and looting commands, see [game_mechanics.md](file:///Users/therealklanni/Projects/mud/docs/game_mechanics.md).
 
-- `Corpse { owner, created_at, decay_secs, lootable_by }`, `LootRule`: Public, GroupOnly, OwnerOnly, Faction
+### Components
+
+- `Corpse { owner: Option<Entity>, created_at: Instant, decay_secs: u64, lootable_by: LootRule }` — attached to the transient corpse entity spawned in the room on death.
+- `LootRule` enum: `Public`, `GroupOnly`, `OwnerOnly`, `Faction`.
 
 ---
 
@@ -537,48 +521,30 @@ retro = level × MAX(1, 2 + (wis - 10)/2 + (int - 10)/2) + existing_unspent
 
 ## Item System
 
-Items defined in `content/items/*.toml`. Each template: id, name, description, item_type, subtype, quality, level_requirement, weight, value, flags, gates, weapon/equipment data, triggers, affixes, loot, set membership.
+Items defined in TOML templates under `content/items/`. For the full TOML schema, item types, quality tiers, trigger events, sets, and affixes, refer to [builder_manual.md](file:///Users/therealklanni/Projects/mud/docs/builder_manual.md).
 
-### Item Types
+### Item Restrictions & Gates
 
-weapon, armor, container, potion, scroll, wand, food, drink, key, quest, treasure, light, furniture.
+Equip restrictions (such as `allowed_classes`, `allowed_races`, `allowed_alignments`, and `requires_skill` gates) are verified at equip time and continuously checked by `SkillRequirementSystem`, which automatically removes the item if prerequisites are violated.
 
-### Quality Tiers
+### Durability & Repair (Planned)
 
-poor (0.75×), common (1.0×), magic (1.5×), rare (2.0×), legendary (3.0×). Affixed items roll from `content/affixes.toml`.
+Weapons lose durability on hitting, and armor on being hit. An item with `current == 0` durability is broken and yields no stat bonuses. Items can be repaired at black-smith NPCs or via a repair skill.
 
-### Item Restrictions
-
-Gates: allowed_classes, allowed_races, allowed_alignments, requires_skill. Checked on equip/wield + continuously by SkillRequirementSystem (auto-removes on violation).
-
-### Item Triggers
-
-Events: on_hit, on_wear, on_remove, on_use, on_kill, on_damage_taken. Each with chance roll and targeted skill execution.
-
-### Durability & Repair
-
-Weapons lose on hit, armor on being hit. `current == 0` = broken (no stats). Repaired at NPC blacksmith or via repair skill.
-
-### Item Sets
-
-Defined in `content/sets.toml`. Tiers with min_pieces, conditions, effects. `SetTracker` component tracks active sets. Evaluated on equip/unequip by SetBonusSystem.
-
-### Random Loot
-
-Loot entries roll quality between min/max tiers, roll affixes by slot+level. Weighted selection in loot tables.
+### Planned Systems
+- **Container items**: Items capable of holding other item entities.
+- **Usable commands**: Commands like `use`, `drink`, `eat`, `quaff`, `recite` for potions, scrolls, wands, food, and drink.
+- **Rhai scripting for triggers**: Execution of custom Rhai scripts when item triggers fire.
 
 ---
 
 ## Mob Templates
 
-NPCs defined in `content/mobs/*.toml`. Zero baked-in knowledge.
+NPCs defined in TOML templates under `content/mobs/`. For the full TOML schema and AI configurations, refer to [builder_manual.md](file:///Users/therealklanni/Projects/mud/docs/builder_manual.md).
 
-**MobTemplate:** id, name, description, level, attributes, health, armor, damage, race, size, equipment, xp_value, loot, ai_mode, aggro config, faction, trainer_types, languages, skills, scripts
-
-- AI modes: idle, wander, patrol, stationary
-- Loot tables: entries with item, count range, chance, optional treasure_class references
-- Spawns via area template `[mobs.<area>.<room>]` with count + respawn timer
-- AreaResetSystem populates/respawns mobs on area reset
+- **MobTemplate** schema defines identifiers, level, attributes, health, armor, custom size, faction standing, equipment, loot, AI configurations, languages, and scripts.
+- Spawns via area template `[mobs.<area>.<room>]` with count + respawn timer.
+- `AreaResetSystem` populates/respawns mobs on area reset.
 
 ---
 
@@ -829,7 +795,7 @@ Tag syntax: `{red}text{/}`, `{brightblue}item{/}`, `{yellow bold}critical!{/}`, 
 
 All game content in TOML under `content/` (configurable path). Scanned at startup, deserialized via serde, cross-referenced, built into `TemplateRegistry` (behind `Arc<RwLock<...>>`).
 
-**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help, deities}/` + `affixes.toml`, `sets.toml`, `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
+**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help, deities, affixes, sets}/` + `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
 
 Hot-reload uses `notify` crate. On change: re-parse, validate, atomic-swap in registry, emit `ContentReloaded`.
 
