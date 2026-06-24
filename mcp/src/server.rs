@@ -14,6 +14,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::content;
+use crate::simulator;
 
 #[derive(Clone)]
 pub struct OxideMcpServer {
@@ -119,6 +120,78 @@ struct LinkRoomsParams {
 struct SearchParams {
     #[schemars(description = "Search query string")]
     query: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateLootParams {
+    #[schemars(description = "ID of the mob template to simulate drops from")]
+    mob_id: String,
+    #[schemars(description = "Number of corpses to roll loot for (e.g. 1000)")]
+    iterations: u32,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateCombatParams {
+    #[schemars(description = "Optional ID of the attacker mob template")]
+    attacker_template: Option<String>,
+    #[schemars(description = "Optional ID of the weapon template equipped by the attacker")]
+    attacker_weapon: Option<String>,
+    #[schemars(
+        description = "Optional level override for the attacker (defaults to template level or 1)"
+    )]
+    attacker_level: Option<u8>,
+    #[schemars(description = "Optional ID of the defender mob template")]
+    defender_template: Option<String>,
+    #[schemars(
+        description = "Optional level override for the defender (defaults to template level or 1)"
+    )]
+    defender_level: Option<u8>,
+    #[schemars(description = "Optional armor class (AC) override for the defender")]
+    defender_ac_override: Option<i32>,
+    #[schemars(description = "Number of rounds to simulate")]
+    rounds: u32,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateProgressionParams {
+    #[schemars(description = "ID of the race template")]
+    race_id: String,
+    #[schemars(description = "ID of the class template")]
+    class_id: String,
+    #[schemars(description = "Starting level to show stats for")]
+    start_level: u8,
+    #[schemars(description = "Ending level (inclusive)")]
+    end_level: u8,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateGearLoadoutParams {
+    #[schemars(description = "ID of the race template")]
+    race_id: String,
+    #[schemars(description = "ID of the class template")]
+    class_id: String,
+    #[schemars(description = "Character level")]
+    level: u8,
+    #[schemars(description = "List of item template IDs to equip")]
+    equipped_items: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateAiWanderParams {
+    #[schemars(description = "ID of the mob template")]
+    mob_id: String,
+    #[schemars(description = "Starting room ID in area:room format (e.g. 'tutorial:hallway')")]
+    start_room_str: String,
+    #[schemars(description = "Number of wander steps (ticks) to simulate")]
+    ticks: u32,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateShopTransactionParams {
+    #[schemars(description = "ID of the shop template")]
+    shop_id: String,
+    #[schemars(description = "ID of the item template to buy/sell")]
+    item_id: String,
 }
 
 #[tool_router(server_handler)]
@@ -969,6 +1042,100 @@ impl OxideMcpServer {
         results.sort();
         results.insert(0, format!("{} result(s):", results.len()));
         results.join("\n")
+    }
+
+    #[tool(description = "Simulate loot drops from a mob template")]
+    fn simulate_loot(&self, params: Parameters<SimulateLootParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_loot(&registry, &p.mob_id, p.iterations) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating loot: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate combat rounds between two characters (based on templates)")]
+    fn simulate_combat(&self, params: Parameters<SimulateCombatParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_combat(
+            &registry,
+            p.attacker_template.as_deref(),
+            p.attacker_weapon.as_deref(),
+            p.attacker_level,
+            p.defender_template.as_deref(),
+            p.defender_level,
+            p.defender_ac_override,
+            p.rounds,
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating combat: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate character progression stats level-by-level")]
+    fn simulate_progression(&self, params: Parameters<SimulateProgressionParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_progression(
+            &registry,
+            &p.race_id,
+            &p.class_id,
+            p.start_level,
+            p.end_level,
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating progression: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate a gear loadout on a mock character and show final stats")]
+    fn simulate_gear_loadout(&self, params: Parameters<SimulateGearLoadoutParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_gear_loadout(
+            &registry,
+            &p.race_id,
+            &p.class_id,
+            p.level,
+            &p.equipped_items,
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating gear loadout: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate AI random wander paths and room visit frequencies")]
+    fn simulate_ai_wander(&self, params: Parameters<SimulateAiWanderParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_ai_wander(&registry, &p.mob_id, &p.start_room_str, p.ticks) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating AI wander: {e}"),
+        }
+    }
+
+    #[tool(
+        description = "Simulate shop buying/selling transaction pricing across reputation levels"
+    )]
+    fn simulate_shop_transaction(
+        &self,
+        params: Parameters<SimulateShopTransactionParams>,
+    ) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_shop_transaction(&registry, &p.shop_id, &p.item_id) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating shop transaction: {e}"),
+        }
+    }
+
+    #[tool(description = "Validate skill prerequisites for circular dependency loops")]
+    fn validate_content_dag(&self) -> String {
+        match simulator::validate_content_dag(&self.content_path) {
+            Ok(result) => result,
+            Err(e) => format!("Error validating content DAG: {e}"),
+        }
     }
 }
 
