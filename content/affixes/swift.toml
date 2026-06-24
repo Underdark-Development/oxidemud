@@ -1,0 +1,9 @@
+id = "swift"
+name = "Swift"
+description = "+1 dexterity."
+type = "prefix"
+stat = "dexterity"
+amount = "1"
+quality_min = "uncommon"
+slot = ["feet", "legs"]
+weight = 2

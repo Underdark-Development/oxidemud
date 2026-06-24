@@ -1,0 +1,9 @@
+id = "keen"
+name = "Keen"
+description = "+1 damage."
+type = "prefix"
+stat = "damage"
+amount = "1"
+quality_min = "uncommon"
+slot = ["weapon"]
+weight = 3

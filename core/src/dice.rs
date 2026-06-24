@@ -32,6 +32,13 @@ impl DiceRoll {
     pub fn max(&self) -> i32 {
         (self.count as i32 * self.sides as i32 + self.bonus as i32).max(0)
     }
+
+    /// Average value of this dice roll, rounded to nearest integer.
+    /// Formula: count * (sides + 1) / 2 + bonus, rounded.
+    pub fn average_rounded(&self) -> i32 {
+        let avg = self.count as f64 * (self.sides as f64 + 1.0) / 2.0 + self.bonus as f64;
+        (avg.round() as i32).max(0)
+    }
 }
 
 impl fmt::Display for DiceRoll {

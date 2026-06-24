@@ -1,5 +1,11 @@
+use std::str::FromStr;
+
+use crate::dice::DiceRoll;
 use crate::templates::{AffixDef, LootTable, TemplateRegistry};
-use crate::Entity;
+use crate::{
+    AffixMod, AffixModifiers, AffixNames, Entity, Item, Name, SetMembership, Weapon, WeaponHands,
+    WeaponRange, World,
+};
 
 /// Quality tiers that determine how many affixes an item can roll.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -217,9 +223,9 @@ fn weighted_sample(affixes: &[&&AffixDef], count: usize) -> Vec<String> {
 }
 
 /// Apply affix stat modifiers to an existing item entity.
-/// Reads component data and attaches affix names as a component.
+/// Attaches AffixNames (for display) and AffixModifiers (resolved stat bonuses).
 pub fn apply_affixes_to_item(
-    world: &mut crate::World,
+    world: &mut World,
     item: Entity,
     prefix_ids: &[String],
     suffix_ids: &[String],
@@ -230,14 +236,95 @@ pub fn apply_affixes_to_item(
     }
 
     let mut names: Vec<String> = Vec::new();
+    let mut mods: Vec<AffixMod> = Vec::new();
 
     for affix_id in prefix_ids.iter().chain(suffix_ids) {
         if let Some(affix) = templates.get_affix(affix_id) {
             names.push(affix.name.clone());
+
+            if let (Some(stat), Some(amount)) = (&affix.stat, &affix.amount) {
+                let resolved = resolve_amount(amount);
+                mods.push(AffixMod {
+                    stat: stat.clone(),
+                    amount: resolved,
+                });
+            }
         }
     }
 
-    let _ = world.insert(item, (crate::AffixNames(names),));
+    let _ = world.insert(item, (AffixNames(names),));
+    if !mods.is_empty() {
+        let _ = world.insert(item, (AffixModifiers(mods),));
+    }
+}
+
+/// Parse an amount string (dice notation or flat number) and return an average/rounded value.
+fn resolve_amount(amount: &str) -> i32 {
+    if let Ok(dice) = DiceRoll::from_str(amount) {
+        dice.average_rounded()
+    } else {
+        amount.parse::<i32>().unwrap_or_default()
+    }
+}
+
+/// Spawn a complete item entity from a loot roll result.
+/// Returns the spawned entity.
+pub fn spawn_loot_item(
+    world: &mut World,
+    spawn: &ItemSpawn,
+    templates: &TemplateRegistry,
+) -> Option<Entity> {
+    let item_tmpl = templates.get_item(&spawn.template_id)?;
+
+    // Core: Item + Name
+    let entity = world.spawn((Item::new(&spawn.template_id), Name::new(&item_tmpl.name)));
+
+    // Weapon stats
+    if let Some(wpn) = &item_tmpl.weapon {
+        if let Ok(dice) = DiceRoll::from_str(wpn.damage.as_str()) {
+            let damage_type = wpn
+                .damage_type
+                .parse()
+                .unwrap_or(crate::DamageType::Bludgeon);
+            let range = match wpn.range.to_lowercase().as_str() {
+                "ranged" => WeaponRange::Ranged,
+                "reach" => WeaponRange::Reach,
+                "thrown" => WeaponRange::Thrown,
+                _ => WeaponRange::Melee,
+            };
+            let _ = world.insert(
+                entity,
+                (Weapon {
+                    damage_dice: dice,
+                    damage_type,
+                    speed: wpn.speed,
+                    range,
+                    hands: WeaponHands::OneHand,
+                },),
+            );
+        }
+    }
+
+    // Set membership
+    if let Some(set) = &item_tmpl.set {
+        let _ = world.insert(entity, (SetMembership::from(set.clone()),));
+    }
+
+    // Item triggers
+    if !item_tmpl.triggers.is_empty() {
+        let _ = world.insert(entity, (crate::ItemTriggers(item_tmpl.triggers.clone()),));
+    }
+
+    // Apply affixes (names + modifiers)
+    apply_affixes_to_item(
+        world,
+        entity,
+        &spawn.prefix_ids,
+        &spawn.suffix_ids,
+        templates,
+    );
+
+    Some(entity)
 }
 
 #[cfg(test)]

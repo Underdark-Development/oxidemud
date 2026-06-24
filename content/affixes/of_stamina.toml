@@ -1,0 +1,9 @@
+id = "of_stamina"
+name = "of Stamina"
+description = "+1 constitution."
+type = "suffix"
+stat = "constitution"
+amount = "1"
+quality_min = "rare"
+slot = ["torso", "legs", "feet"]
+weight = 2

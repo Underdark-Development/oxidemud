@@ -34,6 +34,9 @@ pub enum CombatOutcomeKind {
         damage: i32,
         damage_type: DamageType,
         xp_gained: u64,
+        corpse: Entity,
+        mob_template_id: Option<String>,
+        mob_level: u8,
     },
     FleeSuccess {
         dest: Entity,
@@ -342,7 +345,20 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                 let is_hit = calculate_hit(world, attacker, target, false);
                 if is_hit {
                     let (damage, damage_type) = calculate_damage(world, attacker, target, false);
-                    let (final_damage, killed, xp_gained) =
+
+                    // Read mob info before apply_damage (which despawns the target)
+                    let mob_template_id = world
+                        .query_one::<&crate::Npc>(target)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|n| n.template_id.clone()));
+                    let mob_level = world
+                        .query_one::<&crate::Level>(target)
+                        .ok()
+                        .and_then(|mut q| q.get().copied())
+                        .unwrap_or(crate::Level(1))
+                        .0;
+
+                    let (final_damage, killed, xp_gained, corpse) =
                         apply_damage(world, attacker, target, damage, damage_type);
                     if final_damage > 0 {
                         let kind = if killed {
@@ -350,6 +366,9 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                                 damage: final_damage,
                                 damage_type,
                                 xp_gained,
+                                corpse: corpse.unwrap(),
+                                mob_template_id,
+                                mob_level,
                             }
                         } else {
                             CombatOutcomeKind::Hit {
@@ -389,7 +408,20 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                     let oh_hit = calculate_hit(world, attacker, target, true);
                     if oh_hit {
                         let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
-                        let (final_damage, killed, xp_gained) =
+
+                        // Read mob info before apply_damage (which despawns the target)
+                        let mob_template_id = world
+                            .query_one::<&crate::Npc>(target)
+                            .ok()
+                            .and_then(|mut q| q.get().map(|n| n.template_id.clone()));
+                        let mob_level = world
+                            .query_one::<&crate::Level>(target)
+                            .ok()
+                            .and_then(|mut q| q.get().copied())
+                            .unwrap_or(crate::Level(1))
+                            .0;
+
+                        let (final_damage, killed, xp_gained, corpse) =
                             apply_damage(world, attacker, target, oh_dmg, oh_type);
                         if final_damage > 0 {
                             let kind = if killed {
@@ -397,6 +429,9 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                                     damage: final_damage,
                                     damage_type: oh_type,
                                     xp_gained,
+                                    corpse: corpse.unwrap(),
+                                    mob_template_id,
+                                    mob_level,
                                 }
                             } else {
                                 CombatOutcomeKind::Hit {
@@ -555,15 +590,16 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
 }
 
 /// Apply damage to target, handling resistance, death, corpse, and XP.
-/// Returns `(final_damage, killed, xp_gained)`.
+/// Returns `(final_damage, killed, xp_gained, corpse_entity)`.
 /// On kill: spawns a corpse, grants XP to attacker, despawns the target.
+/// `corpse_entity` is `Some(entity)` on kill, `None` otherwise.
 fn apply_damage(
     world: &mut World,
     attacker: Entity,
     target: Entity,
     damage: i32,
     damage_type: DamageType,
-) -> (i32, bool, u64) {
+) -> (i32, bool, u64, Option<Entity>) {
     // Apply resistance
     let final_damage = if let Ok(mut res) = world.query_one::<&Resistance>(target) {
         if let Some(r) = res.get() {
@@ -576,7 +612,7 @@ fn apply_damage(
     };
 
     if final_damage <= 0 {
-        return (0, false, 0);
+        return (0, false, 0, None);
     }
 
     // Process on_hit triggers on attacker and defender
@@ -587,7 +623,7 @@ fn apply_damage(
     let killed = {
         let mut q = match world.query_one::<&mut Health>(target) {
             Ok(q) => q,
-            Err(_) => return (0, false, 0),
+            Err(_) => return (0, false, 0, None),
         };
         match q.get() {
             Some(hp) => {
@@ -595,7 +631,7 @@ fn apply_damage(
                 hp.damage(final_damage);
                 killed
             }
-            None => return (0, false, 0),
+            None => return (0, false, 0, None),
         }
     };
 
@@ -612,7 +648,7 @@ fn apply_damage(
             .map(|l| (l.0 as u64).saturating_pow(2) * 50)
             .unwrap_or(0);
 
-        spawn_corpse(world, target, None);
+        let corpse = spawn_corpse(world, target, None);
 
         // Grant XP to attacker
         let mut xp_updated = false;
@@ -630,14 +666,15 @@ fn apply_damage(
         // Despawn the victim — the corpse entity replaces it in the room
         let _ = world.despawn(target);
 
-        (final_damage, true, xp_gained)
+        (final_damage, true, xp_gained, Some(corpse))
     } else {
-        (final_damage, false, 0)
+        (final_damage, false, 0, None)
     }
 }
 
 /// Spawn a corpse entity with the victim's inventory + equipment.
-pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) {
+/// Returns the spawned corpse entity.
+pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) -> Entity {
     let inv = world
         .query_one::<&Inventory>(victim)
         .ok()
@@ -656,7 +693,7 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
         .and_then(|mut q| q.get().map(|p| p.room))
     {
         Some(r) => r,
-        None => return,
+        None => panic!("spawn_corpse called on victim with no Position"),
     };
 
     let victim_name = world
@@ -667,7 +704,7 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
 
     let corpse_name = Name::new(format!("Corpse of {victim_name}"));
 
-    let _corpse = world.spawn((
+    world.spawn((
         Corpse {
             owner: None,
             created_at: std::time::Instant::now(),
@@ -678,7 +715,7 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
         inv,
         eq,
         Position::new(pos),
-    ));
+    ))
 }
 
 /// Grant XP to the attacker based on victim level.

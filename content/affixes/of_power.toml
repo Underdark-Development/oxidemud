@@ -1,0 +1,9 @@
+id = "of_power"
+name = "of Power"
+description = "+1 damage."
+type = "suffix"
+stat = "damage"
+amount = "1"
+quality_min = "uncommon"
+slot = ["weapon"]
+weight = 3

@@ -233,3 +233,13 @@ pub struct ActiveEffect {
 /// Affix names attached to a looted item (prefix/suffix).
 #[derive(Debug, Clone)]
 pub struct AffixNames(pub Vec<String>);
+
+/// Resolved stat modifiers from affixes (parsed from AffixDef.amount).
+#[derive(Debug, Clone)]
+pub struct AffixModifiers(pub Vec<AffixMod>);
+
+#[derive(Debug, Clone)]
+pub struct AffixMod {
+    pub stat: String,
+    pub amount: i32,
+}

@@ -1677,7 +1677,44 @@ pub fn cmd_examine(
         .and_then(|mut q| q.get().map(|n| n.to_string()))
         .unwrap_or_else(|| "Unknown item".to_string());
 
-    conn.send_line(&format!("--- {name} ---"));
+    // Check for affix names and build display name
+    let display_name = if let Ok(mut q) = world.query_one::<&core::AffixNames>(item) {
+        if let Some(affixes) = q.get() {
+            let quality = affixes.0.first().map(|s| s.as_str()).unwrap_or("");
+            if !quality.is_empty() && quality != "Common" && affixes.0.len() <= 1 {
+                format!("[{quality}] {name}")
+            } else if !affixes.0.is_empty() {
+                let rest: Vec<&str> = affixes.0.iter().map(|s| s.as_str()).collect();
+                format!("[{}] {name}", rest.join(" "))
+            } else {
+                name.clone()
+            }
+        } else {
+            name.clone()
+        }
+    } else {
+        name.clone()
+    };
+
+    conn.send_line(&format!("--- {display_name} ---"));
+
+    // Affix details
+    if let Ok(mut q) = world.query_one::<&core::AffixNames>(item) {
+        if let Some(affixes) = q.get() {
+            for affix_name in &affixes.0 {
+                conn.send_line(&format!("  ~ {affix_name}"));
+            }
+        }
+    }
+
+    // Affix modifiers
+    if let Ok(mut q) = world.query_one::<&core::AffixModifiers>(item) {
+        if let Some(mods) = q.get() {
+            for m in &mods.0 {
+                conn.send_line(&format!("  * +{} {}", m.amount, m.stat));
+            }
+        }
+    }
 
     // Item info
     if let Ok(mut q) = world.query_one::<&core::Item>(item) {

@@ -1,0 +1,9 @@
+id = "of_agility"
+name = "of Agility"
+description = "+1 dexterity."
+type = "suffix"
+stat = "dexterity"
+amount = "1"
+quality_min = "rare"
+slot = ["head", "neck", "torso", "back", "waist"]
+weight = 2

@@ -1,0 +1,9 @@
+id = "fierce"
+name = "Fierce"
+description = "+1 damage."
+type = "prefix"
+stat = "damage"
+amount = "1"
+quality_min = "rare"
+slot = ["weapon"]
+weight = 2

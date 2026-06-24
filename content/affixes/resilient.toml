@@ -1,0 +1,9 @@
+id = "resilient"
+name = "Resilient"
+description = "+1 constitution."
+type = "prefix"
+stat = "constitution"
+amount = "1"
+quality_min = "rare"
+slot = ["torso", "arms", "legs", "head"]
+weight = 2

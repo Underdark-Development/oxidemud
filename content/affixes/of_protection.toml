@@ -1,0 +1,9 @@
+id = "of_protection"
+name = "of Protection"
+description = "+1 AC."
+type = "suffix"
+stat = "ac"
+amount = "1"
+quality_min = "uncommon"
+slot = ["head", "torso", "arms", "hands", "legs", "feet", "back", "waist"]
+weight = 3

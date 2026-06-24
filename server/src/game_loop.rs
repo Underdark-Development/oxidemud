@@ -74,7 +74,7 @@ pub fn spawn_game_loop(
                             }
                         }
                     }
-                    dispatch_combat_outcomes(&reg, outcomes);
+                    dispatch_combat_outcomes(&reg, &mut w, outcomes);
 
                     // Send prompt to players involved in combat outcomes
                     for entity in involved_players {
@@ -138,7 +138,11 @@ pub fn spawn_game_loop(
     });
 }
 
-fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatOutcome>) {
+fn dispatch_combat_outcomes(
+    registry: &ConnectionRegistry,
+    world: &mut World,
+    outcomes: Vec<CombatOutcome>,
+) {
     for outcome in outcomes {
         match outcome.kind {
             CombatOutcomeKind::Hit { damage, .. } => {
@@ -176,7 +180,12 @@ fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatO
                 }
             }
             CombatOutcomeKind::Killed {
-                damage, xp_gained, ..
+                damage,
+                xp_gained,
+                corpse,
+                mob_template_id,
+                mob_level,
+                ..
             } => {
                 if outcome.attacker_is_player {
                     if let Some(tx) = registry.sender(outcome.attacker) {
@@ -206,6 +215,35 @@ fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatO
                             format!("You have been slain by {}!\r\n", outcome.attacker_name)
                                 .into_bytes(),
                         );
+                    }
+                }
+
+                // Loot spawning for NPC kills
+                if let Some(ref mob_tmpl_id) = mob_template_id {
+                    if let Some(templates) = crate::get_templates() {
+                        if let Some(mob_tmpl) = templates.get_mob(mob_tmpl_id) {
+                            if !mob_tmpl.loot.entries.is_empty() {
+                                let spawns = oxide_core::systems::loot::roll_loot(
+                                    &mob_tmpl.loot,
+                                    mob_level,
+                                    &templates,
+                                );
+                                for spawn in spawns {
+                                    if let Some(item) = oxide_core::systems::loot::spawn_loot_item(
+                                        world, &spawn, &templates,
+                                    ) {
+                                        // Add item to corpse's inventory
+                                        if let Ok(mut q) =
+                                            world.query_one::<&mut oxide_core::Inventory>(corpse)
+                                        {
+                                            if let Some(inv) = q.get() {
+                                                inv.0.push(item);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

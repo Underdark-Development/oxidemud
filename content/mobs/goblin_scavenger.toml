@@ -45,3 +45,7 @@ max = 5
 [[loot.entries]]
 item = "healing_salve"
 chance = 10
+
+[[loot.entries]]
+item = "wooden_cudgel"
+chance = 20

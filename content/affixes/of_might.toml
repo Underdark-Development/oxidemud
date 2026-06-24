@@ -1,0 +1,9 @@
+id = "of_might"
+name = "of Might"
+description = "+1 strength."
+type = "suffix"
+stat = "strength"
+amount = "1"
+quality_min = "uncommon"
+slot = ["torso", "arms", "hands", "weapon"]
+weight = 2

@@ -1,0 +1,9 @@
+id = "of_haste"
+name = "of Haste"
+description = "+1 dexterity."
+type = "suffix"
+stat = "dexterity"
+amount = "1"
+quality_min = "rare"
+slot = ["feet", "legs"]
+weight = 1
