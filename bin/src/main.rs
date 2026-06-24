@@ -92,8 +92,6 @@ Example:
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt::init();
-
     let config = Config::parse();
     mud_server::config::init(
         config
@@ -102,6 +100,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(Path::new("content/server.toml")),
     );
     mud_server::load_motd(config.motd_path.as_deref());
+
+    // Initialize custom rolling file logging + stdout
+    let rolling_writer = std::sync::Arc::new(std::sync::Mutex::new(RollingFileWriter::new()?));
+    let file_writer = TracingWriter {
+        writer: rolling_writer.clone(),
+    };
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(move || file_writer.clone())
+        .with_ansi(false);
+
+    let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
+
+    use tracing_subscriber::prelude::*;
+    tracing_subscriber::Registry::default()
+        .with(stdout_layer)
+        .with(file_layer)
+        .init();
+
+    // Initial prune of old logs
+    let retention_days = mud_server::config::get().logging.retention_days;
+    mud_server::config::prune_old_logs(retention_days);
+
+    let log_path = rolling_writer.lock().unwrap().current_path.clone();
+    tracing::info!(
+        "Server logging initialized. Writing logs to: {}",
+        log_path.display()
+    );
 
     let db = mud_data::Database::open(&config.db_path).unwrap_or_else(|e| {
         panic!(
@@ -506,4 +532,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the console task). All graceful cleanup (connections, DB flush) already
     // happened inside Server::run().
     std::process::exit(0);
+}
+
+struct RollingFileWriter {
+    current_day: u32,
+    file: std::fs::File,
+    temp_dir: std::path::PathBuf,
+    pub current_path: std::path::PathBuf,
+}
+
+impl RollingFileWriter {
+    pub fn new() -> std::io::Result<Self> {
+        use chrono::Datelike;
+        let temp_dir = std::env::temp_dir();
+        let now = chrono::Local::now();
+        let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
+        let filename = format!("mud_server_log_{}.log", timestamp);
+        let path = temp_dir.join(filename);
+        let file = std::fs::File::create(&path)?;
+        Ok(Self {
+            current_day: now.day(),
+            file,
+            temp_dir,
+            current_path: path,
+        })
+    }
+
+    pub fn write_log(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        use chrono::Datelike;
+        use std::io::Write;
+        let now = chrono::Local::now();
+        let day = now.day();
+        if day != self.current_day {
+            let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
+            let filename = format!("mud_server_log_{}.log", timestamp);
+            let path = self.temp_dir.join(filename);
+            self.file = std::fs::File::create(&path)?;
+            self.current_path = path;
+            self.current_day = day;
+        }
+        self.file.write_all(buf)?;
+        self.file.flush()?;
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct TracingWriter {
+    writer: std::sync::Arc<std::sync::Mutex<RollingFileWriter>>,
+}
+
+impl std::io::Write for TracingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut guard = self.writer.lock().unwrap();
+        guard.write_log(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }

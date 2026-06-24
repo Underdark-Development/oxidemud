@@ -156,7 +156,7 @@ impl CommandSidebar {
             let w = tree_area.width.saturating_sub(2) as usize;
 
             // Title
-            buf.set_string(x, y, " Room Attributes", bold_label.fg(Color::Green));
+            buf.set_string(x, y, "Room Attributes", bold_label.fg(Color::Green));
             y += 2;
 
             // ID

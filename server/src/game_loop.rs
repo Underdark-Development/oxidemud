@@ -104,14 +104,17 @@ pub fn spawn_game_loop(
                         + Duration::from_secs(fastrand::u64(30..=90));
                 }
                 _ = maintenance_tick.tick() => {
-                    let mut w = world.lock().await;
-                    systems::corpse::run_corpse_pulse(&mut w);
-                    if let Some(ref db) = db {
-                        if let Ok(db_guard) = db.try_lock() {
-                            save_online_players(&mut w, &db_guard, false);
-                            drop(w);
+                    {
+                        let mut w = world.lock().await;
+                        systems::corpse::run_corpse_pulse(&mut w);
+                        if let Some(ref db) = db {
+                            if let Ok(db_guard) = db.try_lock() {
+                                save_online_players(&mut w, &db_guard, false);
+                            }
                         }
                     }
+                    let retention = crate::config::get().logging.retention_days;
+                    crate::config::prune_old_logs(retention);
                 }
                 _ = set_bonus_tick.tick() => {
                     let mut w = world.lock().await;
