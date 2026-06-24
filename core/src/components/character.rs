@@ -200,12 +200,36 @@ impl Player {
 #[derive(Debug, Clone)]
 pub struct Npc {
     pub template_id: String,
+    pub aggro_range: u32,
+    pub aggro_players: bool,
+    pub aggro_mobs: bool,
+    pub aggro_race: Vec<String>,
 }
 
 impl Npc {
     pub fn new(template_id: impl Into<String>) -> Self {
         Npc {
             template_id: template_id.into(),
+            aggro_range: 0,
+            aggro_players: false,
+            aggro_mobs: false,
+            aggro_race: Vec::new(),
+        }
+    }
+
+    pub fn new_with_aggro(
+        template_id: impl Into<String>,
+        aggro_range: u32,
+        aggro_players: bool,
+        aggro_mobs: bool,
+        aggro_race: Vec<String>,
+    ) -> Self {
+        Npc {
+            template_id: template_id.into(),
+            aggro_range,
+            aggro_players,
+            aggro_mobs,
+            aggro_race,
         }
     }
 }

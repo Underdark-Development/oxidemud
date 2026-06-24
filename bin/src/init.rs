@@ -80,10 +80,26 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
             };
 
             for _ in 0..spawn.count {
+                let ai_state = match mob_tpl.ai_mode.as_str() {
+                    "wander" => AiState::Wander { counter: 0 },
+                    "aggro" | "aggressive" => AiState::Aggro { hunt_target: None },
+                    "patrol" => AiState::Patrol {
+                        counter: 0,
+                        index: 0,
+                    },
+                    _ => AiState::Idle,
+                };
+
                 let npc = world.spawn((
                     Position::new(room_entity),
                     Name::new(&mob_tpl.name),
-                    Npc::new(&mob_tpl.id),
+                    Npc::new_with_aggro(
+                        &mob_tpl.id,
+                        mob_tpl.aggro_range,
+                        mob_tpl.aggro_players,
+                        mob_tpl.aggro_mobs,
+                        mob_tpl.aggro_race.clone(),
+                    ),
                     Attributes::new(
                         mob_tpl.attributes.strength,
                         mob_tpl.attributes.dexterity,
@@ -102,16 +118,7 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                         bonus: 0,
                     },
                     Equipment::new(),
-                    AiState {
-                        ai_mode: mob_tpl.ai_mode.clone(),
-                        threat_table: HashMap::new(),
-                        wander_counter: 0,
-                        patrol_index: 0,
-                        aggro_range: mob_tpl.aggro_range,
-                        aggro_players: mob_tpl.aggro_players,
-                        aggro_race: mob_tpl.aggro_race.clone(),
-                        aggro_mobs: mob_tpl.aggro_mobs,
-                    },
+                    ai_state,
                 ));
 
                 // Add Race component if the mob template has one
