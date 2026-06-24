@@ -234,6 +234,13 @@ pub struct ActiveEffect {
 #[derive(Debug, Clone)]
 pub struct AffixNames(pub Vec<String>);
 
+/// Skill requirement for equipping this item (populated from template at spawn).
+#[derive(Debug, Clone)]
+pub struct ItemSkillRequirement {
+    pub id: String,
+    pub level: u16,
+}
+
 /// Resolved stat modifiers from affixes (parsed from AffixDef.amount).
 #[derive(Debug, Clone)]
 pub struct AffixModifiers(pub Vec<AffixMod>);

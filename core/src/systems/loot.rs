@@ -3,8 +3,8 @@ use std::str::FromStr;
 use crate::dice::DiceRoll;
 use crate::templates::{AffixDef, LootTable, TemplateRegistry};
 use crate::{
-    AffixMod, AffixModifiers, AffixNames, Entity, Item, Name, SetMembership, Weapon, WeaponHands,
-    WeaponRange, World,
+    AffixMod, AffixModifiers, AffixNames, Entity, Item, ItemSkillRequirement, Name, SetMembership,
+    Weapon, WeaponHands, WeaponRange, World,
 };
 
 /// Quality tiers that determine how many affixes an item can roll.
@@ -313,6 +313,17 @@ pub fn spawn_loot_item(
     // Item triggers
     if !item_tmpl.triggers.is_empty() {
         let _ = world.insert(entity, (crate::ItemTriggers(item_tmpl.triggers.clone()),));
+    }
+
+    // Skill requirement
+    if let Some(req) = &item_tmpl.requires_skill {
+        let _ = world.insert(
+            entity,
+            (ItemSkillRequirement {
+                id: req.id.clone(),
+                level: req.level,
+            },),
+        );
     }
 
     // Apply affixes (names + modifiers)

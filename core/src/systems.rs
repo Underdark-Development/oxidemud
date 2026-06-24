@@ -5,5 +5,6 @@ pub mod loot;
 pub mod passive;
 pub mod regen;
 pub mod set_bonus;
+pub mod skill_gate;
 pub mod stance;
 pub mod trigger;

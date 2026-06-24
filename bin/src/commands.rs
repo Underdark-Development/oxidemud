@@ -1447,6 +1447,23 @@ pub fn cmd_wear(
         }
     };
 
+    // Check skill requirement before equipping
+    if let Some(req) = world
+        .query_one::<&core::ItemSkillRequirement>(item)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let has_skill = world
+            .query_one::<&core::LearnedSkills>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|s| s.rank(&req.id) >= req.level))
+            .unwrap_or(false);
+        if !has_skill {
+            conn.send_line("You lack the skill to use that.");
+            return;
+        }
+    }
+
     // Check if it's armor (has Armor component) or general wearable
     let has_armor = world
         .query_one::<&core::Armor>(item)
@@ -1522,6 +1539,23 @@ pub fn cmd_wield(
             return;
         }
     };
+
+    // Check skill requirement before equipping
+    if let Some(req) = world
+        .query_one::<&core::ItemSkillRequirement>(item)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        let has_skill = world
+            .query_one::<&core::LearnedSkills>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|s| s.rank(&req.id) >= req.level))
+            .unwrap_or(false);
+        if !has_skill {
+            conn.send_line("You lack the skill to use that.");
+            return;
+        }
+    }
 
     // Check if it's a weapon
     let has_weapon = world

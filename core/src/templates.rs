@@ -1049,8 +1049,17 @@ impl TemplateRegistry {
                 }
             }
 
-            // Skill requirement — validate once a master skill registry exists
-            if let Some(_req) = &item.requires_skill {}
+            // Skill requirement
+            if let Some(req) = &item.requires_skill {
+                if !self.skills.contains_key(&req.id) {
+                    errors.push(ValidationError {
+                        template_type: "item",
+                        template_id: id.clone(),
+                        field: "requires_skill.id".into(),
+                        message: format!("references unknown skill: {}", req.id),
+                    });
+                }
+            }
 
             // Allowed classes
             for class_id in &item.allowed_classes {

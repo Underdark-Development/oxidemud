@@ -107,6 +107,7 @@ pub fn spawn_game_loop(
                     {
                         let mut w = world.lock().await;
                         systems::corpse::run_corpse_pulse(&mut w);
+                        oxide_core::run_skill_gate_pulse(&mut w);
                         if let Some(ref db) = db {
                             if let Ok(db_guard) = db.try_lock() {
                                 save_online_players(&mut w, &db_guard, false);

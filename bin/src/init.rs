@@ -1,8 +1,8 @@
 use oxide_core::templates::{AreaTemplate, TemplateRegistry};
 use oxide_core::{
     AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
-    Health, Item, Level, Name, Npc, Position, Race, Room, RoomExits, SetMembership, ShortDesc,
-    Weapon, WeaponHands, WeaponRange, World,
+    Health, Item, ItemSkillRequirement, Level, Name, Npc, Position, Race, Room, RoomExits,
+    SetMembership, ShortDesc, Weapon, WeaponHands, WeaponRange, World,
 };
 use std::str::FromStr;
 
@@ -207,6 +207,19 @@ fn equip_mob_template_items(
         if !item_tpl.triggers.is_empty() {
             world
                 .insert(item, (oxide_core::ItemTriggers(item_tpl.triggers.clone()),))
+                .unwrap();
+        }
+
+        // Populate ItemSkillRequirement from template
+        if let Some(ref req) = item_tpl.requires_skill {
+            world
+                .insert(
+                    item,
+                    (ItemSkillRequirement {
+                        id: req.id.clone(),
+                        level: req.level,
+                    },),
+                )
                 .unwrap();
         }
 

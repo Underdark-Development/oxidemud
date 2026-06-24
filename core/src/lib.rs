@@ -18,6 +18,7 @@ pub use events::*;
 pub use prompt::PromptVars;
 pub use resources::*;
 pub use systems::ai::AiState;
+pub use systems::skill_gate::run_skill_gate_pulse;
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use util::entities_in_room;
 
