@@ -18,11 +18,53 @@ pub fn simulate_loot(
     registry: &TemplateRegistry,
     mob_id: &str,
     iterations: u32,
+    detailed: bool,
 ) -> Result<String, String> {
     let mob = registry
         .mobs
         .get(mob_id)
         .ok_or_else(|| format!("Mob template '{}' not found", mob_id))?;
+
+    if detailed {
+        let mut out = format!(
+            "### Detailed Loot Simulation for `{}` ({} Corpse rolls)\n\n",
+            mob_id, iterations
+        );
+        for i in 1..=iterations {
+            let spawns = roll_loot(&mob.loot, mob.level, registry);
+            out.push_str(&format!("*   **Corpse #{}**:\n", i));
+            if spawns.is_empty() {
+                out.push_str("    *   *(No loot drops)*\n");
+            } else {
+                for spawn in spawns {
+                    let name = registry
+                        .items
+                        .get(&spawn.template_id)
+                        .map(|item| item.name.as_str())
+                        .unwrap_or("Unknown Item");
+
+                    let affixes = if spawn.prefix_ids.is_empty() && spawn.suffix_ids.is_empty() {
+                        "None".to_string()
+                    } else {
+                        let mut parts = Vec::new();
+                        for p in &spawn.prefix_ids {
+                            parts.push(format!("prefix: {}", p));
+                        }
+                        for s in &spawn.suffix_ids {
+                            parts.push(format!("suffix: {}", s));
+                        }
+                        parts.join(", ")
+                    };
+
+                    out.push_str(&format!(
+                        "    *   `{}` ({}) x{} | Quality: `{:?}` | Affixes: `{}`\n",
+                        spawn.template_id, name, spawn.count, spawn.quality, affixes
+                    ));
+                }
+            }
+        }
+        return Ok(out);
+    }
 
     let mut drop_counts: HashMap<String, u32> = HashMap::new();
     let mut total_drops = 0;
@@ -982,9 +1024,12 @@ mod tests {
         };
         registry.mobs.insert("goblin".to_string(), mob);
 
-        let res = simulate_loot(&registry, "goblin", 10).unwrap();
+        let res = simulate_loot(&registry, "goblin", 10, false).unwrap();
         assert!(res.contains("Loot Simulation Results for `goblin`"));
         assert!(res.contains("Iterations (Corpses)"));
+
+        let res_det = simulate_loot(&registry, "goblin", 10, true).unwrap();
+        assert!(res_det.contains("Detailed Loot Simulation for `goblin`"));
     }
 
     #[test]

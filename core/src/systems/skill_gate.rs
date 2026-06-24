@@ -94,15 +94,14 @@ mod tests {
     }
 
     fn spawn_skill_required_item(world: &mut World, req_id: &str, req_level: u16) -> Entity {
-        let item = world.spawn((
+        world.spawn((
             Item::new("test_item"),
             Name::new("Test Item"),
             ItemSkillRequirement {
                 id: req_id.to_string(),
                 level: req_level,
             },
-        ));
-        item
+        ))
     }
 
     #[test]

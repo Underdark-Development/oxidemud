@@ -102,16 +102,16 @@ fn roll_quality(mob_level: u8) -> QualityTier {
 
     let (common, uncommon, rare, epic) = quality_thresholds(mob_level);
 
-    if roll < epic {
-        QualityTier::Legendary
-    } else if roll < rare {
-        QualityTier::Epic
-    } else if roll < uncommon {
-        QualityTier::Rare
-    } else if roll < common {
-        QualityTier::Uncommon
-    } else {
+    if roll < common {
         QualityTier::Common
+    } else if roll < uncommon {
+        QualityTier::Uncommon
+    } else if roll < rare {
+        QualityTier::Rare
+    } else if roll < epic {
+        QualityTier::Epic
+    } else {
+        QualityTier::Legendary
     }
 }
 
@@ -123,7 +123,7 @@ fn quality_thresholds(level: u8) -> (u64, u64, u64, u64) {
     let common = 8000u64.saturating_sub(l * 100).max(2000);
     let uncommon = common + 1500 + l * 50;
     let rare = uncommon + 300 + l * 30;
-    let epic = rare + 50 + l * 10;
+    let epic = rare + 150 + l * 15;
     (common, uncommon, rare, epic)
 }
 
@@ -170,8 +170,38 @@ fn roll_affixes(
         .filter(|a| a.affix_type == "suffix")
         .collect();
 
-    let prefix_ids = weighted_sample(&prefixes, count);
-    let suffix_ids = weighted_sample(&suffixes, count);
+    // Roll success for each of the `count` slots
+    let mut num_prefixes = 0;
+    let mut num_suffixes = 0;
+    for _ in 0..count {
+        if fastrand::bool() {
+            // 50% chance per affix slot to roll an affix
+            if fastrand::bool() {
+                // 50% prefix, 50% suffix
+                num_prefixes += 1;
+            } else {
+                num_suffixes += 1;
+            }
+        }
+    }
+
+    // Adjust if one pool is too small and the other can take more
+    let max_prefixes = prefixes.len();
+    let max_suffixes = suffixes.len();
+
+    if num_prefixes > max_prefixes {
+        let overflow = num_prefixes - max_prefixes;
+        num_prefixes = max_prefixes;
+        num_suffixes = (num_suffixes + overflow).min(max_suffixes);
+    }
+    if num_suffixes > max_suffixes {
+        let overflow = num_suffixes - max_suffixes;
+        num_suffixes = max_suffixes;
+        num_prefixes = (num_prefixes + overflow).min(max_prefixes);
+    }
+
+    let prefix_ids = weighted_sample(&prefixes, num_prefixes);
+    let suffix_ids = weighted_sample(&suffixes, num_suffixes);
 
     (prefix_ids, suffix_ids)
 }
@@ -436,10 +466,18 @@ mod tests {
     #[test]
     fn test_affix_slot_filter() {
         let templates = make_templates();
-        let (_prefixes, suffixes) = roll_affixes(QualityTier::Uncommon, "test_weapon", &templates);
-        // sharp has weight 2, of_frost has weight 1, but of_frost is a suffix
-        assert_eq!(suffixes.len(), 1);
-        assert!(suffixes.contains(&"of_frost".to_string()));
+        let mut found = false;
+        for _ in 0..100 {
+            let (_prefixes, suffixes) =
+                roll_affixes(QualityTier::Uncommon, "test_weapon", &templates);
+            if !suffixes.is_empty() {
+                assert_eq!(suffixes.len(), 1);
+                assert!(suffixes.contains(&"of_frost".to_string()));
+                found = true;
+                break;
+            }
+        }
+        assert!(found, "Should have eventually rolled a suffix");
     }
 
     #[test]

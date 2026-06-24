@@ -128,6 +128,10 @@ struct SimulateLootParams {
     mob_id: String,
     #[schemars(description = "Number of corpses to roll loot for (e.g. 1000)")]
     iterations: u32,
+    #[schemars(
+        description = "If true, returns detailed per-corpse loot drops including quality and affixes"
+    )]
+    detailed: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1048,7 +1052,12 @@ impl OxideMcpServer {
     fn simulate_loot(&self, params: Parameters<SimulateLootParams>) -> String {
         let p = params.0;
         let (registry, _) = self.load();
-        match simulator::simulate_loot(&registry, &p.mob_id, p.iterations) {
+        match simulator::simulate_loot(
+            &registry,
+            &p.mob_id,
+            p.iterations,
+            p.detailed.unwrap_or(false),
+        ) {
             Ok(result) => result,
             Err(e) => format!("Error simulating loot: {e}"),
         }

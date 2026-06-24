@@ -36,7 +36,7 @@ slot = "weapon"
 
 [[loot.entries]]
 item = "copper_coin"
-chance = 5
+chance = 90
 
 [loot.entries.count]
 min = 2
@@ -44,8 +44,8 @@ max = 5
 
 [[loot.entries]]
 item = "healing_salve"
-chance = 10
+chance = 22
 
 [[loot.entries]]
 item = "wooden_cudgel"
-chance = 20
+chance = 18
