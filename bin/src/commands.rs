@@ -1368,10 +1368,43 @@ fn find_item_in_inventory(
 }
 
 /// Re-evaluate set bonuses for an entity after equipment changes.
-fn evaluate_equipment_sets(world: &mut World, entity: core::Entity) {
+/// Returns a message to send to the player (if any).
+fn evaluate_equipment_sets(world: &mut World, entity: core::Entity) -> Option<String> {
     if let Some(templates) = oxide_server::get_templates() {
         let set_defs: HashMap<String, SetDef> = templates.sets.clone();
-        core::systems::set_bonus::evaluate_set_bonuses(world, entity, &set_defs);
+        let changes = core::systems::set_bonus::evaluate_set_bonuses(world, entity, &set_defs);
+        if changes.is_empty() {
+            return None;
+        }
+        let mut msgs: Vec<String> = Vec::new();
+        for change in &changes {
+            if change.new_count > change.old_count {
+                let tier_str = change
+                    .active_tiers
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if tier_str.is_empty() {
+                    msgs.push(format!(
+                        "Your {} pieces now number {}.",
+                        change.set_name, change.new_count
+                    ));
+                } else {
+                    msgs.push(format!(
+                        "Your {} set grants tier bonuses at {} piece(s)!",
+                        change.set_name, tier_str
+                    ));
+                }
+            }
+        }
+        if msgs.is_empty() {
+            None
+        } else {
+            Some(msgs.join(" "))
+        }
+    } else {
+        None
     }
 }
 
@@ -1441,7 +1474,9 @@ pub fn cmd_wear(
         }
     }
 
-    evaluate_equipment_sets(world, entity);
+    if let Some(msg) = evaluate_equipment_sets(world, entity) {
+        conn.send_line(&msg);
+    }
 }
 
 pub fn cmd_wield(
@@ -1504,7 +1539,9 @@ pub fn cmd_wield(
         }
     }
 
-    evaluate_equipment_sets(world, entity);
+    if let Some(msg) = evaluate_equipment_sets(world, entity) {
+        conn.send_line(&msg);
+    }
 }
 
 pub fn cmd_remove(
@@ -1551,7 +1588,9 @@ pub fn cmd_remove(
         }
     }
 
-    evaluate_equipment_sets(world, entity);
+    if let Some(msg) = evaluate_equipment_sets(world, entity) {
+        conn.send_line(&msg);
+    }
 }
 
 pub fn cmd_examine(

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use crate::dice::DiceRoll;
+use crate::templates;
 use crate::DamageType;
 use crate::Entity;
 
@@ -188,6 +189,15 @@ impl Durability {
 pub struct SetMembership {
     pub set_id: String,
     pub piece_type: String,
+}
+
+impl From<templates::SetMembership> for SetMembership {
+    fn from(t: templates::SetMembership) -> Self {
+        SetMembership {
+            set_id: t.id,
+            piece_type: t.piece_type,
+        }
+    }
 }
 
 /// Tracks how many equipped pieces of each set the entity has.

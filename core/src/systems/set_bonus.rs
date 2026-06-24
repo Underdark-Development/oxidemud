@@ -3,17 +3,32 @@ use std::collections::HashMap;
 use crate::templates::SetDef;
 use crate::{ActiveEffect, Entity, Equipment, SetMembership, SetTracker, World};
 
+/// Describes a change in set bonus state for an entity.
+#[derive(Debug, Clone)]
+pub struct SetBonusChange {
+    pub set_id: String,
+    pub set_name: String,
+    pub old_count: u8,
+    pub new_count: u8,
+    pub active_tiers: Vec<u8>,
+}
+
 /// Evaluate item set bonuses for an entity.
 /// Scans equipped items, counts set pieces, updates SetTracker,
 /// and applies/removes ActiveEffect components based on set bonus thresholds.
-pub fn evaluate_set_bonuses(world: &mut World, entity: Entity, set_defs: &HashMap<String, SetDef>) {
+/// Returns a list of set bonus changes (empty if nothing changed).
+pub fn evaluate_set_bonuses(
+    world: &mut World,
+    entity: Entity,
+    set_defs: &HashMap<String, SetDef>,
+) -> Vec<SetBonusChange> {
     let equipment = match world.query_one::<&Equipment>(entity) {
         Ok(mut q) => q.get().cloned(),
         Err(_) => None,
     };
 
     let Some(equipment) = equipment else {
-        return;
+        return vec![];
     };
 
     // Count equipped pieces by set_id
@@ -80,8 +95,8 @@ pub fn evaluate_set_bonuses(world: &mut World, entity: Entity, set_defs: &HashMa
     merged.extend(active_bonuses);
     let _ = world.insert(entity, (merged,));
 
-    // Emit set bonus changed events for any changes
-    // (events are consumed by systems that check them directly)
+    // Collect set bonus changes (for callers to react to)
+    let mut changes: Vec<SetBonusChange> = Vec::new();
     let old_counts = &old_tracker.0;
     for (set_id, new_count) in &counts {
         let old_count = old_counts.get(set_id).copied().unwrap_or(0);
@@ -96,13 +111,20 @@ pub fn evaluate_set_bonuses(world: &mut World, entity: Entity, set_defs: &HashMa
                         .collect()
                 })
                 .unwrap_or_default();
-            let _event = crate::GameEvent::SetBonusChanged {
-                player: entity,
+            let set_name = set_defs
+                .get(set_id)
+                .map(|d| d.name.clone())
+                .unwrap_or_default();
+            changes.push(SetBonusChange {
                 set_id: set_id.clone(),
+                set_name,
+                old_count,
+                new_count: *new_count,
                 active_tiers,
-            };
+            });
         }
     }
+    changes
 }
 
 /// Re-evaluate set bonuses for all entities that have Equipment.

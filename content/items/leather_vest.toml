@@ -14,3 +14,7 @@ value = 15
 
 [equipment]
 slot = "torso"
+
+[set]
+id = "leather_set"
+piece_type = "torso"

@@ -1,0 +1,6 @@
+id = "leather_set"
+name = "Leather"
+
+[[bonuses]]
+min_pieces = 1
+effects = [{ effect_type = "stat", stat = "armor", amount = 1 }]

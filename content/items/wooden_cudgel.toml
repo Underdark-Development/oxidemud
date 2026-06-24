@@ -9,7 +9,7 @@ value = 5
 
 # level_requirement = 1
 # gates = { allowed_classes = ["warrior"], allowed_races = ["human", "orc"], requires_skill = "simple_weapons" }
-# triggers = [{ event = "on_hit", chance = 5, skill = "stunning_blow", target = "attacker" }]
+triggers = [{ event = "on_hit", chance = 5, cast = "stunning_blow", target = "attacker" }]
 # durability = { current = 10, max = 10, decay_rate = 0.1 }
 
 [weapon]

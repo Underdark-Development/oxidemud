@@ -1,8 +1,8 @@
 use oxide_core::templates::{AreaTemplate, TemplateRegistry};
 use oxide_core::{
     AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
-    Health, Item, Level, Name, Npc, Position, Race, Room, RoomExits, ShortDesc, Weapon,
-    WeaponHands, WeaponRange, World,
+    Health, Item, Level, Name, Npc, Position, Race, Room, RoomExits, SetMembership, ShortDesc,
+    Weapon, WeaponHands, WeaponRange, World,
 };
 use std::str::FromStr;
 
@@ -188,6 +188,12 @@ fn equip_mob_template_items(
             ) {
                 world.insert(item, (weapon,)).unwrap();
             }
+        }
+
+        // Populate SetMembership from template
+        if let Some(ref set) = item_tpl.set {
+            let membership = SetMembership::from(set.clone());
+            world.insert(item, (membership,)).unwrap();
         }
 
         let slot = EquipmentSlot::from_str(&entry.slot).ok().or_else(|| {
