@@ -68,7 +68,6 @@ pub fn run_ai_pulse(world: &mut World) {
                 from: old_state.clone(),
                 to: new_state.clone(),
             };
-            tracing::info!("ai_state entity={entity:?}: {old_state:?} -> {new_state:?}");
             let _ = world.insert(entity, (new_state,));
         }
     }
