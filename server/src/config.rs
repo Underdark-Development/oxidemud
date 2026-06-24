@@ -127,7 +127,10 @@ mod tests {
     #[test]
     fn test_pruning_old_logs() {
         let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("oxide_server_log_test_unit_prune.log");
+        let path = temp_dir.join(format!(
+            "oxide_server_log_test_unit_prune_{}.log",
+            fastrand::u64(..)
+        ));
 
         // Ensure clean state
         let _ = std::fs::remove_file(&path);

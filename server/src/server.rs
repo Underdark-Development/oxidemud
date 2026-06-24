@@ -329,6 +329,9 @@ async fn handle_connection(
                         if let Some(ref cb) = on_entity_spawned {
                             cb(&mut w, &mut conn, &reg);
                         }
+                        if let Some(entity) = login_flow.entity() {
+                            crate::prompt::send_player_prompt(&w, entity, &reg);
+                        }
                     }
 
                     if login_flow.take_disconnect() {

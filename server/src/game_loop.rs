@@ -46,15 +46,15 @@ pub fn spawn_game_loop(
                     let outcomes = systems::combat::run_combat_pulse(&mut w);
 
                     // Collect involved players before consuming outcomes
-                    let involved_players: Vec<Entity> = outcomes
-                        .iter()
-                        .flat_map(|o| {
-                            let mut v = Vec::new();
-                            if o.attacker_is_player { v.push(o.attacker); }
-                            if o.target_is_player { v.push(o.target); }
-                            v
-                        })
-                        .collect();
+                    let mut involved_players: Vec<Entity> = Vec::new();
+                    for o in &outcomes {
+                        if o.attacker_is_player && !involved_players.contains(&o.attacker) {
+                            involved_players.push(o.attacker);
+                        }
+                        if o.target_is_player && !involved_players.contains(&o.target) {
+                            involved_players.push(o.target);
+                        }
+                    }
 
                     // Level-up check for kills
                     for outcome in &outcomes {
