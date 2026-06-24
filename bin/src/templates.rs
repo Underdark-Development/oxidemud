@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use mud_core::templates::TemplateRegistry;
+use oxide_core::templates::TemplateRegistry;
 
 pub fn load_templates(content_path: &Path) -> TemplateRegistry {
-    let (registry, _) = mud_core::content::load_registry(content_path);
+    let (registry, _) = oxide_core::content::load_registry(content_path);
     registry
 }
 

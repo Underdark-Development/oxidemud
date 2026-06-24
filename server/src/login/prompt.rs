@@ -1,7 +1,7 @@
 use tokio::sync::Mutex;
 
-use mud_core::templates::{DeityPolicy, TemplateRegistry};
-use mud_core::{Alignment, Name, World};
+use oxide_core::templates::{DeityPolicy, TemplateRegistry};
+use oxide_core::{Alignment, Name, World};
 
 use crate::registry::ConnectionRegistry;
 
@@ -25,7 +25,7 @@ const STAT_NAMES: [&str; 6] = [
 /// return the character-selection screen as a vector of output lines.
 pub async fn go_to_character_select(
     flow: &mut LoginFlow,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
@@ -68,7 +68,7 @@ pub async fn go_to_character_select(
         }
     };
 
-    let chars = match mud_data::get_characters_by_account(db_guard.conn(), account_id) {
+    let chars = match oxide_data::get_characters_by_account(db_guard.conn(), account_id) {
         Ok(c) => c,
         Err(e) => {
             lines.push(format!("DB error: {e}"));
@@ -124,7 +124,7 @@ pub fn show_character_race_prompt(
 
     lines.push(String::new());
     lines.push("--- Choose a Race ---".to_string());
-    let mut races: Vec<(&str, &mud_core::templates::RaceTemplate)> = templates
+    let mut races: Vec<(&str, &oxide_core::templates::RaceTemplate)> = templates
         .races
         .iter()
         .map(|(k, v)| (k.as_str(), v))
@@ -556,8 +556,8 @@ pub fn show_character_confirm(flow: &mut LoginFlow, templates: &TemplateRegistry
     let class_name = class.as_ref().map(|c| c.name.as_str()).unwrap_or("?");
 
     // Compute final attributes
-    let default_attrs = mud_core::templates::RaceAttributes::default();
-    let default_mods = mud_core::templates::ClassAttributeMods::default();
+    let default_attrs = oxide_core::templates::RaceAttributes::default();
+    let default_mods = oxide_core::templates::ClassAttributeMods::default();
     let race_attrs = race
         .as_ref()
         .map(|r| &r.attributes)
@@ -591,7 +591,7 @@ pub fn show_character_confirm(flow: &mut LoginFlow, templates: &TemplateRegistry
         - 8)
     .clamp(3, 50) as u8;
 
-    let default_wallet = mud_core::templates::WalletAmount::default();
+    let default_wallet = oxide_core::templates::WalletAmount::default();
     let wallet = class
         .as_ref()
         .map(|c| &c.starting_gold)

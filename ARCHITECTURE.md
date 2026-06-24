@@ -1,8 +1,8 @@
-# Architecture — MUD Game Engine
+# Architecture — OxideMUD Engine
 
 ## Overview
 
-A modern DIKU-style MUD engine written in Rust. Event-driven, ECS-based, terminal-first with extensible protocol support.
+OxideMUD is a modern DIKU-style MUD engine written in Rust. Event-driven, ECS-based, terminal-first with extensible protocol support.
 
 **Stack:** Rust + Tokio + hecs (ECS) + rusqlite + Rhai (scripting)
 
@@ -869,7 +869,7 @@ Each area has a reset interval. On reset: respawn dead mobs, re-equip NPCs, rese
 
 ## Configuration
 
-`mud.toml` (override with `--config` flag or `MUD_CONTENT` env var). Sections: server (host, port, max_players), database (path), game (name, motd, start_room, max_level, content_dir), combat, training, multi_classing, item_sets, logging.
+`server.toml` (override with `--config` flag or `OXIDE_CONTENT` env var). Sections: server (host, port, max_players), database (path), game (name, motd, start_room, max_level, content_dir), combat, training, multi_classing, item_sets, logging.
 
 **Precedence:** CLI flags > env vars > config file > built-in defaults. Runtime overrides via `config` command, persisted to SQLite. Server section changes require restart.
 

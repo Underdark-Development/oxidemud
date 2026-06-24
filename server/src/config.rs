@@ -58,7 +58,7 @@ pub fn init(path: &Path) {
 
     let config: ServerConfig = if content.is_empty() {
         ServerConfig {
-            server_name: "Mud".to_string(),
+            server_name: "Oxide MUD".to_string(),
             max_clients: 256,
             default_prompt: default_prompt(),
             logging: LoggingConfig::default(),
@@ -70,7 +70,7 @@ pub fn init(path: &Path) {
                 path.display()
             );
             ServerConfig {
-                server_name: "Mud".to_string(),
+                server_name: "Oxide MUD".to_string(),
                 max_clients: 256,
                 default_prompt: default_prompt(),
                 logging: LoggingConfig::default(),
@@ -100,7 +100,7 @@ pub fn prune_old_logs(retention_days: u32) {
         let path = entry.path();
         if path.is_file() {
             if let Some(filename) = path.file_name().and_then(|f| f.to_str()) {
-                if (filename.starts_with("mud_server_log_") || filename.starts_with("oxidemud_"))
+                if (filename.starts_with("oxide_server_log_") || filename.starts_with("oxidemud_"))
                     && filename.ends_with(".log")
                 {
                     if let Ok(metadata) = entry.metadata() {
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn test_pruning_old_logs() {
         let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join("mud_server_log_test_unit_prune.log");
+        let path = temp_dir.join("oxide_server_log_test_unit_prune.log");
 
         // Ensure clean state
         let _ = std::fs::remove_file(&path);

@@ -1,4 +1,4 @@
-use mud_core::templates::ResetInterval;
+use oxide_core::templates::ResetInterval;
 
 use crate::components::Table;
 use crate::screens::entity_inspector::EntityInspectorScreen;

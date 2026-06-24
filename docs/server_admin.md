@@ -9,7 +9,7 @@ This guide is intended for server administrators, systems engineers, and game ow
 The server binary is compile-run via Cargo or executed directly from target release builds:
 
 ```bash
-cargo run --bin mud_server [options]
+cargo run --bin oxide-bin [options]
 ```
 
 ### CLI Command Options
@@ -20,14 +20,14 @@ You can customize the server behavior at launch using the following command-line
 | :--- | :--- | :--- | :--- |
 | `--host <IP>` | `-h` | `127.0.0.1` | The bind IP address for the game listener. |
 | `--port <port>` | `-p` | `4000` | The bind TCP port. |
-| `--db-path <path>`| `-d` | `data/mud.db` | Path to the SQLite persistence database. |
+| `--db-path <path>`| `-d` | `data/oxide.db` | Path to the SQLite persistence database. |
 | `--motd-path <path>`| `-m`| `content/motd.txt`| Path to the Message of the Day file. |
 | `--config-path <path>`| `-c`| `content/server.toml`| Path to the server configuration file. |
 
 #### Precedence Order
 Startup configuration parameters are applied in the following order of precedence (highest to lowest):
 1. **Command Line Flags** (e.g., `--port 4001`)
-2. **Environment Variables** (e.g., `MUD_CONTENT`)
+2. **Environment Variables** (e.g., `OXIDE_CONTENT`)
 3. **Configuration File** (`content/server.toml`)
 4. **Built-in Defaults**
 
@@ -119,7 +119,7 @@ The server will:
 
 ### Server Logs
 Server logs are written to both standard output (`stdout`) and rotating files in the system's temporary directory (e.g., `/tmp` or OS-specific equivalent).
-- Log file names follow the format: `mud_server_log_YYYYMMDD_HHMMSS.log`.
+- Log file names follow the format: `oxide_server_log_YYYYMMDD_HHMMSS.log`.
 - Log rotation is triggered based on the `logging.rotation` setting (e.g., daily).
 - Expired logs exceeding the `logging.retention_days` threshold are pruned on startup.
 

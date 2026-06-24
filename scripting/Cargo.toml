@@ -1,10 +1,10 @@
 [package]
-name = "mud-scripting"
+name = "oxide-scripting"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-mud-core = { path = "../core" }
+oxide-core = { path = "../core" }
 rhai = "1.19"

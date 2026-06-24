@@ -7,7 +7,7 @@ mod templates;
 
 use config::Config;
 use init::{init_world, spawn_area};
-use mud_server::{AccessLevel, Server};
+use oxide_server::{AccessLevel, Server};
 use std::path::Path;
 
 const HELP_LOOK: &str = r#"Examine your surroundings, a specific target, or a direction.
@@ -93,13 +93,13 @@ Example:
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
-    mud_server::config::init(
+    oxide_server::config::init(
         config
             .config_path
             .as_deref()
             .unwrap_or(Path::new("content/server.toml")),
     );
-    mud_server::load_motd(config.motd_path.as_deref());
+    oxide_server::load_motd(config.motd_path.as_deref());
 
     // Initialize custom rolling file logging + stdout
     let rolling_writer = std::sync::Arc::new(std::sync::Mutex::new(RollingFileWriter::new()?));
@@ -120,8 +120,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Initial prune of old logs
-    let retention_days = mud_server::config::get().logging.retention_days;
-    mud_server::config::prune_old_logs(retention_days);
+    let retention_days = oxide_server::config::get().logging.retention_days;
+    oxide_server::config::prune_old_logs(retention_days);
 
     let log_path = rolling_writer.lock().unwrap().current_path.clone();
     tracing::info!(
@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_path.display()
     );
 
-    let db = mud_data::Database::open(&config.db_path).unwrap_or_else(|e| {
+    let db = oxide_data::Database::open(&config.db_path).unwrap_or_else(|e| {
         panic!(
             "Failed to open database at {}: {e}",
             config.db_path.display()
@@ -547,7 +547,7 @@ impl RollingFileWriter {
         let temp_dir = std::env::temp_dir();
         let now = chrono::Local::now();
         let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
-        let filename = format!("mud_server_log_{}.log", timestamp);
+        let filename = format!("oxide_server_log_{}.log", timestamp);
         let path = temp_dir.join(filename);
         let file = std::fs::File::create(&path)?;
         Ok(Self {
@@ -565,7 +565,7 @@ impl RollingFileWriter {
         let day = now.day();
         if day != self.current_day {
             let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
-            let filename = format!("mud_server_log_{}.log", timestamp);
+            let filename = format!("oxide_server_log_{}.log", timestamp);
             let path = self.temp_dir.join(filename);
             self.file = std::fs::File::create(&path)?;
             self.current_path = path;

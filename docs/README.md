@@ -1,6 +1,6 @@
 # OxideMUD Game Engine Documentation
 
-Welcome to the documentation for the MUD Game Engine. This directory contains comprehensive manuals and reference guides tailored to the different roles and responsibilities involved in running, building, and customizing the MUD world.
+Welcome to the documentation for the OxideMUD Engine. This directory contains comprehensive manuals and reference guides tailored to the different roles and responsibilities involved in running, building, and customizing the MUD world.
 
 ## Documentation Directory Map
 

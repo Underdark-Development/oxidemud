@@ -1,4 +1,4 @@
-use mud_core::{prompt, Entity, Player, World};
+use oxide_core::{prompt, Entity, Player, World};
 
 use crate::config;
 use crate::registry::ConnectionRegistry;

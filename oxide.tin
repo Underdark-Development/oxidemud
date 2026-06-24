@@ -1,4 +1,4 @@
-#alias {reconnect} {#session mud localhost 4000}
+#alias {reconnect} {#session oxide localhost 4000}
 
 #event {SESSION CONNECTED} {
     #nop Connected to server.
@@ -8,8 +8,8 @@
     #say {Connection lost. Type "reconnect" to resume.}
 }
 
-#session mud localhost 4000
-#config {char subtitle} {MUD Engine}
+#session oxide localhost 4000
+#config {char subtitle} {Oxide MUD}
 #config {auto wrap} {off}
 #config {history lines} {500}
 

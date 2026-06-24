@@ -8,8 +8,8 @@ pub use prompt::list_who;
 
 use tokio::sync::Mutex;
 
-use mud_core::templates::TemplateRegistry;
-use mud_core::{Entity, World};
+use oxide_core::templates::TemplateRegistry;
+use oxide_core::{Entity, World};
 
 use crate::registry::ConnectionRegistry;
 
@@ -25,7 +25,7 @@ pub struct CharacterCreateBuffer {
     pub pronoun_possessive: Option<String>,
     pub password: Option<String>,
     pub spawn_key: Option<String>,
-    pub attributes: Option<mud_core::Attributes>,
+    pub attributes: Option<oxide_core::Attributes>,
     pub alignment: Option<String>,
     pub deity: Option<String>,
     pub appearance_height: Option<u8>,
@@ -139,7 +139,7 @@ impl LoginFlow {
     pub async fn handle_input(
         &mut self,
         input: &str,
-        db: Option<&Mutex<mud_data::Database>>,
+        db: Option<&Mutex<oxide_data::Database>>,
         templates: Option<&TemplateRegistry>,
         world: &mut World,
         registry: &mut ConnectionRegistry,
@@ -255,7 +255,7 @@ impl LoginFlow {
     /// Callers should send these after handling input and before the next read.
     pub async fn show_state_prompt(
         &mut self,
-        db: Option<&Mutex<mud_data::Database>>,
+        db: Option<&Mutex<oxide_data::Database>>,
         templates: Option<&TemplateRegistry>,
     ) -> Vec<String> {
         match &self.state {

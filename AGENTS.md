@@ -1,4 +1,4 @@
-# MUD Game Engine — Agent Guide
+# OxideMUD Engine — Agent Guide
 
 ## Project state
 

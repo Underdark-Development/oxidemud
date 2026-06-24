@@ -6,7 +6,7 @@ use tokio::sync::watch;
 /// Run the server console — reads commands from stdin and dispatches them.
 pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
     // Wait until the server is fully initialized
-    while mud_server::get_world().is_none() || mud_server::get_db().is_none() {
+    while oxide_server::get_world().is_none() || oxide_server::get_db().is_none() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
@@ -105,7 +105,7 @@ async fn cmd_broadcast(message: &str) {
         println!("Usage: broadcast <message>");
         return;
     }
-    let count = mud_server::console_broadcast(message).await;
+    let count = oxide_server::console_broadcast(message).await;
     if count == 0 {
         println!("No players connected.");
     } else {
@@ -180,7 +180,7 @@ async fn cmd_account(reader: &mut BufReader<tokio::io::Stdin>, args: &str) {
 }
 
 async fn cmd_account_info(username: &str) {
-    let db = match mud_server::get_db() {
+    let db = match oxide_server::get_db() {
         Some(d) => d,
         None => {
             println!("Database not available.");
@@ -189,7 +189,7 @@ async fn cmd_account_info(username: &str) {
     };
 
     let conn = db.lock().await;
-    let account = match mud_data::get_account_by_username(conn.conn(), username) {
+    let account = match oxide_data::get_account_by_username(conn.conn(), username) {
         Ok(Some(a)) => a,
         Ok(None) => {
             println!("Account '{username}' not found.");
@@ -213,7 +213,7 @@ async fn cmd_account_info(username: &str) {
 }
 
 async fn cmd_account_set_access(username: &str, level: &str) {
-    let db = match mud_server::get_db() {
+    let db = match oxide_server::get_db() {
         Some(d) => d,
         None => {
             println!("Database not available.");
@@ -228,7 +228,7 @@ async fn cmd_account_set_access(username: &str, level: &str) {
     }
 
     let conn = db.lock().await;
-    let account = match mud_data::get_account_by_username(conn.conn(), username) {
+    let account = match oxide_data::get_account_by_username(conn.conn(), username) {
         Ok(Some(a)) => a,
         Ok(None) => {
             println!("Account '{username}' not found.");
@@ -240,7 +240,7 @@ async fn cmd_account_set_access(username: &str, level: &str) {
         }
     };
 
-    match mud_data::set_account_access_level(conn.conn(), account.id, level) {
+    match oxide_data::set_account_access_level(conn.conn(), account.id, level) {
         Ok(()) => {
             tracing::warn!(
                 target: "audit",
@@ -256,7 +256,7 @@ async fn cmd_account_set_access(username: &str, level: &str) {
 }
 
 async fn cmd_account_set_password(reader: &mut BufReader<tokio::io::Stdin>, username: &str) {
-    let db = match mud_server::get_db() {
+    let db = match oxide_server::get_db() {
         Some(d) => d,
         None => {
             println!("Database not available.");
@@ -265,7 +265,7 @@ async fn cmd_account_set_password(reader: &mut BufReader<tokio::io::Stdin>, user
     };
 
     let conn = db.lock().await;
-    let account = match mud_data::get_account_by_username(conn.conn(), username) {
+    let account = match oxide_data::get_account_by_username(conn.conn(), username) {
         Ok(Some(a)) => a,
         Ok(None) => {
             println!("Account '{username}' not found.");
@@ -292,7 +292,7 @@ async fn cmd_account_set_password(reader: &mut BufReader<tokio::io::Stdin>, user
         return;
     }
 
-    let hash = match mud_data::hash_password(password) {
+    let hash = match oxide_data::hash_password(password) {
         Ok(h) => h,
         Err(e) => {
             println!("Password hashing error: {e}");
@@ -301,7 +301,7 @@ async fn cmd_account_set_password(reader: &mut BufReader<tokio::io::Stdin>, user
     };
 
     let conn = db.lock().await;
-    match mud_data::set_account_password_hash(conn.conn(), account.id, &hash) {
+    match oxide_data::set_account_password_hash(conn.conn(), account.id, &hash) {
         Ok(()) => {
             tracing::warn!(
                 target: "audit",
@@ -343,7 +343,7 @@ async fn cmd_character(reader: &mut BufReader<tokio::io::Stdin>, args: &str) {
 }
 
 async fn cmd_character_set(char_name: &str, field: &str, value: &str) {
-    let db = match mud_server::get_db() {
+    let db = match oxide_server::get_db() {
         Some(d) => d,
         None => {
             println!("Database not available.");
@@ -354,7 +354,7 @@ async fn cmd_character_set(char_name: &str, field: &str, value: &str) {
     let db_field = if field == "xp" { "experience" } else { field };
 
     let conn = db.lock().await;
-    let character = match mud_data::get_character_by_name(conn.conn(), char_name) {
+    let character = match oxide_data::get_character_by_name(conn.conn(), char_name) {
         Ok(Some(c)) => c,
         Ok(None) => {
             println!("Character '{char_name}' not found.");
@@ -366,7 +366,7 @@ async fn cmd_character_set(char_name: &str, field: &str, value: &str) {
         }
     };
 
-    match mud_data::set_character_field(conn.conn(), character.id, db_field, value) {
+    match oxide_data::set_character_field(conn.conn(), character.id, db_field, value) {
         Ok(()) => {
             tracing::warn!(
                 target: "audit",

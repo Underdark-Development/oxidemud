@@ -19,15 +19,15 @@ use crate::login::{LoginFlow, LoginState};
 use crate::registry::ConnectionRegistry;
 use crate::telnet::codec::TelnetReader;
 use crate::telnet::INITIAL_NEGOTIATION;
-use mud_core::templates::TemplateRegistry;
-use mud_core::{
+use oxide_core::templates::TemplateRegistry;
+use oxide_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
     LearnedSkills, Level, Name, Player, Position, PracticePoints, Room, SpawnKey, Wallet, World,
 };
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
 static MOTD: OnceLock<String> = OnceLock::new();
-pub(crate) static DB: OnceLock<Arc<Mutex<mud_data::Database>>> = OnceLock::new();
+pub(crate) static DB: OnceLock<Arc<Mutex<oxide_data::Database>>> = OnceLock::new();
 pub(crate) static TEMPLATES: OnceLock<Arc<TemplateRegistry>> = OnceLock::new();
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
 pub(crate) static REGISTRY: OnceLock<Arc<Mutex<ConnectionRegistry>>> = OnceLock::new();
@@ -44,7 +44,7 @@ pub struct Server {
     next_conn_id: AtomicU64,
     void_room: Entity,
     spawn_room: Entity,
-    db: Option<Arc<Mutex<mud_data::Database>>>,
+    db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     shutdown_complete: Arc<Notify>,
     on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
@@ -80,7 +80,7 @@ impl Server {
         self
     }
 
-    pub fn with_database(mut self, db: mud_data::Database) -> Self {
+    pub fn with_database(mut self, db: oxide_data::Database) -> Self {
         let db = Arc::new(Mutex::new(db));
         let _ = DB.set(db.clone());
         self.db = Some(db);
@@ -201,7 +201,7 @@ async fn handle_connection(
     commands: Arc<CommandDispatch>,
     void_room: Entity,
     spawn_room: Entity,
-    db: Option<Arc<Mutex<mud_data::Database>>>,
+    db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
 ) {
@@ -379,11 +379,11 @@ async fn handle_connection(
                     .ok()
                     .and_then(|mut q| q.get().cloned());
                 let mana = w
-                    .query_one::<&mud_core::Mana>(entity)
+                    .query_one::<&oxide_core::Mana>(entity)
                     .ok()
                     .and_then(|mut q| q.get().cloned());
                 let stamina = w
-                    .query_one::<&mud_core::Stamina>(entity)
+                    .query_one::<&oxide_core::Stamina>(entity)
                     .ok()
                     .and_then(|mut q| q.get().cloned());
                 let position = w
@@ -449,7 +449,7 @@ async fn handle_connection(
                     if let Some(inv) = q.get() {
                         for &item_entity in &inv.0 {
                             if let Ok(mut item_q) =
-                                w.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+                                w.query_one::<(&oxide_core::Item, Option<&DbId>)>(item_entity)
                             {
                                 if let Some((item, opt_db_id)) = item_q.get() {
                                     inventory_items
@@ -465,7 +465,7 @@ async fn handle_connection(
                     if let Some(eq) = q.get() {
                         for &(slot, item_entity) in &eq.slots {
                             if let Ok(mut item_q) =
-                                w.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+                                w.query_one::<(&oxide_core::Item, Option<&DbId>)>(item_entity)
                             {
                                 if let Some((item, opt_db_id)) = item_q.get() {
                                     equipment_items.push((
@@ -536,11 +536,11 @@ async fn handle_connection(
                 // If room has no DB record yet, insert it now
                 if room_db_id.is_none() {
                     if let Some(_re) = room_entity {
-                        if let Ok(rid) = mud_data::insert_entity(conn_db, "room") {
+                        if let Ok(rid) = oxide_data::insert_entity(conn_db, "room") {
                             room_db_id = Some(rid);
                             new_rid = Some(rid);
                             if let Some((name, desc, spawn_key)) = &room_info {
-                                let _ = mud_data::save_room_component(
+                                let _ = oxide_data::save_room_component(
                                     conn_db,
                                     rid,
                                     name,
@@ -554,9 +554,9 @@ async fn handle_connection(
 
                 // Save Level & XP
                 if let Some(level) = level {
-                    let _ = mud_data::save_level_component(conn_db, db_id.0, level.0 as i64);
+                    let _ = oxide_data::save_level_component(conn_db, db_id.0, level.0 as i64);
                     let xp_val = xp.map(|x| x.0).unwrap_or(0);
-                    let _ = mud_data::update_character_level(
+                    let _ = oxide_data::update_character_level(
                         conn_db,
                         db_id.0,
                         level.0.into(),
@@ -564,11 +564,11 @@ async fn handle_connection(
                     );
                 }
                 if let Some(xp) = xp {
-                    let _ = mud_data::save_experience_component(conn_db, db_id.0, xp.0 as i64);
+                    let _ = oxide_data::save_experience_component(conn_db, db_id.0, xp.0 as i64);
                 }
                 // Save Health
                 if let Some(health) = health {
-                    let _ = mud_data::save_health_component(
+                    let _ = oxide_data::save_health_component(
                         conn_db,
                         db_id.0,
                         health.current,
@@ -577,16 +577,19 @@ async fn handle_connection(
                 }
                 // Save Mana
                 if let Some(mana) = mana {
-                    let _ = mud_data::save_mana_component(conn_db, db_id.0, mana.current as i32);
+                    let _ = oxide_data::save_mana_component(conn_db, db_id.0, mana.current as i32);
                 }
                 // Save Stamina
                 if let Some(stamina) = stamina {
-                    let _ =
-                        mud_data::save_stamina_component(conn_db, db_id.0, stamina.current as i32);
+                    let _ = oxide_data::save_stamina_component(
+                        conn_db,
+                        db_id.0,
+                        stamina.current as i32,
+                    );
                 }
                 // Save Wallet
                 if let Some(wallet) = wallet {
-                    let _ = mud_data::save_golds_component(
+                    let _ = oxide_data::save_golds_component(
                         conn_db,
                         db_id.0,
                         wallet.copper as i64,
@@ -597,19 +600,19 @@ async fn handle_connection(
                 }
                 // Save LearnedSkills
                 if let Some(skills) = skills {
-                    if let Err(e) = mud_data::save_skills(conn_db, db_id.0, &skills.skills) {
+                    if let Err(e) = oxide_data::save_skills(conn_db, db_id.0, &skills.skills) {
                         tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save skills");
                     }
                 }
 
                 // Save PracticePoints
                 if let Some(pp) = practice_points {
-                    let _ = mud_data::save_practice_points(conn_db, db_id.0, pp.0 as i64);
+                    let _ = oxide_data::save_practice_points(conn_db, db_id.0, pp.0 as i64);
                 }
 
                 // Save Player component
                 if let Some(ref player_comp) = player_comp {
-                    if let Err(e) = mud_data::save_player_component(
+                    if let Err(e) = oxide_data::save_player_component(
                         conn_db,
                         db_id.0,
                         player_comp.account_id,
@@ -619,7 +622,7 @@ async fn handle_connection(
                         tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save player component");
                     } else {
                         // Readback verify
-                        match mud_data::load_player_component(conn_db, db_id.0) {
+                        match oxide_data::load_player_component(conn_db, db_id.0) {
                             Ok(Some((_, loaded_prompt, _))) => {
                                 tracing::debug!(
                                     entity_id = db_id.0,
@@ -642,10 +645,10 @@ async fn handle_connection(
                 }
                 // Save Attributes
                 if let Some(attrs) = attrs {
-                    let _ = mud_data::save_attributes_component(
+                    let _ = oxide_data::save_attributes_component(
                         conn_db,
                         db_id.0,
-                        &mud_data::AttributesRow {
+                        &oxide_data::AttributesRow {
                             strength: attrs.strength,
                             dexterity: attrs.dexterity,
                             intelligence: attrs.intelligence,
@@ -657,56 +660,62 @@ async fn handle_connection(
                 }
                 // Save Alignment
                 if let Some(alignment) = alignment {
-                    let _ = mud_data::save_alignment_component(conn_db, db_id.0, &alignment.0);
+                    let _ = oxide_data::save_alignment_component(conn_db, db_id.0, &alignment.0);
                 }
                 // Save Description
                 if let Some(description) = description {
-                    let _ = mud_data::save_description_component(conn_db, db_id.0, &description.0);
+                    let _ =
+                        oxide_data::save_description_component(conn_db, db_id.0, &description.0);
                 }
                 // Save Position
                 if let Some(rid) = room_db_id {
-                    let _ = mud_data::update_character_position(conn_db, db_id.0, rid);
-                    let _ = mud_data::update_character_last_seen(conn_db, db_id.0);
+                    let _ = oxide_data::update_character_position(conn_db, db_id.0, rid);
+                    let _ = oxide_data::update_character_last_seen(conn_db, db_id.0);
                 }
                 if let Some(ref spawn_key) = room_spawn_key {
-                    let _ = mud_data::update_character_spawn_key(conn_db, db_id.0, spawn_key);
+                    let _ = oxide_data::update_character_spawn_key(conn_db, db_id.0, spawn_key);
                 }
 
                 // Save Inventory
-                let _ = mud_data::delete_all_inventory(conn_db, db_id.0);
+                let _ = oxide_data::delete_all_inventory(conn_db, db_id.0);
                 for (slot_idx, (template_id, opt_db_id)) in inventory_items.into_iter().enumerate()
                 {
                     let item_db_id = match opt_db_id {
                         Some(id) => id,
                         None => {
-                            if let Ok(new_id) = mud_data::insert_entity(conn_db, "item") {
+                            if let Ok(new_id) = oxide_data::insert_entity(conn_db, "item") {
                                 new_id
                             } else {
                                 continue;
                             }
                         }
                     };
-                    let _ = mud_data::save_item_component(conn_db, item_db_id, &template_id);
-                    let _ =
-                        mud_data::add_inventory_item(conn_db, db_id.0, item_db_id, slot_idx as i32);
+                    let _ = oxide_data::save_item_component(conn_db, item_db_id, &template_id);
+                    let _ = oxide_data::add_inventory_item(
+                        conn_db,
+                        db_id.0,
+                        item_db_id,
+                        slot_idx as i32,
+                    );
                 }
 
                 // Save Equipment
-                let _ = mud_data::delete_all_equipment(conn_db, db_id.0);
+                let _ = oxide_data::delete_all_equipment(conn_db, db_id.0);
                 for (slot, template_id, opt_db_id) in equipment_items {
                     let item_db_id = match opt_db_id {
                         Some(id) => id,
                         None => {
-                            if let Ok(new_id) = mud_data::insert_entity(conn_db, "item") {
+                            if let Ok(new_id) = oxide_data::insert_entity(conn_db, "item") {
                                 new_id
                             } else {
                                 continue;
                             }
                         }
                     };
-                    let _ = mud_data::save_item_component(conn_db, item_db_id, &template_id);
+                    let _ = oxide_data::save_item_component(conn_db, item_db_id, &template_id);
                     let slot_str = format!("{:?}", slot).to_lowercase();
-                    let _ = mud_data::save_equipment_slot(conn_db, db_id.0, &slot_str, item_db_id);
+                    let _ =
+                        oxide_data::save_equipment_slot(conn_db, db_id.0, &slot_str, item_db_id);
                 }
             }
             (room_entity, new_rid)
@@ -753,7 +762,7 @@ async fn handle_connection(
                 .and_then(|mut q| q.get().map(|p| p.room));
 
             if let Some(room) = room {
-                use mud_core::format::{conventions, RichText, Segment};
+                use oxide_core::format::{conventions, RichText, Segment};
                 let mut msg = RichText::new();
                 msg.push(conventions::player_name_segment(name.as_str()));
                 msg.push(Segment::new(" has disconnected."));
@@ -813,7 +822,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
     let level = get_level(world, entity);
     let xp = get_experience(world, entity);
 
-    let threshold = mud_core::Experience::for_level(level + 1);
+    let threshold = oxide_core::Experience::for_level(level + 1);
     if xp < threshold {
         return Vec::new();
     }
@@ -826,7 +835,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
     loop {
         let current_level = get_level(world, entity);
         let current_xp = get_experience(world, entity);
-        let next_threshold = mud_core::Experience::for_level(current_level + 1);
+        let next_threshold = oxide_core::Experience::for_level(current_level + 1);
         if current_xp < next_threshold {
             break;
         }
@@ -840,7 +849,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         let hit_die = get_hit_die(world, entity);
 
         // Update components
-        if let Ok(mut q) = world.query_one::<&mut mud_core::Health>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
             if let Some(health) = q.get() {
                 let hp_gain = (hit_die + con_mod).max(1);
                 health.max += hp_gain;
@@ -848,22 +857,22 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
             }
         }
 
-        if let Ok(mut q) = world.query_one::<&mut mud_core::Level>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Level>(entity) {
             if let Some(level) = q.get() {
                 level.0 = new_level;
             }
         }
 
-        if let Ok(mut q) = world.query_one::<&mut mud_core::Experience>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Experience>(entity) {
             if let Some(xp) = q.get() {
                 xp.0 = excess;
             }
         }
 
         // Recalculate Mana pool: from_formula(level, int, wis), current clamped to new max
-        if let Ok(mut q) = world.query_one::<&mut mud_core::Mana>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Mana>(entity) {
             if let Some(mana) = q.get() {
-                let formula_mana = mud_core::Mana::from_formula(
+                let formula_mana = oxide_core::Mana::from_formula(
                     new_level as u16,
                     attrs.intelligence as u16,
                     attrs.wisdom as u16,
@@ -874,9 +883,9 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         }
 
         // Recalculate Stamina pool: from_formula(level, str, dex), current clamped to new max
-        if let Ok(mut q) = world.query_one::<&mut mud_core::Stamina>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Stamina>(entity) {
             if let Some(stamina) = q.get() {
-                let formula_stamina = mud_core::Stamina::from_formula(
+                let formula_stamina = oxide_core::Stamina::from_formula(
                     new_level as u16,
                     attrs.strength as u16,
                     attrs.dexterity as u16,
@@ -888,7 +897,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
 
         // Recalculate CombatStats per class progression
         let class_id = world
-            .query_one::<&mud_core::Class>(entity)
+            .query_one::<&oxide_core::Class>(entity)
             .ok()
             .and_then(|mut q| q.get().map(|c| c.0.clone()));
         if let (Some(c_id), Some(t)) = (class_id, TEMPLATES.get()) {
@@ -899,20 +908,20 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         }
 
         // Emit PlayerLeveled event
-        let _event = mud_core::GameEvent::PlayerLeveled {
+        let _event = oxide_core::GameEvent::PlayerLeveled {
             entity,
             old_level: current_level,
             new_level,
         };
 
-        let _ = world.insert(entity, (mud_core::Dirty,));
+        let _ = world.insert(entity, (oxide_core::Dirty,));
 
         // Persist to DB
         if let Some(conn_db) = conn_db {
-            if let Ok(mut q) = world.query_one::<&mud_core::DbId>(entity) {
+            if let Ok(mut q) = world.query_one::<&oxide_core::DbId>(entity) {
                 if let Some(db_id) = q.get() {
-                    let _ = mud_data::save_level_component(conn_db, db_id.0, new_level as i64);
-                    let _ = mud_data::save_experience_component(conn_db, db_id.0, excess as i64);
+                    let _ = oxide_data::save_level_component(conn_db, db_id.0, new_level as i64);
+                    let _ = oxide_data::save_experience_component(conn_db, db_id.0, excess as i64);
                 }
             }
         }
@@ -921,7 +930,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         let wis_mod = (attrs.wisdom as i32 - 10) / 2;
         let int_mod = (attrs.intelligence as i32 - 10) / 2;
         let practice_gain = (2 + wis_mod + int_mod).max(1) as u32;
-        if let Ok(mut q) = world.query_one::<&mut mud_core::PracticePoints>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::PracticePoints>(entity) {
             if let Some(pp) = q.get() {
                 pp.0 = pp.0.saturating_add(practice_gain);
             }
@@ -937,7 +946,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
     }
 
     if !messages.is_empty() {
-        if let Ok(mut q) = world.query_one::<&mut mud_core::Health>(entity) {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
             if let Some(health) = q.get() {
                 health.current = health.max; // Ensure full heal
             }
@@ -945,7 +954,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
 
         // Re-apply passives on level-up
         if let Some(templates) = TEMPLATES.get() {
-            mud_core::systems::passive::apply_all_passives(world, entity, templates);
+            oxide_core::systems::passive::apply_all_passives(world, entity, templates);
         }
     }
 
@@ -954,7 +963,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
 
 fn get_level(world: &World, entity: Entity) -> u8 {
     world
-        .query_one::<&mud_core::Level>(entity)
+        .query_one::<&oxide_core::Level>(entity)
         .ok()
         .and_then(|mut q| q.get().map(|l| l.0))
         .unwrap_or(1)
@@ -962,15 +971,15 @@ fn get_level(world: &World, entity: Entity) -> u8 {
 
 fn get_experience(world: &World, entity: Entity) -> u64 {
     world
-        .query_one::<&mud_core::Experience>(entity)
+        .query_one::<&oxide_core::Experience>(entity)
         .ok()
         .and_then(|mut q| q.get().map(|x| x.0))
         .unwrap_or(0)
 }
 
-fn get_attributes(world: &World, entity: Entity) -> mud_core::Attributes {
+fn get_attributes(world: &World, entity: Entity) -> oxide_core::Attributes {
     world
-        .query_one::<&mud_core::Attributes>(entity)
+        .query_one::<&oxide_core::Attributes>(entity)
         .ok()
         .and_then(|mut q| q.get().cloned())
         .unwrap_or_default()
@@ -978,7 +987,7 @@ fn get_attributes(world: &World, entity: Entity) -> mud_core::Attributes {
 
 fn get_hit_die(world: &World, entity: Entity) -> i32 {
     let class_id = world
-        .query_one::<&mud_core::Class>(entity)
+        .query_one::<&oxide_core::Class>(entity)
         .ok()
         .and_then(|mut q| q.get().map(|c| c.0.clone()));
 
@@ -1027,7 +1036,7 @@ pub fn get_commands() -> Option<Arc<CommandDispatch>> {
 }
 
 /// Returns a clone of the DB handle, if initialized.
-pub fn get_db() -> Option<Arc<Mutex<mud_data::Database>>> {
+pub fn get_db() -> Option<Arc<Mutex<oxide_data::Database>>> {
     DB.get().cloned()
 }
 
@@ -1077,8 +1086,8 @@ pub async fn console_broadcast(message: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mud_core::templates::{ClassAttributeMods, ClassTemplate, DeityPolicy, WalletAmount};
-    use mud_core::CombatStats;
+    use oxide_core::templates::{ClassAttributeMods, ClassTemplate, DeityPolicy, WalletAmount};
+    use oxide_core::CombatStats;
 
     fn make_player(world: &mut World, level: u8, xp: u64, attrs: Attributes) -> Entity {
         let e = world.spawn(());
@@ -1317,7 +1326,7 @@ mod tests {
                     Experience(1000),
                     Attributes::default(),
                     PracticePoints(0),
-                    mud_core::Class("warrior".to_string()),
+                    oxide_core::Class("warrior".to_string()),
                     CombatStats::default(),
                 ),
             )
@@ -1339,7 +1348,7 @@ mod tests {
         init_test_templates();
 
         let mut world = World::new();
-        let e = world.spawn((mud_core::Class("warrior".to_string()),));
+        let e = world.spawn((oxide_core::Class("warrior".to_string()),));
         let hd = get_hit_die(&world, e);
         assert_eq!(hd, 10);
 
@@ -1367,11 +1376,11 @@ mod tests {
                     Experience(1000),
                     attrs,
                     PracticePoints(0),
-                    mud_core::Mana {
+                    oxide_core::Mana {
                         current: 20,
                         max: 56,
                     },
-                    mud_core::Stamina {
+                    oxide_core::Stamina {
                         current: 15,
                         max: 52,
                     },
@@ -1385,14 +1394,14 @@ mod tests {
 
         // Level 2 Mana should be: 2 * 4 + 12 * 2 + 14 * 2 = 8 + 24 + 28 = 60.
         // Current mana should be preserved: 20/60.
-        let mut q_mana = world.query_one::<&mud_core::Mana>(e).unwrap();
+        let mut q_mana = world.query_one::<&oxide_core::Mana>(e).unwrap();
         let mana = q_mana.get().unwrap();
         assert_eq!(mana.max, 60);
         assert_eq!(mana.current, 20);
 
         // Level 2 Stamina should be: 2 * 12 + 10 * 2 + 10 * 2 = 24 + 20 + 20 = 64.
         // Current stamina should be preserved: 15/64.
-        let mut q_stamina = world.query_one::<&mud_core::Stamina>(e).unwrap();
+        let mut q_stamina = world.query_one::<&oxide_core::Stamina>(e).unwrap();
         let stamina = q_stamina.get().unwrap();
         assert_eq!(stamina.max, 64);
         assert_eq!(stamina.current, 15);
@@ -1402,12 +1411,12 @@ mod tests {
         drop(q_stamina);
 
         {
-            let mut q_mana = world.query_one::<&mut mud_core::Mana>(e).unwrap();
+            let mut q_mana = world.query_one::<&mut oxide_core::Mana>(e).unwrap();
             let mana = q_mana.get().unwrap();
             mana.current = 100;
         }
         {
-            let mut q_stamina = world.query_one::<&mut mud_core::Stamina>(e).unwrap();
+            let mut q_stamina = world.query_one::<&mut oxide_core::Stamina>(e).unwrap();
             let stamina = q_stamina.get().unwrap();
             stamina.current = 100;
         }
@@ -1421,12 +1430,12 @@ mod tests {
 
         assert_eq!(get_level(&world, e), 3);
 
-        let mut q_mana = world.query_one::<&mud_core::Mana>(e).unwrap();
+        let mut q_mana = world.query_one::<&oxide_core::Mana>(e).unwrap();
         let mana = q_mana.get().unwrap();
         assert_eq!(mana.max, 64);
         assert_eq!(mana.current, 64); // Clamped to max
 
-        let mut q_stamina = world.query_one::<&mud_core::Stamina>(e).unwrap();
+        let mut q_stamina = world.query_one::<&oxide_core::Stamina>(e).unwrap();
         let stamina = q_stamina.get().unwrap();
         assert_eq!(stamina.max, 76);
         assert_eq!(stamina.current, 76); // Clamped to max

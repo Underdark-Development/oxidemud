@@ -12,6 +12,6 @@ async fn main() -> anyhow::Result<()> {
         content_path.display()
     );
 
-    let server = mud_mcp::MudMcpServer::new(content_path);
+    let server = oxide_mcp::OxideMcpServer::new(content_path);
     server.run().await
 }

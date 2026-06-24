@@ -1,15 +1,15 @@
 [package]
-name = "mud-bin"
+name = "oxide-bin"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-mud-core = { path = "../core" }
-mud-server = { path = "../server" }
-mud-data = { path = "../data" }
-mud-scripting = { path = "../scripting" }
+oxide-core = { path = "../core" }
+oxide-server = { path = "../server" }
+oxide-data = { path = "../data" }
+oxide-scripting = { path = "../scripting" }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "rt-multi-thread", "signal", "io-std"] }
 toml = "0.8"
 tracing = "0.1"

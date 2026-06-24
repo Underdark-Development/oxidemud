@@ -1,5 +1,5 @@
-use mud_core::templates::TemplateRegistry;
-use mud_core::templates::{
+use oxide_core::templates::TemplateRegistry;
+use oxide_core::templates::{
     AffixDef, AppearanceBounds, AreaTemplate, ClassAttributeMods, ClassTemplate, DeityPolicy,
     HealthBounds, ItemTemplate, LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate,
     RoomContent, RoomTemplate, SetDef, StanceDef, WalletAmount,
@@ -20,8 +20,8 @@ use crate::components::{CommandAction, ScrollState, Tree};
 use crate::content::{self, FileMap};
 
 mod tree_builder;
-use mud_core::format::preview;
-use mud_core::format::RichText;
+use oxide_core::format::preview;
+use oxide_core::format::RichText;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -162,7 +162,8 @@ impl EntitiesScreen {
         // insert_draft_into_registry (which can't handle area-less rooms).
         if category == "rooms" {
             if let Some(area_id) = context_id {
-                if let Ok(mut room) = toml::from_str::<mud_core::templates::RoomTemplate>(&toml_str)
+                if let Ok(mut room) =
+                    toml::from_str::<oxide_core::templates::RoomTemplate>(&toml_str)
                 {
                     room.area = area_id.to_string();
                     if let Ok(new_toml) = toml::to_string_pretty(&room) {
@@ -385,8 +386,8 @@ impl EntitiesScreen {
         }
     }
 
-    fn rich_text_to_ratatui_style(seg: &mud_core::format::Segment) -> Style {
-        use mud_core::format::Color as CoreColor;
+    fn rich_text_to_ratatui_style(seg: &oxide_core::format::Segment) -> Style {
+        use oxide_core::format::Color as CoreColor;
         let fg = match seg.fg {
             CoreColor::Default => ratatui::style::Color::Reset,
             CoreColor::Black => ratatui::style::Color::Black,
@@ -409,19 +410,19 @@ impl EntitiesScreen {
         };
         let mut style = Style::default().fg(fg);
         let mut mods = RatModifier::default();
-        if seg.modifiers.has(mud_core::format::Modifier::BOLD) {
+        if seg.modifiers.has(oxide_core::format::Modifier::BOLD) {
             mods |= RatModifier::BOLD;
         }
-        if seg.modifiers.has(mud_core::format::Modifier::ITALIC) {
+        if seg.modifiers.has(oxide_core::format::Modifier::ITALIC) {
             mods |= RatModifier::ITALIC;
         }
-        if seg.modifiers.has(mud_core::format::Modifier::DIM) {
+        if seg.modifiers.has(oxide_core::format::Modifier::DIM) {
             mods |= RatModifier::DIM;
         }
-        if seg.modifiers.has(mud_core::format::Modifier::UNDERLINE) {
+        if seg.modifiers.has(oxide_core::format::Modifier::UNDERLINE) {
             mods |= RatModifier::UNDERLINED;
         }
-        if seg.modifiers.has(mud_core::format::Modifier::BLINK) {
+        if seg.modifiers.has(oxide_core::format::Modifier::BLINK) {
             mods |= RatModifier::SLOW_BLINK;
         }
         style = style.add_modifier(mods);
@@ -663,11 +664,11 @@ fn generate_default_content(
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
         })?,
-        "skills" => toml::to_string_pretty(&mud_core::SkillDef {
+        "skills" => toml::to_string_pretty(&oxide_core::SkillDef {
             id: id.to_string(),
             name: id.to_string(),
             description: String::new(),
-            skill_type: mud_core::SkillType::Combat,
+            skill_type: oxide_core::SkillType::Combat,
             max_rank: 100,
         })?,
         "stances" => toml::to_string_pretty(&StanceDef {
@@ -759,7 +760,7 @@ fn insert_draft_into_registry(
             }
         }
         "skills" => {
-            if let Ok(t) = toml::from_str::<mud_core::SkillDef>(toml_str) {
+            if let Ok(t) = toml::from_str::<oxide_core::SkillDef>(toml_str) {
                 registry.skills.insert(id.to_string(), t);
             }
         }
@@ -1157,7 +1158,7 @@ impl Screen for EntitiesScreen {
                     .exits
                     .keys()
                     .filter_map(|dir| {
-                        mud_core::Direction::try_from(dir.as_str())
+                        oxide_core::Direction::try_from(dir.as_str())
                             .map(|d| d.short_name().to_string())
                     })
                     .collect();

@@ -1,4 +1,4 @@
-use mud_core::templates::TemplateRegistry;
+use oxide_core::templates::TemplateRegistry;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind},

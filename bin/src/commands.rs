@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use mud_core as core;
-use mud_core::format::preview::{item_look_template, mob_look_template};
-use mud_core::templates::{SetDef, SkillResolveError};
-use mud_core::{
+use oxide_core as core;
+use oxide_core::format::preview::{item_look_template, mob_look_template};
+use oxide_core::templates::{SetDef, SkillResolveError};
+use oxide_core::{
     Description, Direction, FloorItems, Friendly, Inventory, Item, Name, Npc, Position, Room,
     RoomExits, ShortDesc, VoidRoom, World,
 };
-use mud_server::{Connection, ConnectionFlag, ConnectionRegistry};
+use oxide_server::{Connection, ConnectionFlag, ConnectionRegistry};
 
 fn send_formatted(conn: &mut dyn Connection, text: &core::format::RichText) {
     let ansi = conn.flags().has(ConnectionFlag::Ansi);
@@ -200,7 +200,7 @@ fn look_at_target(
 
     match kind {
         TargetKind::Mob => {
-            if let Some(templates) = mud_server::get_templates() {
+            if let Some(templates) = oxide_server::get_templates() {
                 if let Ok(mut q) = world.query_one::<&Npc>(target) {
                     if let Some(npc) = q.get() {
                         if let Some(mob_tpl) = templates.mobs.get(&npc.template_id) {
@@ -252,7 +252,7 @@ fn look_at_target(
             }
         }
         TargetKind::Item => {
-            if let Some(templates) = mud_server::get_templates() {
+            if let Some(templates) = oxide_server::get_templates() {
                 if let Ok(mut q) = world.query_one::<&Item>(target) {
                     if let Some(item_comp) = q.get() {
                         if let Some(item_tpl) = templates.items.get(&item_comp.template_id) {
@@ -709,7 +709,7 @@ pub fn cmd_help(
     args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    let dispatch = match mud_server::get_commands() {
+    let dispatch = match oxide_server::get_commands() {
         Some(d) => d,
         None => {
             conn.send_line("Help is unavailable.");
@@ -949,7 +949,7 @@ pub fn cmd_motd(
     _registry: &ConnectionRegistry,
 ) {
     conn.send_line("");
-    conn.send_line(mud_server::get_motd());
+    conn.send_line(oxide_server::get_motd());
     conn.send_line("");
 }
 
@@ -960,7 +960,7 @@ pub fn cmd_who(
     _args: &str,
     registry: &ConnectionRegistry,
 ) {
-    let lines = mud_server::login::list_who(world, registry);
+    let lines = oxide_server::login::list_who(world, registry);
     for line in &lines {
         conn.send_line(line);
     }
@@ -1064,7 +1064,7 @@ pub fn cmd_award(
     ));
 
     // Check for level-ups
-    mud_server::award_xp(world, entity);
+    oxide_server::award_xp(world, entity);
 
     // Report new level
     let level = world
@@ -1369,7 +1369,7 @@ fn find_item_in_inventory(
 
 /// Re-evaluate set bonuses for an entity after equipment changes.
 fn evaluate_equipment_sets(world: &mut World, entity: core::Entity) {
-    if let Some(templates) = mud_server::get_templates() {
+    if let Some(templates) = oxide_server::get_templates() {
         let set_defs: HashMap<String, SetDef> = templates.sets.clone();
         core::systems::set_bonus::evaluate_set_bonuses(world, entity, &set_defs);
     }
@@ -2077,7 +2077,7 @@ pub fn cmd_practice(
     }
 
     // Retrieve skill type to verify if any trainer teaches it
-    let templates = mud_server::get_templates();
+    let templates = oxide_server::get_templates();
     let skill_def = templates.as_ref().and_then(|t| t.get_skill(&skill_id));
     let skill_type_str = skill_def
         .map(|def| format!("{:?}", def.skill_type).to_lowercase())
@@ -2138,7 +2138,7 @@ fn resolve_skill_name_for_practicing(
     world: &World,
     entity: core::Entity,
 ) -> Result<String, String> {
-    let templates = match mud_server::get_templates() {
+    let templates = match oxide_server::get_templates() {
         Some(t) => t,
         None => return Ok(input.to_lowercase()),
     };
@@ -2225,7 +2225,7 @@ pub fn cmd_train(
         .ok()
         .and_then(|mut q| q.get().map(|c| c.0.clone()));
 
-    let templates = mud_server::get_templates();
+    let templates = oxide_server::get_templates();
 
     // Helper closure to calculate cost for a given attribute name (lowercase)
     let get_attr_cost = |attr_name: &str| -> u32 {
@@ -2423,21 +2423,21 @@ pub fn cmd_prompt(
             .entity()
             .and_then(|e| {
                 world
-                    .query_one::<&mud_core::Player>(e)
+                    .query_one::<&oxide_core::Player>(e)
                     .ok()
                     .and_then(|mut q| q.get().cloned())
                     .map(|p| match &p.prompt {
                         Some(t) => format!("Current prompt: {t}"),
                         None => format!(
                             "Using default prompt: {}",
-                            mud_server::config::get().default_prompt
+                            oxide_server::config::get().default_prompt
                         ),
                     })
             })
             .unwrap_or_else(|| {
                 format!(
                     "Using default prompt: {}",
-                    mud_server::config::get().default_prompt
+                    oxide_server::config::get().default_prompt
                 )
             });
         conn.send_line(&msg);
@@ -2449,7 +2449,7 @@ pub fn cmd_prompt(
 
     if let Some(entity) = conn.entity() {
         let updated = {
-            let mut q = match world.query_one::<&mut mud_core::Player>(entity) {
+            let mut q = match world.query_one::<&mut oxide_core::Player>(entity) {
                 Ok(q) => q,
                 Err(_) => return conn.send_line("You can't change your prompt right now."),
             };
@@ -2469,7 +2469,7 @@ pub fn cmd_prompt(
             }
         };
         if updated {
-            let _ = world.insert(entity, (mud_core::Dirty,));
+            let _ = world.insert(entity, (oxide_core::Dirty,));
             if trimmed == "reset" {
                 conn.send_line("Prompt reset to default.");
             } else {
@@ -2534,7 +2534,7 @@ pub fn cmd_pray(
         .and_then(|mut q| q.get().cloned())
         .and_then(|d| d.0);
 
-    let templates = match mud_server::get_templates() {
+    let templates = match oxide_server::get_templates() {
         Some(t) => t,
         None => {
             conn.send_line("Server error: templates unavailable.");
@@ -2736,9 +2736,9 @@ pub fn cmd_pray(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mud_core as core;
-    use mud_core::Exit;
-    use mud_server::ConnectionFlags;
+    use oxide_core as core;
+    use oxide_core::Exit;
+    use oxide_server::ConnectionFlags;
     use std::cell::RefCell;
     use std::collections::VecDeque;
 
@@ -3648,7 +3648,7 @@ mod tests {
         let mut world = World::new();
         let void_room = world.spawn((Room::new("Void", "Empty"), VoidRoom));
         let _server =
-            mud_server::Server::new("127.0.0.1:0", world, void_room).with_templates(registry);
+            oxide_server::Server::new("127.0.0.1:0", world, void_room).with_templates(registry);
     }
 
     #[test]

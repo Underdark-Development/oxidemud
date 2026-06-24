@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mud_core::systems;
-use mud_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
-use mud_core::templates::SetDef;
-use mud_core::{
+use oxide_core::systems;
+use oxide_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
+use oxide_core::templates::SetDef;
+use oxide_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
     LearnedSkills, Level, Player, Position, PracticePoints, SpawnKey, Wallet, World,
 };
@@ -17,7 +17,7 @@ use crate::registry::ConnectionRegistry;
 /// Spawn a background task that runs game systems on fixed intervals.
 pub fn spawn_game_loop(
     world: Arc<Mutex<World>>,
-    db: Option<Arc<Mutex<mud_data::Database>>>,
+    db: Option<Arc<Mutex<oxide_data::Database>>>,
     registry: Arc<Mutex<ConnectionRegistry>>,
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
@@ -253,7 +253,7 @@ fn dispatch_combat_outcomes(registry: &ConnectionRegistry, outcomes: Vec<CombatO
     }
 }
 
-pub(crate) fn save_online_players(world: &mut World, db: &mud_data::Database, force: bool) {
+pub(crate) fn save_online_players(world: &mut World, db: &oxide_data::Database, force: bool) {
     save_player_positions(world, db);
 
     let players: Vec<Entity> = if force {
@@ -264,7 +264,7 @@ pub(crate) fn save_online_players(world: &mut World, db: &mud_data::Database, fo
             .collect()
     } else {
         world
-            .query::<(&Player, &DbId, &mud_core::Dirty)>()
+            .query::<(&Player, &DbId, &oxide_core::Dirty)>()
             .iter()
             .map(|(raw, _)| Entity::from(raw))
             .collect()
@@ -272,11 +272,11 @@ pub(crate) fn save_online_players(world: &mut World, db: &mud_data::Database, fo
 
     for player in players {
         save_player_progress(world, player, db);
-        let _ = world.remove_one::<mud_core::Dirty>(player);
+        let _ = world.remove_one::<oxide_core::Dirty>(player);
     }
 }
 
-pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_data::Database) {
+pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &oxide_data::Database) {
     let Some(db_id) = world
         .query_one::<&DbId>(player)
         .ok()
@@ -294,8 +294,8 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().copied())
     {
-        let _ = mud_data::save_level_component(conn, db_id, level.0 as i64);
-        let _ = mud_data::update_character_level(
+        let _ = oxide_data::save_level_component(conn, db_id, level.0 as i64);
+        let _ = oxide_data::update_character_level(
             conn,
             db_id,
             level.0.into(),
@@ -308,7 +308,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().copied())
     {
-        let _ = mud_data::save_experience_component(conn, db_id, xp.0 as i64);
+        let _ = oxide_data::save_experience_component(conn, db_id, xp.0 as i64);
     }
 
     // 2. Health
@@ -317,25 +317,25 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_health_component(conn, db_id, health.current, health.max);
+        let _ = oxide_data::save_health_component(conn, db_id, health.current, health.max);
     }
 
     // 3. Mana
     if let Some(mana) = world
-        .query_one::<&mud_core::Mana>(player)
+        .query_one::<&oxide_core::Mana>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_mana_component(conn, db_id, mana.current as i32);
+        let _ = oxide_data::save_mana_component(conn, db_id, mana.current as i32);
     }
 
     // 4. Stamina
     if let Some(stamina) = world
-        .query_one::<&mud_core::Stamina>(player)
+        .query_one::<&oxide_core::Stamina>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_stamina_component(conn, db_id, stamina.current as i32);
+        let _ = oxide_data::save_stamina_component(conn, db_id, stamina.current as i32);
     }
 
     // 5. Wallet / Golds
@@ -344,7 +344,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_golds_component(
+        let _ = oxide_data::save_golds_component(
             conn,
             db_id,
             wallet.copper as i64,
@@ -360,7 +360,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        if let Err(e) = mud_data::save_skills(conn, db_id, &skills.skills) {
+        if let Err(e) = oxide_data::save_skills(conn, db_id, &skills.skills) {
             tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save skills");
         }
     }
@@ -371,16 +371,16 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().copied())
     {
-        let _ = mud_data::save_practice_points(conn, db_id, pp.0 as i64);
+        let _ = oxide_data::save_practice_points(conn, db_id, pp.0 as i64);
     }
 
     // 7.5. CombatStats
     if let Some(cs) = world
-        .query_one::<&mud_core::CombatStats>(player)
+        .query_one::<&oxide_core::CombatStats>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_combat_stats_component(
+        let _ = oxide_data::save_combat_stats_component(
             conn,
             db_id,
             cs.base_attack_bonus,
@@ -396,7 +396,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        if let Err(e) = mud_data::save_player_component(
+        if let Err(e) = oxide_data::save_player_component(
             conn,
             db_id,
             player_comp.account_id,
@@ -413,10 +413,10 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_attributes_component(
+        let _ = oxide_data::save_attributes_component(
             conn,
             db_id,
-            &mud_data::AttributesRow {
+            &oxide_data::AttributesRow {
                 strength: attrs.strength,
                 dexterity: attrs.dexterity,
                 intelligence: attrs.intelligence,
@@ -433,7 +433,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_alignment_component(conn, db_id, &alignment.0);
+        let _ = oxide_data::save_alignment_component(conn, db_id, &alignment.0);
     }
 
     // 11. Description
@@ -442,7 +442,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_description_component(conn, db_id, &description.0);
+        let _ = oxide_data::save_description_component(conn, db_id, &description.0);
     }
 
     // 12. Inventory
@@ -453,7 +453,8 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .and_then(|mut q| q.get().cloned())
     {
         for &item_entity in &inventory.0 {
-            if let Ok(mut item_q) = world.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+            if let Ok(mut item_q) =
+                world.query_one::<(&oxide_core::Item, Option<&DbId>)>(item_entity)
             {
                 if let Some((item, opt_db_id)) = item_q.get() {
                     inventory_items.push((
@@ -467,14 +468,14 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
     }
 
     if !inventory_items.is_empty() {
-        let _ = mud_data::delete_all_inventory(conn, db_id);
+        let _ = oxide_data::delete_all_inventory(conn, db_id);
         for (slot_idx, (item_entity, template_id, opt_db_id)) in
             inventory_items.into_iter().enumerate()
         {
             let item_db_id = match opt_db_id {
                 Some(id) => id,
                 None => {
-                    if let Ok(new_id) = mud_data::insert_entity(conn, "item") {
+                    if let Ok(new_id) = oxide_data::insert_entity(conn, "item") {
                         let _ = world.insert(item_entity, (DbId::new(new_id),));
                         new_id
                     } else {
@@ -482,8 +483,8 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
                     }
                 }
             };
-            let _ = mud_data::save_item_component(conn, item_db_id, &template_id);
-            let _ = mud_data::add_inventory_item(conn, db_id, item_db_id, slot_idx as i32);
+            let _ = oxide_data::save_item_component(conn, item_db_id, &template_id);
+            let _ = oxide_data::add_inventory_item(conn, db_id, item_db_id, slot_idx as i32);
         }
     }
 
@@ -495,7 +496,8 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
         .and_then(|mut q| q.get().cloned())
     {
         for &(slot, item_entity) in &equipment.slots {
-            if let Ok(mut item_q) = world.query_one::<(&mud_core::Item, Option<&DbId>)>(item_entity)
+            if let Ok(mut item_q) =
+                world.query_one::<(&oxide_core::Item, Option<&DbId>)>(item_entity)
             {
                 if let Some((item, opt_db_id)) = item_q.get() {
                     equipment_items.push((
@@ -510,12 +512,12 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
     }
 
     if !equipment_items.is_empty() {
-        let _ = mud_data::delete_all_equipment(conn, db_id);
+        let _ = oxide_data::delete_all_equipment(conn, db_id);
         for (slot, item_entity, template_id, opt_db_id) in equipment_items {
             let item_db_id = match opt_db_id {
                 Some(id) => id,
                 None => {
-                    if let Ok(new_id) = mud_data::insert_entity(conn, "item") {
+                    if let Ok(new_id) = oxide_data::insert_entity(conn, "item") {
                         let _ = world.insert(item_entity, (DbId::new(new_id),));
                         new_id
                     } else {
@@ -523,19 +525,19 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
                     }
                 }
             };
-            let _ = mud_data::save_item_component(conn, item_db_id, &template_id);
+            let _ = oxide_data::save_item_component(conn, item_db_id, &template_id);
             let slot_str = format!("{:?}", slot).to_lowercase();
-            let _ = mud_data::save_equipment_slot(conn, db_id, &slot_str, item_db_id);
+            let _ = oxide_data::save_equipment_slot(conn, db_id, &slot_str, item_db_id);
         }
     }
 
     // 14. Appearance
     if let Some(appearance) = world
-        .query_one::<&mud_core::Appearance>(player)
+        .query_one::<&oxide_core::Appearance>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = mud_data::save_appearance_component(
+        let _ = oxide_data::save_appearance_component(
             conn,
             db_id,
             appearance.height as i32,
@@ -550,21 +552,21 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &mud_d
 
     // 15. Age
     if let Some(age) = world
-        .query_one::<&mud_core::Age>(player)
+        .query_one::<&oxide_core::Age>(player)
         .ok()
         .and_then(|mut q| q.get().copied())
     {
-        let _ = mud_data::save_age_component(conn, db_id, age.0 as i32);
+        let _ = oxide_data::save_age_component(conn, db_id, age.0 as i32);
     }
 
     // 16. Deity
     if let Some(deity) = world
-        .query_one::<&mud_core::Deity>(player)
+        .query_one::<&oxide_core::Deity>(player)
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
         if let Some(ref deity_id) = deity.0 {
-            let _ = mud_data::save_deity_component(conn, db_id, deity_id);
+            let _ = oxide_data::save_deity_component(conn, db_id, deity_id);
         }
     }
 }
@@ -580,7 +582,7 @@ fn current_xp(world: &World, player: Entity) -> u64 {
 
 /// Save every online player's current room to the database.
 /// Inserts a DB entity record for any room that doesn't have one yet.
-pub(crate) fn save_player_positions(world: &mut World, db: &mud_data::Database) {
+pub(crate) fn save_player_positions(world: &mut World, db: &oxide_data::Database) {
     let conn = db.conn();
     let players: Vec<(i64, Entity)> = world
         .query::<(&DbId, &Position, &Player)>()
@@ -592,7 +594,7 @@ pub(crate) fn save_player_positions(world: &mut World, db: &mud_data::Database) 
         // Persist spawn_key for cross-restart room resolution
         if let Ok(mut q) = world.query_one::<&SpawnKey>(room_entity) {
             if let Some(sk) = q.get() {
-                let _ = mud_data::update_character_spawn_key(conn, player_entity_id, &sk.0);
+                let _ = oxide_data::update_character_spawn_key(conn, player_entity_id, &sk.0);
             }
         }
 
@@ -603,14 +605,14 @@ pub(crate) fn save_player_positions(world: &mut World, db: &mud_data::Database) 
             .map(|dbid| dbid.0);
 
         let room_db_id = existing_room_db_id.or_else(|| {
-            mud_data::insert_entity(conn, "room").ok().inspect(|&id| {
+            oxide_data::insert_entity(conn, "room").ok().inspect(|&id| {
                 let _ = world.insert(room_entity, (DbId(id),));
             })
         });
 
         if let Some(rid) = room_db_id {
-            let _ = mud_data::update_character_position(conn, player_entity_id, rid);
-            let _ = mud_data::update_character_last_seen(conn, player_entity_id);
+            let _ = oxide_data::update_character_position(conn, player_entity_id, rid);
+            let _ = oxide_data::update_character_last_seen(conn, player_entity_id);
         }
     }
 }

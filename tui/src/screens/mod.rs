@@ -2,7 +2,7 @@ pub mod entities;
 pub mod entity_inspector;
 pub mod validation_panel;
 
-use mud_core::templates::TemplateRegistry;
+use oxide_core::templates::TemplateRegistry;
 
 use ratatui::{
     buffer::Buffer,

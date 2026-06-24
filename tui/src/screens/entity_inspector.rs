@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use mud_core::templates::TemplateRegistry;
+use oxide_core::templates::TemplateRegistry;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
@@ -438,47 +438,47 @@ impl EntityInspectorScreen {
     fn validate_toml(&self, toml_str: &str) -> Result<(), String> {
         match self.category.as_str() {
             "items" => {
-                toml::from_str::<mud_core::templates::ItemTemplate>(toml_str)
+                toml::from_str::<oxide_core::templates::ItemTemplate>(toml_str)
                     .map_err(|e| format!("invalid ItemTemplate: {e}"))?;
             }
             "mobs" => {
-                toml::from_str::<mud_core::templates::MobTemplate>(toml_str)
+                toml::from_str::<oxide_core::templates::MobTemplate>(toml_str)
                     .map_err(|e| format!("invalid MobTemplate: {e}"))?;
             }
             "races" => {
-                toml::from_str::<mud_core::templates::RaceTemplate>(toml_str)
+                toml::from_str::<oxide_core::templates::RaceTemplate>(toml_str)
                     .map_err(|e| format!("invalid RaceTemplate: {e}"))?;
             }
             "classes" => {
-                toml::from_str::<mud_core::templates::ClassTemplate>(toml_str)
+                toml::from_str::<oxide_core::templates::ClassTemplate>(toml_str)
                     .map_err(|e| format!("invalid ClassTemplate: {e}"))?;
             }
             "skills" => {
-                toml::from_str::<mud_core::SkillDef>(toml_str)
+                toml::from_str::<oxide_core::SkillDef>(toml_str)
                     .map_err(|e| format!("invalid SkillDef: {e}"))?;
             }
             "stances" => {
-                toml::from_str::<mud_core::templates::StanceDef>(toml_str)
+                toml::from_str::<oxide_core::templates::StanceDef>(toml_str)
                     .map_err(|e| format!("invalid StanceDef: {e}"))?;
             }
             "sets" => {
-                toml::from_str::<mud_core::templates::SetDef>(toml_str)
+                toml::from_str::<oxide_core::templates::SetDef>(toml_str)
                     .map_err(|e| format!("invalid SetDef: {e}"))?;
             }
             "affixes" => {
-                toml::from_str::<mud_core::templates::AffixDef>(toml_str)
+                toml::from_str::<oxide_core::templates::AffixDef>(toml_str)
                     .map_err(|e| format!("invalid AffixDef: {e}"))?;
             }
             "passives" => {
-                toml::from_str::<mud_core::templates::PassiveDef>(toml_str)
+                toml::from_str::<oxide_core::templates::PassiveDef>(toml_str)
                     .map_err(|e| format!("invalid PassiveDef: {e}"))?;
             }
             "areas" => {
-                toml::from_str::<mud_core::templates::AreaTemplate>(toml_str)
+                toml::from_str::<oxide_core::templates::AreaTemplate>(toml_str)
                     .map_err(|e| format!("invalid AreaTemplate: {e}"))?;
             }
             "rooms" => {
-                toml::from_str::<mud_core::templates::RoomTemplate>(toml_str)
+                toml::from_str::<oxide_core::templates::RoomTemplate>(toml_str)
                     .map_err(|e| format!("invalid RoomTemplate: {e}"))?;
             }
             cat => return Err(format!("unknown category: {cat}")),

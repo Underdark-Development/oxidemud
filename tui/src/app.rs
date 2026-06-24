@@ -11,7 +11,7 @@ use crate::screens::room_grid::RoomGridScreen;
 use crate::screens::script_console::ScriptConsoleScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::Screen;
-use mud_core::templates::TemplateRegistry;
+use oxide_core::templates::TemplateRegistry;
 use ratatui::{
     backend::CrosstermBackend,
     crossterm::{

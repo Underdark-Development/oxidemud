@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use tokio::sync::mpsc;
 
-use mud_core::{Entity, World};
+use oxide_core::{Entity, World};
 
 /// Maps player entities to their output channel senders for room broadcasts.
 pub struct ConnectionRegistry {
@@ -41,7 +41,7 @@ impl ConnectionRegistry {
         message: &str,
         exclude: Option<Entity>,
     ) {
-        let mut q = world.query::<(&mud_core::Position,)>();
+        let mut q = world.query::<(&oxide_core::Position,)>();
         let bytes = message.as_bytes().to_vec();
         for (raw, (pos,)) in q.iter() {
             let entity = Entity::from(raw);
@@ -69,7 +69,7 @@ impl ConnectionRegistry {
 
     /// Return all connected player entities in the given room.
     pub fn occupants(&self, world: &World, room: Entity) -> Vec<Entity> {
-        let mut q = world.query::<(&mud_core::Position,)>();
+        let mut q = world.query::<(&oxide_core::Position,)>();
         q.iter()
             .map(|(raw, (pos,))| (Entity::from(raw), pos))
             .filter(|(entity, pos)| pos.room == room && self.map.contains_key(entity))
@@ -87,7 +87,7 @@ impl Default for ConnectionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mud_core::{Name, Position, Room, VoidRoom};
+    use oxide_core::{Name, Position, Room, VoidRoom};
 
     fn setup_world() -> (World, Entity, Entity, Entity) {
         let mut world = World::new();

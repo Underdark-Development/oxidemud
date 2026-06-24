@@ -1,7 +1,7 @@
 use tokio::sync::Mutex;
 
-use mud_core::templates::{SkillResolveError, TemplateRegistry};
-use mud_core::{
+use oxide_core::templates::{SkillResolveError, TemplateRegistry};
+use oxide_core::{
     Alignment, Class, CombatStats, DbId, Description, Entity, Equipment, Experience, Gender,
     Health, Inventory, Level, Mana, Name, Player, Position, PracticePoints, Race, Stamina, Wallet,
     World,
@@ -90,9 +90,9 @@ fn compute_final_attributes(
     templates: Option<&TemplateRegistry>,
     race_id: &str,
     class_id: &str,
-    player_base: &mud_core::Attributes,
-) -> (mud_core::Attributes, i32, mud_core::LearnedSkills) {
-    let mut skills = mud_core::LearnedSkills::new();
+    player_base: &oxide_core::Attributes,
+) -> (oxide_core::Attributes, i32, oxide_core::LearnedSkills) {
+    let mut skills = oxide_core::LearnedSkills::new();
 
     let (base_str, base_dex, base_int, base_wis, base_con, base_cha) = templates
         .and_then(|t| t.get_race(race_id))
@@ -129,7 +129,7 @@ fn compute_final_attributes(
         })
         .unwrap_or((0, 0, 0, 0, 0, 0, 8));
 
-    let attrs = mud_core::Attributes::new(
+    let attrs = oxide_core::Attributes::new(
         (base_str + mod_str as i16 + player_base.strength as i16 - 8).clamp(3, 50) as u8,
         (base_dex + mod_dex as i16 + player_base.dexterity as i16 - 8).clamp(3, 50) as u8,
         (base_int + mod_int as i16 + player_base.intelligence as i16 - 8).clamp(3, 50) as u8,
@@ -165,7 +165,7 @@ fn class_starting_gold(templates: Option<&TemplateRegistry>, class_id: &str) -> 
 pub async fn handle_character_select_state(
     flow: &mut LoginFlow,
     input: &str,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
     registry: &ConnectionRegistry,
     _void_room: Entity,
@@ -189,7 +189,7 @@ pub async fn handle_character_select_state(
     };
 
     let db_guard = db.lock().await;
-    let chars = match mud_data::get_characters_by_account(db_guard.conn(), account_id) {
+    let chars = match oxide_data::get_characters_by_account(db_guard.conn(), account_id) {
         Ok(c) => c,
         Err(e) => {
             lines.push(format!("DB error: {e}"));
@@ -280,7 +280,7 @@ pub async fn handle_character_select_state(
 pub async fn handle_character_create_name_state(
     flow: &mut LoginFlow,
     input: &str,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let name = input.trim();
@@ -295,7 +295,7 @@ pub async fn handle_character_create_name_state(
     };
 
     let db_guard = db.lock().await;
-    let existing = match mud_data::get_character_by_name(db_guard.conn(), name) {
+    let existing = match oxide_data::get_character_by_name(db_guard.conn(), name) {
         Ok(e) => e,
         Err(e) => {
             lines.push(format!("DB error: {e}"));
@@ -510,7 +510,7 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
             ));
             return lines;
         }
-        flow.create_buffer.attributes = Some(mud_core::Attributes::new(
+        flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
             state.1[0], state.1[1], state.1[2], state.1[3], state.1[4], state.1[5],
         ));
         flow.state = LoginState::CharacterCreateAlignment;
@@ -695,7 +695,7 @@ pub fn handle_standard_array_state(flow: &mut LoginFlow, input: &str) -> Vec<Str
     };
 
     if state.1 >= 6 {
-        flow.create_buffer.attributes = Some(mud_core::Attributes::new(
+        flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
             state.2[0], state.2[1], state.2[2], state.2[3], state.2[4], state.2[5],
         ));
         flow.state = LoginState::CharacterCreateAlignment;
@@ -713,7 +713,7 @@ pub fn handle_standard_array_state(flow: &mut LoginFlow, input: &str) -> Vec<Str
             new_attrs[idx] = value_to_assign;
             let new_idx = state.1 + 1;
             if new_idx >= 6 {
-                flow.create_buffer.attributes = Some(mud_core::Attributes::new(
+                flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
                     new_attrs[0],
                     new_attrs[1],
                     new_attrs[2],
@@ -781,7 +781,7 @@ pub fn handle_roll_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
     }
 
     if state.1 >= 6 {
-        flow.create_buffer.attributes = Some(mud_core::Attributes::new(
+        flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
             state.2[0], state.2[1], state.2[2], state.2[3], state.2[4], state.2[5],
         ));
         flow.state = LoginState::CharacterCreateAlignment;
@@ -799,7 +799,7 @@ pub fn handle_roll_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
             new_attrs[idx] = value_to_assign;
             let new_idx = state.1 + 1;
             if new_idx >= 6 {
-                flow.create_buffer.attributes = Some(mud_core::Attributes::new(
+                flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
                     new_attrs[0],
                     new_attrs[1],
                     new_attrs[2],
@@ -903,14 +903,14 @@ fn get_allowed_deities(flow: &LoginFlow, templates: Option<&TemplateRegistry>) -
     let class = templates.get_class(class_id);
     let policy = class
         .map(|c| &c.deity_policy)
-        .unwrap_or(&mud_core::templates::DeityPolicy::Any);
+        .unwrap_or(&oxide_core::templates::DeityPolicy::Any);
 
-    if matches!(policy, mud_core::templates::DeityPolicy::None) {
+    if matches!(policy, oxide_core::templates::DeityPolicy::None) {
         return allowed;
     }
 
     for (id, deity) in &templates.deities {
-        if let mud_core::templates::DeityPolicy::Subset(subset) = policy {
+        if let oxide_core::templates::DeityPolicy::Subset(subset) = policy {
             if !subset.contains(id) {
                 continue;
             }
@@ -943,9 +943,9 @@ fn transition_to_deity(flow: &mut LoginFlow, templates: Option<&TemplateRegistry
     let class_policy = templates
         .and_then(|t| t.get_class(class_id))
         .map(|c| &c.deity_policy)
-        .unwrap_or(&mud_core::templates::DeityPolicy::Any);
+        .unwrap_or(&oxide_core::templates::DeityPolicy::Any);
 
-    if matches!(class_policy, mud_core::templates::DeityPolicy::None) {
+    if matches!(class_policy, oxide_core::templates::DeityPolicy::None) {
         flow.create_buffer.deity = None;
         transition_from_deity(flow, templates);
     } else {
@@ -982,7 +982,7 @@ fn transition_from_deity(flow: &mut LoginFlow, templates: Option<&TemplateRegist
 fn get_race_appearance_bounds(
     flow: &LoginFlow,
     templates: Option<&TemplateRegistry>,
-) -> mud_core::templates::AppearanceBounds {
+) -> oxide_core::templates::AppearanceBounds {
     let race_id = flow.create_buffer.race.as_deref().unwrap_or("");
     templates
         .and_then(|t| t.get_race(race_id))
@@ -1012,12 +1012,12 @@ pub fn handle_character_create_deity_state(
     let class_policy = templates
         .and_then(|t| t.get_class(class_id))
         .map(|c| &c.deity_policy)
-        .unwrap_or(&mud_core::templates::DeityPolicy::Any);
+        .unwrap_or(&oxide_core::templates::DeityPolicy::Any);
 
     if input_lower == "none" {
         if matches!(
             class_policy,
-            mud_core::templates::DeityPolicy::Any | mud_core::templates::DeityPolicy::None
+            oxide_core::templates::DeityPolicy::Any | oxide_core::templates::DeityPolicy::None
         ) {
             flow.create_buffer.deity = None;
             transition_from_deity(flow, templates);
@@ -1487,7 +1487,7 @@ pub fn handle_spawn_select_state(
 pub async fn handle_character_create_confirm_state(
     flow: &mut LoginFlow,
     input: &str,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
     _void_room: Entity,
     spawn_room: Entity,
@@ -1532,7 +1532,7 @@ fn check_session<T>(
 
 async fn finalize_character(
     flow: &mut LoginFlow,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
     fallback_room: Entity,
     templates: Option<&TemplateRegistry>,
@@ -1627,7 +1627,7 @@ async fn finalize_character(
             .map(|dbid| dbid.0);
         match existing {
             Some(id) => id,
-            None => match mud_data::insert_entity(conn_db, "room") {
+            None => match oxide_data::insert_entity(conn_db, "room") {
                 Ok(id) => {
                     world
                         .insert(room_entity, (DbId(id),))
@@ -1642,7 +1642,7 @@ async fn finalize_character(
         }
     };
 
-    let entity_id = match mud_data::insert_entity(conn_db, "player") {
+    let entity_id = match oxide_data::insert_entity(conn_db, "player") {
         Ok(id) => id,
         Err(e) => {
             lines.push(format!("Error creating character: {e}"));
@@ -1650,20 +1650,20 @@ async fn finalize_character(
         }
     };
 
-    if let Err(e) = mud_data::save_player_component(conn_db, entity_id, account_id, None, 80) {
+    if let Err(e) = oxide_data::save_player_component(conn_db, entity_id, account_id, None, 80) {
         lines.push(format!("Error saving character: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_practice_points(conn_db, entity_id, 0) {
+    if let Err(e) = oxide_data::save_practice_points(conn_db, entity_id, 0) {
         lines.push(format!("Error saving practice points: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_attributes_component(
+    if let Err(e) = oxide_data::save_attributes_component(
         conn_db,
         entity_id,
-        &mud_data::AttributesRow {
+        &oxide_data::AttributesRow {
             strength: attrs.strength,
             dexterity: attrs.dexterity,
             intelligence: attrs.intelligence,
@@ -1676,32 +1676,32 @@ async fn finalize_character(
         return lines;
     }
 
-    if let Err(e) = mud_data::save_health_component(conn_db, entity_id, hp, hp) {
+    if let Err(e) = oxide_data::save_health_component(conn_db, entity_id, hp, hp) {
         lines.push(format!("Error saving health: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_mana_component(conn_db, entity_id, mana.current as i32) {
+    if let Err(e) = oxide_data::save_mana_component(conn_db, entity_id, mana.current as i32) {
         lines.push(format!("Error saving mana: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_stamina_component(conn_db, entity_id, stamina.current as i32) {
+    if let Err(e) = oxide_data::save_stamina_component(conn_db, entity_id, stamina.current as i32) {
         lines.push(format!("Error saving stamina: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_level_component(conn_db, entity_id, 1) {
+    if let Err(e) = oxide_data::save_level_component(conn_db, entity_id, 1) {
         lines.push(format!("Error saving level: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_experience_component(conn_db, entity_id, 0) {
+    if let Err(e) = oxide_data::save_experience_component(conn_db, entity_id, 0) {
         lines.push(format!("Error saving experience: {e}"));
         return lines;
     }
 
-    if let Err(e) = mud_data::save_combat_stats_component(
+    if let Err(e) = oxide_data::save_combat_stats_component(
         conn_db,
         entity_id,
         combat_stats.base_attack_bonus,
@@ -1713,19 +1713,19 @@ async fn finalize_character(
         return lines;
     }
 
-    if let Err(e) = mud_data::save_alignment_component(conn_db, entity_id, &alignment) {
+    if let Err(e) = oxide_data::save_alignment_component(conn_db, entity_id, &alignment) {
         lines.push(format!("Error saving alignment: {e}"));
         return lines;
     }
 
     if !description.is_empty() {
-        if let Err(e) = mud_data::save_description_component(conn_db, entity_id, &description) {
+        if let Err(e) = oxide_data::save_description_component(conn_db, entity_id, &description) {
             lines.push(format!("Error saving description: {e}"));
             return lines;
         }
     }
 
-    if let Err(e) = mud_data::save_golds_component(
+    if let Err(e) = oxide_data::save_golds_component(
         conn_db,
         entity_id,
         starting_gold.copper as i64,
@@ -1737,7 +1737,7 @@ async fn finalize_character(
         return lines;
     }
 
-    if let Err(e) = mud_data::save_skills(conn_db, entity_id, &skills.skills) {
+    if let Err(e) = oxide_data::save_skills(conn_db, entity_id, &skills.skills) {
         lines.push(format!("Error saving skills: {e}"));
         return lines;
     }
@@ -1770,7 +1770,7 @@ async fn finalize_character(
         .clone()
         .unwrap_or_else(|| "fair".into());
 
-    if let Err(e) = mud_data::save_appearance_component(
+    if let Err(e) = oxide_data::save_appearance_component(
         conn_db,
         entity_id,
         height,
@@ -1786,19 +1786,19 @@ async fn finalize_character(
     }
 
     let age = flow.create_buffer.age.unwrap_or(20) as i32;
-    if let Err(e) = mud_data::save_age_component(conn_db, entity_id, age) {
+    if let Err(e) = oxide_data::save_age_component(conn_db, entity_id, age) {
         lines.push(format!("Error saving age: {e}"));
         return lines;
     }
 
     if let Some(ref deity_id) = flow.create_buffer.deity {
-        if let Err(e) = mud_data::save_deity_component(conn_db, entity_id, deity_id) {
+        if let Err(e) = oxide_data::save_deity_component(conn_db, entity_id, deity_id) {
             lines.push(format!("Error saving deity: {e}"));
             return lines;
         }
     }
 
-    let char_id = match mud_data::create_character(
+    let char_id = match oxide_data::create_character(
         conn_db,
         account_id,
         &name,
@@ -1836,7 +1836,7 @@ async fn finalize_character(
         .clone()
         .unwrap_or_else(|| "their".into());
 
-    if let Err(e) = mud_data::update_character_gender(
+    if let Err(e) = oxide_data::update_character_gender(
         conn_db, char_id, &gender_id, &pronoun_s, &pronoun_o, &pronoun_p,
     ) {
         lines.push(format!("Error saving gender: {e}"));
@@ -1865,7 +1865,7 @@ async fn finalize_character(
         Experience::default(),
     ));
 
-    let appearance = mud_core::Appearance {
+    let appearance = oxide_core::Appearance {
         height: height as u8,
         weight: weight as u16,
         build,
@@ -1874,8 +1874,8 @@ async fn finalize_character(
         eye_color,
         skin_tone,
     };
-    let age_comp = mud_core::Age(age as u16);
-    let deity_comp = mud_core::Deity(flow.create_buffer.deity.clone());
+    let age_comp = oxide_core::Age(age as u16);
+    let deity_comp = oxide_core::Deity(flow.create_buffer.deity.clone());
 
     let _ = world.insert(
         player,
@@ -1894,7 +1894,7 @@ async fn finalize_character(
     );
 
     if let Some(templates) = templates {
-        mud_core::systems::passive::apply_all_passives(world, player, templates);
+        oxide_core::systems::passive::apply_all_passives(world, player, templates);
     }
 
     if let Some(class) = class {
@@ -1917,11 +1917,11 @@ async fn finalize_character(
 /// Spawn a starting item from the template registry tied to the player.
 fn spawn_starting_item(
     world: &mut World,
-    player: mud_core::Entity,
+    player: oxide_core::Entity,
     templates: &TemplateRegistry,
     item_id: &str,
 ) {
-    use mud_core::SpawnKey;
+    use oxide_core::SpawnKey;
 
     let Some(item_tmpl) = templates.get_item(item_id) else {
         return;
@@ -1930,7 +1930,7 @@ fn spawn_starting_item(
     let item_entity = world.spawn((
         Name::new(item_tmpl.name.clone()),
         SpawnKey(format!("starting_item:{}", item_id)),
-        mud_core::Item::new(item_id),
+        oxide_core::Item::new(item_id),
     ));
 
     if let Ok(mut q) = world.query_one::<&mut Inventory>(player) {
@@ -1948,8 +1948,8 @@ async fn load_character(
     flow: &mut LoginFlow,
     world: &mut World,
     spawn_room: Entity,
-    char_row: &mud_data::CharacterRow,
-    db: &Mutex<mud_data::Database>,
+    char_row: &oxide_data::CharacterRow,
+    db: &Mutex<oxide_data::Database>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
 
@@ -1958,11 +1958,11 @@ async fn load_character(
 
     let entity_id = char_row.entity_id;
 
-    let attrs = mud_data::load_attributes_component(conn_db, entity_id)
+    let attrs = oxide_data::load_attributes_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|a| {
-            mud_core::Attributes::new(
+            oxide_core::Attributes::new(
                 a.strength,
                 a.dexterity,
                 a.intelligence,
@@ -1973,20 +1973,20 @@ async fn load_character(
         })
         .unwrap_or_default();
 
-    let hp = mud_data::load_health_component(conn_db, entity_id)
+    let hp = oxide_data::load_health_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|(current, max)| Health { current, max })
         .unwrap_or_else(|| Health::new(20));
 
     let mana = {
-        let level = mud_data::load_level_component(conn_db, entity_id)
+        let level = oxide_data::load_level_component(conn_db, entity_id)
             .ok()
             .flatten()
             .unwrap_or(1);
         let max =
             Mana::from_formula(level as u16, attrs.intelligence as u16, attrs.wisdom as u16).max;
-        let current = mud_data::load_mana_component(conn_db, entity_id)
+        let current = oxide_data::load_mana_component(conn_db, entity_id)
             .ok()
             .flatten()
             .unwrap_or(max as i32)
@@ -1996,13 +1996,13 @@ async fn load_character(
     };
 
     let stamina = {
-        let level = mud_data::load_level_component(conn_db, entity_id)
+        let level = oxide_data::load_level_component(conn_db, entity_id)
             .ok()
             .flatten()
             .unwrap_or(1);
         let max =
             Stamina::from_formula(level as u16, attrs.strength as u16, attrs.dexterity as u16).max;
-        let current = mud_data::load_stamina_component(conn_db, entity_id)
+        let current = oxide_data::load_stamina_component(conn_db, entity_id)
             .ok()
             .flatten()
             .unwrap_or(max as i32)
@@ -2012,58 +2012,58 @@ async fn load_character(
     };
 
     // Save back if either was missing (migration: fill components_mana/stamina)
-    if mud_data::load_mana_component(conn_db, entity_id)
+    if oxide_data::load_mana_component(conn_db, entity_id)
         .ok()
         .flatten()
         .is_none()
     {
-        let _ = mud_data::save_mana_component(conn_db, entity_id, mana.current as i32);
+        let _ = oxide_data::save_mana_component(conn_db, entity_id, mana.current as i32);
     }
-    if mud_data::load_stamina_component(conn_db, entity_id)
+    if oxide_data::load_stamina_component(conn_db, entity_id)
         .ok()
         .flatten()
         .is_none()
     {
-        let _ = mud_data::save_stamina_component(conn_db, entity_id, stamina.current as i32);
+        let _ = oxide_data::save_stamina_component(conn_db, entity_id, stamina.current as i32);
     }
 
-    let level = mud_data::load_level_component(conn_db, entity_id)
+    let level = oxide_data::load_level_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|l| Level(l as u8))
         .unwrap_or_default();
 
-    let xp = mud_data::load_experience_component(conn_db, entity_id)
+    let xp = oxide_data::load_experience_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|x| Experience(x as u64))
         .unwrap_or_default();
 
-    let alignment = mud_data::load_alignment_component(conn_db, entity_id)
+    let alignment = oxide_data::load_alignment_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(Alignment)
         .unwrap_or_default();
 
-    let description = mud_data::load_description_component(conn_db, entity_id)
+    let description = oxide_data::load_description_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(Description)
         .unwrap_or_default();
 
-    let (prompt, screen_width) = mud_data::load_player_component(conn_db, entity_id)
+    let (prompt, screen_width) = oxide_data::load_player_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|(_, prompt, width)| (prompt, width))
         .unwrap_or_else(|| (None, 80));
 
-    let practice_points = mud_data::load_practice_points(conn_db, entity_id)
+    let practice_points = oxide_data::load_practice_points(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|p| p as u32)
         .unwrap_or(0);
 
-    let combat_stats = mud_data::load_combat_stats_component(conn_db, entity_id)
+    let combat_stats = oxide_data::load_combat_stats_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|(bab, fort, ref_save, will)| CombatStats {
@@ -2092,7 +2092,7 @@ async fn load_character(
     player_comp.prompt = prompt;
     player_comp.screen_width = screen_width;
 
-    let gold = mud_data::load_golds_component(conn_db, entity_id)
+    let gold = oxide_data::load_golds_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(|(copper, silver, gold, platinum)| {
@@ -2100,25 +2100,25 @@ async fn load_character(
         })
         .unwrap_or_default();
 
-    let skills_map = mud_data::load_skills(conn_db, entity_id)
+    let skills_map = oxide_data::load_skills(conn_db, entity_id)
         .ok()
         .unwrap_or_default();
-    let mut skills = mud_core::LearnedSkills::new();
+    let mut skills = oxide_core::LearnedSkills::new();
     for (skill_id, rank) in skills_map {
         skills.set_rank(&skill_id, rank);
     }
 
     // Load inventory
-    let inv_rows = mud_data::load_inventory(conn_db, entity_id).unwrap_or_default();
-    let mut inventory = mud_core::Inventory::new();
+    let inv_rows = oxide_data::load_inventory(conn_db, entity_id).unwrap_or_default();
+    let mut inventory = oxide_core::Inventory::new();
     if let Some(ref templates) = crate::get_templates() {
         for (item_db_id, _) in inv_rows {
-            if let Ok(Some(template_id)) = mud_data::load_item_component(conn_db, item_db_id) {
+            if let Ok(Some(template_id)) = oxide_data::load_item_component(conn_db, item_db_id) {
                 if let Some(item_tmpl) = templates.get_item(&template_id) {
                     let item_entity = world.spawn((
-                        mud_core::Name::new(item_tmpl.name.clone()),
-                        mud_core::Item::new(template_id),
-                        mud_core::DbId::new(item_db_id),
+                        oxide_core::Name::new(item_tmpl.name.clone()),
+                        oxide_core::Item::new(template_id),
+                        oxide_core::DbId::new(item_db_id),
                     ));
                     inventory.0.push(item_entity);
                 }
@@ -2127,17 +2127,18 @@ async fn load_character(
     }
 
     // Load equipment
-    let eq_rows = mud_data::load_equipment(conn_db, entity_id).unwrap_or_default();
-    let mut equipment = mud_core::Equipment::new();
+    let eq_rows = oxide_data::load_equipment(conn_db, entity_id).unwrap_or_default();
+    let mut equipment = oxide_core::Equipment::new();
     if let Some(ref templates) = crate::get_templates() {
         for (slot_str, item_db_id) in eq_rows {
             if let Ok(slot) = std::str::FromStr::from_str(&slot_str) {
-                if let Ok(Some(template_id)) = mud_data::load_item_component(conn_db, item_db_id) {
+                if let Ok(Some(template_id)) = oxide_data::load_item_component(conn_db, item_db_id)
+                {
                     if let Some(item_tmpl) = templates.get_item(&template_id) {
                         let item_entity = world.spawn((
-                            mud_core::Name::new(item_tmpl.name.clone()),
-                            mud_core::Item::new(template_id),
-                            mud_core::DbId::new(item_db_id),
+                            oxide_core::Name::new(item_tmpl.name.clone()),
+                            oxide_core::Item::new(template_id),
+                            oxide_core::DbId::new(item_db_id),
                         ));
                         equipment.equip(slot, item_entity);
                     }
@@ -2146,12 +2147,12 @@ async fn load_character(
         }
     }
 
-    let appearance = mud_data::load_appearance_component(conn_db, entity_id)
+    let appearance = oxide_data::load_appearance_component(conn_db, entity_id)
         .ok()
         .flatten()
         .map(
             |(height, weight, build, hair_color, hair_style, eye_color, skin_tone)| {
-                mud_core::Appearance {
+                oxide_core::Appearance {
                     height: height as u8,
                     weight: weight as u16,
                     build,
@@ -2164,14 +2165,14 @@ async fn load_character(
         )
         .unwrap_or_default();
 
-    let age = mud_data::load_age_component(conn_db, entity_id)
+    let age = oxide_data::load_age_component(conn_db, entity_id)
         .ok()
         .flatten()
-        .map(|a| mud_core::Age(a as u16))
+        .map(|a| oxide_core::Age(a as u16))
         .unwrap_or_default();
 
-    let deity = mud_core::Deity(
-        mud_data::load_deity_component(conn_db, entity_id)
+    let deity = oxide_core::Deity(
+        oxide_data::load_deity_component(conn_db, entity_id)
             .ok()
             .flatten(),
     );
@@ -2234,7 +2235,7 @@ async fn load_character(
     );
 
     if let Some(templates) = crate::get_templates() {
-        mud_core::systems::passive::apply_all_passives(world, player, &templates);
+        oxide_core::systems::passive::apply_all_passives(world, player, &templates);
     }
 
     flow.entity = Some(player);
@@ -2278,7 +2279,7 @@ fn clear_create_buffer(flow: &mut LoginFlow) {
 mod tests {
     use super::*;
     use crate::login::LoginFlow;
-    use mud_core::templates::{
+    use oxide_core::templates::{
         ClassAttributeMods, ClassTemplate, DeityPolicy, DeityTemplate, TemplateRegistry,
         WalletAmount,
     };

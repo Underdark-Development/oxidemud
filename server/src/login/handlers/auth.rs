@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use mud_core::templates::TemplateRegistry;
+use oxide_core::templates::TemplateRegistry;
 
 use super::super::state::LoginState;
 use super::super::LoginFlow;
@@ -39,7 +39,7 @@ pub fn handle_connected_state(flow: &mut LoginFlow) -> Vec<String> {
 pub async fn handle_username_state(
     flow: &mut LoginFlow,
     input: &str,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let username = input.trim();
@@ -57,7 +57,7 @@ pub async fn handle_username_state(
     };
 
     let db_guard = db.lock().await;
-    let existing = match mud_data::get_account_by_username(db_guard.conn(), username) {
+    let existing = match oxide_data::get_account_by_username(db_guard.conn(), username) {
         Ok(e) => e,
         Err(e) => {
             lines.push(format!("DB error: {e}"));
@@ -89,7 +89,7 @@ pub async fn handle_username_state(
 pub async fn handle_password_state(
     flow: &mut LoginFlow,
     input: &str,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
     username: Arc<str>,
     attempts: u8,
     templates: Option<&TemplateRegistry>,
@@ -115,7 +115,7 @@ pub async fn handle_password_state(
 
     let (account_id, password_hash) = {
         let db_guard = db.lock().await;
-        let account = match mud_data::get_account_by_username(db_guard.conn(), &username) {
+        let account = match oxide_data::get_account_by_username(db_guard.conn(), &username) {
             Ok(Some(a)) => a,
             Ok(None) => {
                 lines.push("Account vanished.".to_string());
@@ -129,7 +129,7 @@ pub async fn handle_password_state(
         (account.id, account.password_hash.clone())
     };
 
-    let valid = match mud_data::verify_password(input.trim(), &password_hash) {
+    let valid = match oxide_data::verify_password(input.trim(), &password_hash) {
         Ok(v) => v,
         Err(e) => {
             lines.push(format!("Password verify error: {e}"));
@@ -141,7 +141,7 @@ pub async fn handle_password_state(
         flow.echo_on = false;
         {
             let db_guard = db.lock().await;
-            let _ = mud_data::update_last_login(db_guard.conn(), account_id);
+            let _ = oxide_data::update_last_login(db_guard.conn(), account_id);
         }
 
         flow.account_id = Some(account_id);
@@ -225,7 +225,7 @@ pub fn handle_account_create_password_state(flow: &mut LoginFlow, input: &str) -
 pub async fn handle_account_create_confirm_password_state(
     flow: &mut LoginFlow,
     input: &str,
-    db: Option<&Mutex<mud_data::Database>>,
+    db: Option<&Mutex<oxide_data::Database>>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let confirm = input.trim();
@@ -256,7 +256,7 @@ pub async fn handle_account_create_confirm_password_state(
         None => return lines,
     };
 
-    let hash = match mud_data::hash_password(stored_password.as_deref().unwrap()) {
+    let hash = match oxide_data::hash_password(stored_password.as_deref().unwrap()) {
         Ok(h) => h,
         Err(e) => {
             lines.push(format!("Hashing error: {e}"));
@@ -266,7 +266,7 @@ pub async fn handle_account_create_confirm_password_state(
     let username = username.as_deref().unwrap();
 
     let db_guard = db.lock().await;
-    let existing = match mud_data::get_account_by_username(db_guard.conn(), username) {
+    let existing = match oxide_data::get_account_by_username(db_guard.conn(), username) {
         Ok(e) => e,
         Err(e) => {
             lines.push(format!("DB error: {e}"));
@@ -287,7 +287,7 @@ pub async fn handle_account_create_confirm_password_state(
         return lines;
     }
 
-    if let Err(e) = mud_data::create_account(db_guard.conn(), username, &hash) {
+    if let Err(e) = oxide_data::create_account(db_guard.conn(), username, &hash) {
         lines.push(format!("Account creation error: {e}"));
         return lines;
     }

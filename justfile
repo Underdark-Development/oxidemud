@@ -12,7 +12,7 @@ release:
 
 # Run the MUD server (default port 4000)
 server port="4000":
-    cargo run -p mud-bin -- {{ port }}
+    cargo run -p oxide-bin -- {{ port }}
 
 # Run spade (offline builder mode)
 spade *args="":
@@ -20,14 +20,14 @@ spade *args="":
 
 # Run the MCP world-building server (stdio transport, pre-built binary)
 mcp content_path="content":
-    cargo build -p mud-mcp -q
-    ./target/debug/mud-mcp "{{ content_path }}"
+    cargo build -p oxide-mcp -q
+    ./target/debug/oxide-mcp "{{ content_path }}"
 
 # ─── Connect ────────────────────────────────────────────────────────
 
-# Connect via tintin++ (auto-loads mud.tin if present)
+# Connect via tintin++ (auto-loads oxide.tin if present)
 connect addr="127.0.0.1" port="4000":
-    test -f mud.tin && tt++ -r mud.tin || tt++ -r /dev/null {{ addr }} {{ port }}
+    test -f oxide.tin && tt++ -r oxide.tin || tt++ -r /dev/null {{ addr }} {{ port }}
 
 # Connect via raw telnet (fallback)
 connect-raw addr="127.0.0.1" port="4000":

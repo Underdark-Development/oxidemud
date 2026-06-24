@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use mud_core::Entity;
+use oxide_core::Entity;
 
 use crate::telnet::{negotiate_echo, negotiate_no_echo};
 

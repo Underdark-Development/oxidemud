@@ -943,78 +943,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mud-bin"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "mud-core",
- "mud-data",
- "mud-scripting",
- "mud-server",
- "tokio",
- "toml",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "mud-core"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "hecs",
- "serde",
- "toml",
-]
-
-[[package]]
-name = "mud-data"
-version = "0.1.0"
-dependencies = [
- "argon2",
- "mud-core",
- "rand_core",
- "rusqlite",
- "tracing",
-]
-
-[[package]]
-name = "mud-mcp"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "mud-core",
- "rmcp",
- "schemars",
- "serde",
- "serde_json",
- "tokio",
- "toml",
-]
-
-[[package]]
-name = "mud-scripting"
-version = "0.1.0"
-dependencies = [
- "mud-core",
- "rhai",
-]
-
-[[package]]
-name = "mud-server"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "mud-core",
- "mud-data",
- "serde",
- "tokio",
- "toml",
- "tracing",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1073,6 +1001,78 @@ name = "owo-colors"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
+
+[[package]]
+name = "oxide-bin"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "oxide-core",
+ "oxide-data",
+ "oxide-scripting",
+ "oxide-server",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "oxide-core"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "hecs",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "oxide-data"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "oxide-core",
+ "rand_core",
+ "rusqlite",
+ "tracing",
+]
+
+[[package]]
+name = "oxide-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "oxide-core",
+ "rmcp",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+]
+
+[[package]]
+name = "oxide-scripting"
+version = "0.1.0"
+dependencies = [
+ "oxide-core",
+ "rhai",
+]
+
+[[package]]
+name = "oxide-server"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "oxide-core",
+ "oxide-data",
+ "serde",
+ "tokio",
+ "toml",
+ "tracing",
+]
 
 [[package]]
 name = "parking_lot"
@@ -1538,8 +1538,8 @@ dependencies = [
  "clap",
  "color-eyre",
  "dirs",
- "mud-core",
- "mud-scripting",
+ "oxide-core",
+ "oxide-scripting",
  "ratatui",
  "serde",
  "tokio",

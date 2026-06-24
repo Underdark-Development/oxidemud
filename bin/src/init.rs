@@ -1,5 +1,5 @@
-use mud_core::templates::{AreaTemplate, TemplateRegistry};
-use mud_core::{
+use oxide_core::templates::{AreaTemplate, TemplateRegistry};
+use oxide_core::{
     AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
     Health, Item, Level, Name, Npc, Position, Race, Room, RoomExits, ShortDesc, Weapon,
     WeaponHands, WeaponRange, World,
@@ -11,7 +11,7 @@ pub fn init_world() -> (World, Entity) {
 
     let void_room = world.spawn((
         Room::new("The Void", "You are floating in a void"),
-        mud_core::VoidRoom,
+        oxide_core::VoidRoom,
     ));
 
     world
@@ -38,8 +38,8 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
         let key = format!("{}:{room_id}", area.id);
         let entity = world.spawn((
             Room::new(&room_tpl.name, &room_tpl.description),
-            mud_core::RoomFlags::default(),
-            mud_core::SpawnKey(key),
+            oxide_core::RoomFlags::default(),
+            oxide_core::SpawnKey(key),
         ));
         world.insert(entity, (Position::new(entity),)).unwrap();
         room_map.insert(room_id.as_str(), entity);
@@ -137,7 +137,7 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                     world
                         .insert(
                             npc,
-                            (mud_core::Trainer::new(mob_tpl.trainer_types.clone()),),
+                            (oxide_core::Trainer::new(mob_tpl.trainer_types.clone()),),
                         )
                         .unwrap();
                 }
@@ -153,7 +153,7 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
 fn equip_mob_template_items(
     world: &mut World,
     npc: Entity,
-    mob_tpl: &mud_core::templates::MobTemplate,
+    mob_tpl: &oxide_core::templates::MobTemplate,
     registry: &TemplateRegistry,
 ) {
     if let (Some(damage), Some(damage_type)) = (&mob_tpl.damage, &mob_tpl.damage_type) {
@@ -212,7 +212,7 @@ fn equip_mob_template_items(
 
 fn make_weapon(damage: &str, damage_type: &str, speed: f32, range: &str) -> Option<Weapon> {
     let damage_dice = damage.parse().ok()?;
-    let damage_type = mud_core::DamageType::from_str(damage_type).ok()?;
+    let damage_type = oxide_core::DamageType::from_str(damage_type).ok()?;
     let range = match range.to_lowercase().as_str() {
         "ranged" => WeaponRange::Ranged,
         "reach" => WeaponRange::Reach,
@@ -249,7 +249,7 @@ mod tests {
     #[test]
     fn spawn_area_applies_mob_combat_template_fields() {
         let (mut world, _) = init_world();
-        let (registry, _) = mud_core::content::load_registry(&content_path());
+        let (registry, _) = oxide_core::content::load_registry(&content_path());
         let area = registry
             .get_area("starting_vale")
             .expect("starting_vale should load");
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn actual_content_loads_all_mobs() {
-        let (registry, _) = mud_core::content::load_registry(&content_path());
+        let (registry, _) = oxide_core::content::load_registry(&content_path());
 
         assert!(registry.get_mob("temple_acolyte").is_some());
         assert!(registry.get_mob("trainer").is_some());
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn spawn_trainer_npc_attaches_trainer_component() {
         let (mut world, _) = init_world();
-        let (registry, _) = mud_core::content::load_registry(&content_path());
+        let (registry, _) = oxide_core::content::load_registry(&content_path());
         let area = registry
             .get_area("starting_vale")
             .expect("starting_vale should load");
@@ -316,7 +316,7 @@ mod tests {
         spawn_area(&mut world, area, &registry);
 
         let trainer = {
-            let mut q = world.query::<(&Npc, &mud_core::Trainer)>();
+            let mut q = world.query::<(&Npc, &oxide_core::Trainer)>();
             q.iter()
                 .find(|(_, (npc, _))| npc.template_id == "trainer")
                 .map(|(entity, _)| Entity::from(entity))
@@ -324,7 +324,7 @@ mod tests {
         };
 
         let mut q_trainer = world
-            .query_one::<&mud_core::Trainer>(trainer)
+            .query_one::<&oxide_core::Trainer>(trainer)
             .expect("trainer should exist in world");
         let t = q_trainer.get().expect("should have Trainer component");
         assert_eq!(t.trainer_types, vec!["attributes".to_string()]);

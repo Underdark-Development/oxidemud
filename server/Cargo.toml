@@ -1,13 +1,13 @@
 [package]
-name = "mud-server"
+name = "oxide-server"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-mud-core = { path = "../core" }
-mud-data = { path = "../data" }
+oxide-core = { path = "../core" }
+oxide-data = { path = "../data" }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "time", "rt"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"

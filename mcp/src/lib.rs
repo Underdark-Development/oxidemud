@@ -1,4 +1,4 @@
 mod content;
 mod server;
 
-pub use server::MudMcpServer;
+pub use server::OxideMcpServer;

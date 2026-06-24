@@ -3,7 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use mud_core::templates::{RoomTemplate, TemplateRegistry};
+use oxide_core::templates::{RoomTemplate, TemplateRegistry};
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},

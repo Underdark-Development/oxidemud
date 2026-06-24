@@ -17,10 +17,10 @@ The MCP server connects AI workflows directly to the MUD content files. It runs 
 
 ## Invocation and Configuration
 
-Start the MCP server using the `mud_mcp` binary:
+Start the MCP server using the `oxide-mcp` binary:
 
 ```bash
-cargo run --bin mud_mcp [options] [content_path]
+cargo run --bin oxide-mcp [options] [content_path]
 ```
 
 ### Server Modes
@@ -89,19 +89,19 @@ Prompts provide structured, interactive templates for AI assistants:
 
 ## Claude Desktop Configuration
 
-To connect the MUD MCP server to Claude Desktop, add the following configuration to your `claude_desktop_config.json`:
+To connect the OxideMUD MCP server to Claude Desktop, add the following configuration to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "mud-builder": {
+    "oxide-builder": {
       "command": "cargo",
       "args": [
         "run",
         "--manifest-path",
         "/absolute/path/to/mud/mcp/Cargo.toml",
         "--bin",
-        "mud_mcp",
+        "oxide-mcp",
         "--",
         "/absolute/path/to/mud/content"
       ]

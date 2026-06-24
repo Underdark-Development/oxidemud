@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use mud_core::templates::{
+use oxide_core::templates::{
     AffixDef, AreaTemplate, ClassTemplate, HealthBounds, ItemTemplate, LootTable, MobTemplate,
     PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef, StanceDef,
 };
-use mud_core::SkillDef;
+use oxide_core::SkillDef;
 use rmcp::{
     handler::server::wrapper::Parameters, schemars, tool, tool_router, transport::stdio, ServiceExt,
 };
@@ -16,13 +16,13 @@ use serde::Deserialize;
 use crate::content;
 
 #[derive(Clone)]
-pub struct MudMcpServer {
+pub struct OxideMcpServer {
     content_path: PathBuf,
 }
 
-impl MudMcpServer {
+impl OxideMcpServer {
     pub fn new(content_path: PathBuf) -> Self {
-        MudMcpServer { content_path }
+        OxideMcpServer { content_path }
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
@@ -31,7 +31,7 @@ impl MudMcpServer {
         Ok(())
     }
 
-    fn load(&self) -> (mud_core::templates::TemplateRegistry, content::FileMap) {
+    fn load(&self) -> (oxide_core::templates::TemplateRegistry, content::FileMap) {
         content::load_registry(&self.content_path)
     }
 
@@ -122,7 +122,7 @@ struct SearchParams {
 }
 
 #[tool_router(server_handler)]
-impl MudMcpServer {
+impl OxideMcpServer {
     #[tool(description = "List all areas")]
     fn list_areas(&self) -> String {
         let (registry, _) = self.load();
@@ -944,7 +944,7 @@ impl MudMcpServer {
     }
 }
 
-impl MudMcpServer {
+impl OxideMcpServer {
     fn update_room_fields(
         &self,
         area_id: &str,

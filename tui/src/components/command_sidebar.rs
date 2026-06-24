@@ -1,4 +1,4 @@
-use mud_core::templates::RoomTemplate;
+use oxide_core::templates::RoomTemplate;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},

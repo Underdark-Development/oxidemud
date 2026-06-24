@@ -1,4 +1,4 @@
-use mud_core::templates::DiceString;
+use oxide_core::templates::DiceString;
 
 use crate::components::Table;
 use crate::screens::entity_inspector::EntityInspectorScreen;

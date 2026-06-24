@@ -1,6 +1,6 @@
 use crate::connection::Connection;
 use crate::registry::ConnectionRegistry;
-use mud_core::World;
+use oxide_core::World;
 
 pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &str, &ConnectionRegistry);
 
@@ -106,7 +106,7 @@ mod tests {
     use super::*;
     use crate::connection::TelnetConnection;
     use crate::registry::ConnectionRegistry;
-    use mud_core::World;
+    use oxide_core::World;
 
     fn noop(
         _world: &mut World,
