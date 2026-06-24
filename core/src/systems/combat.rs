@@ -348,6 +348,33 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                     .query_one::<&Player>(target)
                     .is_ok_and(|mut q| q.get().is_some());
 
+                // Auto-engage non-friendly NPCs that aren't already in combat
+                let is_npc = world
+                    .query_one::<&Npc>(target)
+                    .is_ok_and(|mut q| q.get().is_some());
+                let is_friendly = world
+                    .query_one::<&Friendly>(target)
+                    .is_ok_and(|mut q| q.get().is_some());
+                if is_npc && !is_friendly {
+                    let current_state = world
+                        .query_one::<&CombatState>(target)
+                        .ok()
+                        .and_then(|mut q| q.get().cloned())
+                        .unwrap_or(CombatState::NotInCombat);
+                    if current_state == CombatState::NotInCombat {
+                        let stance = crate::systems::stance::get_active_stance(world, target);
+                        transition_combat_state(
+                            world,
+                            target,
+                            CombatState::Engaged {
+                                target: attacker,
+                                round_started: std::time::Instant::now(),
+                                stance,
+                            },
+                        );
+                    }
+                }
+
                 // Main hand attack
                 let is_hit = calculate_hit(world, attacker, target, false);
                 if is_hit {

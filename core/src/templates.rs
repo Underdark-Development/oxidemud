@@ -632,6 +632,12 @@ pub struct MobTemplate {
     #[serde(default = "default_ai_mode")]
     pub ai_mode: String,
     #[serde(default)]
+    pub patrol_route: Vec<String>,
+    #[serde(default)]
+    pub wander_rooms: Vec<String>,
+    #[serde(default)]
+    pub wander_area: bool,
+    #[serde(default)]
     pub aggro_range: u32,
     #[serde(default)]
     pub aggro_players: bool,

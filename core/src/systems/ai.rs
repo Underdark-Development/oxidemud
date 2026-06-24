@@ -1,15 +1,30 @@
-use crate::{CombatState, Entity, Friendly, Health, Level, Npc, Position, RoomExits, World};
+use crate::{
+    CombatState, Entity, Friendly, Health, Level, Npc, PatrolRoute, Position, RoomExits,
+    WanderBounds, World,
+};
 
 /// Per-NPC AI behavioral state machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiState {
     Idle,
-    Wander { counter: u8 },
-    Patrol { counter: u8, index: usize },
-    Aggro { hunt_target: Option<Entity> },
+    Wander {
+        counter: u8,
+    },
+    Patrol {
+        counter: u8,
+        index: usize,
+        forward: bool,
+    },
+    Aggro {
+        hunt_target: Option<Entity>,
+    },
     Combat,
-    Flee { attempts: u8 },
-    Return { home: Entity },
+    Flee {
+        attempts: u8,
+    },
+    Return {
+        home: Entity,
+    },
 }
 
 /// Run one AI pulse for all NPCs with AiState.
@@ -115,7 +130,11 @@ fn tick_ai(
     match state {
         AiState::Idle => tick_idle(world, entity, npc),
         AiState::Wander { counter } => tick_wander(world, entity, npc, counter),
-        AiState::Patrol { counter, index } => tick_patrol(world, entity, npc, counter, index),
+        AiState::Patrol {
+            counter,
+            index,
+            forward,
+        } => tick_patrol(world, entity, npc, counter, index, forward),
         AiState::Aggro { hunt_target } => tick_aggro(world, entity, npc, hunt_target),
         AiState::Combat | AiState::Flee { .. } | AiState::Return { .. } => {
             unreachable!("handled above")
@@ -140,7 +159,11 @@ fn tick_idle(world: &mut World, entity: Entity, npc: &Npc) -> AiState {
 fn tick_wander(world: &mut World, entity: Entity, npc: &Npc, counter: u8) -> AiState {
     let new_counter = counter.wrapping_add(1);
     if new_counter >= 4 {
-        do_wander_move(world, entity);
+        let bounds = world
+            .query_one::<&WanderBounds>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned());
+        do_wander_move(world, entity, bounds.as_ref());
     }
     if check_aggro(world, entity, npc) {
         return AiState::Combat;
@@ -155,11 +178,64 @@ fn tick_wander(world: &mut World, entity: Entity, npc: &Npc, counter: u8) -> AiS
     }
 }
 
-/// Patrol: move every 6 pulses (wander fallback), check aggro.
-fn tick_patrol(world: &mut World, entity: Entity, npc: &Npc, counter: u8, index: usize) -> AiState {
+/// Patrol: follow a defined route every 6 pulses.
+/// Loops if start and end waypoints are the same, ping-pongs otherwise.
+/// Falls back to random wander if no PatrolRoute component is attached.
+fn tick_patrol(
+    world: &mut World,
+    entity: Entity,
+    npc: &Npc,
+    counter: u8,
+    index: usize,
+    forward: bool,
+) -> AiState {
     let new_counter = counter.wrapping_add(1);
     if new_counter >= 6 {
-        do_wander_move(world, entity);
+        // Read the patrol route if present
+        let route = world
+            .query_one::<&PatrolRoute>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|r| r.0.clone()))
+            .filter(|wps| !wps.is_empty());
+
+        if let Some(route) = route {
+            {
+                let len = route.len();
+                if index < len {
+                    let _ = world.insert(entity, (Position::new(route[index]),));
+                }
+
+                let is_loop = len >= 2 && route[0] == route[len - 1];
+                let (next_index, next_forward) = if is_loop {
+                    ((index + 1) % len, true)
+                } else if forward {
+                    if index + 1 >= len {
+                        (index.saturating_sub(1), false)
+                    } else {
+                        (index + 1, true)
+                    }
+                } else if index == 0 {
+                    (1, true)
+                } else {
+                    (index - 1, false)
+                };
+
+                if check_aggro(world, entity, npc) {
+                    return AiState::Combat;
+                }
+                return AiState::Patrol {
+                    counter: 0,
+                    index: next_index,
+                    forward: next_forward,
+                };
+            }
+        }
+        // No route — fall back to random wander (respect bounds if set)
+        let bounds = world
+            .query_one::<&WanderBounds>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned());
+        do_wander_move(world, entity, bounds.as_ref());
     }
     if check_aggro(world, entity, npc) {
         return AiState::Combat;
@@ -167,6 +243,7 @@ fn tick_patrol(world: &mut World, entity: Entity, npc: &Npc, counter: u8, index:
     AiState::Patrol {
         counter: if new_counter >= 6 { 0 } else { new_counter },
         index,
+        forward,
     }
 }
 
@@ -185,29 +262,16 @@ fn tick_aggro(
 
 /// Return home: move randomly toward home (no pathfinding yet).
 fn tick_return_home(world: &mut World, entity: Entity, home: Entity) -> AiState {
-    if let Some(room) = world
-        .query_one::<&Position>(entity)
+    let bounds = world
+        .query_one::<&WanderBounds>(entity)
         .ok()
-        .and_then(|mut q| q.get().map(|p| p.room))
-    {
-        let exits = world
-            .query_one::<&RoomExits>(room)
-            .ok()
-            .and_then(|mut q| q.get().map(|e| e.0.clone()));
-        if let Some(exits) = exits {
-            let visible: Vec<_> = exits.iter().filter(|e| !e.is_hidden()).collect();
-            if !visible.is_empty() {
-                let idx = fastrand::usize(..visible.len());
-                let dest = visible[idx].dest;
-                let _ = world.insert(entity, (Position::new(dest),));
-            }
-        }
-    }
+        .and_then(|mut q| q.get().cloned());
+    do_wander_move(world, entity, bounds.as_ref());
     AiState::Return { home }
 }
 
-/// Move to a random visible room exit.
-fn do_wander_move(world: &mut World, entity: Entity) {
+/// Move to a random visible room exit, optionally filtered by wander bounds.
+fn do_wander_move(world: &mut World, entity: Entity, bounds: Option<&WanderBounds>) {
     let room = match world
         .query_one::<&Position>(entity)
         .ok()
@@ -226,7 +290,19 @@ fn do_wander_move(world: &mut World, entity: Entity) {
         None => return,
     };
 
-    let visible: Vec<_> = exits.iter().filter(|e| !e.is_hidden()).collect();
+    let visible: Vec<_> = exits
+        .iter()
+        .filter(|e| {
+            if e.is_hidden() {
+                return false;
+            }
+            if let Some(b) = bounds {
+                b.0.contains(&e.dest)
+            } else {
+                true
+            }
+        })
+        .collect();
     if !visible.is_empty() {
         let idx = fastrand::usize(..visible.len());
         let dest = visible[idx].dest;
@@ -499,5 +575,298 @@ mod tests {
             .cloned()
             .unwrap();
         assert!(matches!(ai_state, AiState::Idle));
+    }
+
+    #[test]
+    fn test_ai_patrol_loop() {
+        let mut world = World::new();
+        let room_a = world.spawn(());
+        let room_b = world.spawn(());
+        let room_c = world.spawn(());
+        let mob = world.spawn((
+            Position::new(room_a),
+            Health::new(50),
+            Npc::new("patrol_mob"),
+            Level(1),
+            Name::new("Patrol"),
+            PatrolRoute(vec![room_a, room_b, room_c, room_a]),
+            AiState::Patrol {
+                counter: 5,
+                index: 0,
+                forward: true,
+            },
+        ));
+
+        // Moves every 6 pulses (counter wraps at 6). Run 6 pulses per move.
+        // Pulse 1: counter wraps, moves to room_a (index 0), index → 1
+        // Pulses 2-6: counter builds, no move
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_a);
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, AiState::Patrol { index: 1, .. }));
+
+        // Next 6 pulses: move to room_b (index 1), index → 2
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_b);
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, AiState::Patrol { index: 2, .. }));
+
+        // Next 6 pulses: move to room_c (index 2), index → 3
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_c);
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, AiState::Patrol { index: 3, .. }));
+
+        // Next 6 pulses: move to room_a (index 3, wraps to 0 — loop)
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_a);
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, AiState::Patrol { index: 0, .. }));
+    }
+
+    #[test]
+    fn test_ai_patrol_ping_pong() {
+        let mut world = World::new();
+        let room_a = world.spawn(());
+        let room_b = world.spawn(());
+        let room_c = world.spawn(());
+        let mob = world.spawn((
+            Position::new(room_a),
+            Health::new(50),
+            Npc::new("patrol_mob"),
+            Level(1),
+            Name::new("Patrol"),
+            PatrolRoute(vec![room_a, room_b, room_c]),
+            AiState::Patrol {
+                counter: 5,
+                index: 0,
+                forward: true,
+            },
+        ));
+
+        // 6 pulses: move to room_a (index 0), index → 1, forward=true
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_a);
+
+        // 6 pulses: move to room_b (index 1), index → 2, forward=true
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_b);
+
+        // 6 pulses: move to room_c (index 2), reverses: index → 1, forward=false
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_c);
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(
+            state,
+            AiState::Patrol {
+                index: 1,
+                forward: false,
+                ..
+            }
+        ));
+
+        // 6 pulses: move to room_b (index 1, forward=false), index → 0
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_b);
+
+        // 6 pulses: move to room_a (index 0, forward=false), reverses: index → 1, forward=true
+        for _ in 0..6 {
+            run_ai_pulse(&mut world);
+        }
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_a);
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(
+            state,
+            AiState::Patrol {
+                index: 1,
+                forward: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_ai_patrol_no_route_fallback() {
+        let mut world = World::new();
+        let room_a = world.spawn(());
+        let room_b = world.spawn(());
+        world
+            .insert(
+                room_a,
+                (RoomExits(vec![crate::Exit::new(
+                    crate::Direction::North,
+                    room_b,
+                )]),),
+            )
+            .unwrap();
+        let mob = world.spawn((
+            Position::new(room_a),
+            Health::new(50),
+            Npc::new("patrol_mob"),
+            Level(1),
+            Name::new("Patrol"),
+            // No PatrolRoute component attached
+            AiState::Patrol {
+                counter: 5,
+                index: 0,
+                forward: true,
+            },
+        ));
+
+        // Should fall back to random wander (no crash, may move)
+        for _ in 0..5 {
+            run_ai_pulse(&mut world);
+        }
+        // Just verify no crash and AiState is still Patrol
+        let state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, AiState::Patrol { .. }));
+    }
+
+    #[test]
+    fn test_ai_wander_bounds() {
+        let mut world = World::new();
+        let room_a = world.spawn(());
+        let room_b = world.spawn(());
+        let room_c = world.spawn(());
+        // Link room_a → room_b and room_a → room_c
+        world
+            .insert(
+                room_a,
+                (RoomExits(vec![
+                    crate::Exit::new(crate::Direction::North, room_b),
+                    crate::Exit::new(crate::Direction::South, room_c),
+                ]),),
+            )
+            .unwrap();
+        // Bounds only allow room_b
+        let mob = world.spawn((
+            Position::new(room_a),
+            Health::new(50),
+            Npc::new("wander_mob"),
+            Level(1),
+            Name::new("Wanderer"),
+            WanderBounds(vec![room_b]),
+            AiState::Wander { counter: 3 },
+        ));
+
+        for _ in 0..20 {
+            run_ai_pulse(&mut world);
+            let pos = world
+                .query_one::<&Position>(mob)
+                .unwrap()
+                .get()
+                .unwrap()
+                .room;
+            // Must always be in room_a or room_b (never room_c)
+            assert!(
+                pos == room_a || pos == room_b,
+                "Mob left bounds: was in room that is not room_a or room_b"
+            );
+        }
     }
 }

@@ -1,3 +1,4 @@
+use crate::Entity;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -233,6 +234,16 @@ impl Npc {
         }
     }
 }
+
+/// Ordered list of room waypoints for patrol routes.
+/// Resolved from template room IDs at spawn time.
+#[derive(Debug, Clone)]
+pub struct PatrolRoute(pub Vec<Entity>);
+
+/// Set of allowed rooms for bounded wandering.
+/// If absent, wander uses any exit (unbounded).
+#[derive(Debug, Clone)]
+pub struct WanderBounds(pub Vec<Entity>);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attributes {

@@ -1,8 +1,8 @@
 use oxide_core::templates::{AreaTemplate, TemplateRegistry};
 use oxide_core::{
     AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
-    Health, Item, ItemSkillRequirement, Level, Name, Npc, Position, Race, Room, RoomExits,
-    SetMembership, ShortDesc, Weapon, WeaponHands, WeaponRange, World,
+    Health, Item, ItemSkillRequirement, Level, Name, Npc, PatrolRoute, Position, Race, Room,
+    RoomExits, SetMembership, ShortDesc, WanderBounds, Weapon, WeaponHands, WeaponRange, World,
 };
 use std::str::FromStr;
 
@@ -86,8 +86,52 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                     "patrol" => AiState::Patrol {
                         counter: 0,
                         index: 0,
+                        forward: true,
                     },
                     _ => AiState::Idle,
+                };
+
+                // Resolve patrol route from template room IDs
+                let patrol_route = if !mob_tpl.patrol_route.is_empty() {
+                    let wps: Vec<Entity> = mob_tpl
+                        .patrol_route
+                        .iter()
+                        .filter_map(|rid| room_map.get(rid.as_str()).copied())
+                        .collect();
+                    if wps.is_empty() {
+                        None
+                    } else {
+                        Some(PatrolRoute(wps))
+                    }
+                } else {
+                    None
+                };
+
+                // Resolve wander bounds from template room IDs or area
+                let wander_bounds = if !mob_tpl.wander_rooms.is_empty() {
+                    let rooms: Vec<Entity> = mob_tpl
+                        .wander_rooms
+                        .iter()
+                        .filter_map(|rid| room_map.get(rid.as_str()).copied())
+                        .collect();
+                    if rooms.is_empty() {
+                        None
+                    } else {
+                        Some(WanderBounds(rooms))
+                    }
+                } else if mob_tpl.wander_area {
+                    let rooms: Vec<Entity> = area
+                        .rooms
+                        .keys()
+                        .filter_map(|rid| room_map.get(rid.as_str()).copied())
+                        .collect();
+                    if rooms.is_empty() {
+                        None
+                    } else {
+                        Some(WanderBounds(rooms))
+                    }
+                } else {
+                    None
                 };
 
                 let npc = world.spawn((
@@ -147,6 +191,13 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                             (oxide_core::Trainer::new(mob_tpl.trainer_types.clone()),),
                         )
                         .unwrap();
+                }
+
+                if let Some(route) = patrol_route {
+                    world.insert(npc, (route,)).unwrap();
+                }
+                if let Some(bounds) = wander_bounds {
+                    world.insert(npc, (bounds,)).unwrap();
                 }
 
                 equip_mob_template_items(world, npc, mob_tpl, registry);

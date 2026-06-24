@@ -15,6 +15,15 @@ impl EntityInspectorScreen {
         Self::add_field(table, "size", &mob.size);
         Self::add_field(table, "xp_value", mob.xp_value);
         Self::add_field(table, "ai_mode", &mob.ai_mode);
+        if !mob.patrol_route.is_empty() {
+            Self::add_field(table, "patrol_route", format!("{:?}", mob.patrol_route));
+        }
+        if !mob.wander_rooms.is_empty() {
+            Self::add_field(table, "wander_rooms", format!("{:?}", mob.wander_rooms));
+        }
+        if mob.wander_area {
+            Self::add_field(table, "wander_area", "true");
+        }
         Self::add_field(table, "aggro_range", mob.aggro_range);
         Self::add_field(table, "aggro_players", mob.aggro_players);
         Self::add_field(table, "faction_standing", mob.faction_standing);
@@ -90,6 +99,29 @@ impl EntityInspectorScreen {
             "size" => mob.size = value.to_string(),
             "xp_value" => mob.xp_value = value.parse().map_err(|_| "invalid number")?,
             "ai_mode" => mob.ai_mode = value.to_string(),
+            "patrol_route" => {
+                mob.patrol_route = if value.is_empty() {
+                    Vec::new()
+                } else {
+                    value
+                        .trim_matches(&['[', ']', ' '][..])
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect()
+                }
+            }
+            "wander_rooms" => {
+                mob.wander_rooms = if value.is_empty() {
+                    Vec::new()
+                } else {
+                    value
+                        .trim_matches(&['[', ']', ' '][..])
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect()
+                }
+            }
+            "wander_area" => mob.wander_area = value.parse().unwrap_or(false),
             "aggro_range" => mob.aggro_range = value.parse().map_err(|_| "invalid number")?,
             "aggro_players" => mob.aggro_players = value.parse().unwrap_or(false),
             "faction_standing" => {

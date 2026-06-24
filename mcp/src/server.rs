@@ -643,10 +643,35 @@ impl OxideMcpServer {
         let p = params.0;
         let (registry, _file_map) = self.load();
         match registry.get_mob(&p.id) {
-            Some(mob) => format!(
-                "id: {}\nname: {}\nlevel: {}\ndescription: {}\narmor: {}\nai: {}",
-                p.id, mob.name, mob.level, mob.description, mob.armor, mob.ai_mode
-            ),
+            Some(mob) => {
+                let route = if mob.patrol_route.is_empty() {
+                    String::new()
+                } else {
+                    format!("\npatrol_route: {:?}", mob.patrol_route)
+                };
+                let w_rooms = if mob.wander_rooms.is_empty() {
+                    String::new()
+                } else {
+                    format!("\nwander_rooms: {:?}", mob.wander_rooms)
+                };
+                let w_area = if mob.wander_area {
+                    "\nwander_area: true".to_string()
+                } else {
+                    String::new()
+                };
+                format!(
+                    "id: {}\nname: {}\nlevel: {}\ndescription: {}\narmor: {}\nai: {}{}{}{}",
+                    p.id,
+                    mob.name,
+                    mob.level,
+                    mob.description,
+                    mob.armor,
+                    mob.ai_mode,
+                    route,
+                    w_rooms,
+                    w_area
+                )
+            }
             None => format!("Error: mob '{}' not found", p.id),
         }
     }
@@ -679,6 +704,9 @@ impl OxideMcpServer {
             xp_value: 0,
             loot: LootTable::default(),
             ai_mode: "idle".to_string(),
+            patrol_route: Vec::new(),
+            wander_rooms: Vec::new(),
+            wander_area: false,
             aggro_range: 0,
             aggro_players: false,
             aggro_mobs: false,
