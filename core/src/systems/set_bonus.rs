@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::templates::SetDef;
 use crate::{ActiveEffect, Entity, Equipment, SetMembership, SetTracker, World};
+use tracing::warn;
 
 /// Describes a change in set bonus state for an entity.
 #[derive(Debug, Clone)]
@@ -56,23 +57,48 @@ pub fn evaluate_set_bonuses(
     // Evaluate which set bonuses should be active
     let mut active_bonuses: Vec<ActiveEffect> = Vec::new();
     for (set_id, count) in &counts {
-        if let Some(set_def) = set_defs.get(set_id) {
-            for bonus in &set_def.bonuses {
-                if *count >= bonus.min_pieces {
-                    for effect in &bonus.effects {
-                        let meets_conditions = bonus
-                            .conditions
-                            .iter()
-                            .all(|c| counts.get(&c.piece_type).copied().unwrap_or(0) >= c.min);
-                        if meets_conditions {
-                            active_bonuses.push(ActiveEffect {
-                                source: format!("set:{}", set_id),
-                                stat: effect.stat.clone(),
-                                amount: effect.amount,
-                                aura_id: effect.aura_id.clone(),
-                                radius: effect.radius,
-                            });
-                        }
+        let Some(set_def) = set_defs.get(set_id) else {
+            continue;
+        };
+
+        // Build per-piece_type counts for this set
+        let mut piece_counts: HashMap<String, u8> = HashMap::new();
+        for (_slot, item_entity) in &equipment.slots {
+            let membership = world
+                .query_one::<&SetMembership>(*item_entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned());
+            if let Some(m) = membership {
+                if m.set_id == *set_id {
+                    *piece_counts.entry(m.piece_type).or_insert(0) += 1;
+                }
+            }
+        }
+
+        for bonus in &set_def.bonuses {
+            if *count >= bonus.min_pieces {
+                for effect in &bonus.effects {
+                    let meets_conditions = bonus
+                        .conditions
+                        .iter()
+                        .all(|c| {
+                            let found = piece_counts.get(c.piece_type.as_str()).copied().unwrap_or(0);
+                            if found == 0 && c.min > 0 {
+                                warn!(
+                                    "Set '{}' bonus requires piece_type '{}' (min {}) but 0 pieces of that type are equipped from this set",
+                                    set_id, c.piece_type, c.min
+                                );
+                            }
+                            found >= c.min
+                        });
+                    if meets_conditions {
+                        active_bonuses.push(ActiveEffect {
+                            source: format!("set:{}", set_id),
+                            stat: effect.stat.clone(),
+                            amount: effect.amount,
+                            aura_id: effect.aura_id.clone(),
+                            radius: effect.radius,
+                        });
                     }
                 }
             }

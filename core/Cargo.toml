@@ -10,3 +10,4 @@ fastrand = "2"
 hecs = "0.10"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+tracing = "0.1"
