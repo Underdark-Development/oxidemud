@@ -1,9 +1,11 @@
+use tracing::info;
+
 use crate::dice::DiceRoll;
 use crate::systems::trigger::process_triggers;
 use crate::{
-    Armor, Attributes, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Health,
-    Inventory, Level, LootRule, Name, Player, Position, Resistance, RoomExits, Weapon, WeaponHands,
-    World,
+    Armor, Attributes, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Friendly,
+    Health, Inventory, Level, LootRule, Name, Npc, Player, Position, Resistance, RoomExits, Weapon,
+    WeaponHands, World,
 };
 
 // ---------------------------------------------------------------------------
@@ -243,6 +245,11 @@ pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: Com
 
     if old_state != new_state {
         let _ = world.insert(entity, (new_state.clone(),));
+
+        info!(
+            "combat_state entity={:?} from={:?} to={:?}",
+            entity, old_state, new_state
+        );
 
         let _event = crate::GameEvent::CombatStateChanged {
             entity,
@@ -668,6 +675,33 @@ fn apply_damage(
 
         (final_damage, true, xp_gained, Some(corpse))
     } else {
+        // Auto-engage non-friendly NPCs that aren't already in combat
+        let is_npc = world
+            .query_one::<&Npc>(target)
+            .is_ok_and(|mut q| q.get().is_some());
+        let is_friendly = world
+            .query_one::<&Friendly>(target)
+            .is_ok_and(|mut q| q.get().is_some());
+        if is_npc && !is_friendly {
+            let current_state = world
+                .query_one::<&CombatState>(target)
+                .ok()
+                .and_then(|mut q| q.get().cloned())
+                .unwrap_or(CombatState::NotInCombat);
+            if current_state == CombatState::NotInCombat {
+                let stance = crate::systems::stance::get_active_stance(world, target);
+                transition_combat_state(
+                    world,
+                    target,
+                    CombatState::Engaged {
+                        target: attacker,
+                        round_started: std::time::Instant::now(),
+                        stance,
+                    },
+                );
+            }
+        }
+
         (final_damage, false, 0, None)
     }
 }
@@ -932,42 +966,20 @@ mod tests {
             },
         );
 
-        if world
-            .query_one::<&crate::Npc>(mob)
-            .is_ok_and(|mut q| q.get().is_some())
-            && !world
-                .query_one::<&crate::Friendly>(mob)
-                .is_ok_and(|mut q| q.get().is_some())
-        {
-            let target_stance = crate::systems::stance::get_active_stance(&world, mob);
-            transition_combat_state(
-                &mut world,
-                mob,
-                CombatState::Engaged {
-                    target: player,
-                    round_started: std::time::Instant::now(),
-                    stance: target_stance,
-                },
-            );
-        }
+        // First pulse: player attacks, mob auto-engages via apply_damage
+        let _outcomes = run_combat_pulse(&mut world);
 
-        let player_state = world
-            .query_one::<&CombatState>(player)
-            .unwrap()
-            .get()
-            .cloned()
-            .unwrap();
+        // The mob should have been auto-engaged by apply_damage
         let mob_state = world
             .query_one::<&CombatState>(mob)
             .unwrap()
             .get()
             .cloned()
             .unwrap();
-        assert!(matches!(player_state, CombatState::Engaged { target, .. } if target == mob));
         assert!(matches!(mob_state, CombatState::Engaged { target, .. } if target == player));
 
+        // Second pulse: mob attacks back
         let outcomes = run_combat_pulse(&mut world);
-
         let mob_attacked = outcomes
             .iter()
             .any(|o| o.attacker == mob && o.target == player);
