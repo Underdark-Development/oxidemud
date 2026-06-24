@@ -219,7 +219,7 @@ impl EntitiesScreen {
             KeyCode::Down => self.tree.select_next(),
             KeyCode::Enter => {
                 if let Some(data) = self.tree.selected_data() {
-                    if !data.id.is_empty() {
+                    if !data.id.is_empty() && data.category != "areas_folder" {
                         self.open_detail(data.category.clone(), data.id.clone());
                     } else if let Some(idx) = self.tree.selected {
                         if let Some((_, node)) = self.tree.flatten().get(idx) {
@@ -254,8 +254,12 @@ impl EntitiesScreen {
                 if let Some(info) = node_info {
                     if info.id.is_empty() {
                         self.create_new_entity("items", None);
-                    } else if info.category == "areas" || info.category == "rooms" {
-                        let area_id = if info.category == "areas" {
+                    } else if info.category == "areas"
+                        || info.category == "areas_folder"
+                        || info.category == "rooms"
+                    {
+                        let area_id = if info.category == "areas" || info.category == "areas_folder"
+                        {
                             Some(info.id.clone())
                         } else {
                             self.registry
@@ -322,7 +326,7 @@ impl EntitiesScreen {
                     self.last_click = Some((Instant::now(), idx));
                     self.tree.selected = Some(idx);
                     if let Some(data) = self.tree.selected_data() {
-                        if !data.id.is_empty() {
+                        if !data.id.is_empty() && data.category != "areas_folder" {
                             self.open_detail(data.category.clone(), data.id.clone());
                         }
                     }
@@ -807,7 +811,7 @@ fn insert_draft_into_registry(
 }
 
 /// Remove an entity from the in-memory registry (used for draft deletion).
-fn remove_from_registry(registry: &mut TemplateRegistry, category: &str, id: &str) {
+pub(crate) fn remove_from_registry(registry: &mut TemplateRegistry, category: &str, id: &str) {
     match category {
         "items" => {
             registry.items.remove(id);
@@ -886,7 +890,7 @@ impl Screen for EntitiesScreen {
                 if self.detail.as_ref().unwrap().is_editing() {
                     self.detail.as_mut().unwrap().handle_key(key);
                 } else {
-                    if let Some(detail) = self.detail.take() {
+                    if let Some(mut detail) = self.detail.take() {
                         if detail.dirty {
                             detail.apply_changes(&mut self.registry);
                             self.unsaved
@@ -1041,7 +1045,11 @@ impl Screen for EntitiesScreen {
                 let context_id = match normalized {
                     "rooms" => {
                         match ctx {
-                            Some(ref c) if c.category == "areas" => Some(c.id.clone()),
+                            Some(ref c)
+                                if c.category == "areas" || c.category == "areas_folder" =>
+                            {
+                                Some(c.id.clone())
+                            }
                             Some(ref c) if c.category == "rooms" => {
                                 // Find parent area
                                 self.registry
@@ -1069,7 +1077,7 @@ impl Screen for EntitiesScreen {
                     let cat = data.category.clone();
                     let id = data.id.clone();
                     let is_draft = self.draft_data.contains_key(&(cat.clone(), id.clone()));
-                    let inspector = EntityInspectorScreen::new(
+                    let mut inspector = EntityInspectorScreen::new(
                         self.registry.clone(),
                         cat.clone(),
                         id.clone(),
@@ -1079,40 +1087,97 @@ impl Screen for EntitiesScreen {
                     );
                     inspector.save_to_disk()?;
                     self.draft_data.remove(&(cat.clone(), id.clone()));
-                    if !self.file_map.contains_key(&cat) || !self.file_map[&cat].contains_key(&id) {
-                        let path = self.content_path.join(&cat).join(format!("{id}.toml"));
-                        self.file_map
-                            .entry(cat.clone())
-                            .or_default()
-                            .insert(id.clone(), path);
+                    let lookup_key = if cat == "rooms" {
+                        let area_id = self
+                            .registry
+                            .areas
+                            .values()
+                            .find_map(|a| a.rooms.get(&id))
+                            .map(|r| r.area.as_str())
+                            .unwrap_or("");
+                        format!("{area_id}:{id}")
+                    } else {
+                        id.clone()
+                    };
+                    if !self.file_map.contains_key(&cat)
+                        || !self.file_map[&cat].contains_key(&lookup_key)
+                    {
+                        if let Ok(path) = inspector.resolve_save_path() {
+                            self.file_map
+                                .entry(cat.clone())
+                                .or_default()
+                                .insert(lookup_key, path);
+                        }
                     }
                     self.unsaved.remove(&(cat, id));
                     self.rebuild_tree();
                     return Ok(true);
                 }
                 // Take save data before mutating
-                let (is_draft, cat, id) = {
+                let (is_draft, cat, old_id) = {
                     let d = self.detail.as_ref().unwrap();
                     (d.is_draft, d.category.clone(), d.template_id.clone())
                 };
                 // Save to disk
-                self.detail.as_ref().unwrap().save_to_disk()?;
-                // Mark as no longer a draft so future saves use file_map
                 let detail = self.detail.as_mut().unwrap();
-                if is_draft {
-                    detail.is_draft = false;
-                    detail.content_path = None;
-                    self.draft_data.remove(&(cat.clone(), id.clone()));
-                    if !self.file_map.contains_key(&cat) || !self.file_map[&cat].contains_key(&id) {
-                        let path = self.content_path.join(&cat).join(format!("{id}.toml"));
-                        let cat_key = cat.clone();
-                        self.file_map
-                            .entry(cat_key)
-                            .or_default()
-                            .insert(id.clone(), path);
+                detail.save_to_disk()?;
+
+                let new_id = detail.template_id.clone();
+                detail.apply_changes(&mut self.registry);
+
+                if old_id != new_id {
+                    remove_from_registry(&mut self.registry, &cat, &old_id);
+                    self.unsaved.remove(&(cat.clone(), old_id.clone()));
+                    self.draft_data.remove(&(cat.clone(), old_id.clone()));
+                    if let Ok(new_path) = detail.resolve_save_path() {
+                        if let Some(cat_map) = self.file_map.get_mut(&cat) {
+                            let (old_lookup, new_lookup) = if cat == "rooms" {
+                                let area_id = self
+                                    .registry
+                                    .areas
+                                    .values()
+                                    .find_map(|a| a.rooms.get(&new_id))
+                                    .map(|r| r.area.as_str())
+                                    .unwrap_or("");
+                                (format!("{area_id}:{old_id}"), format!("{area_id}:{new_id}"))
+                            } else {
+                                (old_id.clone(), new_id.clone())
+                            };
+                            cat_map.remove(&old_lookup);
+                            cat_map.insert(new_lookup, new_path);
+                        }
                     }
                 }
-                self.unsaved.remove(&(cat, id));
+
+                if is_draft {
+                    let d = self.detail.as_mut().unwrap();
+                    d.is_draft = false;
+                    d.content_path = None;
+                    self.draft_data.remove(&(cat.clone(), new_id.clone()));
+                    let lookup_key = if cat == "rooms" {
+                        let area_id = self
+                            .registry
+                            .areas
+                            .values()
+                            .find_map(|a| a.rooms.get(&new_id))
+                            .map(|r| r.area.as_str())
+                            .unwrap_or("");
+                        format!("{area_id}:{new_id}")
+                    } else {
+                        new_id.clone()
+                    };
+                    if !self.file_map.contains_key(&cat)
+                        || !self.file_map[&cat].contains_key(&lookup_key)
+                    {
+                        if let Ok(path) = d.resolve_save_path() {
+                            self.file_map
+                                .entry(cat.clone())
+                                .or_default()
+                                .insert(lookup_key, path);
+                        }
+                    }
+                }
+                self.unsaved.remove(&(cat, new_id));
                 self.rebuild_tree();
                 Ok(true)
             }
@@ -1267,7 +1332,7 @@ impl Screen for EntitiesScreen {
                 }
                 let mut errors = Vec::new();
                 for (cat, id) in &draft_ids {
-                    let inspector = EntityInspectorScreen::new(
+                    let mut inspector = EntityInspectorScreen::new(
                         self.registry.clone(),
                         cat.clone(),
                         id.clone(),
@@ -1280,11 +1345,24 @@ impl Screen for EntitiesScreen {
                         Ok(()) => {
                             self.draft_data.remove(&(cat.clone(), id.clone()));
                             self.unsaved.remove(&(cat.clone(), id.clone()));
-                            let path = self.content_path.join(cat).join(format!("{id}.toml"));
-                            self.file_map
-                                .entry(cat.clone())
-                                .or_default()
-                                .insert(id.clone(), path);
+                            let lookup_key = if cat == "rooms" {
+                                let area_id = self
+                                    .registry
+                                    .areas
+                                    .values()
+                                    .find_map(|a| a.rooms.get(id))
+                                    .map(|r| r.area.as_str())
+                                    .unwrap_or("");
+                                format!("{area_id}:{id}")
+                            } else {
+                                id.clone()
+                            };
+                            if let Ok(path) = inspector.resolve_save_path() {
+                                self.file_map
+                                    .entry(cat.clone())
+                                    .or_default()
+                                    .insert(lookup_key, path);
+                            }
                         }
                         Err(e) => {
                             errors.push(format!("{cat}/{id}: {e}"));

@@ -36,10 +36,23 @@ impl EntitiesScreen {
                 let mut area_child = TreeNode::new(
                     area.name.clone(),
                     NodeInfo {
-                        category: "areas".into(),
+                        category: "areas_folder".into(),
                         id: id.clone(),
                     },
                 );
+                if area_matches {
+                    let area_dirty = self.unsaved.contains(&("areas".into(), id.clone()));
+                    area_child.add_child(TreeNode {
+                        label: "area.toml".to_string(),
+                        data: NodeInfo {
+                            category: "areas".into(),
+                            id: id.clone(),
+                        },
+                        children: Vec::new(),
+                        collapsed: false,
+                        dirty: area_dirty,
+                    });
+                }
                 let mut room_count = 0usize;
                 let mut room_ids: Vec<&String> = area.rooms.keys().collect();
                 room_ids.sort();

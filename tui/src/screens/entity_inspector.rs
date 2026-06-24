@@ -4,11 +4,12 @@ use oxide_core::templates::TemplateRegistry;
 use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
-    layout::Rect,
+    layout::{Constraint, Rect},
     style::{Color, Style},
     widgets::{Block, Borders, Widget},
 };
 
+use super::entities::remove_from_registry;
 use super::Screen;
 use crate::components::dropdown::{
     dropdown_item_style, highlight_dropdown_row, render_dropdown_box,
@@ -132,6 +133,10 @@ impl EntityInspectorScreen {
                 ]);
             }
         }
+
+        let max_field_len = table.rows.iter().map(|r| r[0].len()).max().unwrap_or(20);
+        let first_col_width = (max_field_len as u16).max(20);
+        table.column_widths = vec![Constraint::Length(first_col_width), Constraint::Fill(1)];
 
         if table.rows.is_empty() {
             table.add_row(vec!["message".into(), "template not found".into()]);
@@ -295,27 +300,110 @@ impl EntityInspectorScreen {
 
     /// Persist the entity to disk with round-trip validation.
     /// Returns Ok(()) on success, Err(msg) on failure.
-    pub fn save_to_disk(&self) -> Result<(), String> {
+    pub fn save_to_disk(&mut self) -> Result<(), String> {
         let toml_str = self.serialize_registry_data().map_err(|e| e.to_string())?;
 
         // Round-trip validation: try to parse the serialized TOML back through the concrete struct.
         self.validate_toml(&toml_str)?;
 
-        let path = self.resolve_save_path()?;
+        let old_id = self.template_id.clone();
+        let new_id = self.get_internal_id().unwrap_or_else(|| old_id.clone());
 
-        // Detect room relocation: if original path differs from new path, delete old file.
-        if self.category == "rooms" && !self.is_draft {
-            if let Some(ref orig) = self.original_path {
-                if *orig != path {
-                    let _ = std::fs::remove_file(orig);
+        let old_path = self.resolve_save_path_for_id(&old_id)?;
+        let new_path = self.resolve_save_path_for_id(&new_id)?;
+
+        if !self.is_draft && old_path != new_path {
+            if self.category == "areas" {
+                if let (Some(old_parent), Some(new_parent)) = (old_path.parent(), new_path.parent())
+                {
+                    if old_parent.exists() {
+                        if let Some(grandparent) = new_parent.parent() {
+                            std::fs::create_dir_all(grandparent)
+                                .map_err(|e| format!("cannot create dir: {e}"))?;
+                        }
+                        std::fs::rename(old_parent, new_parent)
+                            .map_err(|e| format!("failed to rename area dir: {e}"))?;
+                    }
+                }
+            } else {
+                if old_path.exists() {
+                    let _ = std::fs::remove_file(&old_path);
                 }
             }
         }
 
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = new_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("cannot create dirs: {e}"))?;
         }
-        std::fs::write(&path, &toml_str).map_err(|e| format!("write failed: {e}"))?;
+        std::fs::write(&new_path, &toml_str).map_err(|e| format!("write failed: {e}"))?;
+
+        // Update the inspector's local registry mapping if the ID changed
+        if old_id != new_id {
+            match self.category.as_str() {
+                "items" => {
+                    if let Some(t) = self.registry.items.remove(&old_id) {
+                        self.registry.items.insert(new_id.clone(), t);
+                    }
+                }
+                "mobs" => {
+                    if let Some(t) = self.registry.mobs.remove(&old_id) {
+                        self.registry.mobs.insert(new_id.clone(), t);
+                    }
+                }
+                "races" => {
+                    if let Some(t) = self.registry.races.remove(&old_id) {
+                        self.registry.races.insert(new_id.clone(), t);
+                    }
+                }
+                "classes" => {
+                    if let Some(t) = self.registry.classes.remove(&old_id) {
+                        self.registry.classes.insert(new_id.clone(), t);
+                    }
+                }
+                "skills" => {
+                    if let Some(t) = self.registry.skills.remove(&old_id) {
+                        self.registry.skills.insert(new_id.clone(), t);
+                    }
+                }
+                "stances" => {
+                    if let Some(t) = self.registry.stances.remove(&old_id) {
+                        self.registry.stances.insert(new_id.clone(), t);
+                    }
+                }
+                "sets" => {
+                    if let Some(t) = self.registry.sets.remove(&old_id) {
+                        self.registry.sets.insert(new_id.clone(), t);
+                    }
+                }
+                "affixes" => {
+                    if let Some(t) = self.registry.affixes.remove(&old_id) {
+                        self.registry.affixes.insert(new_id.clone(), t);
+                    }
+                }
+                "passives" => {
+                    if let Some(t) = self.registry.passives.remove(&old_id) {
+                        self.registry.passives.insert(new_id.clone(), t);
+                    }
+                }
+                "areas" => {
+                    if let Some(t) = self.registry.areas.remove(&old_id) {
+                        self.registry.areas.insert(new_id.clone(), t);
+                    }
+                }
+                "rooms" => {
+                    for area in self.registry.areas.values_mut() {
+                        if let Some(room) = area.rooms.remove(&old_id) {
+                            area.rooms.insert(new_id.clone(), room);
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            self.template_id = new_id.clone();
+            self.original_path = Some(new_path);
+        }
+
         Ok(())
     }
 
@@ -399,13 +487,40 @@ impl EntityInspectorScreen {
         Ok(s)
     }
 
-    fn resolve_save_path(&self) -> Result<std::path::PathBuf, String> {
+    pub(crate) fn resolve_save_path(&self) -> Result<std::path::PathBuf, String> {
+        self.resolve_save_path_for_id(&self.template_id)
+    }
+
+    fn resolve_save_path_for_id(&self, target_id: &str) -> Result<std::path::PathBuf, String> {
+        let lookup_key = if self.category == "rooms" {
+            let area_id = self
+                .registry
+                .areas
+                .values()
+                .find_map(|a| a.rooms.get(&self.template_id))
+                .map(|r| r.area.as_str())
+                .ok_or_else(|| format!("cannot find area for room {}", self.template_id))?;
+            format!("{}:{}", area_id, self.template_id)
+        } else {
+            self.template_id.clone()
+        };
+
         if let Some(path) = self
             .file_map
             .get(&self.category)
-            .and_then(|m| m.get(&self.template_id))
+            .and_then(|m| m.get(&lookup_key))
         {
-            return Ok(path.clone());
+            let mut new_path = path.clone();
+            if self.category == "areas" {
+                if let Some(parent) = path.parent() {
+                    if let Some(grandparent) = parent.parent() {
+                        return Ok(grandparent.join(target_id).join("area.toml"));
+                    }
+                }
+            } else {
+                new_path.set_file_name(format!("{target_id}.toml"));
+                return Ok(new_path);
+            }
         }
 
         // Draft entity — construct path from content_path
@@ -426,12 +541,74 @@ impl EntityInspectorScreen {
                 .join("areas")
                 .join(area_id)
                 .join("rooms")
-                .join(format!("{}.toml", self.template_id)))
+                .join(format!("{target_id}.toml")))
         } else if self.category == "areas" {
-            Ok(cp.join("areas").join(&self.template_id).join("area.toml"))
+            Ok(cp.join("areas").join(target_id).join("area.toml"))
         } else {
             let dir = cp.join(&self.category);
-            Ok(dir.join(format!("{}.toml", self.template_id)))
+            Ok(dir.join(format!("{target_id}.toml")))
+        }
+    }
+
+    fn get_internal_id(&self) -> Option<String> {
+        match self.category.as_str() {
+            "items" => self
+                .registry
+                .items
+                .get(&self.template_id)
+                .map(|i| i.id.clone()),
+            "mobs" => self
+                .registry
+                .mobs
+                .get(&self.template_id)
+                .map(|m| m.id.clone()),
+            "races" => self
+                .registry
+                .races
+                .get(&self.template_id)
+                .map(|r| r.id.clone()),
+            "classes" => self
+                .registry
+                .classes
+                .get(&self.template_id)
+                .map(|c| c.id.clone()),
+            "skills" => self
+                .registry
+                .skills
+                .get(&self.template_id)
+                .map(|s| s.id.clone()),
+            "stances" => self
+                .registry
+                .stances
+                .get(&self.template_id)
+                .map(|s| s.id.clone()),
+            "sets" => self
+                .registry
+                .sets
+                .get(&self.template_id)
+                .map(|s| s.id.clone()),
+            "affixes" => self
+                .registry
+                .affixes
+                .get(&self.template_id)
+                .map(|a| a.id.clone()),
+            "passives" => self
+                .registry
+                .passives
+                .get(&self.template_id)
+                .map(|p| p.id.clone()),
+            "areas" => self
+                .registry
+                .areas
+                .get(&self.template_id)
+                .map(|a| a.id.clone()),
+            "rooms" => self
+                .registry
+                .areas
+                .values()
+                .find_map(|a| a.rooms.get(&self.template_id))
+                .map(|r| r.id.clone()),
+            _ => None,
         }
     }
 
@@ -517,8 +694,15 @@ impl EntityInspectorScreen {
         std::fs::remove_file(path)?;
         Ok(())
     }
+    pub fn apply_changes(&mut self, registry: &mut TemplateRegistry) {
+        let old_id = self.template_id.clone();
+        let new_id = self.get_internal_id().unwrap_or_else(|| old_id.clone());
 
-    pub fn apply_changes(&self, registry: &mut TemplateRegistry) {
+        if old_id != new_id {
+            remove_from_registry(registry, &self.category, &old_id);
+            self.template_id = new_id.clone();
+        }
+
         let template_id = &self.template_id;
         match self.category.as_str() {
             "items" => {
@@ -572,8 +756,6 @@ impl EntityInspectorScreen {
                 }
             }
             "rooms" => {
-                // Rooms are nested within areas. If the room's area field was changed,
-                // relocate it from the old area to the new area in the main registry.
                 if let Some(room) = self
                     .registry
                     .areas
@@ -582,21 +764,10 @@ impl EntityInspectorScreen {
                     .cloned()
                 {
                     let target_id = room.area.clone();
-                    // Remove from any area in main registry that still holds it
-                    if let Some(old_area) = registry
-                        .areas
-                        .values_mut()
-                        .find(|a| a.rooms.contains_key(template_id))
-                    {
-                        if old_area.id != target_id {
-                            old_area.rooms.remove(template_id);
-                        } else {
-                            // Same area — just update the room in-place
-                            old_area.rooms.insert(template_id.clone(), room);
-                            return;
-                        }
+                    for area in registry.areas.values_mut() {
+                        area.rooms.remove(&old_id);
+                        area.rooms.remove(template_id);
                     }
-                    // Insert into target area
                     if let Some(target) = registry.areas.get_mut(&target_id) {
                         target.rooms.insert(template_id.clone(), room);
                     }
@@ -1146,6 +1317,45 @@ impl EntityInspectorScreen {
                     self.start_edit(row);
                 }
             }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                if let Some(row) = self.table.selected {
+                    let field = &self.table.rows[row][0];
+                    if let Some((prefix, idx)) = parse_array_field(field) {
+                        match self.add_array_entry(&prefix, idx) {
+                            Ok(_) => {
+                                self.dirty = true;
+                                self.load_table();
+                                self.table.selected = Some(row);
+                            }
+                            Err(e) => {
+                                tracing::error!("failed to add array entry: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('-') => {
+                if let Some(row) = self.table.selected {
+                    let field = &self.table.rows[row][0];
+                    if let Some((prefix, idx)) = parse_array_field(field) {
+                        match self.remove_array_entry(&prefix, idx) {
+                            Ok(_) => {
+                                self.dirty = true;
+                                self.load_table();
+                                if let Some(ref mut sel) = self.table.selected {
+                                    if *sel >= self.table.rows.len() {
+                                        self.table.selected =
+                                            self.table.rows.len().checked_sub(1).or(Some(0));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("failed to remove array entry: {e}");
+                            }
+                        }
+                    }
+                }
+            }
             KeyCode::Char('D') => {
                 self.delete_dialog = Some(Dialog::new(
                     Color::Red,
@@ -1159,6 +1369,36 @@ impl EntityInspectorScreen {
                 ));
             }
             _ => {}
+        }
+    }
+
+    fn add_array_entry(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        match self.category.as_str() {
+            "items" => self.add_item_array(prefix, index),
+            "mobs" => self.add_mob_array(prefix, index),
+            "areas" => self.add_area_array(prefix, index),
+            "rooms" => self.add_room_array(prefix, index),
+            "races" => self.add_race_array(prefix, index),
+            "classes" => self.add_class_array(prefix, index),
+            _ => Err(format!(
+                "adding array entries for category {} not supported",
+                self.category
+            )),
+        }
+    }
+
+    fn remove_array_entry(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        match self.category.as_str() {
+            "items" => self.remove_item_array(prefix, index),
+            "mobs" => self.remove_mob_array(prefix, index),
+            "areas" => self.remove_area_array(prefix, index),
+            "rooms" => self.remove_room_array(prefix, index),
+            "races" => self.remove_race_array(prefix, index),
+            "classes" => self.remove_class_array(prefix, index),
+            _ => Err(format!(
+                "removing array entries for category {} not supported",
+                self.category
+            )),
         }
     }
 
@@ -1617,4 +1857,19 @@ fn cursor_visual_pos(text: &str, cursor: usize, line_width: usize) -> (usize, us
     let visual_row = lines_before + col / line_width;
     let visual_col = col % line_width;
     (visual_row, visual_col)
+}
+
+fn parse_array_field(field: &str) -> Option<(String, usize)> {
+    let open_bracket = field.find('[')?;
+    let close_bracket = field.find(']')?;
+    if close_bracket > open_bracket {
+        let prefix = field[..open_bracket].to_string();
+        let idx_str = &field[open_bracket + 1..close_bracket];
+        if idx_str.is_empty() {
+            return Some((prefix, 0));
+        } else if let Ok(idx) = idx_str.parse::<usize>() {
+            return Some((prefix, idx));
+        }
+    }
+    None
 }

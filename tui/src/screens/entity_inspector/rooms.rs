@@ -5,46 +5,82 @@ impl EntityInspectorScreen {
     pub(super) fn load_rooms(&self, table: &mut Table) {
         for area in self.registry.areas.values() {
             if let Some(room) = area.rooms.get(&self.template_id) {
+                Self::add_field(table, "id", &room.id);
                 Self::add_field(table, "name", &room.name);
                 Self::add_field(table, "description", &room.description);
                 Self::add_field(table, "area", &area.id);
                 Self::add_field(table, "flags", room.flags.join(", "));
-                for (dir, dest) in &room.exits {
+
+                // Exits (always display cardinal directions)
+                let dirs = ["north", "south", "east", "west", "up", "down"];
+                for dir in dirs {
+                    let dest = room.exits.get(dir).map(|s| s.as_str()).unwrap_or("");
                     Self::add_field(table, &format!("exit.{dir}"), dest);
                 }
-                for (i, portal) in room.portals.iter().enumerate() {
-                    Self::add_field(table, &format!("portal[{i}].keyword"), &portal.keyword);
-                    Self::add_field(table, &format!("portal[{i}].destination"), &portal.dest);
-                    Self::add_field(
-                        table,
-                        &format!("portal[{i}].description"),
-                        &portal.description,
-                    );
-                    Self::add_field(
-                        table,
-                        &format!("portal[{i}].flags"),
-                        portal.flags.join(", "),
-                    );
-                }
-                for (i, spawn) in room.content.mobs.iter().enumerate() {
-                    Self::add_field(
-                        table,
-                        &format!("content.mobs[{i}].template_id"),
-                        &spawn.template_id,
-                    );
-                    Self::add_field(table, &format!("content.mobs[{i}].count"), spawn.count);
-                    if let Some(ref secs) = spawn.respawn_secs {
-                        Self::add_field(table, &format!("content.mobs[{i}].respawn_secs"), secs);
+                // Custom exits
+                for (dir, dest) in &room.exits {
+                    if !dirs.contains(&dir.as_str()) {
+                        Self::add_field(table, &format!("exit.{dir}"), dest);
                     }
                 }
-                for (i, spawn) in room.content.items.iter().enumerate() {
-                    Self::add_field(
-                        table,
-                        &format!("content.items[{i}].template_id"),
-                        &spawn.template_id,
-                    );
-                    Self::add_field(table, &format!("content.items[{i}].count"), spawn.count);
+
+                // Portals
+                if room.portals.is_empty() {
+                    Self::add_field(table, "portal[]", "(Empty Array - Press + to add)");
+                } else {
+                    for (i, portal) in room.portals.iter().enumerate() {
+                        Self::add_field(table, &format!("portal[{i}].keyword"), &portal.keyword);
+                        Self::add_field(table, &format!("portal[{i}].destination"), &portal.dest);
+                        Self::add_field(
+                            table,
+                            &format!("portal[{i}].description"),
+                            &portal.description,
+                        );
+                        Self::add_field(
+                            table,
+                            &format!("portal[{i}].flags"),
+                            portal.flags.join(", "),
+                        );
+                    }
                 }
+
+                // Mobs Spawn
+                if room.content.mobs.is_empty() {
+                    Self::add_field(table, "content.mobs[]", "(Empty Array - Press + to add)");
+                } else {
+                    for (i, spawn) in room.content.mobs.iter().enumerate() {
+                        Self::add_field(
+                            table,
+                            &format!("content.mobs[{i}].template_id"),
+                            &spawn.template_id,
+                        );
+                        Self::add_field(table, &format!("content.mobs[{i}].count"), spawn.count);
+                        let respawn_secs = spawn
+                            .respawn_secs
+                            .map(|s| s.to_string())
+                            .unwrap_or_default();
+                        Self::add_field(
+                            table,
+                            &format!("content.mobs[{i}].respawn_secs"),
+                            respawn_secs,
+                        );
+                    }
+                }
+
+                // Items Spawn
+                if room.content.items.is_empty() {
+                    Self::add_field(table, "content.items[]", "(Empty Array - Press + to add)");
+                } else {
+                    for (i, spawn) in room.content.items.iter().enumerate() {
+                        Self::add_field(
+                            table,
+                            &format!("content.items[{i}].template_id"),
+                            &spawn.template_id,
+                        );
+                        Self::add_field(table, &format!("content.items[{i}].count"), spawn.count);
+                    }
+                }
+
                 return;
             }
         }
@@ -65,6 +101,7 @@ impl EntityInspectorScreen {
             .find_map(|a| a.rooms.get_mut(&self.template_id))
             .ok_or_else(|| "room not found".to_string())?;
         match field {
+            "id" => room.id = value.to_string(),
             "area" => {
                 room.area = value.to_string();
             }
@@ -73,7 +110,11 @@ impl EntityInspectorScreen {
             "flags" => room.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
             _ if field.starts_with("exit.") => {
                 let dir = field.trim_start_matches("exit.").to_string();
-                room.exits.insert(dir, value.to_string());
+                if value.is_empty() {
+                    room.exits.remove(&dir);
+                } else {
+                    room.exits.insert(dir, value.to_string());
+                }
             }
             _ if field.starts_with("portal[") => {
                 let rest = field.trim_start_matches("portal[");
@@ -103,7 +144,11 @@ impl EntityInspectorScreen {
                     } else if path_rest == ".count" {
                         m.count = value.parse().map_err(|_| "invalid number")?;
                     } else if path_rest == ".respawn_secs" {
-                        m.respawn_secs = Some(value.parse().map_err(|_| "invalid number")?);
+                        m.respawn_secs = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value.parse().map_err(|_| "invalid number")?)
+                        };
                     }
                 }
             }
@@ -121,6 +166,77 @@ impl EntityInspectorScreen {
                 }
             }
             _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn add_room_array(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        let room = self
+            .registry
+            .areas
+            .values_mut()
+            .find_map(|a| a.rooms.get_mut(&self.template_id))
+            .ok_or_else(|| "room not found".to_string())?;
+        match prefix {
+            "portal" => {
+                room.portals.insert(
+                    (index + 1).min(room.portals.len()),
+                    oxide_core::templates::RoomPortalTemplate {
+                        keyword: "door".to_string(),
+                        dest: "room_id".to_string(),
+                        description: "A wooden door.".to_string(),
+                        flags: vec![],
+                    },
+                );
+            }
+            "content.mobs" => {
+                room.content.mobs.insert(
+                    (index + 1).min(room.content.mobs.len()),
+                    oxide_core::templates::MobSpawnEntry {
+                        template_id: "mob_id".to_string(),
+                        count: 1,
+                        respawn_secs: None,
+                    },
+                );
+            }
+            "content.items" => {
+                room.content.items.insert(
+                    (index + 1).min(room.content.items.len()),
+                    oxide_core::templates::ItemSpawnEntry {
+                        template_id: "item_id".to_string(),
+                        count: 1,
+                    },
+                );
+            }
+            _ => return Err(format!("unknown room array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn remove_room_array(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        let room = self
+            .registry
+            .areas
+            .values_mut()
+            .find_map(|a| a.rooms.get_mut(&self.template_id))
+            .ok_or_else(|| "room not found".to_string())?;
+        match prefix {
+            "portal" => {
+                if index < room.portals.len() {
+                    room.portals.remove(index);
+                }
+            }
+            "content.mobs" => {
+                if index < room.content.mobs.len() {
+                    room.content.mobs.remove(index);
+                }
+            }
+            "content.items" => {
+                if index < room.content.items.len() {
+                    room.content.items.remove(index);
+                }
+            }
+            _ => return Err(format!("unknown room array: {prefix}")),
         }
         Ok(())
     }

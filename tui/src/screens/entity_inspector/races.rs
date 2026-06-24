@@ -16,14 +16,40 @@ impl EntityInspectorScreen {
         Self::add_field(table, "attributes.int", race.attributes.intelligence);
         Self::add_field(table, "attributes.wis", race.attributes.wisdom);
         Self::add_field(table, "attributes.cha", race.attributes.charisma);
-        for (i, cls) in race.allowed_classes.iter().enumerate() {
-            Self::add_field(table, &format!("allowed_classes[{i}]"), cls);
+
+        // Allowed Classes
+        if race.allowed_classes.is_empty() {
+            Self::add_field(table, "allowed_classes[]", "(Empty Array - Press + to add)");
+        } else {
+            for (i, cls) in race.allowed_classes.iter().enumerate() {
+                Self::add_field(table, &format!("allowed_classes[{i}]"), cls);
+            }
         }
-        for (i, align) in race.allowed_alignments.iter().enumerate() {
-            Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
+
+        // Allowed Alignments
+        if race.allowed_alignments.is_empty() {
+            Self::add_field(
+                table,
+                "allowed_alignments[]",
+                "(Empty Array - Press + to add)",
+            );
+        } else {
+            for (i, align) in race.allowed_alignments.iter().enumerate() {
+                Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
+            }
         }
-        for (i, ability) in race.racial_abilities.iter().enumerate() {
-            Self::add_field(table, &format!("racial_abilities[{i}]"), ability);
+
+        // Racial Abilities
+        if race.racial_abilities.is_empty() {
+            Self::add_field(
+                table,
+                "racial_abilities[]",
+                "(Empty Array - Press + to add)",
+            );
+        } else {
+            for (i, ability) in race.racial_abilities.iter().enumerate() {
+                Self::add_field(table, &format!("racial_abilities[{i}]"), ability);
+            }
         }
     }
 
@@ -55,10 +81,94 @@ impl EntityInspectorScreen {
             "attributes.cha" => {
                 race.attributes.charisma = value.parse().map_err(|_| "invalid number")?
             }
-            _ if field.starts_with("allowed_classes[")
-                || field.starts_with("allowed_alignments[")
-                || field.starts_with("racial_abilities[") => {}
+            _ if field.starts_with("allowed_classes[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_classes[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < race.allowed_classes.len() {
+                    race.allowed_classes[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("allowed_alignments[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_alignments[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < race.allowed_alignments.len() {
+                    race.allowed_alignments[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("racial_abilities[") => {
+                let idx: usize = field
+                    .trim_start_matches("racial_abilities[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < race.racial_abilities.len() {
+                    race.racial_abilities[idx] = value.to_string();
+                }
+            }
             _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn add_race_array(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        let race = self
+            .registry
+            .races
+            .get_mut(&self.template_id)
+            .ok_or("race not found")?;
+        match prefix {
+            "allowed_classes" => {
+                race.allowed_classes.insert(
+                    (index + 1).min(race.allowed_classes.len()),
+                    "warrior".to_string(),
+                );
+            }
+            "allowed_alignments" => {
+                race.allowed_alignments.insert(
+                    (index + 1).min(race.allowed_alignments.len()),
+                    "good".to_string(),
+                );
+            }
+            "racial_abilities" => {
+                race.racial_abilities.insert(
+                    (index + 1).min(race.racial_abilities.len()),
+                    "passive_ability_id".to_string(),
+                );
+            }
+            _ => return Err(format!("unknown race array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn remove_race_array(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        let race = self
+            .registry
+            .races
+            .get_mut(&self.template_id)
+            .ok_or("race not found")?;
+        match prefix {
+            "allowed_classes" => {
+                if index < race.allowed_classes.len() {
+                    race.allowed_classes.remove(index);
+                }
+            }
+            "allowed_alignments" => {
+                if index < race.allowed_alignments.len() {
+                    race.allowed_alignments.remove(index);
+                }
+            }
+            "racial_abilities" => {
+                if index < race.racial_abilities.len() {
+                    race.racial_abilities.remove(index);
+                }
+            }
+            _ => return Err(format!("unknown race array: {prefix}")),
         }
         Ok(())
     }

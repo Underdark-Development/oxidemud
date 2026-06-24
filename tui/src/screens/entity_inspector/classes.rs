@@ -26,21 +26,56 @@ impl EntityInspectorScreen {
         );
         Self::add_field(table, "attribute_mods.wis", class.attribute_mods.wisdom);
         Self::add_field(table, "attribute_mods.cha", class.attribute_mods.charisma);
-        for (i, race) in class.allowed_races.iter().enumerate() {
-            Self::add_field(table, &format!("allowed_races[{i}]"), race);
+
+        // Allowed Races
+        if class.allowed_races.is_empty() {
+            Self::add_field(table, "allowed_races[]", "(Empty Array - Press + to add)");
+        } else {
+            for (i, race) in class.allowed_races.iter().enumerate() {
+                Self::add_field(table, &format!("allowed_races[{i}]"), race);
+            }
         }
-        for (i, align) in class.allowed_alignments.iter().enumerate() {
-            Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
+
+        // Allowed Alignments
+        if class.allowed_alignments.is_empty() {
+            Self::add_field(
+                table,
+                "allowed_alignments[]",
+                "(Empty Array - Press + to add)",
+            );
+        } else {
+            for (i, align) in class.allowed_alignments.iter().enumerate() {
+                Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
+            }
         }
-        for (i, skill) in class.auto_skills.iter().enumerate() {
-            Self::add_field(table, &format!("auto_skills[{i}]"), skill);
+
+        // Auto Skills
+        if class.auto_skills.is_empty() {
+            Self::add_field(table, "auto_skills[]", "(Empty Array - Press + to add)");
+        } else {
+            for (i, skill) in class.auto_skills.iter().enumerate() {
+                Self::add_field(table, &format!("auto_skills[{i}]"), skill);
+            }
         }
-        for (i, skill) in class.skill_pool.iter().enumerate() {
-            Self::add_field(table, &format!("skill_pool[{i}]"), skill);
+
+        // Skill Pool
+        if class.skill_pool.is_empty() {
+            Self::add_field(table, "skill_pool[]", "(Empty Array - Press + to add)");
+        } else {
+            for (i, skill) in class.skill_pool.iter().enumerate() {
+                Self::add_field(table, &format!("skill_pool[{i}]"), skill);
+            }
         }
-        for (i, item) in class.starting_items.iter().enumerate() {
-            Self::add_field(table, &format!("starting_items[{i}]"), item);
+
+        // Starting Items
+        if class.starting_items.is_empty() {
+            Self::add_field(table, "starting_items[]", "(Empty Array - Press + to add)");
+        } else {
+            for (i, item) in class.starting_items.iter().enumerate() {
+                Self::add_field(table, &format!("starting_items[{i}]"), item);
+            }
         }
+
         Self::add_field(table, "starting_gold.copper", class.starting_gold.copper);
         Self::add_field(table, "starting_gold.silver", class.starting_gold.silver);
         Self::add_field(table, "starting_gold.gold", class.starting_gold.gold);
@@ -95,12 +130,136 @@ impl EntityInspectorScreen {
             "starting_gold.platinum" => {
                 cls.starting_gold.platinum = value.parse().map_err(|_| "invalid number")?
             }
-            _ if field.starts_with("allowed_races[")
-                || field.starts_with("allowed_alignments[")
-                || field.starts_with("auto_skills[")
-                || field.starts_with("skill_pool[")
-                || field.starts_with("starting_items[") => {}
+            _ if field.starts_with("allowed_races[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_races[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < cls.allowed_races.len() {
+                    cls.allowed_races[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("allowed_alignments[") => {
+                let idx: usize = field
+                    .trim_start_matches("allowed_alignments[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < cls.allowed_alignments.len() {
+                    cls.allowed_alignments[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("auto_skills[") => {
+                let idx: usize = field
+                    .trim_start_matches("auto_skills[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < cls.auto_skills.len() {
+                    cls.auto_skills[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("skill_pool[") => {
+                let idx: usize = field
+                    .trim_start_matches("skill_pool[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < cls.skill_pool.len() {
+                    cls.skill_pool[idx] = value.to_string();
+                }
+            }
+            _ if field.starts_with("starting_items[") => {
+                let idx: usize = field
+                    .trim_start_matches("starting_items[")
+                    .trim_end_matches(']')
+                    .parse()
+                    .map_err(|_| "invalid index")?;
+                if idx < cls.starting_items.len() {
+                    cls.starting_items[idx] = value.to_string();
+                }
+            }
             _ => return Err(format!("unknown field: {field}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn add_class_array(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        let cls = self
+            .registry
+            .classes
+            .get_mut(&self.template_id)
+            .ok_or("class not found")?;
+        match prefix {
+            "allowed_races" => {
+                cls.allowed_races.insert(
+                    (index + 1).min(cls.allowed_races.len()),
+                    "human".to_string(),
+                );
+            }
+            "allowed_alignments" => {
+                cls.allowed_alignments.insert(
+                    (index + 1).min(cls.allowed_alignments.len()),
+                    "good".to_string(),
+                );
+            }
+            "auto_skills" => {
+                cls.auto_skills.insert(
+                    (index + 1).min(cls.auto_skills.len()),
+                    "skill_id".to_string(),
+                );
+            }
+            "skill_pool" => {
+                cls.skill_pool.insert(
+                    (index + 1).min(cls.skill_pool.len()),
+                    "skill_id".to_string(),
+                );
+            }
+            "starting_items" => {
+                cls.starting_items.insert(
+                    (index + 1).min(cls.starting_items.len()),
+                    "item_id".to_string(),
+                );
+            }
+            _ => return Err(format!("unknown class array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn remove_class_array(&mut self, prefix: &str, index: usize) -> Result<(), String> {
+        let cls = self
+            .registry
+            .classes
+            .get_mut(&self.template_id)
+            .ok_or("class not found")?;
+        match prefix {
+            "allowed_races" => {
+                if index < cls.allowed_races.len() {
+                    cls.allowed_races.remove(index);
+                }
+            }
+            "allowed_alignments" => {
+                if index < cls.allowed_alignments.len() {
+                    cls.allowed_alignments.remove(index);
+                }
+            }
+            "auto_skills" => {
+                if index < cls.auto_skills.len() {
+                    cls.auto_skills.remove(index);
+                }
+            }
+            "skill_pool" => {
+                if index < cls.skill_pool.len() {
+                    cls.skill_pool.remove(index);
+                }
+            }
+            "starting_items" => {
+                if index < cls.starting_items.len() {
+                    cls.starting_items.remove(index);
+                }
+            }
+            _ => return Err(format!("unknown class array: {prefix}")),
         }
         Ok(())
     }
