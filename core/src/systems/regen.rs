@@ -38,7 +38,15 @@ pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) {
             if let Ok(mut q) = world.query_one::<&mut Health>(entity) {
                 if let Some(hp) = q.get() {
                     hp.damage(1);
-                    if hp.is_truly_dead() {
+                    let is_player = world
+                        .query_one::<&crate::Player>(entity)
+                        .is_ok_and(|mut q| q.get().is_some());
+                    let dead = if is_player {
+                        hp.is_truly_dead()
+                    } else {
+                        hp.is_dead()
+                    };
+                    if dead {
                         truly_dead = true;
                     }
                 }
@@ -56,7 +64,11 @@ pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) {
                     healed = true;
                 }
             }
-            if healed && world.query_one::<&crate::Player>(entity).is_ok() {
+            if healed
+                && world
+                    .query_one::<&crate::Player>(entity)
+                    .is_ok_and(|mut q| q.get().is_some())
+            {
                 let _ = world.insert(entity, (crate::Dirty,));
             }
         }

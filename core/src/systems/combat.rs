@@ -662,13 +662,24 @@ fn apply_damage(
         match q.get() {
             Some(hp) => {
                 hp.damage(final_damage);
-                (hp.is_truly_dead(), hp.is_unconscious())
+                let is_player = world
+                    .query_one::<&crate::Player>(target)
+                    .is_ok_and(|mut q| q.get().is_some());
+                let killed = if is_player {
+                    hp.is_truly_dead()
+                } else {
+                    hp.is_dead()
+                };
+                (killed, hp.is_unconscious())
             }
             None => return (0, false, 0, None),
         }
     };
 
-    if world.query_one::<&crate::Player>(target).is_ok() {
+    if world
+        .query_one::<&crate::Player>(target)
+        .is_ok_and(|mut q| q.get().is_some())
+    {
         let _ = world.insert(target, (crate::Dirty,));
     }
 
@@ -699,7 +710,10 @@ fn apply_damage(
     } else if unconscious {
         handle_combatant_down(world, target);
         // Set player state to unconscious if they are a player
-        if world.query_one::<&crate::Player>(target).is_ok() {
+        if world
+            .query_one::<&crate::Player>(target)
+            .is_ok_and(|mut q| q.get().is_some())
+        {
             let _ = world.insert(
                 target,
                 (
@@ -805,7 +819,9 @@ pub fn handle_death(world: &mut World, victim: Entity) -> Entity {
 
     handle_combatant_down(world, victim);
 
-    let is_player = world.query_one::<&crate::Player>(victim).is_ok();
+    let is_player = world
+        .query_one::<&crate::Player>(victim)
+        .is_ok_and(|mut q| q.get().is_some());
 
     if is_player {
         if let Ok(mut q) = world.query_one::<&mut Inventory>(victim) {
@@ -901,7 +917,9 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
 
     let corpse_name = Name::new(format!("Corpse of {victim_name}"));
 
-    let is_player = world.query_one::<&crate::Player>(victim).is_ok();
+    let is_player = world
+        .query_one::<&crate::Player>(victim)
+        .is_ok_and(|mut q| q.get().is_some());
 
     let (owner, decay_secs, lootable_by) = if is_player {
         (Some(victim), 1800, LootRule::OwnerOnly)
@@ -1309,5 +1327,53 @@ mod tests {
             .unwrap()
             .get()
             .is_none());
+    }
+
+    #[test]
+    fn test_npc_death_at_zero_hp() {
+        let mut world = World::new();
+        let room = world.spawn(());
+
+        let player = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::default(),
+            Level(1),
+            CombatState::NotInCombat,
+            crate::Player::new(1),
+            Name::new("Player"),
+            crate::Experience(0),
+        ));
+
+        let npc = world.spawn((
+            Position::new(room),
+            Health::new(10),
+            Attributes::default(),
+            Level(1),
+            CombatState::NotInCombat,
+            crate::Npc::new("river_rat"),
+            Name::new("River Rat"),
+        ));
+
+        // Apply 10 damage to NPC, reducing health to 0
+        let (final_damage, killed, xp_gained, corpse) =
+            apply_damage(&mut world, player, npc, 10, DamageType::Bludgeon);
+
+        assert_eq!(final_damage, 10);
+        assert!(killed);
+        assert!(xp_gained > 0);
+        assert!(corpse.is_some());
+
+        // Verify NPC is despawned
+        assert!(world.query_one::<&Health>(npc).is_err());
+
+        // Verify player gained XP
+        let xp = world
+            .query_one::<&crate::Experience>(player)
+            .unwrap()
+            .get()
+            .unwrap()
+            .0;
+        assert_eq!(xp, xp_gained);
     }
 }
