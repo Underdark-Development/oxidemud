@@ -294,7 +294,6 @@ async fn handle_connection(
                     }
                     continue;
                 }
-                tracing::debug!("Connection {conn_id}: {trimmed}");
 
                 if login_flow.state().is_playing() {
                     if let Some(tx) = conn.output_sender() {
