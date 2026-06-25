@@ -560,7 +560,7 @@ mod tests {
     fn test_ai_aggro_ignores_ghost_player() {
         let mut world = World::new();
         let room = world.spawn(());
-        let player = world.spawn((
+        let _player = world.spawn((
             Position::new(room),
             Health::new(100),
             Level(1),
