@@ -94,7 +94,19 @@ pub fn spawn_game_loop(
                     let mut w = world.lock().await;
                     let reg = registry.lock().await;
 
-                    systems::regen::run_regen_pulse(&mut w, tick_duration);
+                    let dead_entities = systems::regen::run_regen_pulse(&mut w, tick_duration);
+                    for player in dead_entities {
+                        let is_player = w
+                            .query_one::<&oxide_core::Player>(player)
+                            .is_ok_and(|mut q| q.get().is_some());
+                        if is_player {
+                            if let Some(tx) = reg.sender(player) {
+                                let _ = tx.send(
+                                    b"You bleed to death...\r\nAlas, you are dead! You are a ghost now...\r\n".to_vec()
+                                );
+                            }
+                        }
+                    }
                     crate::prompt::broadcast_prompts(&w, &reg);
 
                     drop(reg);
@@ -233,6 +245,7 @@ fn dispatch_combat_outcomes(
                             format!("You have been slain by {}!\r\n", outcome.attacker_name)
                                 .into_bytes(),
                         );
+                        let _ = tx.send(b"Alas, you are dead! You are a ghost now...\r\n".to_vec());
                     }
                 }
 

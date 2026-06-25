@@ -533,8 +533,20 @@ pub fn cmd_say(
 
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
 
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    let msg_fmt = if is_ghost {
+        format_ghost_text(args)
+    } else {
+        args.to_string()
+    };
+
     // Speaker message
-    let speaker_msg = core::format::conventions::say_text(format!("You say, \"{args}\""));
+    let speaker_msg = core::format::conventions::say_text(format!("You say, \"{msg_fmt}\""));
     send_formatted(conn, &speaker_msg);
 
     // Room broadcast
@@ -542,7 +554,7 @@ pub fn cmd_say(
     room_msg.push(core::format::conventions::player_name_segment(
         name.as_str(),
     ));
-    room_msg.push(core::format::Segment::new(format!(" says, \"{args}\"")));
+    room_msg.push(core::format::Segment::new(format!(" says, \"{msg_fmt}\"")));
 
     let rendered = room_msg.render(true, true);
     let bytes = format!("{}\r\n", rendered).into_bytes();
@@ -1590,6 +1602,17 @@ pub fn cmd_wear(
         }
     };
 
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    if is_ghost {
+        conn.send_line("You are a ghost! You cannot wear items.");
+        return;
+    }
+
     let item_name = args.trim();
     if item_name.is_empty() {
         conn.send_line("Wear what?");
@@ -1683,6 +1706,17 @@ pub fn cmd_wield(
         }
     };
 
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    if is_ghost {
+        conn.send_line("You are a ghost! You cannot wield items.");
+        return;
+    }
+
     let item_name = args.trim();
     if item_name.is_empty() {
         conn.send_line("Wield what?");
@@ -1769,6 +1803,17 @@ pub fn cmd_remove(
             return;
         }
     };
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    if is_ghost {
+        conn.send_line("You are a ghost! You cannot equip or remove items.");
+        return;
+    }
 
     let slot_name = args.trim().to_lowercase();
     if slot_name.is_empty() {
@@ -1957,6 +2002,17 @@ pub fn cmd_get(
             return;
         }
     };
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    if is_ghost {
+        conn.send_line("You are a ghost! You cannot pick up items.");
+        return;
+    }
 
     let item_name = args.trim();
     if item_name.is_empty() {
@@ -5642,5 +5698,64 @@ mod tests {
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .unwrap_or_default();
         assert!(msg_detect2.contains("The ghost of Ghosty floats in from the west"));
+    }
+
+    #[test]
+    fn test_ghost_command_restrictions() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let (player, mut conn, registry) = test_player(&mut world, room_a);
+
+        // Turn player into a ghost
+        world.insert(player, (core::PlayerState::Dead,)).unwrap();
+
+        // 1. Test say formatting
+        cmd_say(&mut world, &mut conn, "", "hello", &registry);
+        let lines = conn.take_lines();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l
+                    .contains("You say, \"{cyan}h{brightblue}e{cyan}l{brightblue}l{cyan}o{/}\""))
+        );
+
+        // 2. Test get restriction
+        // Spawn an item in the room floor
+        let item = world.spawn((Name::new("sword"),));
+        world
+            .insert(room_a, (core::FloorItems(vec![item]),))
+            .unwrap();
+
+        cmd_get(&mut world, &mut conn, "", "sword", &registry);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You are a ghost! You cannot pick up items.")));
+
+        // 3. Test wear restriction
+        // Give player an item in inventory
+        let item2 = world.spawn((Name::new("helmet"), core::Item::new("helmet")));
+        world
+            .insert(player, (core::Inventory(vec![item2]),))
+            .unwrap();
+
+        cmd_wear(&mut world, &mut conn, "", "helmet", &registry);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You are a ghost! You cannot wear items.")));
+
+        // 4. Test wield restriction
+        cmd_wield(&mut world, &mut conn, "", "helmet", &registry);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You are a ghost! You cannot wield items.")));
+
+        // 5. Test remove restriction
+        cmd_remove(&mut world, &mut conn, "", "weapon", &registry);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You are a ghost! You cannot equip or remove items.")));
     }
 }

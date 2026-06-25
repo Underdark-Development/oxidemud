@@ -3,8 +3,8 @@ use tokio::sync::Mutex;
 use oxide_core::templates::{SkillResolveError, TemplateRegistry};
 use oxide_core::{
     Alignment, Class, CombatStats, DbId, Description, Entity, Equipment, Experience, Gender,
-    Health, Inventory, Level, Mana, Name, Player, Position, PracticePoints, Race, Stamina, Wallet,
-    World,
+    Health, Inventory, Level, Mana, Name, Player, Position, PracticePoints, Race, RecallRoom,
+    Stamina, Wallet, World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -1863,6 +1863,7 @@ async fn finalize_character(
         stamina,
         Level::default(),
         Experience::default(),
+        RecallRoom(room_entity),
     ));
 
     let appearance = oxide_core::Appearance {
@@ -2196,6 +2197,12 @@ async fn load_character(
         })
         .unwrap_or(spawn_room);
 
+    let recall_room = char_row
+        .spawn_key
+        .as_deref()
+        .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
+        .unwrap_or(spawn_room);
+
     let player = world.spawn((
         Position::new(room),
         Name::new(char_row.name.clone()),
@@ -2214,6 +2221,7 @@ async fn load_character(
         stamina,
         level,
         xp,
+        RecallRoom(recall_room),
     ));
 
     let _ = world.insert(
