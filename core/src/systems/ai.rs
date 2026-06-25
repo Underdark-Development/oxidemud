@@ -376,6 +376,15 @@ fn check_aggro(world: &mut World, entity: Entity, npc: &Npc) -> bool {
                 .query_one::<&crate::Player>(target)
                 .is_ok_and(|mut q| q.get().is_some())
         {
+            let is_ghost = world
+                .query_one::<&crate::PlayerState>(target)
+                .ok()
+                .and_then(|mut q| q.get().map(|s| matches!(s, crate::PlayerState::Dead)))
+                .unwrap_or(false);
+            if is_ghost {
+                continue;
+            }
+
             let target_level = world
                 .query_one::<&Level>(target)
                 .ok()
@@ -431,6 +440,7 @@ fn try_flee(world: &mut World, entity: Entity) {
 mod tests {
     use super::*;
     use crate::Name;
+    use crate::PlayerState;
 
     fn npc_world() -> (World, Entity, Entity) {
         let mut world = World::new();
@@ -544,6 +554,45 @@ mod tests {
             .cloned()
             .unwrap();
         assert!(matches!(combat_state, CombatState::Engaged { target, .. } if target == player));
+    }
+
+    #[test]
+    fn test_ai_aggro_ignores_ghost_player() {
+        let mut world = World::new();
+        let room = world.spawn(());
+        let player = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Level(1),
+            crate::Player::new(1),
+            Name::new("Player"),
+            PlayerState::Dead,
+        ));
+        let mob = world.spawn((
+            Position::new(room),
+            Health::new(50),
+            Npc::new_with_aggro("aggro_mob", 5, true, true, vec![]),
+            Level(1),
+            Name::new("Aggro Mob"),
+            AiState::Aggro { hunt_target: None },
+        ));
+
+        run_ai_pulse(&mut world);
+
+        let ai_state = world
+            .query_one::<&AiState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(ai_state, AiState::Aggro { .. }));
+
+        let combat_state = world
+            .query_one::<&CombatState>(mob)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .unwrap_or(CombatState::NotInCombat);
+        assert!(matches!(combat_state, CombatState::NotInCombat));
     }
 
     #[test]

@@ -82,6 +82,7 @@ impl CommandDispatch {
                 && cmd_name != "score"
                 && cmd_name != "help"
                 && cmd_name != "commands"
+                && cmd_name != "die"
             {
                 conn.send_line("You are unconscious and cannot do that.");
                 return;

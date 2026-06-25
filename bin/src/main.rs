@@ -622,6 +622,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // MVP additions: Ghost & Revival (reclaim, revive, toggle)
     server.register_command(
+        "die",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Choose to submit to death when unconscious to instantly respawn as a ghost",
+        commands::cmd_die,
+    );
+    server.register_command(
         "reclaim",
         &[],
         AccessLevel::Player,

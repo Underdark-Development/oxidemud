@@ -7,7 +7,7 @@ use oxide_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use oxide_core::templates::SetDef;
 use oxide_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Player, Position, PracticePoints, SpawnKey, Wallet, World,
+    LearnedSkills, Level, Player, Position, PracticePoints, Wallet, World,
 };
 use tokio::sync::Mutex;
 use tokio::time::interval;
@@ -707,13 +707,6 @@ pub(crate) fn save_player_positions(world: &mut World, db: &oxide_data::Database
         .collect();
 
     for (player_entity_id, room_entity) in players {
-        // Persist spawn_key for cross-restart room resolution
-        if let Ok(mut q) = world.query_one::<&SpawnKey>(room_entity) {
-            if let Some(sk) = q.get() {
-                let _ = oxide_data::update_character_spawn_key(conn, player_entity_id, &sk.0);
-            }
-        }
-
         let existing_room_db_id = world
             .query_one::<&DbId>(room_entity)
             .ok()

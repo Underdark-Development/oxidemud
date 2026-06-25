@@ -4176,6 +4176,69 @@ pub fn cmd_unlock(
     }
 }
 
+pub fn cmd_die(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let mut is_unconscious = false;
+    if let Ok(mut q) = world.query_one::<&core::Health>(entity) {
+        if let Some(hp) = q.get() {
+            if hp.current <= 0 {
+                is_unconscious = true;
+            }
+        }
+    }
+    if !is_unconscious {
+        if let Ok(mut q) = world.query_one::<&core::PlayerState>(entity) {
+            if let Some(core::PlayerState::Alive {
+                rest: core::RestState::Unconscious,
+            }) = q.get()
+            {
+                is_unconscious = true;
+            }
+        }
+    }
+
+    if !is_unconscious {
+        conn.send_line("You can only choose to die when you are unconscious.");
+        return;
+    }
+
+    let name = world
+        .query_one::<&core::Name>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.0.clone()))
+        .unwrap_or_else(|| "Someone".to_string());
+
+    let room = get_pos_room(world, entity);
+
+    core::systems::combat::handle_death(world, entity);
+
+    conn.send_line(
+        "You choose to submit to death...\r\nAlas, you are dead! You are a ghost now...",
+    );
+
+    oxide_server::prompt::send_player_prompt(world, entity, registry);
+
+    if let Some(r) = room {
+        broadcast_to_room_except(
+            world,
+            registry,
+            r,
+            entity,
+            &format!("{} has died.\r\n{} is dead! R.I.P.", name, name),
+        );
+    }
+}
+
 pub fn cmd_reclaim(
     world: &mut World,
     conn: &mut dyn Connection,
@@ -5313,6 +5376,7 @@ mod tests {
     }
 
     fn init_test_templates() {
+        oxide_server::config::init(std::path::Path::new(""));
         let mut registry = core::templates::TemplateRegistry::new();
 
         let solaris = core::templates::DeityTemplate {
@@ -5507,6 +5571,68 @@ mod tests {
                     .get()
                     .is_none()
         );
+    }
+
+    #[test]
+    fn test_die_command() {
+        init_test_templates();
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::PlayerState::Alive {
+                rest: core::RestState::Standing,
+            },
+            core::Health::new(20),
+            core::Inventory::new(),
+            core::Equipment::new(),
+            core::Player {
+                account_id: 1,
+                prompt: None,
+                screen_width: 80,
+                no_resurrect: false,
+            },
+            core::RecallRoom(room_a),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        // Try to die while conscious
+        cmd_die(&mut world, &mut conn, "die", "", &registry);
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("You can only choose to die when you are unconscious."));
+
+        let state = world
+            .query_one::<&core::PlayerState>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, core::PlayerState::Alive { .. }));
+
+        // Now set HP to 0 (unconscious) and call die
+        if let Ok(mut q) = world.query_one::<&mut core::Health>(player) {
+            if let Some(hp) = q.get() {
+                hp.current = 0;
+            }
+        }
+
+        cmd_die(&mut world, &mut conn, "die", "", &registry);
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("You choose to submit to death"));
+        assert!(all.contains("Alas, you are dead! You are a ghost now..."));
+
+        let state = world
+            .query_one::<&core::PlayerState>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, core::PlayerState::Dead));
     }
 
     #[test]

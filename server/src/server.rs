@@ -456,7 +456,7 @@ async fn handle_connection(
                         .map(|dbid| dbid.0)
                 });
 
-                let room_spawn_key = position.and_then(|room_entity| {
+                let _room_spawn_key = position.and_then(|room_entity| {
                     w.query_one::<&SpawnKey>(room_entity)
                         .ok()
                         .and_then(|mut q| q.get().map(|sk| sk.0.clone()))
@@ -518,7 +518,7 @@ async fn handle_connection(
                     stamina,
                     position,
                     room_db_id,
-                    room_spawn_key,
+                    _room_spawn_key,
                     room_info,
                     wallet,
                     skills,
@@ -545,7 +545,7 @@ async fn handle_connection(
             stamina,
             room_entity,
             mut room_db_id,
-            room_spawn_key,
+            _room_spawn_key,
             room_info,
             wallet,
             skills,
@@ -701,9 +701,6 @@ async fn handle_connection(
                 if let Some(rid) = room_db_id {
                     let _ = oxide_data::update_character_position(conn_db, db_id.0, rid);
                     let _ = oxide_data::update_character_last_seen(conn_db, db_id.0);
-                }
-                if let Some(ref spawn_key) = room_spawn_key {
-                    let _ = oxide_data::update_character_spawn_key(conn_db, db_id.0, spawn_key);
                 }
 
                 // Save Inventory
