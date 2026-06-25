@@ -717,6 +717,17 @@ fn move_player(
     entity: core::Entity,
     direction: Direction,
 ) {
+    let in_combat = world
+        .query_one::<&core::CombatState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|cs| cs.is_in_combat()))
+        .unwrap_or(false);
+
+    if in_combat {
+        conn.send_line("No way! You are fighting for your life!");
+        return;
+    }
+
     if let Ok(mut q) = world.query_one::<&core::PlayerState>(entity) {
         if let Some(state) = q.get() {
             match state {
@@ -5757,5 +5768,38 @@ mod tests {
         assert!(lines
             .iter()
             .any(|l| l.contains("You are a ghost! You cannot equip or remove items.")));
+    }
+
+    #[test]
+    fn test_move_in_combat_blocked() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let (player, mut conn, registry) = test_player(&mut world, room_a);
+
+        // Turn player combat state to Engaged
+        let enemy = world.spawn(());
+        world
+            .insert(
+                player,
+                (core::CombatState::Engaged {
+                    target: enemy,
+                    round_started: std::time::Instant::now(),
+                    stance: None,
+                },),
+            )
+            .unwrap();
+
+        // Attempt to move
+        cmd_move(&mut world, &mut conn, "east", "", &registry);
+
+        // Position should not change
+        let mut pos = world.query_one::<&Position>(player).unwrap();
+        let player_room = pos.get().unwrap().room;
+        assert_eq!(player_room, room_a);
+
+        // Should receive the message
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("No way! You are fighting for your life!")));
     }
 }
