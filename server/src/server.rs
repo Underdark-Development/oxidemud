@@ -216,10 +216,35 @@ async fn handle_connection(
             tracing::debug!("Connection {conn_id} write error: {e}");
             return;
         }
-        while let Some(bytes) = output_rx.recv().await {
-            if let Err(e) = writer_half.write_all(&bytes).await {
-                tracing::debug!("Connection {conn_id} write error: {e}");
-                break;
+        let mut last_was_prompt = false;
+        while let Some(mut bytes) = output_rx.recv().await {
+            if bytes.starts_with(b"\x00\xFFPROMPT\x00") {
+                if last_was_prompt {
+                    if let Err(e) = writer_half.write_all(b"\r\n").await {
+                        tracing::debug!("Connection {conn_id} write error: {e}");
+                        break;
+                    }
+                }
+                let prompt = bytes.split_off(8);
+                if let Err(e) = writer_half.write_all(&prompt).await {
+                    tracing::debug!("Connection {conn_id} write error: {e}");
+                    break;
+                }
+                last_was_prompt = true;
+            } else if bytes == b"\x00\xFFRESET\x00" {
+                last_was_prompt = false;
+            } else {
+                if last_was_prompt {
+                    if let Err(e) = writer_half.write_all(b"\r\n").await {
+                        tracing::debug!("Connection {conn_id} write error: {e}");
+                        break;
+                    }
+                    last_was_prompt = false;
+                }
+                if let Err(e) = writer_half.write_all(&bytes).await {
+                    tracing::debug!("Connection {conn_id} write error: {e}");
+                    break;
+                }
             }
         }
     });
@@ -272,6 +297,9 @@ async fn handle_connection(
                 tracing::debug!("Connection {conn_id}: {trimmed}");
 
                 if login_flow.state().is_playing() {
+                    if let Some(tx) = conn.output_sender() {
+                        let _ = tx.send(b"\x00\xFFRESET\x00".to_vec());
+                    }
                     let mut world_lock = world.lock().await;
                     let reg = registry.lock().await;
                     commands.execute(&mut world_lock, &mut conn, trimmed, &reg);

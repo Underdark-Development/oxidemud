@@ -15,8 +15,9 @@ pub fn send_player_prompt(world: &World, entity: Entity, registry: &ConnectionRe
     let rendered = prompt::render_prompt(&template, &vars);
 
     if let Some(tx) = registry.sender(entity) {
-        let _ = tx.send("\r\n".into());
-        let _ = tx.send(rendered.into_bytes());
+        let mut prompt_bytes = b"\x00\xFFPROMPT\x00".to_vec();
+        prompt_bytes.extend_from_slice(rendered.as_bytes());
+        let _ = tx.send(prompt_bytes);
     }
 }
 
@@ -39,8 +40,9 @@ pub fn broadcast_prompts(world: &World, registry: &ConnectionRegistry) {
         let vars = prompt::build_vars(world, entity);
         let rendered = prompt::render_prompt(&template, &vars);
         if let Some(tx) = registry.sender(entity) {
-            let _ = tx.send("\r\n".into());
-            let _ = tx.send(rendered.into_bytes());
+            let mut prompt_bytes = b"\x00\xFFPROMPT\x00".to_vec();
+            prompt_bytes.extend_from_slice(rendered.as_bytes());
+            let _ = tx.send(prompt_bytes);
         }
     }
 }
