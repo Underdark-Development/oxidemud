@@ -1,5 +1,3 @@
-use tracing::info;
-
 use crate::dice::DiceRoll;
 use crate::systems::trigger::process_triggers;
 use crate::{
@@ -245,11 +243,6 @@ pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: Com
 
     if old_state != new_state {
         let _ = world.insert(entity, (new_state.clone(),));
-
-        info!(
-            "combat_state entity={:?} from={:?} to={:?}",
-            entity, old_state, new_state
-        );
 
         let _event = crate::GameEvent::CombatStateChanged {
             entity,
