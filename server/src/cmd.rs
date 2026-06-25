@@ -55,6 +55,39 @@ impl CommandDispatch {
             None => (input, ""),
         };
 
+        let mut is_unconscious = false;
+        if let Some(entity) = conn.entity() {
+            if let Ok(mut q) = world.query_one::<&oxide_core::Health>(entity) {
+                if let Some(hp) = q.get() {
+                    if hp.current <= 0 {
+                        is_unconscious = true;
+                    }
+                }
+            }
+            if !is_unconscious {
+                if let Ok(mut q) = world.query_one::<&oxide_core::PlayerState>(entity) {
+                    if let Some(oxide_core::PlayerState::Alive {
+                        rest: oxide_core::RestState::Unconscious,
+                    }) = q.get()
+                    {
+                        is_unconscious = true;
+                    }
+                }
+            }
+        }
+
+        if is_unconscious {
+            let cmd_name = name.to_lowercase();
+            if cmd_name != "quit"
+                && cmd_name != "score"
+                && cmd_name != "help"
+                && cmd_name != "commands"
+            {
+                conn.send_line("You are unconscious and cannot do that.");
+                return;
+            }
+        }
+
         if let Some(cmd) = self.find(name) {
             (cmd.handler)(world, conn, name, args, registry);
         } else {
