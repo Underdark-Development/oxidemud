@@ -9,6 +9,7 @@ damage_type = "bludgeon"
 size = "small"
 xp_value = 35
 ai_mode = "wander"
+wander_rooms = ["ruined_watchtower", "forest_crossing"]
 aggro_range = 6
 aggro_players = true
 aggro_race = []

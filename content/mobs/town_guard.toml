@@ -12,7 +12,7 @@ xp_value = 0
 # Set ai_mode to "patrol" and define patrol_route for circuit patrol:
 # patrol_route = ["market_square", "main_street", "gate", "temple", "market_square"]
 ai_mode = "stationary"
-aggro_range = 8
+aggro_range = 1
 aggro_players = false
 aggro_race = []
 faction_standing = 0
@@ -36,6 +36,3 @@ max = 200
 [[equipment]]
 template_id = "leather_vest"
 slot = "torso"
-
-[loot]
-entries = []

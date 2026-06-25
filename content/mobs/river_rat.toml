@@ -12,9 +12,9 @@ xp_value = 10
 # Set wander_rooms or wander_area to limit roaming bounds:
 # wander_rooms = ["entrance", "tunnel_a", "tunnel_b", "den"]
 # wander_area = true
-ai_mode = "wander"
+ai_mode = "idle"
 aggro_range = 4
-aggro_players = true
+aggro_players = false
 aggro_race = []
 faction_standing = 0
 trainer_types = []
