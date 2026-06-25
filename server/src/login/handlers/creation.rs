@@ -2178,6 +2178,49 @@ async fn load_character(
             .flatten(),
     );
 
+    let valid_spawn_key = char_row
+        .spawn_key
+        .as_deref()
+        .and_then(|key| {
+            let templates = crate::get_templates()?;
+            let race = &char_row.race;
+            let class = &char_row.class;
+            let alignment_str = alignment.0.as_str();
+            let available = templates.available_spawns(race, class, alignment_str);
+            if available
+                .iter()
+                .any(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room) == key)
+            {
+                Some(key.to_string())
+            } else {
+                available
+                    .first()
+                    .map(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room))
+            }
+        })
+        .or_else(|| {
+            let templates = crate::get_templates()?;
+            let race = &char_row.race;
+            let class = &char_row.class;
+            let alignment_str = alignment.0.as_str();
+            templates
+                .available_spawns(race, class, alignment_str)
+                .first()
+                .map(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room))
+        });
+
+    if let Some(ref healed_key) = valid_spawn_key {
+        if char_row.spawn_key.as_ref() != Some(healed_key) {
+            tracing::info!(
+                entity_id,
+                old_spawn_key = ?char_row.spawn_key,
+                new_spawn_key = healed_key,
+                "Healing corrupted/missing character spawn_key in database"
+            );
+            let _ = oxide_data::update_character_spawn_key(conn_db, entity_id, healed_key);
+        }
+    }
+
     drop(db_guard);
 
     // Resolve starting room: last saved position → spawn_key → global spawn
@@ -2190,15 +2233,13 @@ async fn load_character(
     });
     let room = saved_room
         .or_else(|| {
-            char_row
-                .spawn_key
+            valid_spawn_key
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
         .unwrap_or(spawn_room);
 
-    let recall_room = char_row
-        .spawn_key
+    let recall_room = valid_spawn_key
         .as_deref()
         .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         .unwrap_or(spawn_room);
@@ -2464,6 +2505,119 @@ mod tests {
                 "kronos".to_string(),
                 "vulgath".to_string()
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_key_healing() {
+        use oxide_core::templates::{AreaTemplate, SpawnEntry};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let mut registry = TemplateRegistry::new();
+
+        let warrior = ClassTemplate {
+            id: "warrior".to_string(),
+            name: "Warrior".to_string(),
+            description: "A warrior".to_string(),
+            hit_die: 10,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "full".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            skill_pool: vec![],
+            starting_skill_slots: 3,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
+        };
+        registry.classes.insert("warrior".to_string(), warrior);
+
+        let area = AreaTemplate {
+            id: "starting_vale".to_string(),
+            name: "Starting Vale".to_string(),
+            description: "A start area".to_string(),
+            spawn_room: "town_square".to_string(),
+            level_range: None,
+            flags: vec![],
+            weather_zone: None,
+            reset_interval: None,
+            credits: None,
+            spawns: vec![SpawnEntry {
+                room: "town_square".to_string(),
+                label: "Town Square".to_string(),
+                description: "The main town square".to_string(),
+                allowed_races: vec![],
+                allowed_classes: vec![],
+                allowed_alignments: vec![],
+            }],
+            rooms: HashMap::new(),
+        };
+        registry.areas.insert("starting_vale".to_string(), area);
+
+        let _ = crate::server::TEMPLATES.set(Arc::new(registry));
+
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+        let account_id = {
+            let db_guard = db.lock().await;
+            oxide_data::create_account(db_guard.conn(), "testuser", "hash").unwrap()
+        };
+
+        let mut world = World::new();
+        let _void_room = world.spawn((oxide_core::Name::new("Void"),));
+        let spawn_room = world.spawn((
+            oxide_core::Name::new("Town Square"),
+            oxide_core::SpawnKey("starting_vale:town_square".to_string()),
+        ));
+
+        let _char_id = {
+            let db_guard = db.lock().await;
+            let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
+            oxide_data::create_character(
+                db_guard.conn(),
+                account_id,
+                "TestChar",
+                "human",
+                "warrior",
+                entity_id,
+                None,
+                Some("starting_vale:forest_crossing"),
+            )
+            .unwrap()
+        };
+
+        let char_row = {
+            let db_guard = db.lock().await;
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .remove(0)
+        };
+
+        let mut flow = LoginFlow::new();
+        let _lines = load_character(&mut flow, &mut world, spawn_room, &char_row, &db).await;
+
+        let player_entity = flow.entity.unwrap();
+        let recall_comp = world
+            .query_one::<&RecallRoom>(player_entity)
+            .unwrap()
+            .get()
+            .map(|r| r.0)
+            .unwrap();
+        assert_eq!(recall_comp, spawn_room);
+
+        let healed_char_row = {
+            let db_guard = db.lock().await;
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .remove(0)
+        };
+        assert_eq!(
+            healed_char_row.spawn_key,
+            Some("starting_vale:town_square".to_string())
         );
     }
 }
