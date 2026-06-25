@@ -50,10 +50,36 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
         let room_entity = room_map[room_id.as_str()];
         let mut exits = Vec::new();
 
-        for (dir_str, dest_id) in &room_tpl.exits {
+        for (dir_str, exit_tpl) in &room_tpl.exits {
             if let Some(direction) = Direction::try_from(dir_str) {
-                if let Some(&dest_entity) = room_map.get(dest_id.as_str()) {
-                    exits.push(Exit::new(direction, dest_entity));
+                let dest_str = exit_tpl.dest();
+                let target_room_id = if let Some((_, r)) = dest_str.split_once(':') {
+                    r
+                } else {
+                    dest_str
+                };
+                if let Some(&dest_entity) = room_map.get(target_room_id) {
+                    let mut exit = Exit::new(direction, dest_entity);
+                    if let oxide_core::ExitTemplate::Detailed {
+                        door,
+                        closed,
+                        locked,
+                        key_id,
+                        ..
+                    } = exit_tpl
+                    {
+                        if *door {
+                            exit.flags |= oxide_core::EXIT_IS_DOOR;
+                        }
+                        if *closed {
+                            exit.flags |= oxide_core::EXIT_IS_CLOSED;
+                        }
+                        if *locked {
+                            exit.flags |= oxide_core::EXIT_IS_LOCKED;
+                        }
+                        exit.key_id = key_id.clone();
+                    }
+                    exits.push(exit);
                 }
             }
         }
@@ -143,7 +169,8 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
                         mob_tpl.aggro_players,
                         mob_tpl.aggro_mobs,
                         mob_tpl.aggro_race.clone(),
-                    ),
+                    )
+                    .with_ai_mode(&mob_tpl.ai_mode),
                     Attributes::new(
                         mob_tpl.attributes.strength,
                         mob_tpl.attributes.dexterity,

@@ -159,6 +159,7 @@ pub struct Exit {
     pub direction: Direction,
     pub dest: crate::Entity,
     pub flags: ExitFlags,
+    pub key_id: Option<String>,
 }
 
 impl Exit {
@@ -167,6 +168,7 @@ impl Exit {
             direction,
             dest,
             flags: 0,
+            key_id: None,
         }
     }
 

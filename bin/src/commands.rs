@@ -558,6 +558,34 @@ pub fn cmd_say(
     }
 }
 
+fn can_detect_ghost(world: &World, observer: core::Entity) -> bool {
+    if let Ok(mut q) = world.query_one::<&Vec<core::ActiveEffect>>(observer) {
+        if let Some(effects) = q.get() {
+            for eff in effects {
+                if let Some(stat) = &eff.stat {
+                    let lower = stat.to_lowercase();
+                    if lower.contains("detect_invisible")
+                        || lower.contains("detect_undead")
+                        || lower.contains("detect-invisible")
+                        || lower.contains("detect-undead")
+                    {
+                        return true;
+                    }
+                }
+                let source_lower = eff.source.to_lowercase();
+                if source_lower.contains("detect_invisible")
+                    || source_lower.contains("detect_undead")
+                    || source_lower.contains("detect-invisible")
+                    || source_lower.contains("detect-undead")
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn send_leave_broadcast(
     world: &World,
     registry: &ConnectionRegistry,
@@ -566,19 +594,47 @@ fn send_leave_broadcast(
     dir_long: &str,
 ) {
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
-    let mut msg = core::format::RichText::new();
-    msg.push(core::format::conventions::player_name_segment(
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    // Normal broadcast
+    let mut normal_msg = core::format::RichText::new();
+    normal_msg.push(core::format::conventions::player_name_segment(
         name.as_str(),
     ));
-    msg.push(core::format::Segment::new(format!(" leaves {dir_long}.")));
-    let rendered = msg.render(true, true);
-    let bytes = format!("{}\r\n", rendered).into_bytes();
+    normal_msg.push(core::format::Segment::new(format!(" leaves {dir_long}.")));
+    let normal_bytes = format!("{}\r\n", normal_msg.render(true, true)).into_bytes();
+
+    // Ghost detector broadcast
+    let mut ghost_detector_msg = core::format::RichText::new();
+    ghost_detector_msg.push(core::format::Segment::new(format!(
+        "The ghost of {} floats {dir_long}.",
+        name.as_str()
+    )));
+    let ghost_detector_bytes =
+        format!("{}\r\n", ghost_detector_msg.render(true, true)).into_bytes();
+
+    // Ghost non-detector broadcast (chill)
+    let chill_bytes = b"You feel a cold shiver run down your spine.\r\n".to_vec();
+
     for &other in &registry.occupants(world, from_room) {
         if other == entity {
             continue;
         }
         if let Some(tx) = registry.sender(other) {
-            let _ = tx.send(bytes.clone());
+            let bytes = if is_ghost {
+                if can_detect_ghost(world, other) {
+                    ghost_detector_bytes.clone()
+                } else {
+                    chill_bytes.clone()
+                }
+            } else {
+                normal_bytes.clone()
+            };
+            let _ = tx.send(bytes);
         }
     }
 }
@@ -591,21 +647,49 @@ fn send_enter_broadcast(
     dir_long: &str,
 ) {
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
-    let mut msg = core::format::RichText::new();
-    msg.push(core::format::conventions::player_name_segment(
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    // Normal broadcast
+    let mut normal_msg = core::format::RichText::new();
+    normal_msg.push(core::format::conventions::player_name_segment(
         name.as_str(),
     ));
-    msg.push(core::format::Segment::new(format!(
+    normal_msg.push(core::format::Segment::new(format!(
         " arrives from the {dir_long}."
     )));
-    let rendered = msg.render(true, true);
-    let bytes = format!("{}\r\n", rendered).into_bytes();
+    let normal_bytes = format!("{}\r\n", normal_msg.render(true, true)).into_bytes();
+
+    // Ghost detector broadcast
+    let mut ghost_detector_msg = core::format::RichText::new();
+    ghost_detector_msg.push(core::format::Segment::new(format!(
+        "The ghost of {} floats in from the {dir_long}.",
+        name.as_str()
+    )));
+    let ghost_detector_bytes =
+        format!("{}\r\n", ghost_detector_msg.render(true, true)).into_bytes();
+
+    // Ghost non-detector broadcast (chill)
+    let chill_bytes = b"You feel a sudden chill in the air.\r\n".to_vec();
+
     for &other in &registry.occupants(world, dest_room) {
         if other == entity {
             continue;
         }
         if let Some(tx) = registry.sender(other) {
-            let _ = tx.send(bytes.clone());
+            let bytes = if is_ghost {
+                if can_detect_ghost(world, other) {
+                    ghost_detector_bytes.clone()
+                } else {
+                    chill_bytes.clone()
+                }
+            } else {
+                normal_bytes.clone()
+            };
+            let _ = tx.send(bytes);
         }
     }
 }
@@ -621,6 +705,41 @@ fn move_player(
     entity: core::Entity,
     direction: Direction,
 ) {
+    if let Ok(mut q) = world.query_one::<&core::PlayerState>(entity) {
+        if let Some(state) = q.get() {
+            match state {
+                core::PlayerState::Dead => {} // Ghost can move
+                core::PlayerState::Alive { rest } => match rest {
+                    core::RestState::Standing => {}
+                    core::RestState::Sitting => {
+                        conn.send_line("You cannot move while sitting down.");
+                        return;
+                    }
+                    core::RestState::Resting => {
+                        conn.send_line("You cannot move while resting.");
+                        return;
+                    }
+                    core::RestState::Sleeping => {
+                        conn.send_line("You cannot move while sleeping.");
+                        return;
+                    }
+                    core::RestState::Unconscious => {
+                        conn.send_line("You cannot move while unconscious.");
+                        return;
+                    }
+                    core::RestState::Dead => {}
+                },
+                core::PlayerState::Stunned { .. } => {
+                    conn.send_line("You are stunned and cannot move.");
+                    return;
+                }
+                core::PlayerState::Casting { .. } => {
+                    conn.send_line("You are casting and cannot move.");
+                    return;
+                }
+            }
+        }
+    }
     let room = match get_pos_room(world, entity) {
         Some(r) => r,
         None => {
@@ -1108,6 +1227,44 @@ pub fn cmd_kill(
             return;
         }
     };
+
+    if let Ok(mut q) = world.query_one::<&core::PlayerState>(entity) {
+        if let Some(state) = q.get() {
+            match state {
+                core::PlayerState::Dead => {
+                    conn.send_line("You are a ghost! You cannot attack anything.");
+                    return;
+                }
+                core::PlayerState::Alive { rest } => match rest {
+                    core::RestState::Standing | core::RestState::Sitting => {}
+                    core::RestState::Resting => {
+                        conn.send_line("You cannot attack while resting.");
+                        return;
+                    }
+                    core::RestState::Sleeping => {
+                        conn.send_line("You cannot attack while sleeping.");
+                        return;
+                    }
+                    core::RestState::Unconscious => {
+                        conn.send_line("You cannot attack while unconscious.");
+                        return;
+                    }
+                    core::RestState::Dead => {
+                        conn.send_line("You are a ghost! You cannot attack anything.");
+                        return;
+                    }
+                },
+                core::PlayerState::Stunned { .. } => {
+                    conn.send_line("You are stunned and cannot attack.");
+                    return;
+                }
+                core::PlayerState::Casting { .. } => {
+                    conn.send_line("You are busy casting a spell.");
+                    return;
+                }
+            }
+        }
+    }
 
     if args.trim().is_empty() {
         conn.send_line("Kill what?");
@@ -2868,6 +3025,1338 @@ pub fn cmd_pray(
     let _ = world.insert(entity, (core::Dirty,));
 }
 
+fn format_ghost_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut use_cyan = true;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            out.push(c);
+        } else {
+            if use_cyan {
+                out.push_str(&format!("{{cyan}}{c}"));
+            } else {
+                out.push_str(&format!("{{brightblue}}{c}"));
+            }
+            use_cyan = !use_cyan;
+        }
+    }
+    out.push_str("{/}");
+    out
+}
+
+fn broadcast_to_room_except(
+    world: &World,
+    registry: &ConnectionRegistry,
+    room: core::Entity,
+    except: core::Entity,
+    message: &str,
+) {
+    let bytes = format!("{}\r\n", message).into_bytes();
+    for &other in &registry.occupants(world, room) {
+        if other == except {
+            continue;
+        }
+        if let Some(tx) = registry.sender(other) {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+}
+
+fn send_to_online_player(registry: &ConnectionRegistry, entity: core::Entity, message: &str) {
+    if let Some(tx) = registry.sender(entity) {
+        let text = core::format::parse_tags(message);
+        let rendered = text.render(true, true);
+        let _ = tx.send(format!("{}\r\n", rendered).into_bytes());
+    }
+}
+
+fn send_to_conn(conn: &mut dyn Connection, message: &str) {
+    let text = core::format::parse_tags(message);
+    send_formatted(conn, &text);
+}
+
+pub fn cmd_sit(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let current_state = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    match current_state {
+        core::PlayerState::Dead => {
+            conn.send_line("You are a ghost! Ghosts do not sit down.");
+        }
+        core::PlayerState::Alive { rest } => match rest {
+            core::RestState::Sitting => {
+                conn.send_line("You are already sitting.");
+            }
+            core::RestState::Standing | core::RestState::Resting => {
+                let next_state = core::PlayerState::Alive {
+                    rest: core::RestState::Sitting,
+                };
+                let _ = world.insert(entity, (next_state, core::Dirty));
+                conn.send_line("You sit down.");
+                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                    if let Some(name) = name_q.get() {
+                        if let Some(room) = get_pos_room(world, entity) {
+                            broadcast_to_room_except(
+                                world,
+                                registry,
+                                room,
+                                entity,
+                                &format!("{} sits down.", name.0),
+                            );
+                        }
+                    }
+                }
+            }
+            core::RestState::Sleeping => {
+                conn.send_line("You must wake up first.");
+            }
+            core::RestState::Unconscious => {
+                conn.send_line("You are unconscious.");
+            }
+            core::RestState::Dead => {
+                conn.send_line("You are a ghost! Ghosts do not sit down.");
+            }
+        },
+        core::PlayerState::Stunned { .. } => {
+            conn.send_line("You are stunned and cannot move.");
+        }
+        core::PlayerState::Casting { .. } => {
+            conn.send_line("You are too busy casting to sit down.");
+        }
+    }
+}
+
+pub fn cmd_rest(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let current_state = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    match current_state {
+        core::PlayerState::Dead => {
+            conn.send_line("You are a ghost! Ghosts do not rest.");
+        }
+        core::PlayerState::Alive { rest } => match rest {
+            core::RestState::Resting => {
+                conn.send_line("You are already resting.");
+            }
+            core::RestState::Standing | core::RestState::Sitting | core::RestState::Sleeping => {
+                let next_state = core::PlayerState::Alive {
+                    rest: core::RestState::Resting,
+                };
+                let _ = world.insert(entity, (next_state, core::Dirty));
+                conn.send_line("You lean back and rest.");
+                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                    if let Some(name) = name_q.get() {
+                        if let Some(room) = get_pos_room(world, entity) {
+                            broadcast_to_room_except(
+                                world,
+                                registry,
+                                room,
+                                entity,
+                                &format!("{} rests.", name.0),
+                            );
+                        }
+                    }
+                }
+            }
+            core::RestState::Unconscious => {
+                conn.send_line("You are unconscious.");
+            }
+            core::RestState::Dead => {
+                conn.send_line("You are a ghost! Ghosts do not rest.");
+            }
+        },
+        core::PlayerState::Stunned { .. } => {
+            conn.send_line("You are stunned and cannot rest.");
+        }
+        core::PlayerState::Casting { .. } => {
+            conn.send_line("You are too busy casting to rest.");
+        }
+    }
+}
+
+pub fn cmd_sleep(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let current_state = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    match current_state {
+        core::PlayerState::Dead => {
+            conn.send_line("You are a ghost! Ghosts do not sleep.");
+        }
+        core::PlayerState::Alive { rest } => match rest {
+            core::RestState::Sleeping => {
+                conn.send_line("You are already sleeping.");
+            }
+            core::RestState::Standing | core::RestState::Sitting | core::RestState::Resting => {
+                let next_state = core::PlayerState::Alive {
+                    rest: core::RestState::Sleeping,
+                };
+                let _ = world.insert(entity, (next_state, core::Dirty));
+                conn.send_line("You lie down and go to sleep.");
+                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                    if let Some(name) = name_q.get() {
+                        if let Some(room) = get_pos_room(world, entity) {
+                            broadcast_to_room_except(
+                                world,
+                                registry,
+                                room,
+                                entity,
+                                &format!("{} goes to sleep.", name.0),
+                            );
+                        }
+                    }
+                }
+            }
+            core::RestState::Unconscious => {
+                conn.send_line("You are unconscious.");
+            }
+            core::RestState::Dead => {
+                conn.send_line("You are a ghost! Ghosts do not sleep.");
+            }
+        },
+        core::PlayerState::Stunned { .. } => {
+            conn.send_line("You are stunned and cannot sleep.");
+        }
+        core::PlayerState::Casting { .. } => {
+            conn.send_line("You are too busy casting to sleep.");
+        }
+    }
+}
+
+pub fn cmd_wake(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let current_state = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    match current_state {
+        core::PlayerState::Dead => {
+            conn.send_line("You are a ghost! You cannot wake up.");
+        }
+        core::PlayerState::Alive { rest } => match rest {
+            core::RestState::Sleeping => {
+                let next_state = core::PlayerState::Alive {
+                    rest: core::RestState::Resting,
+                };
+                let _ = world.insert(entity, (next_state, core::Dirty));
+                conn.send_line("You wake up.");
+                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                    if let Some(name) = name_q.get() {
+                        if let Some(room) = get_pos_room(world, entity) {
+                            broadcast_to_room_except(
+                                world,
+                                registry,
+                                room,
+                                entity,
+                                &format!("{} wakes up.", name.0),
+                            );
+                        }
+                    }
+                }
+            }
+            core::RestState::Standing | core::RestState::Sitting | core::RestState::Resting => {
+                conn.send_line("You are already awake.");
+            }
+            core::RestState::Unconscious => {
+                conn.send_line("You are unconscious.");
+            }
+            core::RestState::Dead => {
+                conn.send_line("You are a ghost! You cannot wake up.");
+            }
+        },
+        core::PlayerState::Stunned { .. } => {
+            conn.send_line("You are stunned and cannot wake up.");
+        }
+        core::PlayerState::Casting { .. } => {
+            conn.send_line("You are already awake.");
+        }
+    }
+}
+
+pub fn cmd_stand(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let current_state = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    match current_state {
+        core::PlayerState::Dead => {
+            conn.send_line("You are a ghost! Ghosts stand in ethereal form.");
+        }
+        core::PlayerState::Alive { rest } => match rest {
+            core::RestState::Standing => {
+                conn.send_line("You are already standing.");
+            }
+            core::RestState::Sitting | core::RestState::Resting | core::RestState::Sleeping => {
+                let next_state = core::PlayerState::Alive {
+                    rest: core::RestState::Standing,
+                };
+                let _ = world.insert(entity, (next_state, core::Dirty));
+                conn.send_line("You stand up.");
+                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                    if let Some(name) = name_q.get() {
+                        if let Some(room) = get_pos_room(world, entity) {
+                            broadcast_to_room_except(
+                                world,
+                                registry,
+                                room,
+                                entity,
+                                &format!("{} stands up.", name.0),
+                            );
+                        }
+                    }
+                }
+            }
+            core::RestState::Unconscious => {
+                conn.send_line("You are unconscious.");
+            }
+            core::RestState::Dead => {
+                conn.send_line("You are a ghost! Ghosts stand in ethereal form.");
+            }
+        },
+        core::PlayerState::Stunned { .. } => {
+            conn.send_line("You are stunned and cannot stand up.");
+        }
+        core::PlayerState::Casting { .. } => {
+            conn.send_line("You stand up (you were already awake).");
+        }
+    }
+}
+
+fn find_online_player(
+    world: &World,
+    registry: &ConnectionRegistry,
+    name: &str,
+) -> Option<core::Entity> {
+    let lower_name = name.to_lowercase();
+    let candidates: Vec<core::Entity> = registry
+        .connected_entities()
+        .into_iter()
+        .filter(|&e| {
+            if let Some(n) = get_name(world, e) {
+                n.0.to_lowercase().starts_with(&lower_name)
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    if let Some(&exact) = candidates.iter().find(|&&e| {
+        if let Some(n) = get_name(world, e) {
+            n.0.to_lowercase() == lower_name
+        } else {
+            false
+        }
+    }) {
+        return Some(exact);
+    }
+
+    if candidates.len() == 1 {
+        Some(candidates[0])
+    } else {
+        None
+    }
+}
+
+pub fn cmd_tell(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    let (target_name, message) = match args.split_once(' ') {
+        Some((t, m)) if !t.is_empty() && !m.is_empty() => (t, m),
+        _ => {
+            conn.send_line("Tell whom what?");
+            return;
+        }
+    };
+
+    let target_entity = match find_online_player(world, registry, target_name) {
+        Some(te) => te,
+        None => {
+            conn.send_line("No one by that name is here.");
+            return;
+        }
+    };
+
+    if target_entity == entity {
+        conn.send_line("You talk to yourself.");
+        return;
+    }
+
+    let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
+    let target_name_real = get_name(world, target_entity)
+        .unwrap_or(Name::new("Someone"))
+        .0;
+
+    let msg_fmt = if is_ghost {
+        format_ghost_text(message)
+    } else {
+        message.to_string()
+    };
+
+    let _ = world.insert(target_entity, (core::LastMessenger(entity), core::Dirty));
+
+    send_to_online_player(
+        registry,
+        target_entity,
+        &format!("{} tells you, \"{}\"", sender_name, msg_fmt),
+    );
+
+    send_to_conn(
+        conn,
+        &format!("You tell {}, \"{}\"", target_name_real, msg_fmt),
+    );
+}
+
+pub fn cmd_reply(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    if args.is_empty() {
+        conn.send_line("Reply what?");
+        return;
+    }
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    let target_entity = match world.query_one::<&core::LastMessenger>(entity) {
+        Ok(mut q) => q.get().map(|lm| lm.0),
+        Err(_) => None,
+    };
+
+    let target_entity = match target_entity {
+        Some(te) => te,
+        None => {
+            conn.send_line("No one to reply to.");
+            return;
+        }
+    };
+
+    if !registry.is_connected(target_entity) {
+        conn.send_line("They are no longer online.");
+        return;
+    }
+
+    let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
+    let target_name_real = get_name(world, target_entity)
+        .unwrap_or(Name::new("Someone"))
+        .0;
+
+    let msg_fmt = if is_ghost {
+        format_ghost_text(args)
+    } else {
+        args.to_string()
+    };
+
+    let _ = world.insert(target_entity, (core::LastMessenger(entity), core::Dirty));
+
+    send_to_online_player(
+        registry,
+        target_entity,
+        &format!("{} tells you, \"{}\"", sender_name, msg_fmt),
+    );
+
+    send_to_conn(
+        conn,
+        &format!("You tell {}, \"{}\"", target_name_real, msg_fmt),
+    );
+}
+
+pub fn cmd_shout(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    if args.is_empty() {
+        conn.send_line("Shout what?");
+        return;
+    }
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let area_id = match world.query_one::<&core::SpawnKey>(room) {
+        Ok(mut q) => q
+            .get()
+            .map(|sk| sk.0.split_once(':').unwrap().0.to_string()),
+        Err(_) => None,
+    };
+
+    let area_id = match area_id {
+        Some(a) => a,
+        None => {
+            conn.send_line("You cannot shout here.");
+            return;
+        }
+    };
+
+    let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
+    let msg_fmt = if is_ghost {
+        format_ghost_text(args)
+    } else {
+        args.to_string()
+    };
+
+    let target_msg = format!("{} shouts, \"{}\"", sender_name, msg_fmt);
+    let target_msg_parsed = core::format::parse_tags(&target_msg);
+    let target_msg_rendered = target_msg_parsed.render(true, true);
+    let target_msg_bytes = format!("{}\r\n", target_msg_rendered).into_bytes();
+
+    for &other in &registry.connected_entities() {
+        if other == entity {
+            continue;
+        }
+        if let Some(other_room) = get_pos_room(world, other) {
+            if let Ok(mut q) = world.query_one::<&core::SpawnKey>(other_room) {
+                if let Some(sk) = q.get() {
+                    if sk.0.starts_with(&area_id) {
+                        if let Some(tx) = registry.sender(other) {
+                            let _ = tx.send(target_msg_bytes.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    send_to_conn(conn, &format!("You shout, \"{}\"", msg_fmt));
+}
+
+pub fn cmd_whisper(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    let (target_name, message) = match args.split_once(' ') {
+        Some((t, m)) if !t.is_empty() && !m.is_empty() => (t, m),
+        _ => {
+            conn.send_line("Whisper to whom what?");
+            return;
+        }
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let target_entity = {
+        let occupants = registry.occupants(world, room);
+        let lower_target = target_name.to_lowercase();
+        let candidates: Vec<core::Entity> = occupants
+            .into_iter()
+            .filter(|&e| {
+                if let Some(n) = get_name(world, e) {
+                    n.0.to_lowercase().starts_with(&lower_target)
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        if let Some(&exact) = candidates.iter().find(|&&e| {
+            if let Some(n) = get_name(world, e) {
+                n.0.to_lowercase() == lower_target
+            } else {
+                false
+            }
+        }) {
+            Some(exact)
+        } else if candidates.len() == 1 {
+            Some(candidates[0])
+        } else {
+            None
+        }
+    };
+
+    let target_entity = match target_entity {
+        Some(te) => te,
+        None => {
+            conn.send_line("No one by that name is here.");
+            return;
+        }
+    };
+
+    if target_entity == entity {
+        conn.send_line("You whisper to yourself.");
+        return;
+    }
+
+    let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
+    let target_name_real = get_name(world, target_entity)
+        .unwrap_or(Name::new("Someone"))
+        .0;
+
+    let msg_fmt = if is_ghost {
+        format_ghost_text(message)
+    } else {
+        message.to_string()
+    };
+
+    send_to_online_player(
+        registry,
+        target_entity,
+        &format!("{} whispers to you, \"{}\"", sender_name, msg_fmt),
+    );
+
+    send_to_conn(
+        conn,
+        &format!("You whisper to {}, \"{}\"", target_name_real, msg_fmt),
+    );
+}
+
+fn update_exit_flags(
+    world: &mut World,
+    from_room: core::Entity,
+    dir: Direction,
+    to_room: core::Entity,
+    set_mask: core::ExitFlags,
+    clear_mask: core::ExitFlags,
+) {
+    if let Ok(mut q) = world.query_one::<&mut RoomExits>(from_room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir) {
+                exit.flags |= set_mask;
+                exit.flags &= !clear_mask;
+            }
+        }
+    }
+    let rev_dir = dir.opposite();
+    if let Ok(mut q) = world.query_one::<&mut RoomExits>(to_room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits
+                .0
+                .iter_mut()
+                .find(|e| e.direction == rev_dir && e.dest == from_room)
+            {
+                exit.flags |= set_mask;
+                exit.flags &= !clear_mask;
+            }
+        }
+    }
+}
+
+fn has_key(world: &World, player: core::Entity, key_id: &str) -> bool {
+    if let Ok(mut q) = world.query_one::<&core::Inventory>(player) {
+        if let Some(inv) = q.get() {
+            for &item_entity in &inv.0 {
+                if let Ok(mut item_q) = world.query_one::<&core::Item>(item_entity) {
+                    if let Some(item) = item_q.get() {
+                        if item.template_id == key_id {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn cmd_open(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let direction = match direction_from_name(args) {
+        Some(d) => d,
+        None => {
+            conn.send_line("Open which direction?");
+            return;
+        }
+    };
+
+    let mut exit_found = None;
+    if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits.0.iter().find(|e| e.direction == direction) {
+                exit_found = Some(exit.clone());
+            }
+        }
+    }
+
+    let exit = match exit_found {
+        Some(ex) => ex,
+        None => {
+            conn.send_line("There is no exit that way.");
+            return;
+        }
+    };
+
+    if !exit.is_door() {
+        conn.send_line("There is no door that way.");
+        return;
+    }
+
+    if !exit.is_closed() {
+        conn.send_line("It is already open.");
+        return;
+    }
+
+    if exit.is_locked() {
+        conn.send_line("It is locked.");
+        return;
+    }
+
+    update_exit_flags(world, room, direction, exit.dest, 0, core::EXIT_IS_CLOSED);
+
+    conn.send_line("You open the door.");
+    if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = name_q.get() {
+            broadcast_to_room_except(
+                world,
+                registry,
+                room,
+                entity,
+                &format!("{} opens the door {}.", name.0, direction.long_name()),
+            );
+            broadcast_to_room_except(world, registry, exit.dest, entity, "The door opens.");
+        }
+    }
+}
+
+pub fn cmd_close(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let direction = match direction_from_name(args) {
+        Some(d) => d,
+        None => {
+            conn.send_line("Close which direction?");
+            return;
+        }
+    };
+
+    let mut exit_found = None;
+    if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits.0.iter().find(|e| e.direction == direction) {
+                exit_found = Some(exit.clone());
+            }
+        }
+    }
+
+    let exit = match exit_found {
+        Some(ex) => ex,
+        None => {
+            conn.send_line("There is no exit that way.");
+            return;
+        }
+    };
+
+    if !exit.is_door() {
+        conn.send_line("There is no door that way.");
+        return;
+    }
+
+    if exit.is_closed() {
+        conn.send_line("It is already closed.");
+        return;
+    }
+
+    update_exit_flags(world, room, direction, exit.dest, core::EXIT_IS_CLOSED, 0);
+
+    conn.send_line("You close the door.");
+    if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = name_q.get() {
+            broadcast_to_room_except(
+                world,
+                registry,
+                room,
+                entity,
+                &format!("{} closes the door {}.", name.0, direction.long_name()),
+            );
+            broadcast_to_room_except(world, registry, exit.dest, entity, "The door closes.");
+        }
+    }
+}
+
+pub fn cmd_lock(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let direction = match direction_from_name(args) {
+        Some(d) => d,
+        None => {
+            conn.send_line("Lock which direction?");
+            return;
+        }
+    };
+
+    let mut exit_found = None;
+    if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits.0.iter().find(|e| e.direction == direction) {
+                exit_found = Some(exit.clone());
+            }
+        }
+    }
+
+    let exit = match exit_found {
+        Some(ex) => ex,
+        None => {
+            conn.send_line("There is no exit that way.");
+            return;
+        }
+    };
+
+    if !exit.is_door() {
+        conn.send_line("There is no door that way.");
+        return;
+    }
+
+    if !exit.is_closed() {
+        conn.send_line("You must close it first.");
+        return;
+    }
+
+    if exit.is_locked() {
+        conn.send_line("It is already locked.");
+        return;
+    }
+
+    let key_id = match &exit.key_id {
+        Some(k) => k,
+        None => {
+            conn.send_line("This door cannot be locked.");
+            return;
+        }
+    };
+
+    if !has_key(world, entity, key_id) {
+        conn.send_line("You do not have the key.");
+        return;
+    }
+
+    update_exit_flags(world, room, direction, exit.dest, core::EXIT_IS_LOCKED, 0);
+
+    conn.send_line("You lock the door.");
+    if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = name_q.get() {
+            broadcast_to_room_except(
+                world,
+                registry,
+                room,
+                entity,
+                &format!("{} locks the door {}.", name.0, direction.long_name()),
+            );
+            broadcast_to_room_except(
+                world,
+                registry,
+                exit.dest,
+                entity,
+                "You hear a click as the door is locked from the other side.",
+            );
+        }
+    }
+}
+
+pub fn cmd_unlock(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let direction = match direction_from_name(args) {
+        Some(d) => d,
+        None => {
+            conn.send_line("Unlock which direction?");
+            return;
+        }
+    };
+
+    let mut exit_found = None;
+    if let Ok(mut q) = world.query_one::<&RoomExits>(room) {
+        if let Some(exits) = q.get() {
+            if let Some(exit) = exits.0.iter().find(|e| e.direction == direction) {
+                exit_found = Some(exit.clone());
+            }
+        }
+    }
+
+    let exit = match exit_found {
+        Some(ex) => ex,
+        None => {
+            conn.send_line("There is no exit that way.");
+            return;
+        }
+    };
+
+    if !exit.is_door() {
+        conn.send_line("There is no door that way.");
+        return;
+    }
+
+    if !exit.is_locked() {
+        conn.send_line("It is already unlocked.");
+        return;
+    }
+
+    let key_id = match &exit.key_id {
+        Some(k) => k,
+        None => {
+            conn.send_line("This door cannot be unlocked.");
+            return;
+        }
+    };
+
+    if !has_key(world, entity, key_id) {
+        conn.send_line("You do not have the key.");
+        return;
+    }
+
+    update_exit_flags(world, room, direction, exit.dest, 0, core::EXIT_IS_LOCKED);
+
+    conn.send_line("You unlock the door.");
+    if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = name_q.get() {
+            broadcast_to_room_except(
+                world,
+                registry,
+                room,
+                entity,
+                &format!("{} unlocks the door {}.", name.0, direction.long_name()),
+            );
+            broadcast_to_room_except(
+                world,
+                registry,
+                exit.dest,
+                entity,
+                "You hear a click as the door is unlocked from the other side.",
+            );
+        }
+    }
+}
+
+pub fn cmd_reclaim(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    if !is_ghost {
+        conn.send_line("You are already alive.");
+        return;
+    }
+
+    let corpse_entity = if let Some(room) = get_pos_room(world, entity) {
+        let mut found = None;
+        let mut q = world.query::<(&core::Corpse, &core::Position)>();
+        for (raw, (corpse, pos)) in q.iter() {
+            if pos.room == room && corpse.owner == Some(entity) {
+                found = Some(core::Entity::from(raw));
+                break;
+            }
+        }
+        found
+    } else {
+        None
+    };
+
+    let corpse_entity = match corpse_entity {
+        Some(c) => c,
+        None => {
+            conn.send_line("Your corpse is not in this room. You cannot reclaim your body here.");
+            return;
+        }
+    };
+
+    let corpse_eq = world
+        .query_one::<&core::Equipment>(corpse_entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|eq| eq.slots.clone()))
+        .unwrap_or_default();
+
+    if let Ok(mut q) = world.query_one::<&mut core::Equipment>(entity) {
+        if let Some(player_eq) = q.get() {
+            player_eq.slots = corpse_eq;
+        }
+    }
+
+    let corpse_inv = world
+        .query_one::<&core::Inventory>(corpse_entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|inv| inv.0.clone()))
+        .unwrap_or_default();
+
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(player_inv) = q.get() {
+            player_inv.0 = corpse_inv;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Health>(entity) {
+        if let Some(hp) = q.get() {
+            hp.current = hp.max;
+        }
+    }
+
+    let _ = world.insert(
+        entity,
+        (
+            core::PlayerState::Alive {
+                rest: core::RestState::Standing,
+            },
+            core::Dirty,
+        ),
+    );
+
+    let _ = world.despawn(corpse_entity);
+
+    conn.send_line("You reclaim your body and return to the land of the living!");
+    if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = name_q.get() {
+            if let Some(room) = get_pos_room(world, entity) {
+                broadcast_to_room_except(
+                    world,
+                    registry,
+                    room,
+                    entity,
+                    &format!("{} returns to life!", name.0),
+                );
+            }
+        }
+    }
+}
+
+pub fn cmd_revive(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let is_ghost = world
+        .query_one::<&core::PlayerState>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| matches!(s, core::PlayerState::Dead)))
+        .unwrap_or(false);
+
+    if !is_ghost {
+        conn.send_line("You are already alive.");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let corpse_entity = {
+        let mut found = None;
+        let mut q = world.query::<(&core::Corpse, &core::Position)>();
+        for (raw, (corpse, pos)) in q.iter() {
+            if pos.room == room && corpse.owner == Some(entity) {
+                found = Some(core::Entity::from(raw));
+                break;
+            }
+        }
+        found
+    };
+
+    if corpse_entity.is_some() {
+        cmd_reclaim(world, conn, name, args, registry);
+        return;
+    }
+
+    let is_temple = if let Ok(mut room_q) = world.query_one::<&core::Room>(room) {
+        if let Some(r) = room_q.get() {
+            r.name.to_lowercase().contains("temple") || r.name.to_lowercase().contains("altar")
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if !is_temple {
+        conn.send_line("You cannot revive here. You must find your corpse or pray at a temple.");
+        return;
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Health>(entity) {
+        if let Some(hp) = q.get() {
+            hp.current = hp.max;
+        }
+    }
+
+    let _ = world.insert(
+        entity,
+        (
+            core::PlayerState::Alive {
+                rest: core::RestState::Standing,
+            },
+            core::Dirty,
+        ),
+    );
+
+    conn.send_line("You pray at the altar and are restored to life! (Your equipment remains with your corpse.)");
+    if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = name_q.get() {
+            broadcast_to_room_except(
+                world,
+                registry,
+                room,
+                entity,
+                &format!("{} returns to life!", name.0),
+            );
+        }
+    }
+}
+
+pub fn cmd_toggle(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let arg = args.trim().to_lowercase();
+    if arg == "resurrect" || arg == "res" {
+        let mut current_val = false;
+        if let Ok(mut q) = world.query_one::<&mut core::Player>(entity) {
+            if let Some(player) = q.get() {
+                player.no_resurrect = !player.no_resurrect;
+                current_val = player.no_resurrect;
+            }
+        }
+        let _ = world.insert(entity, (core::Dirty,));
+        if current_val {
+            conn.send_line("You will now prevent unwanted resurrections (no_resurrect is ON).");
+        } else {
+            conn.send_line("You now allow resurrections (no_resurrect is OFF).");
+        }
+    } else {
+        conn.send_line("Toggle options: resurrect");
+    }
+}
+
+pub fn cmd_time(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    conn.send_line("It is currently 10:00 AM in the morning.");
+}
+
+pub fn cmd_weather(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    conn.send_line("The sky is clear and a gentle breeze blows from the east.");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3832,5 +5321,326 @@ mod tests {
         let lines2 = conn.take_lines();
         let all2 = lines2.join("|");
         assert!(all2.contains("answered too recently"));
+    }
+
+    #[test]
+    fn test_toggle_resurrect() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Player {
+                account_id: 1,
+                prompt: None,
+                screen_width: 80,
+                no_resurrect: false,
+            },
+        ));
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_toggle(&mut world, &mut conn, "toggle", "resurrect", &registry);
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("prevent unwanted resurrections"));
+
+        let player_comp = world
+            .query_one::<&core::Player>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(player_comp.no_resurrect);
+
+        cmd_toggle(&mut world, &mut conn, "toggle", "res", &registry);
+        let lines2 = conn.take_lines();
+        let all2 = lines2.join("|");
+        assert!(all2.contains("allow resurrections"));
+
+        let player_comp2 = world
+            .query_one::<&core::Player>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(!player_comp2.no_resurrect);
+    }
+
+    #[test]
+    fn test_reclaim_corpse() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::PlayerState::Dead,
+            core::Health::new(20),
+            core::Inventory::new(),
+            core::Equipment::new(),
+        ));
+
+        let item_in_corpse = world.spawn((core::Item::new("sword"),));
+
+        let corpse = world.spawn((
+            core::Corpse {
+                owner: Some(player),
+                created_at: std::time::Instant::now(),
+                decay_secs: 1800,
+                lootable_by: core::LootRule::OwnerOnly,
+            },
+            Position::new(room_a),
+            core::Inventory(vec![item_in_corpse]),
+            core::Equipment::new(),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_reclaim(&mut world, &mut conn, "reclaim", "", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("You reclaim your body"));
+
+        let state = world
+            .query_one::<&core::PlayerState>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(
+            state,
+            core::PlayerState::Alive {
+                rest: core::RestState::Standing
+            }
+        ));
+
+        let hp = world
+            .query_one::<&core::Health>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(hp.current, 20);
+
+        let inv = world
+            .query_one::<&core::Inventory>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(inv.0.contains(&item_in_corpse));
+
+        assert!(
+            world.query_one::<&core::Corpse>(corpse).is_err()
+                || world
+                    .query_one::<&core::Corpse>(corpse)
+                    .unwrap()
+                    .get()
+                    .is_none()
+        );
+    }
+
+    #[test]
+    fn test_revive_at_altar() {
+        let mut world = World::new();
+        let temple_room = world.spawn((
+            core::Room::new("Temple of Altar", "A quiet temple."),
+            RoomExits(vec![]),
+        ));
+        let player = world.spawn((
+            Position::new(temple_room),
+            Name::new("TestPlayer"),
+            core::PlayerState::Dead,
+            core::Health::new(20),
+            core::Inventory::new(),
+            core::Equipment::new(),
+        ));
+
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        cmd_revive(&mut world, &mut conn, "revive", "", &registry);
+
+        let lines = conn.take_lines();
+        let all = lines.join("|");
+        assert!(all.contains("You pray at the altar and are restored to life"));
+
+        let state = world
+            .query_one::<&core::PlayerState>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(
+            state,
+            core::PlayerState::Alive {
+                rest: core::RestState::Standing
+            }
+        ));
+
+        let hp = world
+            .query_one::<&core::Health>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(hp.current, 20);
+    }
+
+    #[test]
+    fn test_door_interaction() {
+        let (mut world, _void, room_a, room_b) = test_world();
+        let player = world.spawn((
+            Position::new(room_a),
+            Name::new("TestPlayer"),
+            core::Inventory::new(),
+        ));
+        let mut conn = MockConnection::new();
+        conn.set_entity(player);
+        let registry = ConnectionRegistry::new();
+
+        let key_id = "gold_key".to_string();
+        {
+            let mut q_a = world.query_one::<&mut RoomExits>(room_a).unwrap();
+            let exits = q_a.get().unwrap();
+            exits.0[0] = Exit {
+                direction: Direction::East,
+                dest: room_b,
+                flags: core::EXIT_IS_DOOR | core::EXIT_IS_CLOSED | core::EXIT_IS_LOCKED,
+                key_id: Some(key_id.clone()),
+            };
+        }
+        {
+            let mut q_b = world.query_one::<&mut RoomExits>(room_b).unwrap();
+            let exits = q_b.get().unwrap();
+            exits.0[0] = Exit {
+                direction: Direction::West,
+                dest: room_a,
+                flags: core::EXIT_IS_DOOR | core::EXIT_IS_CLOSED | core::EXIT_IS_LOCKED,
+                key_id: Some(key_id.clone()),
+            };
+        }
+
+        cmd_open(&mut world, &mut conn, "open", "east", &registry);
+        let lines = conn.take_lines();
+        assert!(lines.join("|").contains("It is locked"));
+
+        cmd_unlock(&mut world, &mut conn, "unlock", "east", &registry);
+        let lines = conn.take_lines();
+        assert!(lines.join("|").contains("do not have the key"));
+
+        let key_item = world.spawn((core::Item::new("gold_key"),));
+        if let Ok(mut q) = world.query_one::<&mut core::Inventory>(player) {
+            if let Some(inv) = q.get() {
+                inv.0.push(key_item);
+            }
+        }
+
+        cmd_unlock(&mut world, &mut conn, "unlock", "east", &registry);
+        let lines = conn.take_lines();
+        assert!(lines.join("|").contains("unlock the door"));
+
+        {
+            let mut q_a = world.query_one::<&RoomExits>(room_a).unwrap();
+            let exits = q_a.get().unwrap();
+            let exit = &exits.0[0];
+            assert!(!exit.is_locked());
+            assert!(exit.is_closed());
+        }
+
+        cmd_open(&mut world, &mut conn, "open", "east", &registry);
+        let lines = conn.take_lines();
+        assert!(lines.join("|").contains("open the door"));
+
+        {
+            let mut q_a = world.query_one::<&RoomExits>(room_a).unwrap();
+            let exits = q_a.get().unwrap();
+            let exit = &exits.0[0];
+            assert!(!exit.is_closed());
+        }
+
+        cmd_close(&mut world, &mut conn, "close", "east", &registry);
+        let lines = conn.take_lines();
+        assert!(lines.join("|").contains("close the door"));
+
+        cmd_lock(&mut world, &mut conn, "lock", "east", &registry);
+        let lines = conn.take_lines();
+        assert!(lines.join("|").contains("lock the door"));
+
+        {
+            let mut q_a = world.query_one::<&RoomExits>(room_a).unwrap();
+            let exits = q_a.get().unwrap();
+            let exit = &exits.0[0];
+            assert!(exit.is_locked());
+        }
+    }
+
+    #[test]
+    fn test_ghost_movement_broadcasts() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+
+        let ghost = world.spawn((
+            Position::new(room_a),
+            Name::new("Ghosty"),
+            core::PlayerState::Dead,
+        ));
+
+        let listener_normal = world.spawn((Position::new(room_a), Name::new("NormalPlayer")));
+
+        let listener_detect = world.spawn((
+            Position::new(room_a),
+            Name::new("DetectPlayer"),
+            vec![core::ActiveEffect {
+                source: "detect_undead".to_string(),
+                stat: None,
+                amount: None,
+                aura_id: None,
+                radius: None,
+            }],
+        ));
+
+        let (tx1, mut rx_normal) = tokio::sync::mpsc::unbounded_channel();
+        let (tx2, mut rx_detect) = tokio::sync::mpsc::unbounded_channel();
+
+        let mut registry = ConnectionRegistry::new();
+        registry.register(listener_normal, tx1);
+        registry.register(listener_detect, tx2);
+
+        send_leave_broadcast(&world, &registry, ghost, room_a, "east");
+
+        let msg_normal = rx_normal
+            .try_recv()
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        assert!(msg_normal.contains("You feel a cold shiver run down your spine"));
+        assert!(!msg_normal.contains("Ghosty"));
+
+        let msg_detect = rx_detect
+            .try_recv()
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        assert!(msg_detect.contains("The ghost of Ghosty floats east"));
+
+        send_enter_broadcast(&world, &registry, ghost, room_a, "west");
+
+        let msg_normal2 = rx_normal
+            .try_recv()
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        assert!(msg_normal2.contains("You feel a sudden chill in the air"));
+        assert!(!msg_normal2.contains("Ghosty"));
+
+        let msg_detect2 = rx_detect
+            .try_recv()
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        assert!(msg_detect2.contains("The ghost of Ghosty floats in from the west"));
     }
 }

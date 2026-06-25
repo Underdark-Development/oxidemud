@@ -3,8 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use oxide_core::templates::{
-    AffixDef, AreaTemplate, ClassTemplate, HealthBounds, ItemTemplate, LootTable, MobTemplate,
-    PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef, StanceDef,
+    AffixDef, AreaTemplate, ClassTemplate, ExitTemplate, HealthBounds, ItemTemplate, LootTable,
+    MobTemplate, PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef,
+    StanceDef,
 };
 use oxide_core::SkillDef;
 use rmcp::{
@@ -349,7 +350,7 @@ impl OxideMcpServer {
                     let mut dirs: Vec<&String> = room.exits.keys().collect();
                     dirs.sort();
                     for dir in dirs {
-                        out.push_str(&format!("\n  {dir}: {}", room.exits[dir]));
+                        out.push_str(&format!("\n  {dir}: {}", room.exits[dir].dest()));
                     }
                 }
                 if !room.portals.is_empty() {
@@ -477,7 +478,8 @@ impl OxideMcpServer {
             Err(e) => return format!("Error: failed to parse room: {e}"),
         };
         let dest = format!("{}:{}", p.to_area, p.to_room);
-        room.exits.insert(p.direction.clone(), dest.clone());
+        room.exits
+            .insert(p.direction.clone(), ExitTemplate::Simple(dest.clone()));
         match toml::to_string_pretty(&room) {
             Ok(out) => {
                 if let Err(e) = fs::write(&room_path, &out) {

@@ -803,6 +803,31 @@ pub struct RoomContent {
     pub items: Vec<ItemSpawnEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ExitTemplate {
+    Simple(String),
+    Detailed {
+        dest: String,
+        #[serde(default)]
+        door: bool,
+        #[serde(default)]
+        closed: bool,
+        #[serde(default)]
+        locked: bool,
+        key_id: Option<String>,
+    },
+}
+
+impl ExitTemplate {
+    pub fn dest(&self) -> &str {
+        match self {
+            ExitTemplate::Simple(d) => d.as_str(),
+            ExitTemplate::Detailed { dest, .. } => dest.as_str(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomTemplate {
     /// Room ID (used when serialized as a standalone room file).
@@ -814,7 +839,7 @@ pub struct RoomTemplate {
     pub name: String,
     pub description: String,
     #[serde(default)]
-    pub exits: HashMap<String, String>,
+    pub exits: HashMap<String, ExitTemplate>,
     #[serde(default)]
     pub portals: Vec<RoomPortalTemplate>,
     #[serde(default)]
@@ -1170,7 +1195,8 @@ impl TemplateRegistry {
                 });
             }
             for (room_id, room) in &area.rooms {
-                for dest in room.exits.values() {
+                for exit_tpl in room.exits.values() {
+                    let dest = exit_tpl.dest();
                     if let Some((target_area, target_room)) = dest.split_once(':') {
                         if !self.areas.contains_key(target_area) {
                             errors.push(ValidationError {

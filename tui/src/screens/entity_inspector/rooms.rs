@@ -14,13 +14,13 @@ impl EntityInspectorScreen {
                 // Exits (always display cardinal directions)
                 let dirs = ["north", "south", "east", "west", "up", "down"];
                 for dir in dirs {
-                    let dest = room.exits.get(dir).map(|s| s.as_str()).unwrap_or("");
+                    let dest = room.exits.get(dir).map(|s| s.dest()).unwrap_or("");
                     Self::add_field(table, &format!("exit.{dir}"), dest);
                 }
                 // Custom exits
                 for (dir, dest) in &room.exits {
                     if !dirs.contains(&dir.as_str()) {
-                        Self::add_field(table, &format!("exit.{dir}"), dest);
+                        Self::add_field(table, &format!("exit.{dir}"), dest.dest());
                     }
                 }
 
@@ -113,7 +113,8 @@ impl EntityInspectorScreen {
                 if value.is_empty() {
                     room.exits.remove(&dir);
                 } else {
-                    room.exits.insert(dir, value.to_string());
+                    room.exits
+                        .insert(dir, oxide_core::ExitTemplate::Simple(value.to_string()));
                 }
             }
             _ if field.starts_with("portal[") => {

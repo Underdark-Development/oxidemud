@@ -135,10 +135,11 @@ impl RoomGridScreen {
             }
 
             if let Some(dest_str) = target_dest {
-                let (target_area, target_room) = if let Some((a, r)) = dest_str.split_once(':') {
+                let dest_val = dest_str.dest();
+                let (target_area, target_room) = if let Some((a, r)) = dest_val.split_once(':') {
                     (a.to_string(), r.to_string())
                 } else {
-                    (active_area_id.clone(), dest_str.clone())
+                    (active_area_id.clone(), dest_val.to_string())
                 };
                 cells.insert(
                     (dx, dy),
@@ -313,11 +314,12 @@ impl Screen for RoomGridScreen {
                         .get(target_area)
                         .and_then(|a| a.rooms.get(target_room))
                     {
-                        target_room_tmpl.exits.values().any(|dest_str| {
+                        target_room_tmpl.exits.values().any(|dest_tpl| {
+                            let dest_str = dest_tpl.dest();
                             let (ba, br) = if let Some((a, r)) = dest_str.split_once(':') {
                                 (a, r)
                             } else {
-                                (target_area.as_str(), dest_str.as_str())
+                                (target_area.as_str(), dest_str)
                             };
                             ba == active_area && br == active_room
                         })
@@ -520,11 +522,13 @@ impl Screen for RoomGridScreen {
         let mut cmds = Vec::new();
 
         // 1. Movement options
-        let mut sorted_exits: Vec<(&String, &String)> = room.exits.iter().collect();
+        let mut sorted_exits: Vec<(&String, &oxide_core::ExitTemplate)> =
+            room.exits.iter().collect();
         sorted_exits.sort_by_key(|(dir, _)| dir.to_lowercase());
         for (dir, dest) in sorted_exits {
-            let label = format!("Go {} (to {})", dir, dest);
-            cmds.push((label, CommandAction::MoveToRoom(dest.clone())));
+            let dest_str = dest.dest().to_string();
+            let label = format!("Go {} (to {})", dir, dest_str);
+            cmds.push((label, CommandAction::MoveToRoom(dest_str)));
         }
 
         // Portals
@@ -611,7 +615,10 @@ impl Screen for RoomGridScreen {
                         .rooms
                         .get_mut(&parent_id)
                         .ok_or_else(|| "Parent room not found in area".to_string())?;
-                    parent_room.exits.insert(dir.clone(), new_room_id.clone());
+                    parent_room.exits.insert(
+                        dir.clone(),
+                        oxide_core::ExitTemplate::Simple(new_room_id.clone()),
+                    );
 
                     let parent_toml = toml::to_string_pretty(parent_room)
                         .map_err(|e| format!("failed to serialize parent room: {e}"))?;
@@ -627,7 +634,7 @@ impl Screen for RoomGridScreen {
                 {
                     let rev = reverse_dir(dir);
                     let mut exits = HashMap::new();
-                    exits.insert(rev, parent_id.clone());
+                    exits.insert(rev, oxide_core::ExitTemplate::Simple(parent_id.clone()));
 
                     let new_room = RoomTemplate {
                         id: new_room_id.clone(),

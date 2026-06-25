@@ -4,8 +4,8 @@ use crate::dice::DiceRoll;
 use crate::systems::trigger::process_triggers;
 use crate::{
     Armor, Attributes, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Friendly,
-    Health, Inventory, Level, LootRule, Name, Npc, Player, Position, Resistance, RoomExits, Weapon,
-    WeaponHands, World,
+    Health, Inventory, LastMessenger, Level, LootRule, Name, Npc, Player, PlayerState, Position,
+    RecallRoom, Resistance, RestState, RoomExits, Weapon, WeaponHands, World,
 };
 
 // ---------------------------------------------------------------------------
@@ -275,14 +275,14 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
     let mut outcomes = Vec::new();
 
     for (attacker, state, room) in attackers {
-        // Verify attacker still exists and is alive
-        let attacker_alive = world
+        // Verify attacker still exists and is conscious
+        let attacker_conscious = world
             .query_one::<&Health>(attacker)
             .ok()
-            .and_then(|mut q| q.get().map(|h| h.is_alive()))
+            .and_then(|mut q| q.get().map(|h| h.is_conscious()))
             .unwrap_or(false);
 
-        if !attacker_alive {
+        if !attacker_conscious {
             continue;
         }
 
@@ -318,14 +318,14 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                     continue;
                 }
 
-                // Check if target is alive
-                let target_dead = world
+                // Check if target is conscious
+                let target_conscious = world
                     .query_one::<&Health>(target)
                     .ok()
-                    .and_then(|mut q| q.get().map(|h| h.is_dead()))
-                    .unwrap_or(true);
+                    .and_then(|mut q| q.get().map(|h| h.is_conscious()))
+                    .unwrap_or(false);
 
-                if target_dead {
+                if !target_conscious {
                     transition_combat_state(world, attacker, CombatState::NotInCombat);
                     continue;
                 }
@@ -654,16 +654,15 @@ fn apply_damage(
     process_triggers(world, target, "on_hit");
 
     // Apply damage to target
-    let killed = {
+    let (killed, unconscious) = {
         let mut q = match world.query_one::<&mut Health>(target) {
             Ok(q) => q,
             Err(_) => return (0, false, 0, None),
         };
         match q.get() {
             Some(hp) => {
-                let killed = hp.current <= final_damage;
                 hp.damage(final_damage);
-                killed
+                (hp.is_truly_dead(), hp.is_unconscious())
             }
             None => return (0, false, 0, None),
         }
@@ -674,15 +673,13 @@ fn apply_damage(
     }
 
     if killed {
-        // Compute XP before despawning the target
+        // Compute XP before death
         let xp_gained = world
             .query_one::<&Level>(target)
             .ok()
             .and_then(|mut q| q.get().copied())
             .map(|l| (l.0 as u64).saturating_pow(2) * 50)
             .unwrap_or(0);
-
-        let corpse = spawn_corpse(world, target, None);
 
         // Grant XP to attacker
         let mut xp_updated = false;
@@ -696,11 +693,24 @@ fn apply_damage(
             let _ = world.insert(attacker, (crate::Dirty,));
         }
 
-        transition_combat_state(world, attacker, CombatState::NotInCombat);
-        // Despawn the victim — the corpse entity replaces it in the room
-        let _ = world.despawn(target);
+        let corpse = handle_death(world, target);
 
         (final_damage, true, xp_gained, Some(corpse))
+    } else if unconscious {
+        handle_combatant_down(world, target);
+        // Set player state to unconscious if they are a player
+        if world.query_one::<&crate::Player>(target).is_ok() {
+            let _ = world.insert(
+                target,
+                (
+                    PlayerState::Alive {
+                        rest: RestState::Unconscious,
+                    },
+                    crate::Dirty,
+                ),
+            );
+        }
+        (final_damage, false, 0, None)
     } else {
         // Auto-engage non-friendly NPCs that aren't already in combat
         let is_npc = world
@@ -733,8 +743,134 @@ fn apply_damage(
     }
 }
 
-/// Spawn a corpse entity with the victim's inventory + equipment.
-/// Returns the spawned corpse entity.
+pub fn handle_combatant_down(world: &mut World, victim: Entity) {
+    let room = match world
+        .query_one::<&Position>(victim)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    let mut attackers = Vec::new();
+    {
+        let mut q = world.query::<(&CombatState, &Position)>();
+        for (e, (state, pos)) in q.iter() {
+            let entity = Entity::from(e);
+            if pos.room == room && state.target() == Some(victim) {
+                attackers.push(entity);
+            }
+        }
+    }
+
+    for attacker in attackers {
+        let mut next_target = None;
+        {
+            let mut q = world.query::<(&CombatState, &Position, &Health)>();
+            for (e, (state, pos, health)) in q.iter() {
+                let potential_target = Entity::from(e);
+                if pos.room == room
+                    && potential_target != victim
+                    && health.is_conscious()
+                    && state.target() == Some(attacker)
+                {
+                    next_target = Some(potential_target);
+                    break;
+                }
+            }
+        }
+
+        if let Some(target) = next_target {
+            let stance = crate::systems::stance::get_active_stance(world, attacker);
+            transition_combat_state(
+                world,
+                attacker,
+                CombatState::Engaged {
+                    target,
+                    round_started: std::time::Instant::now(),
+                    stance,
+                },
+            );
+        } else {
+            transition_combat_state(world, attacker, CombatState::NotInCombat);
+        }
+    }
+
+    transition_combat_state(world, victim, CombatState::NotInCombat);
+}
+
+pub fn handle_death(world: &mut World, victim: Entity) -> Entity {
+    let corpse = spawn_corpse(world, victim, None);
+
+    handle_combatant_down(world, victim);
+
+    let is_player = world.query_one::<&crate::Player>(victim).is_ok();
+
+    if is_player {
+        if let Ok(mut q) = world.query_one::<&mut Inventory>(victim) {
+            if let Some(inv) = q.get() {
+                inv.0.clear();
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&mut Equipment>(victim) {
+            if let Some(eq) = q.get() {
+                eq.slots.clear();
+            }
+        }
+
+        let level = world
+            .query_one::<&Level>(victim)
+            .ok()
+            .and_then(|mut q| q.get().copied())
+            .unwrap_or(Level(1))
+            .0;
+
+        if let Ok(mut q) = world.query_one::<&mut crate::Experience>(victim) {
+            if let Some(xp) = q.get() {
+                let current_xp = xp.0;
+                let min_level = if level > 5 { level - 5 } else { 1 };
+                let base_xp_current = (level as u64).pow(3) * 100;
+                let base_xp_min = (min_level as u64).pow(3) * 100;
+                let max_loss = base_xp_current.saturating_sub(base_xp_min);
+
+                let loss = ((current_xp as f64) * 0.10).round() as u64;
+                let final_loss = loss.min(max_loss);
+
+                xp.0 = current_xp.saturating_sub(final_loss);
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&mut Health>(victim) {
+            if let Some(hp) = q.get() {
+                hp.current = 1;
+            }
+        }
+
+        let _ = world.insert(victim, (PlayerState::Dead, crate::Dirty));
+        let _ = world.remove_one::<LastMessenger>(victim);
+
+        let dest = world
+            .query_one::<&RecallRoom>(victim)
+            .ok()
+            .and_then(|mut q| q.get().map(|r| r.0))
+            .unwrap_or_else(|| {
+                world
+                    .query_one::<&Position>(victim)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room))
+                    .unwrap()
+            });
+
+        let _ = world.insert(victim, (Position::new(dest), crate::Dirty));
+    } else {
+        let _ = world.despawn(victim);
+    }
+
+    corpse
+}
+
 pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) -> Entity {
     let inv = world
         .query_one::<&Inventory>(victim)
@@ -765,12 +901,20 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
 
     let corpse_name = Name::new(format!("Corpse of {victim_name}"));
 
+    let is_player = world.query_one::<&crate::Player>(victim).is_ok();
+
+    let (owner, decay_secs, lootable_by) = if is_player {
+        (Some(victim), 1800, LootRule::OwnerOnly)
+    } else {
+        (None, 300, LootRule::Public)
+    };
+
     world.spawn((
         Corpse {
-            owner: None,
+            owner,
             created_at: std::time::Instant::now(),
-            decay_secs: 300,
-            lootable_by: LootRule::Public,
+            decay_secs,
+            lootable_by,
         },
         corpse_name,
         inv,
@@ -1011,5 +1155,159 @@ mod tests {
             .iter()
             .any(|o| o.attacker == mob && o.target == player);
         assert!(mob_attacked, "Mob did not attack the player!");
+    }
+
+    #[test]
+    fn test_combat_target_switching() {
+        let mut world = World::new();
+        let room = world.spawn(());
+
+        let player_a = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Player::new(1),
+            Name::new("PlayerA"),
+        ));
+
+        let player_b = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Player::new(2),
+            Name::new("PlayerB"),
+        ));
+
+        let mob = world.spawn((
+            Position::new(room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Npc::new("goblin"),
+            Name::new("Goblin"),
+        ));
+
+        // Mob targets Player A. Player A targets Mob. Player B targets Mob.
+        transition_combat_state(
+            &mut world,
+            mob,
+            CombatState::Engaged {
+                target: player_a,
+                round_started: std::time::Instant::now(),
+                stance: None,
+            },
+        );
+        transition_combat_state(
+            &mut world,
+            player_a,
+            CombatState::Engaged {
+                target: mob,
+                round_started: std::time::Instant::now(),
+                stance: None,
+            },
+        );
+        transition_combat_state(
+            &mut world,
+            player_b,
+            CombatState::Engaged {
+                target: mob,
+                round_started: std::time::Instant::now(),
+                stance: None,
+            },
+        );
+
+        // Player A goes down
+        handle_combatant_down(&mut world, player_a);
+
+        // Player A should be NotInCombat
+        let state_a = world
+            .query_one::<&CombatState>(player_a)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(state_a, CombatState::NotInCombat);
+
+        // Mob should now target Player B
+        let mob_state = world
+            .query_one::<&CombatState>(mob)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(mob_state, CombatState::Engaged { target, .. } if target == player_b));
+    }
+
+    #[test]
+    fn test_player_death_loop() {
+        let mut world = World::new();
+        let spawn_room = world.spawn(());
+        let recall_room = world.spawn(());
+
+        let item = world.spawn(());
+        let messenger = world.spawn(());
+        let player = world.spawn((
+            Position::new(spawn_room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Player::new(1),
+            Name::new("Player"),
+            Inventory(vec![item]),
+            Equipment::new(),
+            RecallRoom(recall_room),
+            LastMessenger(messenger),
+        ));
+
+        // Player dies
+        let corpse = handle_death(&mut world, player);
+
+        // Corpse checks
+        let corpse_comp = world
+            .query_one::<&Corpse>(corpse)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(corpse_comp.owner, Some(player));
+        assert_eq!(corpse_comp.decay_secs, 1800);
+        assert_eq!(corpse_comp.lootable_by, LootRule::OwnerOnly);
+
+        // Player checks
+        let hp = world
+            .query_one::<&Health>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(hp.current, 1);
+
+        let pos = world
+            .query_one::<&Position>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(pos.room, recall_room);
+
+        let state = world
+            .query_one::<&PlayerState>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert!(matches!(state, PlayerState::Dead));
+
+        assert!(world
+            .query_one::<&LastMessenger>(player)
+            .unwrap()
+            .get()
+            .is_none());
     }
 }

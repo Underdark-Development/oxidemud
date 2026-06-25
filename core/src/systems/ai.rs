@@ -3,6 +3,8 @@ use crate::{
     WanderBounds, World,
 };
 
+const WANDER_PULSE_THRESHOLD: u8 = 15;
+
 /// Per-NPC AI behavioral state machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiState {
@@ -146,18 +148,29 @@ fn tick_idle(world: &mut World, entity: Entity, npc: &Npc) -> AiState {
     if check_aggro(world, entity, npc) {
         return AiState::Combat;
     }
-    // Small chance to start wandering
-    if fastrand::u8(..100) < 10 {
-        AiState::Wander { counter: 0 }
-    } else {
-        AiState::Idle
+    match npc.ai_mode.as_str() {
+        "wander" => {
+            // Small chance to start wandering
+            if fastrand::u8(..100) < 10 {
+                AiState::Wander { counter: 0 }
+            } else {
+                AiState::Idle
+            }
+        }
+        "patrol" => AiState::Patrol {
+            counter: 0,
+            index: 0,
+            forward: true,
+        },
+        "aggro" | "aggressive" => AiState::Aggro { hunt_target: None },
+        _ => AiState::Idle,
     }
 }
 
-/// Wander: move every 4 pulses, check aggro.
+/// Wander: move every WANDER_PULSE_THRESHOLD pulses, check aggro.
 fn tick_wander(world: &mut World, entity: Entity, npc: &Npc, counter: u8) -> AiState {
     let new_counter = counter.wrapping_add(1);
-    if new_counter >= 4 {
+    if new_counter >= WANDER_PULSE_THRESHOLD {
         let bounds = world
             .query_one::<&WanderBounds>(entity)
             .ok()
@@ -168,11 +181,15 @@ fn tick_wander(world: &mut World, entity: Entity, npc: &Npc, counter: u8) -> AiS
         return AiState::Combat;
     }
     // Occasional timer back to Idle
-    if new_counter >= 4 && fastrand::u8(..100) < 15 {
+    if new_counter >= WANDER_PULSE_THRESHOLD && fastrand::u8(..100) < 15 {
         AiState::Idle
     } else {
         AiState::Wander {
-            counter: if new_counter >= 4 { 0 } else { new_counter },
+            counter: if new_counter >= WANDER_PULSE_THRESHOLD {
+                0
+            } else {
+                new_counter
+            },
         }
     }
 }
@@ -467,10 +484,12 @@ mod tests {
         let npc = world.spawn((
             Position::new(room_a),
             Health::new(50),
-            Npc::new("test_wanderer"),
+            Npc::new("test_wanderer").with_ai_mode("wander"),
             Level(1),
             Name::new("Wanderer"),
-            AiState::Wander { counter: 3 },
+            AiState::Wander {
+                counter: WANDER_PULSE_THRESHOLD - 1,
+            },
         ));
         // Run multiple pulses to increase chance of movement
         for _ in 0..10 {
@@ -585,7 +604,7 @@ mod tests {
         let mob = world.spawn((
             Position::new(room_a),
             Health::new(50),
-            Npc::new("patrol_mob"),
+            Npc::new("patrol_mob").with_ai_mode("patrol"),
             Level(1),
             Name::new("Patrol"),
             PatrolRoute(vec![room_a, room_b, room_c, room_a]),
@@ -684,7 +703,7 @@ mod tests {
         let mob = world.spawn((
             Position::new(room_a),
             Health::new(50),
-            Npc::new("patrol_mob"),
+            Npc::new("patrol_mob").with_ai_mode("patrol"),
             Level(1),
             Name::new("Patrol"),
             PatrolRoute(vec![room_a, room_b, room_c]),
@@ -801,7 +820,7 @@ mod tests {
         let mob = world.spawn((
             Position::new(room_a),
             Health::new(50),
-            Npc::new("patrol_mob"),
+            Npc::new("patrol_mob").with_ai_mode("patrol"),
             Level(1),
             Name::new("Patrol"),
             // No PatrolRoute component attached
@@ -846,11 +865,13 @@ mod tests {
         let mob = world.spawn((
             Position::new(room_a),
             Health::new(50),
-            Npc::new("wander_mob"),
+            Npc::new("wander_mob").with_ai_mode("wander"),
             Level(1),
             Name::new("Wanderer"),
             WanderBounds(vec![room_b]),
-            AiState::Wander { counter: 3 },
+            AiState::Wander {
+                counter: WANDER_PULSE_THRESHOLD - 1,
+            },
         ));
 
         for _ in 0..20 {

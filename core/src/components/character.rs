@@ -65,7 +65,14 @@ pub struct Player {
     pub account_id: i64,
     pub prompt: Option<String>,
     pub screen_width: u16,
+    pub no_resurrect: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LastMessenger(pub Entity);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecallRoom(pub Entity);
 
 /// The entity's gender identity with pronoun resolution.
 ///
@@ -194,6 +201,7 @@ impl Player {
             account_id,
             prompt: None,
             screen_width: 80,
+            no_resurrect: false,
         }
     }
 }
@@ -201,6 +209,7 @@ impl Player {
 #[derive(Debug, Clone)]
 pub struct Npc {
     pub template_id: String,
+    pub ai_mode: String,
     pub aggro_range: u32,
     pub aggro_players: bool,
     pub aggro_mobs: bool,
@@ -211,6 +220,7 @@ impl Npc {
     pub fn new(template_id: impl Into<String>) -> Self {
         Npc {
             template_id: template_id.into(),
+            ai_mode: "idle".to_string(),
             aggro_range: 0,
             aggro_players: false,
             aggro_mobs: false,
@@ -227,11 +237,17 @@ impl Npc {
     ) -> Self {
         Npc {
             template_id: template_id.into(),
+            ai_mode: "idle".to_string(),
             aggro_range,
             aggro_players,
             aggro_mobs,
             aggro_race,
         }
+    }
+
+    pub fn with_ai_mode(mut self, ai_mode: impl Into<String>) -> Self {
+        self.ai_mode = ai_mode.into();
+        self
     }
 }
 

@@ -214,13 +214,14 @@ impl CommandSidebar {
                     buf.set_string(x, y, "  none", desc_style);
                     y += 1;
                 } else {
-                    let mut exits_sorted: Vec<(&String, &String)> = room.exits.iter().collect();
+                    let mut exits_sorted: Vec<(&String, &oxide_core::ExitTemplate)> =
+                        room.exits.iter().collect();
                     exits_sorted.sort_by_key(|(dir, _)| dir.to_lowercase());
                     for (dir, dest) in exits_sorted {
                         if y >= tree_area.y + tree_area.height {
                             break;
                         }
-                        let exit_line = format!("  {} -> {}", dir, dest);
+                        let exit_line = format!("  {} -> {}", dir, dest.dest());
                         buf.set_string(x, y, &exit_line, desc_style);
                         y += 1;
                     }

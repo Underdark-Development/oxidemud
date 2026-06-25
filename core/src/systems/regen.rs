@@ -8,25 +8,47 @@ use crate::{
 /// Run one regen pulse for all entities with Health and/or resource pools.
 /// Regen rate is modified by the entity's rest state and tick duration.
 pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) {
-    // HP regen
-    let hp_targets: Vec<(crate::Entity, i32)> = {
+    // HP regen & bleeding out
+    let hp_updates: Vec<(crate::Entity, i32, bool)> = {
         let mut q = world.query::<(&Health, &Attributes)>();
         q.iter()
             .map(|(raw, (hp, attr))| {
                 let entity = crate::Entity::from(raw);
-                let rest_mult = world
-                    .query_one::<&PlayerState>(entity)
-                    .ok()
-                    .and_then(|mut q| q.get().map(|ps| rest_multiplier(&ps.rest())))
-                    .unwrap_or(1.0);
-                let amount = hp.regen_amount(attr.constitution, rest_mult, tick_duration);
-                (entity, amount)
+                if hp.is_unconscious() {
+                    // Bleeding out: lose 1 HP
+                    (entity, -1, true)
+                } else {
+                    let rest_mult = world
+                        .query_one::<&PlayerState>(entity)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|ps| rest_multiplier(&ps.rest())))
+                        .unwrap_or(1.0);
+                    let amount = hp.regen_amount(attr.constitution, rest_mult, tick_duration);
+                    (entity, amount, false)
+                }
             })
             .collect()
     };
 
-    for (entity, amount) in hp_targets {
-        if amount > 0 {
+    let mut dead_entities = Vec::new();
+
+    for (entity, amount, is_bleeding) in hp_updates {
+        if is_bleeding {
+            let mut truly_dead = false;
+            if let Ok(mut q) = world.query_one::<&mut Health>(entity) {
+                if let Some(hp) = q.get() {
+                    hp.damage(1);
+                    if hp.is_truly_dead() {
+                        truly_dead = true;
+                    }
+                }
+            }
+            if truly_dead {
+                dead_entities.push(entity);
+            } else {
+                let _ = world.insert(entity, (crate::Dirty,));
+            }
+        } else if amount > 0 {
             let mut healed = false;
             if let Ok(mut q) = world.query_one::<&mut Health>(entity) {
                 if let Some(hp) = q.get() {
@@ -38,6 +60,10 @@ pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) {
                 let _ = world.insert(entity, (crate::Dirty,));
             }
         }
+    }
+
+    for entity in dead_entities {
+        crate::systems::combat::handle_death(world, entity);
     }
 
     // Resource pool regen — use a macro to avoid repeating the pattern
@@ -79,7 +105,7 @@ fn regen_pool<T: PoolRegen + Send + Sync + 'static>(world: &mut World, tick_dura
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Health, Name, Position};
+    use crate::{Equipment, Health, Inventory, Name, Position, RecallRoom, RestState};
 
     fn setup_world() -> (World, crate::Entity) {
         let mut world = World::new();
@@ -170,5 +196,83 @@ mod tests {
             .unwrap()
             .clone();
         assert_eq!(hp.current, 100, "Should cap at max");
+    }
+
+    #[test]
+    fn test_regen_bleeding_out() {
+        let mut world = World::new();
+        let room = world.spawn(());
+        let player = world.spawn((
+            Position::new(room),
+            Health {
+                current: -2,
+                max: 100,
+            },
+            Attributes::default(),
+            PlayerState::Alive {
+                rest: RestState::Unconscious,
+            },
+            Name::new("Bleeder"),
+            crate::Player {
+                account_id: 1,
+                prompt: None,
+                screen_width: 80,
+                no_resurrect: false,
+            },
+            RecallRoom(room),
+        ));
+
+        run_regen_pulse(&mut world, Duration::from_secs(6));
+        let hp = world
+            .query_one::<&Health>(player)
+            .unwrap()
+            .get()
+            .unwrap()
+            .clone();
+        assert_eq!(hp.current, -3, "Should lose 1 HP (bleed out)");
+    }
+
+    #[test]
+    fn test_regen_bleed_to_death() {
+        let mut world = World::new();
+        let room = world.spawn(());
+        let player = world.spawn((
+            Position::new(room),
+            Health {
+                current: -9,
+                max: 100,
+            },
+            Attributes::default(),
+            PlayerState::Alive {
+                rest: RestState::Unconscious,
+            },
+            Name::new("Bleeder"),
+            crate::Player {
+                account_id: 1,
+                prompt: None,
+                screen_width: 80,
+                no_resurrect: false,
+            },
+            RecallRoom(room),
+            Inventory(vec![]),
+            Equipment::default(),
+        ));
+
+        run_regen_pulse(&mut world, Duration::from_secs(6));
+        let hp = world
+            .query_one::<&Health>(player)
+            .unwrap()
+            .get()
+            .unwrap()
+            .clone();
+        assert_eq!(hp.current, 1, "Should recall and reset health to 1");
+
+        let state = world
+            .query_one::<&PlayerState>(player)
+            .unwrap()
+            .get()
+            .unwrap()
+            .clone();
+        assert!(matches!(state, PlayerState::Dead));
     }
 }

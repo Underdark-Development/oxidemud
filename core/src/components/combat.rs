@@ -25,11 +25,31 @@ impl Health {
     }
 
     pub fn damage(&mut self, amount: i32) {
-        self.current = (self.current - amount).max(0);
+        self.current -= amount;
     }
 
     pub fn heal(&mut self, amount: i32) {
         self.current = (self.current + amount).min(self.max);
+    }
+
+    pub fn is_conscious(&self) -> bool {
+        self.current > 0
+    }
+
+    pub fn is_unconscious(&self) -> bool {
+        self.current <= 0
+    }
+
+    pub fn is_incapacitated(&self) -> bool {
+        self.current <= 0 && self.current >= -3
+    }
+
+    pub fn is_mortally_wounded(&self) -> bool {
+        self.current < -3 && self.current >= -9
+    }
+
+    pub fn is_truly_dead(&self) -> bool {
+        self.current <= -10
     }
 }
 
@@ -237,10 +257,10 @@ mod tests {
     }
 
     #[test]
-    fn test_health_damage_clamp() {
+    fn test_health_damage_negative() {
         let mut h = Health::new(100);
         h.damage(200);
-        assert_eq!(h.current, 0);
+        assert_eq!(h.current, -100);
         assert!(h.is_dead());
     }
 

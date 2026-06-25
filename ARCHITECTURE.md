@@ -125,7 +125,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 ### Spatial
 - `Position { room: Entity }` — references a room entity
 - `Room { name, description }` — room metadata
-- `Exit { direction, dest, flags }` — direction-based exits
+- `Exit { direction, dest, flags, key_id: Option<String> }` — direction-based exits with optional key template ID
 - `RoomExits(Vec<Exit>)` — one per room
 - `PortalExit { keyword, dest, description, flags }` — keyword-based portal exits
 - `RoomPortals(Vec<PortalExit>)` — one per room
@@ -136,7 +136,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Direction`: North, South, East, West, Up, Down, NE, NW, SE, SW
 
 ### Character
-- `Player { account_id, prompt }` — player entity, configurable prompt template
+- `Player { account_id, prompt, no_resurrect: bool }` — player entity, configurable prompt template, resurrection toggle flag
 - `Npc { template_id }` — NPC entity
 - `Attributes { str, dex, int, wis, con, cha }` — 6 core stats (u8)
 - `Health { current, max }` — HP (i32)
@@ -150,6 +150,8 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Appearance { height: u8, weight: u16, build: String, hair_color: String, hair_style: String, eye_color: String, skin_tone: String }` — structured physical description, validated against race bounds
 - `Age(u16)` — character age, initial value from race template default
 - `Deity(Option<String>)` — chosen deity id (none if no deity)
+- `LastMessenger(Entity)` — transient component tracking last private sender
+- `RecallRoom(Entity)` — component tracking character's current respawn/recall location
 
 ### In-Game Prompt
 
@@ -217,22 +219,18 @@ Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources disp
 
 ```
 RoomState: Normal, UnderConstruction, Locked, EventActive { event_id }, Destroyed
-```
-
-Transitions are triggered by builder commands (@set), area reset events, or scripts. Destroyed rooms block entry and show no description.
-
 ## State Machine: CombatState
 
 ```
 CombatState:
   NotInCombat → { attacked } → Engaged
   Engaged     → { flee }     → Fleeing
-  Engaged     → { target_dead } → NotInCombat
+  Engaged     → { target_dead / target_unconscious } → NotInCombat / TargetSwitch
   Fleeing     → { success }  → NotInCombat
   Fleeing     → { failed }   → Engaged
 ```
 
-`CombatSystem` dispatches on `CombatState` each pulse. `CombatStateChanged { entity, from, to }` emitted on every transition.
+`CombatSystem` dispatches on `CombatState` each pulse. `CombatStateChanged { entity, from, to }` emitted on every transition. When an entity falls unconscious or dies, any active combatants targeting them in the same room switch targets immediately to the next conscious entity currently targeting them.
 
 ## State Machine: NPC AI
 
@@ -444,6 +442,16 @@ Multiple levels gained at once if XP far exceeds threshold; the loop processes e
 ### Death Penalty
 
 `xp_loss = 10%` (configurable), capped at 5 levels' worth. Never de-levels.
+
+### Player Death & Ghost Loop
+
+On death (health drops to `-10` or lower), players are not despawned. Instead:
+- A player corpse is spawned in the room containing all inventory and equipped items. Player corpses decay in 30 minutes (mobs decay in 5 minutes) and are owned by the player.
+- Player's inventory and equipment are cleared.
+- Player's health is set to `1` HP, and they are teleported to their `RecallRoom`.
+- Player enters `PlayerState::Dead` (Ghost state).
+- In the Ghost state, they cannot speak normally (whispers are colored in alternating cyan/blue characters), cannot engage in combat (ignored by aggro), and cannot pick up or wear items.
+- Ghosts revive at the temple altar using `pray` (naked), or by walking to their corpse and using `reclaim` or `revive` (which revives them and restores all gear from the corpse).
 
 ---
 
@@ -696,7 +704,7 @@ Commands are stored as a flat `Vec<Command>` with linear prefix matching (trie p
 
 ### Player Commands
 
-`look/l`, directional (`n/s/e/w/u/d/ne/nw/se/sw`), `enter`, `say`, `tell/whisper`, `reply/r`, `shout`, `emote/:`, `channels`/`channel`, `kill`, `get/drop`, `put/in`, `give/to`, `inventory/i`, `equipment/eq`, `wear/wield/remove`, `examine/exam`, `use/cast`, `score/stats`, `train`, `practice`, `craft`, `recipes`, `repair`, `stance`, `group`, `follow`, `quests/quest/quest abandon`, `factions/faction`, `sit/rest/sleep/wake/stand`, `loot`, `time`, `weather`, `motd`, `help/?`, `who`, `config`, `@prestige`, `@multi_class`
+`look/l`, directional (`n/s/e/w/u/d/ne/nw/se/sw`), `enter`, `say`, `tell/whisper`, `reply/r`, `shout`, `emote/:`, `channels`/`channel`, `kill`, `get/drop`, `put/in`, `give/to`, `inventory/i`, `equipment/eq`, `wear/wield/remove`, `examine/exam`, `open/close/lock/unlock`, `use/cast`, `score/stats`, `train`, `practice`, `craft`, `recipes`, `repair`, `stance`, `group`, `follow`, `quests/quest/quest abandon`, `factions/faction`, `sit/rest/sleep/wake/stand`, `reclaim/revive`, `toggle`, `loot`, `time`, `weather`, `motd`, `help/?`, `who`, `config`, `@prestige`, `@multi_class`
 
 ### Builder Commands
 
@@ -806,6 +814,12 @@ Hot-reload uses `notify` crate. On change: re-parse, validate, atomic-swap in re
 Areas group rooms into named, managed zones. Each area is a directory under `content/areas/<area_id>/` containing an `area.toml` (metadata) and a `rooms/` subdirectory with one TOML file per room.
 
 **AreaTemplate:** id, name, description, level_range, flags, weather_zone, reset_interval_secs, credits. **RoomTemplate:** id, area, name, description, exits, portals, flags, content, spawn (optional — label, description, allowed_classes for character creation).
+
+### Room Exits & Doors
+
+Exits in `RoomTemplate` are specified as either a destination room ID string or a detailed table:
+- Simple: `north = "area_id:room_id"`
+- Detailed: `north = { dest = "area_id:room_id", door = true, closed = true, locked = false, key_id = "key_bronze" }`
 
 ### Area Flags
 

@@ -510,6 +510,160 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::cmd_move,
     );
 
+    // MVP additions: Sit / Rest / Sleep / Wake / Stand
+    server.register_command(
+        "sit",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Sit down to rest or look around",
+        commands::cmd_sit,
+    );
+    server.register_command(
+        "rest",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Rest and recover health/mana/stamina faster",
+        commands::cmd_rest,
+    );
+    server.register_command(
+        "sleep",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Go to sleep for maximum recovery rate",
+        commands::cmd_sleep,
+    );
+    server.register_command(
+        "wake",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Wake up from sleep",
+        commands::cmd_wake,
+    );
+    server.register_command(
+        "stand",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Stand up to allow movement and combat",
+        commands::cmd_stand,
+    );
+
+    // MVP additions: Communications (tell, reply, shout, whisper)
+    server.register_command(
+        "tell",
+        &[],
+        AccessLevel::Player,
+        "Communication",
+        "Send a private message to another player",
+        commands::cmd_tell,
+    );
+    server.register_command(
+        "reply",
+        &["r"],
+        AccessLevel::Player,
+        "Communication",
+        "Reply to the last player who messaged you",
+        commands::cmd_reply,
+    );
+    server.register_command(
+        "shout",
+        &[],
+        AccessLevel::Player,
+        "Communication",
+        "Shout a message to the entire zone",
+        commands::cmd_shout,
+    );
+    server.register_command(
+        "whisper",
+        &[],
+        AccessLevel::Player,
+        "Communication",
+        "Whisper a message to someone in the same room",
+        commands::cmd_whisper,
+    );
+
+    // MVP additions: Doors (open, close, lock, unlock)
+    server.register_command(
+        "open",
+        &[],
+        AccessLevel::Player,
+        "Movement",
+        "Open a closed door",
+        commands::cmd_open,
+    );
+    server.register_command(
+        "close",
+        &[],
+        AccessLevel::Player,
+        "Movement",
+        "Close an open door",
+        commands::cmd_close,
+    );
+    server.register_command(
+        "lock",
+        &[],
+        AccessLevel::Player,
+        "Movement",
+        "Lock a door using a key",
+        commands::cmd_lock,
+    );
+    server.register_command(
+        "unlock",
+        &[],
+        AccessLevel::Player,
+        "Movement",
+        "Unlock a door using a key",
+        commands::cmd_unlock,
+    );
+
+    // MVP additions: Ghost & Revival (reclaim, revive, toggle)
+    server.register_command(
+        "reclaim",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Reclaim your corpse to return to life with your items",
+        commands::cmd_reclaim,
+    );
+    server.register_command(
+        "revive",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Pray at an altar or reclaim your corpse to return to life",
+        commands::cmd_revive,
+    );
+    server.register_command(
+        "toggle",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Toggle player settings (e.g., 'toggle resurrect')",
+        commands::cmd_toggle,
+    );
+
+    // MVP additions: Info (time, weather)
+    server.register_command(
+        "time",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Check the current game time",
+        commands::cmd_time,
+    );
+    server.register_command(
+        "weather",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Check the current weather conditions",
+        commands::cmd_weather,
+    );
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Spawn OS signal handler

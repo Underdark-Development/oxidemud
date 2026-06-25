@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::{Corpse, Entity, FloorItems, Inventory, Position, World};
+use crate::{Corpse, Entity, Equipment, FloorItems, Inventory, Position, World};
 
 /// Sweep expired corpses, transfer items to room floor.
 pub fn run_corpse_pulse(world: &mut World) {
@@ -27,11 +27,28 @@ pub fn run_corpse_pulse(world: &mut World) {
             .and_then(|mut q| q.get().map(|inv| inv.0.clone()))
             .unwrap_or_default();
 
+        // Transfer equipment items to room floor
+        let eq_items = world
+            .query_one::<&Equipment>(corpse)
+            .ok()
+            .and_then(|mut q| {
+                q.get().map(|eq| {
+                    eq.slots
+                        .iter()
+                        .map(|(_, item)| *item)
+                        .collect::<Vec<Entity>>()
+                })
+            })
+            .unwrap_or_default();
+
+        let mut all_items = items;
+        all_items.extend(eq_items);
+
         // Add items to room's FloorItems
-        if !items.is_empty() {
+        if !all_items.is_empty() {
             if let Ok(mut q) = world.query_one::<&mut FloorItems>(room) {
                 if let Some(floor) = q.get() {
-                    floor.0.extend(items);
+                    floor.0.extend(all_items);
                 }
             }
         }

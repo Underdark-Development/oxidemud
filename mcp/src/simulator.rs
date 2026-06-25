@@ -698,13 +698,14 @@ pub fn simulate_ai_wander(
         let room_tmpl = registry.get_room(&current_area, &current_room).unwrap();
 
         let mut valid_destinations = Vec::new();
-        for dest_str in room_tmpl.exits.values() {
+        for dest_tpl in room_tmpl.exits.values() {
+            let dest_str = dest_tpl.dest();
             let (dest_area, dest_room) = if let Some((a, r)) = dest_str.split_once(':') {
                 (a.to_string(), r.to_string())
             } else if let Some((a, r)) = dest_str.split_once('.') {
                 (a.to_string(), r.to_string())
             } else {
-                (current_area.clone(), dest_str.clone())
+                (current_area.clone(), dest_str.to_string())
             };
 
             if !registry.room_exists(&dest_area, &dest_room) {
@@ -1213,7 +1214,10 @@ mod tests {
             area: "forest".to_string(),
             name: "Room 1".to_string(),
             description: "".to_string(),
-            exits: HashMap::from([("east".to_string(), "forest:room2".to_string())]),
+            exits: HashMap::from([(
+                "east".to_string(),
+                ExitTemplate::Simple("forest:room2".to_string()),
+            )]),
             portals: vec![],
             flags: vec![],
             content: RoomContent::default(),
@@ -1224,7 +1228,10 @@ mod tests {
             area: "forest".to_string(),
             name: "Room 2".to_string(),
             description: "".to_string(),
-            exits: HashMap::from([("west".to_string(), "forest:room1".to_string())]),
+            exits: HashMap::from([(
+                "west".to_string(),
+                ExitTemplate::Simple("forest:room1".to_string()),
+            )]),
             portals: vec![],
             flags: vec![],
             content: RoomContent::default(),
