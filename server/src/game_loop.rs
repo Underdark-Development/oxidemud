@@ -146,7 +146,11 @@ fn dispatch_combat_outcomes(
 ) {
     for outcome in outcomes {
         match outcome.kind {
-            CombatOutcomeKind::Hit { damage, .. } => {
+            CombatOutcomeKind::Hit {
+                damage,
+                unconscious,
+                ..
+            } => {
                 if outcome.attacker_is_player {
                     if let Some(tx) = registry.sender(outcome.attacker) {
                         let _ = tx.send(
@@ -163,6 +167,19 @@ fn dispatch_combat_outcomes(
                             )
                             .into_bytes(),
                         );
+                        if unconscious {
+                            let mut msg = "You fall unconscious!\r\n".to_string();
+                            if let Ok(mut q) = world.query_one::<&Health>(outcome.target) {
+                                if let Some(hp) = q.get() {
+                                    if hp.is_incapacitated() {
+                                        msg = "You are incapacitated and will slowly die, if not aided.\r\n".to_string();
+                                    } else if hp.is_mortally_wounded() {
+                                        msg = "You are mortally wounded and will slowly die, if not aided.\r\n".to_string();
+                                    }
+                                }
+                            }
+                            let _ = tx.send(msg.into_bytes());
+                        }
                     }
                 }
             }

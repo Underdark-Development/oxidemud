@@ -28,6 +28,7 @@ pub enum CombatOutcomeKind {
     Hit {
         damage: i32,
         damage_type: DamageType,
+        unconscious: bool,
     },
     Miss,
     Killed {
@@ -385,7 +386,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                         .unwrap_or(crate::Level(1))
                         .0;
 
-                    let (final_damage, killed, xp_gained, corpse) =
+                    let (final_damage, killed, unconscious, xp_gained, corpse) =
                         apply_damage(world, attacker, target, damage, damage_type);
                     if final_damage > 0 {
                         let kind = if killed {
@@ -401,6 +402,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                             CombatOutcomeKind::Hit {
                                 damage: final_damage,
                                 damage_type,
+                                unconscious,
                             }
                         };
                         outcomes.push(CombatOutcome {
@@ -448,7 +450,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                             .unwrap_or(crate::Level(1))
                             .0;
 
-                        let (final_damage, killed, xp_gained, corpse) =
+                        let (final_damage, killed, unconscious, xp_gained, corpse) =
                             apply_damage(world, attacker, target, oh_dmg, oh_type);
                         if final_damage > 0 {
                             let kind = if killed {
@@ -464,6 +466,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                                 CombatOutcomeKind::Hit {
                                     damage: final_damage,
                                     damage_type: oh_type,
+                                    unconscious,
                                 }
                             };
                             outcomes.push(CombatOutcome {
@@ -617,8 +620,8 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
 }
 
 /// Apply damage to target, handling resistance, death, corpse, and XP.
-/// Returns `(final_damage, killed, xp_gained, corpse_entity)`.
-/// On kill: spawns a corpse, grants XP to attacker, despawns the target.
+/// Returns `(final_damage, killed, unconscious, xp_gained, corpse_entity)`.
+/// On kill: spawns a corpse, grants XP to attacker, despawens the target.
 /// `corpse_entity` is `Some(entity)` on kill, `None` otherwise.
 fn apply_damage(
     world: &mut World,
@@ -626,7 +629,7 @@ fn apply_damage(
     target: Entity,
     damage: i32,
     damage_type: DamageType,
-) -> (i32, bool, u64, Option<Entity>) {
+) -> (i32, bool, bool, u64, Option<Entity>) {
     // Apply resistance
     let final_damage = if let Ok(mut res) = world.query_one::<&Resistance>(target) {
         if let Some(r) = res.get() {
@@ -639,7 +642,7 @@ fn apply_damage(
     };
 
     if final_damage <= 0 {
-        return (0, false, 0, None);
+        return (0, false, false, 0, None);
     }
 
     // Process on_hit triggers on attacker and defender
@@ -650,7 +653,7 @@ fn apply_damage(
     let (killed, unconscious) = {
         let mut q = match world.query_one::<&mut Health>(target) {
             Ok(q) => q,
-            Err(_) => return (0, false, 0, None),
+            Err(_) => return (0, false, false, 0, None),
         };
         match q.get() {
             Some(hp) => {
@@ -665,7 +668,7 @@ fn apply_damage(
                 };
                 (killed, hp.is_unconscious())
             }
-            None => return (0, false, 0, None),
+            None => return (0, false, false, 0, None),
         }
     };
 
@@ -699,7 +702,7 @@ fn apply_damage(
 
         let corpse = handle_death(world, target);
 
-        (final_damage, true, xp_gained, Some(corpse))
+        (final_damage, true, false, xp_gained, Some(corpse))
     } else if unconscious {
         handle_combatant_down(world, target);
         // Set player state to unconscious if they are a player
@@ -717,7 +720,7 @@ fn apply_damage(
                 ),
             );
         }
-        (final_damage, false, 0, None)
+        (final_damage, false, true, 0, None)
     } else {
         // Auto-engage non-friendly NPCs that aren't already in combat
         let is_npc = world
@@ -746,7 +749,7 @@ fn apply_damage(
             }
         }
 
-        (final_damage, false, 0, None)
+        (final_damage, false, false, 0, None)
     }
 }
 
@@ -1349,8 +1352,10 @@ mod tests {
         ));
 
         // Apply 10 damage to NPC, reducing health to 0
-        let (final_damage, killed, xp_gained, corpse) =
+        let (final_damage, killed, unconscious, xp_gained, corpse) =
             apply_damage(&mut world, player, npc, 10, DamageType::Bludgeon);
+
+        assert!(!unconscious);
 
         assert_eq!(final_damage, 10);
         assert!(killed);
