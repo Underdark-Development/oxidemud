@@ -1,0 +1,23 @@
+id = "captains_spear"
+name = "Captain's Spear"
+description = "A bronze-tipped spear with a worn leather grip."
+item_type = "weapon"
+subtype = "spear"
+quality = "common"
+level_requirement = 1
+weight = 3.0
+value = 25
+flags = []
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []
+
+[weapon]
+damage = "1d8+3"
+damage_type = "pierce"
+speed = 2.5
+range = "melee"
+
+[equipment]
+slot = "weapon"

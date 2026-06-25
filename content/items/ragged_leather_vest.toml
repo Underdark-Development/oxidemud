@@ -1,0 +1,17 @@
+id = "ragged_leather_vest"
+name = "Ragged Leather Vest"
+description = "A battered leather vest, crudely stitched together from scavenged scraps."
+item_type = "armor"
+subtype = "vest"
+quality = "poor"
+level_requirement = 1
+weight = 2.5
+value = 5
+flags = []
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []
+
+[equipment]
+slot = "torso"

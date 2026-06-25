@@ -1,0 +1,23 @@
+id = "rusted_dagger"
+name = "Rusted Dagger"
+description = "A rusted iron dagger with a chipped edge."
+item_type = "weapon"
+subtype = "dagger"
+quality = "common"
+level_requirement = 1
+weight = 0.800000011920929
+value = 3
+flags = []
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []
+
+[weapon]
+damage = "1d4+1"
+damage_type = "pierce"
+speed = 1.5
+range = "melee"
+
+[equipment]
+slot = "weapon"

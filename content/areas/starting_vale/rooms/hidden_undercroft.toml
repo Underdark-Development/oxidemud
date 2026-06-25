@@ -1,0 +1,15 @@
+id = "hidden_undercroft"
+area = "starting_vale"
+name = "Hidden Undercroft"
+description = "You descend through a splintered trapdoor into a cramped stone chamber below the camp. The air is cold and still. Cobwebs drape the low ceiling like dusty curtains. Broken crates and rotted sackcloth litter the floor, but your eyes are drawn to the far corner: an iron-bound chest sits undisturbed under a layer of dust. The lock gleams faintly — still intact."
+portals = []
+flags = ["no_teleport"]
+
+[exits]
+up = "starting_vale:goblin_encampment"
+
+[content]
+
+[[content.items]]
+template_id = "watchtower_chest"
+count = 1

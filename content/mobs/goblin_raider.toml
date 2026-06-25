@@ -1,0 +1,64 @@
+id = "goblin_raider"
+name = "goblin raider"
+description = "A hulking goblin with mottled green skin, clad in a patchwork of stitched leather and scavenged cloth. A crude iron dagger hangs at his belt, and his eyes glitter with malicious cunning."
+short_desc = "a goblin raider"
+level = 4
+armor = 4
+damage = "1d6+2"
+damage_type = "slash"
+size = "small"
+equipment = []
+xp_value = 55
+ai_mode = "wander"
+patrol_route = []
+wander_rooms = [
+    "goblin_encampment",
+    "ruined_watchtower",
+]
+wander_area = false
+aggro_range = 8
+aggro_players = true
+aggro_mobs = false
+aggro_race = []
+faction_standing = 0
+trainer_types = []
+languages = ["goblin"]
+skills = []
+friendly = false
+scripts = []
+
+[attributes]
+strength = 12
+dexterity = 12
+intelligence = 9
+wisdom = 10
+constitution = 11
+charisma = 6
+
+[health]
+current = 140
+max = 140
+
+[[loot.entries]]
+item = "copper_coin"
+chance = 80
+
+[loot.entries.count]
+min = 1
+max = 3
+
+[[loot.entries]]
+item = "rusted_tower_key"
+chance = 55
+
+[[loot.entries]]
+item = "ragged_leather_vest"
+chance = 15
+
+[[loot.entries]]
+item = "wooden_cudgel"
+chance = 15
+
+[[loot.entries]]
+item = "rusted_dagger"
+chance = 8

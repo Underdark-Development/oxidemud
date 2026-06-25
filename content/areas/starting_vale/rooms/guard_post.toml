@@ -1,0 +1,15 @@
+id = "guard_post"
+area = "starting_vale"
+name = "Guard Post"
+description = "A modest timber guardhouse built against the inside of the palisade. Narrow windows let in stripes of afternoon light. Three straw-stuffed bunks line the north wall; a scarred oak desk sits opposite, its surface scattered with candle stubs and a half-empty wine skin. Spears and shields are racked neatly by the door. The air smells of oiled leather and woodsmoke."
+portals = []
+flags = []
+
+[exits]
+east = "starting_vale:town_square"
+
+[content]
+
+[[content.mobs]]
+template_id = "town_guard_captain"
+count = 1

@@ -1,0 +1,14 @@
+id = "watchtower_chest"
+name = "Watchtower Chest"
+description = "A sturdy iron-bound chest. The lock clicks but holds fast."
+item_type = "container"
+subtype = ""
+quality = "common"
+level_requirement = 1
+weight = 15.0
+value = 0
+flags = []
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []

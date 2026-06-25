@@ -1,0 +1,14 @@
+id = "watchtower_relic"
+name = "Watchtower Relic"
+description = "A carved stone tablet bearing the tower's old seal — a hawk clutching a key."
+item_type = "quest"
+subtype = ""
+quality = "common"
+level_requirement = 1
+weight = 1.0
+value = 0
+flags = ["quest:watchtower_relic"]
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []

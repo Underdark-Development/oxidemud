@@ -1,0 +1,48 @@
+id = "town_guard_captain"
+name = "Captain Aric"
+description = "A broad-shouldered man in his fifties with a steel-grey beard and a healed scar across his nose. A frayed captain's badge is pinned to his leather jerkin. He moves with the deliberate economy of a career soldier — no motion wasted."
+short_desc = "Captain Aric"
+level = 25
+armor = 25
+damage = "2d10+4"
+damage_type = "pierce"
+race = "human"
+size = "medium"
+xp_value = 0
+ai_mode = "idle"
+patrol_route = []
+wander_rooms = []
+wander_area = false
+aggro_range = 1
+aggro_players = false
+aggro_mobs = false
+aggro_race = []
+faction_standing = 0
+trainer_types = []
+languages = ["common"]
+skills = []
+friendly = true
+scripts = []
+
+[attributes]
+strength = 14
+dexterity = 12
+intelligence = 12
+wisdom = 14
+constitution = 14
+charisma = 13
+
+[health]
+current = 300
+max = 300
+
+[[equipment]]
+template_id = "leather_vest"
+slot = "torso"
+
+[[equipment]]
+template_id = "captains_spear"
+slot = "weapon"
+
+[loot]
+entries = []

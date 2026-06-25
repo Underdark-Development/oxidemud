@@ -1,0 +1,14 @@
+id = "rusted_tower_key"
+name = "Rusted Tower Key"
+description = "A heavy iron key, pitted with rust."
+item_type = "key"
+subtype = ""
+quality = "common"
+level_requirement = 1
+weight = 0.20000000298023224
+value = 0
+flags = ["quest:watchtower_relic"]
+allowed_classes = []
+allowed_races = []
+allowed_alignments = []
+triggers = []

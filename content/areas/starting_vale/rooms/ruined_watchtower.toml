@@ -7,10 +7,18 @@ An old watchtower stands crumbling at the edge of the forest, its upper half col
 The tower's former purpose is long forgotten; now it serves as a den for whatever creatures lurk in these woods.
 
 The {cyan}east{/} path leads back to the forest crossing.
+
+A {yellow}crack{/} in the wall to the west looks wide enough to squeeze through.
 """
-exits = { east = "forest_crossing" }
+portals = [{keyword = "crack", dest = "goblin_encampment", description = "A crack in the wall, wide enough to squeeze through.", flags = []}]
+flags = []
+
+[exits]
+east = "forest_crossing"
 
 [content]
+items = []
+
 [[content.mobs]]
 template_id = "goblin_scavenger"
 count = 2
