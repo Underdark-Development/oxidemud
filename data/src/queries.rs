@@ -322,25 +322,15 @@ pub fn save_player_component(
     screen_width: u16,
 ) -> Result<(), rusqlite::Error> {
     if let Some(prompt) = prompt {
-        let rows = conn.execute(
+        conn.execute(
             "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, ?3, ?4)",
             params![entity_id, account_id, prompt, screen_width],
         )?;
-        tracing::debug!(
-            entity_id,
-            rows_affected = rows,
-            "save_player_component: wrote prompt"
-        );
     } else {
-        let rows = conn.execute(
+        conn.execute(
             "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, NULL, ?3)",
             params![entity_id, account_id, screen_width],
         )?;
-        tracing::debug!(
-            entity_id,
-            rows_affected = rows,
-            "save_player_component: wrote NULL prompt"
-        );
     }
     Ok(())
 }
