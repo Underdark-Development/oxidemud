@@ -2,12 +2,15 @@ use std::time::Duration;
 
 use crate::{
     regen::{rest_multiplier, PoolRegen},
-    Attributes, Energy, Health, Mana, PlayerState, Psi, Stamina, World,
+    Attributes, Energy, Health, Mana, PlayerState, Position, Psi, Stamina, World,
 };
 
 /// Run one regen pulse for all entities with Health and/or resource pools.
 /// Regen rate is modified by the entity's rest state and tick duration.
-pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) -> Vec<crate::Entity> {
+pub fn run_regen_pulse(
+    world: &mut World,
+    tick_duration: Duration,
+) -> Vec<(crate::Entity, crate::Entity)> {
     // HP regen & bleeding out
     let hp_updates: Vec<(crate::Entity, i32, bool)> = {
         let mut q = world.query::<(&Health, &Attributes)>();
@@ -74,7 +77,14 @@ pub fn run_regen_pulse(world: &mut World, tick_duration: Duration) -> Vec<crate:
         }
     }
 
-    let returned_dead = dead_entities.clone();
+    let mut returned_dead = Vec::new();
+    for entity in &dead_entities {
+        if let Ok(mut q) = world.query_one::<&Position>(*entity) {
+            if let Some(pos) = q.get() {
+                returned_dead.push((*entity, pos.room));
+            }
+        }
+    }
 
     for entity in dead_entities {
         crate::systems::combat::handle_death(world, entity);

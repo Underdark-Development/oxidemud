@@ -95,7 +95,7 @@ pub fn spawn_game_loop(
                     let reg = registry.lock().await;
 
                     let dead_entities = systems::regen::run_regen_pulse(&mut w, tick_duration);
-                    for player in dead_entities {
+                    for (player, room_entity) in dead_entities {
                         let is_player = w
                             .query_one::<&oxide_core::Player>(player)
                             .is_ok_and(|mut q| q.get().is_some());
@@ -104,6 +104,21 @@ pub fn spawn_game_loop(
                                 let _ = tx.send(
                                     b"You bleed to death...\r\nAlas, you are dead! You are a ghost now...\r\n".to_vec()
                                 );
+                            }
+
+                            let name = w
+                                .query_one::<&oxide_core::Name>(player)
+                                .ok()
+                                .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+                                .unwrap_or_else(|| "Someone".to_string());
+                            let room_msg = format!("{} bleeds to death.\r\n{} is dead! R.I.P.\r\n", name, name);
+                            let room_msg_bytes = room_msg.into_bytes();
+                            for &other in &reg.occupants(&w, room_entity) {
+                                if other != player {
+                                    if let Some(other_tx) = reg.sender(other) {
+                                        let _ = other_tx.send(room_msg_bytes.clone());
+                                    }
+                                }
                             }
                         }
                     }
@@ -181,16 +196,33 @@ fn dispatch_combat_outcomes(
                         );
                         if unconscious {
                             let mut msg = "You fall unconscious!\r\n".to_string();
+                            let mut room_msg =
+                                format!("{} falls unconscious!\r\n", outcome.target_name);
                             if let Ok(mut q) = world.query_one::<&Health>(outcome.target) {
                                 if let Some(hp) = q.get() {
                                     if hp.is_incapacitated() {
                                         msg = "You are incapacitated and will slowly die, if not aided.\r\n".to_string();
+                                        room_msg = format!("{} is incapacitated and will slowly die, if not aided.\r\n", outcome.target_name);
                                     } else if hp.is_mortally_wounded() {
                                         msg = "You are mortally wounded and will slowly die, if not aided.\r\n".to_string();
+                                        room_msg = format!("{} is mortally wounded and will slowly die, if not aided.\r\n", outcome.target_name);
                                     }
                                 }
                             }
                             let _ = tx.send(msg.into_bytes());
+
+                            if let Ok(mut q_pos) = world.query_one::<&Position>(outcome.target) {
+                                if let Some(pos) = q_pos.get() {
+                                    let room_msg_bytes = room_msg.into_bytes();
+                                    for &other in &registry.occupants(world, pos.room) {
+                                        if other != outcome.target {
+                                            if let Some(other_tx) = registry.sender(other) {
+                                                let _ = other_tx.send(room_msg_bytes.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -246,6 +278,21 @@ fn dispatch_combat_outcomes(
                                 .into_bytes(),
                         );
                         let _ = tx.send(b"Alas, you are dead! You are a ghost now...\r\n".to_vec());
+                    }
+                }
+
+                // Broadcast death to others in the room
+                if let Ok(mut q_pos) = world.query_one::<&Position>(outcome.attacker) {
+                    if let Some(pos) = q_pos.get() {
+                        let room_msg = format!("{} is dead! R.I.P.\r\n", outcome.target_name);
+                        let room_msg_bytes = room_msg.into_bytes();
+                        for &other in &registry.occupants(world, pos.room) {
+                            if other != outcome.target && other != outcome.attacker {
+                                if let Some(other_tx) = registry.sender(other) {
+                                    let _ = other_tx.send(room_msg_bytes.clone());
+                                }
+                            }
+                        }
                     }
                 }
 
