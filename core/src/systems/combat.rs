@@ -7,8 +7,12 @@ use crate::{
 };
 
 // ---------------------------------------------------------------------------
-// Combat outcome types — consumed by the server layer to send messages
-// ---------------------------------------------------------------------------
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HitResult {
+    Hit,
+    Miss,
+    Aborted,
+}
 
 #[derive(Debug, Clone)]
 pub struct CombatOutcome {
@@ -623,7 +627,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
 /// Returns `(final_damage, killed, unconscious, xp_gained, corpse_entity)`.
 /// On kill: spawns a corpse, grants XP to attacker, despawens the target.
 /// `corpse_entity` is `Some(entity)` on kill, `None` otherwise.
-fn apply_damage(
+pub fn apply_damage(
     world: &mut World,
     attacker: Entity,
     target: Entity,

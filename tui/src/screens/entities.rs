@@ -715,7 +715,6 @@ fn generate_default_content(
             id: id.to_string(),
             name: id.to_string(),
             description: String::new(),
-            spawn_room: "start".to_string(),
             level_range: None,
             flags: Vec::new(),
             weather_zone: None,

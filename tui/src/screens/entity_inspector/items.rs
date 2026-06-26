@@ -324,6 +324,7 @@ impl EntityInspectorScreen {
                         chance: 10,
                         cast: "spell_id".to_string(),
                         target: "target".to_string(),
+                        script: None,
                     },
                 );
             }

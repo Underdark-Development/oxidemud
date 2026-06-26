@@ -8,6 +8,7 @@ pub mod format;
 pub mod prompt;
 pub mod regen;
 mod resources;
+pub mod scripting;
 pub mod systems;
 pub mod templates;
 pub mod trie;
@@ -17,7 +18,11 @@ pub use components::*;
 pub use events::*;
 pub use prompt::PromptVars;
 pub use resources::*;
+pub use scripting::{
+    get_message_bridge, get_scripting_bridge, HitContext, MessageOutputBridge, ScriptingBridge,
+};
 pub use systems::ai::AiState;
+pub use systems::combat::HitResult;
 pub use systems::skill_gate::run_skill_gate_pulse;
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use templates::ExitTemplate;

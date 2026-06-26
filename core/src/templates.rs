@@ -1,5 +1,6 @@
 use crate::components::{CombatStats, SkillDef};
 use crate::dice::DiceRoll;
+use crate::Entity;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -486,6 +487,8 @@ pub struct TriggerDef {
     pub chance: u8,
     pub cast: String,
     pub target: String,
+    #[serde(default)]
+    pub script: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -661,6 +664,184 @@ pub struct MobTemplate {
     pub friendly: bool,
     #[serde(default)]
     pub scripts: Vec<ScriptHookEntry>,
+}
+
+impl MobTemplate {
+    pub fn spawn(
+        &self,
+        world: &mut crate::World,
+        room_entity: Entity,
+        registry: &TemplateRegistry,
+    ) -> Entity {
+        let ai_state = match self.ai_mode.as_str() {
+            "wander" => crate::systems::ai::AiState::Wander { counter: 0 },
+            "aggro" | "aggressive" => crate::systems::ai::AiState::Aggro { hunt_target: None },
+            "patrol" => crate::systems::ai::AiState::Patrol {
+                counter: 0,
+                index: 0,
+                forward: true,
+            },
+            _ => crate::systems::ai::AiState::Idle,
+        };
+
+        let npc = world.spawn((
+            crate::components::Position::new(room_entity),
+            crate::components::Name::new(&self.name),
+            crate::components::Npc::new_with_aggro(
+                &self.id,
+                self.aggro_range,
+                self.aggro_players,
+                self.aggro_mobs,
+                self.aggro_race.clone(),
+            )
+            .with_ai_mode(&self.ai_mode),
+            crate::components::Attributes::new(
+                self.attributes.strength,
+                self.attributes.dexterity,
+                self.attributes.intelligence,
+                self.attributes.wisdom,
+                self.attributes.constitution,
+                self.attributes.charisma,
+            ),
+            crate::components::Health {
+                current: self.health.current,
+                max: self.health.max,
+            },
+            crate::components::Level(self.level),
+            crate::components::Armor {
+                base: self.armor,
+                bonus: 0,
+            },
+            crate::components::Equipment::new(),
+            ai_state,
+        ));
+
+        if let Some(ref race_id) = self.race {
+            world
+                .insert(npc, (crate::components::Race(race_id.clone()),))
+                .unwrap();
+        }
+
+        let short_desc = if self.short_desc.is_empty() {
+            self.name.clone()
+        } else {
+            self.short_desc.clone()
+        };
+        world
+            .insert(npc, (crate::components::ShortDesc(short_desc),))
+            .unwrap();
+
+        if self.friendly {
+            world.insert(npc, (crate::components::Friendly,)).unwrap();
+        }
+
+        if !self.trainer_types.is_empty() {
+            world
+                .insert(
+                    npc,
+                    (crate::components::Trainer::new(self.trainer_types.clone()),),
+                )
+                .unwrap();
+        }
+
+        // Equip natural weapon and equipment from templates
+        if let (Some(damage), Some(damage_type)) = (&self.damage, &self.damage_type) {
+            if let Ok(weapon_dice) = damage.parse::<crate::dice::DiceRoll>() {
+                if let Ok(dt) = crate::components::DamageType::from_str(damage_type) {
+                    let weapon = crate::components::Weapon {
+                        damage_dice: weapon_dice,
+                        damage_type: dt,
+                        speed: 2.5,
+                        range: crate::components::WeaponRange::Melee,
+                        hands: crate::components::WeaponHands::OneHand,
+                    };
+                    let natural_weapon = world.spawn((
+                        crate::components::Name::new(format!("{} attack", self.name)),
+                        crate::components::Item::new(format!("{}:natural_attack", self.id)),
+                        weapon,
+                    ));
+                    if let Ok(mut q) = world.query_one::<&mut crate::components::Equipment>(npc) {
+                        if let Some(eq) = q.get() {
+                            eq.equip(crate::components::EquipmentSlot::Weapon, natural_weapon);
+                        }
+                    }
+                }
+            }
+        }
+
+        for entry in &self.equipment {
+            if let Some(item_tpl) = registry.items.get(&entry.template_id) {
+                let item = world.spawn((
+                    crate::components::Name::new(&item_tpl.name),
+                    crate::components::Item::new(&item_tpl.id),
+                ));
+
+                if let Some(weapon_def) = &item_tpl.weapon {
+                    if let Ok(weapon_dice) = weapon_def.damage.0.parse::<crate::dice::DiceRoll>() {
+                        if let Ok(dt) =
+                            crate::components::DamageType::from_str(&weapon_def.damage_type)
+                        {
+                            let range = match weapon_def.range.to_lowercase().as_str() {
+                                "ranged" => crate::components::WeaponRange::Ranged,
+                                "reach" => crate::components::WeaponRange::Reach,
+                                "thrown" => crate::components::WeaponRange::Thrown,
+                                _ => crate::components::WeaponRange::Melee,
+                            };
+                            let weapon = crate::components::Weapon {
+                                damage_dice: weapon_dice,
+                                damage_type: dt,
+                                speed: weapon_def.speed,
+                                range,
+                                hands: crate::components::WeaponHands::OneHand,
+                            };
+                            world.insert(item, (weapon,)).unwrap();
+                        }
+                    }
+                }
+
+                if let Some(ref set) = item_tpl.set {
+                    let membership = crate::components::SetMembership::from(set.clone());
+                    world.insert(item, (membership,)).unwrap();
+                }
+
+                if !item_tpl.triggers.is_empty() {
+                    world
+                        .insert(item, (crate::ItemTriggers(item_tpl.triggers.clone()),))
+                        .unwrap();
+                }
+
+                if let Some(ref req) = item_tpl.requires_skill {
+                    world
+                        .insert(
+                            item,
+                            (crate::components::ItemSkillRequirement {
+                                id: req.id.clone(),
+                                level: req.level,
+                            },),
+                        )
+                        .unwrap();
+                }
+
+                let slot = crate::components::EquipmentSlot::from_str(&entry.slot)
+                    .ok()
+                    .or_else(|| {
+                        item_tpl.equipment.as_ref().and_then(|equipment| {
+                            crate::components::EquipmentSlot::from_str(&equipment.slot).ok()
+                        })
+                    });
+
+                if let Some(slot) = slot {
+                    if let Ok(mut q) = world.query_one::<&mut crate::components::Equipment>(npc) {
+                        if let Some(eq) = q.get() {
+                            eq.equip(slot, item);
+                        }
+                    }
+                }
+            }
+        }
+
+        npc
+    }
 }
 
 fn default_size() -> String {
@@ -846,6 +1027,9 @@ pub struct RoomTemplate {
     pub flags: Vec<String>,
     #[serde(default)]
     pub content: RoomContent,
+    /// If true, ghost players can revive here without their corpse.
+    #[serde(default)]
+    pub allow_revive: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -867,8 +1051,7 @@ pub struct ResetInterval {
 /// A character spawn point within an area.
 ///
 /// Empty constraint vectors mean "no restriction" — any race/class/alignment
-/// can choose this spawn. The area's `spawn_room` is implicitly included as
-/// a fallback spawn when no explicit spawns are defined.
+/// can choose this spawn.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnEntry {
     /// Room ID within this area.
@@ -893,9 +1076,6 @@ pub struct AreaTemplate {
     pub id: String,
     pub name: String,
     pub description: String,
-    /// Room ID used as the fallback spawn point for this area
-    /// (used when no explicit spawn matches or on recall).
-    pub spawn_room: String,
     #[serde(default)]
     pub level_range: Option<[u8; 2]>,
     #[serde(default)]
@@ -1183,17 +1363,6 @@ impl TemplateRegistry {
 
         // Validate areas and their rooms
         for (area_id, area) in &self.areas {
-            if !area.rooms.contains_key(&area.spawn_room) {
-                errors.push(ValidationError {
-                    template_type: "area",
-                    template_id: area_id.clone(),
-                    field: "spawn_room".into(),
-                    message: format!(
-                        "references unknown room '{}' in area '{}'",
-                        area.spawn_room, area_id
-                    ),
-                });
-            }
             for (room_id, room) in &area.rooms {
                 for exit_tpl in room.exits.values() {
                     let dest = exit_tpl.dest();
@@ -1298,6 +1467,17 @@ impl TemplateRegistry {
                     });
                 }
             }
+        }
+
+        // Validate at least one spawn exists globally across all areas
+        let total_spawns: usize = self.areas.values().map(|a| a.spawns.len()).sum();
+        if total_spawns == 0 {
+            errors.push(ValidationError {
+                template_type: "world",
+                template_id: "*".into(),
+                field: "spawns".into(),
+                message: "World has zero spawn points — at least one [[spawns]] entry is required across all areas".into(),
+            });
         }
 
         // Validate deities

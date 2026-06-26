@@ -98,6 +98,7 @@ mod tests {
             chance: 100,
             cast: "fire_bolt".into(),
             target: "target".into(),
+            script: None,
         }]),));
 
         let mut q_eq = world.query_one::<&mut Equipment>(e).unwrap();
@@ -119,6 +120,7 @@ mod tests {
             chance: 100,
             cast: "fire_bolt".into(),
             target: "target".into(),
+            script: None,
         }]),));
 
         let mut q_eq = world.query_one::<&mut Equipment>(e).unwrap();

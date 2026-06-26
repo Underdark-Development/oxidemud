@@ -49,6 +49,8 @@ pub struct SkillDef {
     pub description: String,
     pub skill_type: SkillType,
     pub max_rank: u16,
+    #[serde(default)]
+    pub script: Option<String>,
 }
 
 impl SkillDef {
@@ -64,6 +66,7 @@ impl SkillDef {
             description: description.into(),
             skill_type,
             max_rank: 100,
+            script: None,
         }
     }
 }

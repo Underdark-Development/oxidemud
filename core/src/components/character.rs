@@ -49,6 +49,13 @@ impl Default for PlayerState {
     }
 }
 
+/// Component representing an entity following another entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Following {
+    pub target: Entity,
+    pub autofollow: bool,
+}
+
 impl PlayerState {
     pub fn rest(&self) -> RestState {
         match self {
