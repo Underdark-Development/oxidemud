@@ -145,6 +145,22 @@ impl ScriptEngine {
                 }
             }
         });
+        engine.register_fn(
+            "get_skill_rank",
+            |world: ScriptWorld, entity: Entity, skill_id: String| -> i64 {
+                unsafe {
+                    let w = world.as_ref();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::LearnedSkills>(entity) {
+                        q.get().map(|s| s.rank(&skill_id) as i64).unwrap_or(0)
+                    } else {
+                        0
+                    }
+                }
+            },
+        );
+        engine.register_fn("rand", |low: i64, high: i64| -> i64 {
+            fastrand::i64(low..=high)
+        });
         engine.register_fn("get_name", |world: ScriptWorld, entity: Entity| -> String {
             unsafe {
                 let w = world.as_ref();
@@ -198,6 +214,136 @@ impl ScriptEngine {
             let w = world.as_mut();
             let _ = w.remove_one::<oxide_core::Following>(entity);
         });
+
+        // Exit controls & Room query
+        engine.register_fn(
+            "is_exit_closed",
+            |world: ScriptWorld, room: Entity, dir_str: String| -> bool {
+                unsafe {
+                    let w = world.as_ref();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                        if let Some(exits) = q.get() {
+                            if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                                .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                            {
+                                if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
+                                    return exit.is_closed();
+                                }
+                            }
+                        }
+                    }
+                    false
+                }
+            },
+        );
+        engine.register_fn(
+            "is_exit_locked",
+            |world: ScriptWorld, room: Entity, dir_str: String| -> bool {
+                unsafe {
+                    let w = world.as_ref();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                        if let Some(exits) = q.get() {
+                            if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                                .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                            {
+                                if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
+                                    return exit.is_locked();
+                                }
+                            }
+                        }
+                    }
+                    false
+                }
+            },
+        );
+        engine.register_fn(
+            "set_exit_closed",
+            |world: ScriptWorld, room: Entity, dir_str: String, closed: bool| unsafe {
+                let w = world.as_mut();
+                if let Ok(mut q) = w.query_one::<&mut oxide_core::RoomExits>(room) {
+                    if let Some(exits) = q.get() {
+                        if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                            .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                        {
+                            if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir) {
+                                exit.set_closed(closed);
+                            }
+                        }
+                    }
+                }
+            },
+        );
+        engine.register_fn(
+            "set_exit_locked",
+            |world: ScriptWorld, room: Entity, dir_str: String, locked: bool| unsafe {
+                let w = world.as_mut();
+                if let Ok(mut q) = w.query_one::<&mut oxide_core::RoomExits>(room) {
+                    if let Some(exits) = q.get() {
+                        if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                            .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                        {
+                            if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir) {
+                                exit.set_locked(locked);
+                            }
+                        }
+                    }
+                }
+            },
+        );
+        engine.register_fn("get_room", |world: ScriptWorld, entity: Entity| -> Entity {
+            unsafe {
+                let w = world.as_ref();
+                w.query_one::<&oxide_core::Position>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room))
+                    .unwrap_or(entity)
+            }
+        });
+        engine.register_fn(
+            "room_exits",
+            |world: ScriptWorld, room: Entity| -> rhai::Array {
+                unsafe {
+                    let w = world.as_ref();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                        if let Some(exits) = q.get() {
+                            return exits
+                                .0
+                                .iter()
+                                .map(|e| rhai::Dynamic::from(e.direction.long_name().to_string()))
+                                .collect();
+                        }
+                    }
+                    Vec::new()
+                }
+            },
+        );
+        engine.register_fn(
+            "room_exit_target",
+            |world: ScriptWorld, room: Entity, dir_str: String| -> Entity {
+                unsafe {
+                    let w = world.as_ref();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                        if let Some(exits) = q.get() {
+                            if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                                .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                            {
+                                if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
+                                    return exit.dest;
+                                }
+                            }
+                        }
+                    }
+                    room
+                }
+            },
+        );
+        engine.register_fn(
+            "move_entity",
+            |world: ScriptWorld, entity: Entity, dest: Entity| unsafe {
+                let w = world.as_mut();
+                let _ = w.insert(entity, (oxide_core::Position::new(dest), oxide_core::Dirty));
+            },
+        );
 
         // Mob spawning & Template spawn
         engine.register_fn(

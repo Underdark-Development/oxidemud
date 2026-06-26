@@ -9,3 +9,4 @@ license.workspace = true
 oxide-core = { path = "../core" }
 hecs = "0.10"
 rhai = { version = "1.19", features = ["sync"] }
+fastrand = "2.0"
