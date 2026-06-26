@@ -677,6 +677,7 @@ fn generate_default_content(
             description: String::new(),
             skill_type: oxide_core::SkillType::Combat,
             max_rank: 100,
+            script: None,
         })?,
         "stances" => toml::to_string_pretty(&StanceDef {
             id: id.to_string(),
@@ -732,6 +733,7 @@ fn generate_default_content(
             portals: Vec::new(),
             flags: Vec::new(),
             content: RoomContent::default(),
+            allow_revive: false,
         })?,
         _ => return Err(format!("unknown category: {category}").into()),
     };

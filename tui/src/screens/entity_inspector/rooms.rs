@@ -10,6 +10,7 @@ impl EntityInspectorScreen {
                 Self::add_field(table, "description", &room.description);
                 Self::add_field(table, "area", &area.id);
                 Self::add_field(table, "flags", room.flags.join(", "));
+                Self::add_field(table, "allow_revive", room.allow_revive);
 
                 // Exits (always display cardinal directions)
                 let dirs = ["north", "south", "east", "west", "up", "down"];
@@ -108,6 +109,11 @@ impl EntityInspectorScreen {
             "name" => room.name = value.to_string(),
             "description" => room.description = value.to_string(),
             "flags" => room.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
+            "allow_revive" => {
+                room.allow_revive = value
+                    .parse::<bool>()
+                    .map_err(|_| "invalid boolean for allow_revive".to_string())?;
+            }
             _ if field.starts_with("exit.") => {
                 let dir = field.trim_start_matches("exit.").to_string();
                 if value.is_empty() {

@@ -9,6 +9,7 @@ An engraved plaque beside the door reads:
 
 The {cyan}west{/} exit leads back to the village square.
 """
+allow_revive = true
 exits = { west = "town_square" }
 
 [content]

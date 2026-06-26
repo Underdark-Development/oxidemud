@@ -1221,6 +1221,7 @@ mod tests {
             portals: vec![],
             flags: vec![],
             content: RoomContent::default(),
+            allow_revive: false,
         };
 
         let r2 = RoomTemplate {
@@ -1235,6 +1236,7 @@ mod tests {
             portals: vec![],
             flags: vec![],
             content: RoomContent::default(),
+            allow_revive: false,
         };
 
         area.rooms.insert("room1".to_string(), r1);

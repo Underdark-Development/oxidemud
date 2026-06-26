@@ -42,6 +42,11 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
             oxide_core::SpawnKey(key),
         ));
         world.insert(entity, (Position::new(entity),)).unwrap();
+        if room_tpl.allow_revive {
+            world
+                .insert(entity, (oxide_core::RoomAllowRevive,))
+                .unwrap();
+        }
         room_map.insert(room_id.as_str(), entity);
     }
 

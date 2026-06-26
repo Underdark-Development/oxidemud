@@ -645,6 +645,7 @@ impl Screen for RoomGridScreen {
                         portals: Vec::new(),
                         flags: Vec::new(),
                         content: Default::default(),
+                        allow_revive: false,
                     };
 
                     let new_toml = toml::to_string_pretty(&new_room)

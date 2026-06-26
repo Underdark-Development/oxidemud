@@ -4390,17 +4390,9 @@ pub fn cmd_revive(
         return;
     }
 
-    let is_temple = if let Ok(mut room_q) = world.query_one::<&core::Room>(room) {
-        if let Some(r) = room_q.get() {
-            r.name.to_lowercase().contains("temple") || r.name.to_lowercase().contains("altar")
-        } else {
-            false
-        }
-    } else {
-        false
-    };
+    let can_revive = world.query_one::<&core::RoomAllowRevive>(room).is_ok();
 
-    if !is_temple {
+    if !can_revive {
         conn.send_line("You cannot revive here. You must find your corpse or pray at a temple.");
         return;
     }
@@ -5640,6 +5632,7 @@ mod tests {
         let mut world = World::new();
         let temple_room = world.spawn((
             core::Room::new("Temple of Altar", "A quiet temple."),
+            core::RoomAllowRevive,
             RoomExits(vec![]),
         ));
         let player = world.spawn((

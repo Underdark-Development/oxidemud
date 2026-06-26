@@ -451,7 +451,7 @@ On death (health drops to `-10` or lower), players are not despawned. Instead:
 - Player's health is set to `1` HP, and they are teleported to their `RecallRoom`.
 - Player enters `PlayerState::Dead` (Ghost state).
 - In the Ghost state, they cannot speak normally (whispers are colored in alternating cyan/blue characters), cannot engage in combat (ignored by aggro), and cannot pick up or wear items.
-- Ghosts revive at the temple altar using `pray` (naked), or by walking to their corpse and using `reclaim` or `revive` (which revives them and restores all gear from the corpse).
+- Ghosts revive by walking to their corpse and using `reclaim` or `revive` (restores all gear), or — if in a room flagged with `allow_revive` — they can use `revive` alone (naked revive, gear stays in the corpse).
 
 ---
 

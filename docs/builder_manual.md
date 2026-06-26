@@ -79,6 +79,7 @@ id = "temple_square"
 area = "midgaard"
 name = "Temple Square"
 description = "A large open square paved with granite cobblestones. A grand temple stands to the north."
+allow_revive = true    # Ghosts can revive here without their corpse
 flags = ["portal_in"]
 
 # Exits connect adjacent rooms
