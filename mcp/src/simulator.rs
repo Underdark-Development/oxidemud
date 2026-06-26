@@ -246,9 +246,9 @@ pub fn simulate_combat(
     let mut log_lines = Vec::new();
 
     for r in 1..=rounds {
-        let is_hit = calculate_hit(&world, attacker, defender, false);
-        if is_hit {
-            let (mut damage, damage_type) = calculate_damage(&world, attacker, defender, false);
+        let hit_result = calculate_hit(&mut world, attacker, defender, false);
+        if hit_result == oxide_core::HitResult::Hit {
+            let (mut damage, damage_type) = calculate_damage(&mut world, attacker, defender, false);
 
             // Auto-crit check (1 in 20 chance to simulate Natural 20 roll, or if calculating hit rolled 20)
             let is_crit = fastrand::u8(1..=20) == 20;
@@ -1199,7 +1199,6 @@ mod tests {
             id: "forest".to_string(),
             name: "The Forest".to_string(),
             description: "".to_string(),
-            spawn_room: "room1".to_string(),
             level_range: None,
             flags: vec![],
             weather_zone: None,

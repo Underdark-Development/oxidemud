@@ -152,9 +152,9 @@ fn dual_wield_penalty(is_offhand: bool) -> i32 {
 /// `is_offhand` should be true for the offhand weapon when dual-wielding.
 /// Returns (damage_amount, damage_type).
 pub fn calculate_damage(
-    world: &World,
+    world: &mut World,
     attacker: Entity,
-    _target: Entity,
+    target: Entity,
     is_offhand: bool,
 ) -> (i32, DamageType) {
     let str = world
@@ -181,7 +181,7 @@ pub fn calculate_damage(
 
     let weapon_damage = get_weapon_data(world, attacker, slot);
 
-    if let Some((_, wep)) = weapon_damage {
+    let (mut final_dmg, mut final_type) = if let Some((_, wep)) = weapon_damage {
         let dice_damage = wep.damage_dice.roll();
         let str_bonus = if wep.is_two_handed() {
             // Two-handed: 1.5x str mod
@@ -199,12 +199,67 @@ pub fn calculate_damage(
         let dice = DiceRoll::new(1, 4, 0);
         let base = dice.roll() + str_mod + level.0 as i32 / 5;
         (base.max(1), DamageType::Bludgeon)
+    };
+
+    if let Some(bridge) = crate::scripting::get_scripting_bridge() {
+        if let Ok((dmg, dtype)) =
+            bridge.execute_combat_damage_hook(attacker, target, final_dmg, final_type, world)
+        {
+            final_dmg = dmg;
+            final_type = dtype;
+        }
     }
+
+    (final_dmg, final_type)
 }
 
-/// Calculate to-hit value for attacker vs target. Returns true if hit.
+/// Calculate to-hit value for attacker vs target. Returns HitResult.
 /// `is_offhand` should be true for the offhand weapon when dual-wielding.
-pub fn calculate_hit(world: &World, attacker: Entity, target: Entity, is_offhand: bool) -> bool {
+pub fn calculate_hit(
+    world: &mut World,
+    attacker: Entity,
+    target: Entity,
+    is_offhand: bool,
+) -> HitResult {
+    let mut hit_ctx = crate::scripting::HitContext {
+        attacker,
+        target,
+        is_offhand,
+        is_aborted: false,
+        abort_reason: None,
+        hit_modifier: 0,
+        override_hit: None,
+    };
+
+    if let Some(bridge) = crate::scripting::get_scripting_bridge() {
+        if let Ok(ctx) = bridge.execute_combat_hit_hook(attacker, target, is_offhand, world) {
+            hit_ctx = ctx;
+        }
+    }
+
+    if hit_ctx.is_aborted {
+        if let Some(ref msg) = hit_ctx.abort_reason {
+            if let Some(msg_bridge) = crate::scripting::get_message_bridge() {
+                let room = world
+                    .query_one::<&Position>(target)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room));
+                if let Some(r) = room {
+                    msg_bridge.echo_to_room(r, msg);
+                }
+            }
+        }
+        return HitResult::Aborted;
+    }
+
+    if let Some(override_val) = hit_ctx.override_hit {
+        return if override_val {
+            HitResult::Hit
+        } else {
+            HitResult::Miss
+        };
+    }
+
     let atk_level = world
         .query_one::<&Level>(attacker)
         .ok()
@@ -227,16 +282,20 @@ pub fn calculate_hit(world: &World, attacker: Entity, target: Entity, is_offhand
         0
     };
 
-    // d20 + level + str_mod + dw_penalty >= AC
+    // d20 + level + str_mod + dw_penalty + hit_modifier >= AC
     let roll = fastrand::i32(1..=20);
     if roll == 1 {
-        return false; // auto-miss
+        return HitResult::Miss; // auto-miss
     }
     if roll == 20 {
-        return true; // auto-crit
+        return HitResult::Hit; // auto-crit
     }
 
-    roll + atk_level + ability_mod(str) + dw_penalty >= ac
+    if roll + atk_level + ability_mod(str) + dw_penalty + hit_ctx.hit_modifier >= ac {
+        HitResult::Hit
+    } else {
+        HitResult::Miss
+    }
 }
 
 pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: CombatState) {
@@ -374,73 +433,11 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                 }
 
                 // Main hand attack
-                let is_hit = calculate_hit(world, attacker, target, false);
-                if is_hit {
-                    let (damage, damage_type) = calculate_damage(world, attacker, target, false);
-
-                    // Read mob info before apply_damage (which despawns the target)
-                    let mob_template_id = world
-                        .query_one::<&crate::Npc>(target)
-                        .ok()
-                        .and_then(|mut q| q.get().map(|n| n.template_id.clone()));
-                    let mob_level = world
-                        .query_one::<&crate::Level>(target)
-                        .ok()
-                        .and_then(|mut q| q.get().copied())
-                        .unwrap_or(crate::Level(1))
-                        .0;
-
-                    let (final_damage, killed, unconscious, xp_gained, corpse) =
-                        apply_damage(world, attacker, target, damage, damage_type);
-                    if final_damage > 0 {
-                        let kind = if killed {
-                            CombatOutcomeKind::Killed {
-                                damage: final_damage,
-                                damage_type,
-                                xp_gained,
-                                corpse: corpse.unwrap(),
-                                mob_template_id,
-                                mob_level,
-                            }
-                        } else {
-                            CombatOutcomeKind::Hit {
-                                damage: final_damage,
-                                damage_type,
-                                unconscious,
-                            }
-                        };
-                        outcomes.push(CombatOutcome {
-                            attacker,
-                            target,
-                            room,
-                            attacker_name: attacker_name.clone(),
-                            target_name: target_name.clone(),
-                            attacker_is_player,
-                            target_is_player,
-                            kind,
-                        });
-                    }
-                    if killed {
-                        continue;
-                    }
-                } else {
-                    outcomes.push(CombatOutcome {
-                        attacker,
-                        target,
-                        room,
-                        attacker_name: attacker_name.clone(),
-                        target_name: target_name.clone(),
-                        attacker_is_player,
-                        target_is_player,
-                        kind: CombatOutcomeKind::Miss,
-                    });
-                }
-
-                // Offhand attack if dual-wielding
-                if is_dual_wielding(world, attacker) {
-                    let oh_hit = calculate_hit(world, attacker, target, true);
-                    if oh_hit {
-                        let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
+                let hit_result = calculate_hit(world, attacker, target, false);
+                match hit_result {
+                    HitResult::Hit => {
+                        let (damage, damage_type) =
+                            calculate_damage(world, attacker, target, false);
 
                         // Read mob info before apply_damage (which despawns the target)
                         let mob_template_id = world
@@ -455,12 +452,12 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                             .0;
 
                         let (final_damage, killed, unconscious, xp_gained, corpse) =
-                            apply_damage(world, attacker, target, oh_dmg, oh_type);
+                            apply_damage(world, attacker, target, damage, damage_type);
                         if final_damage > 0 {
                             let kind = if killed {
                                 CombatOutcomeKind::Killed {
                                     damage: final_damage,
-                                    damage_type: oh_type,
+                                    damage_type,
                                     xp_gained,
                                     corpse: corpse.unwrap(),
                                     mob_template_id,
@@ -469,7 +466,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                             } else {
                                 CombatOutcomeKind::Hit {
                                     damage: final_damage,
-                                    damage_type: oh_type,
+                                    damage_type,
                                     unconscious,
                                 }
                             };
@@ -477,24 +474,103 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                                 attacker,
                                 target,
                                 room,
-                                attacker_name,
-                                target_name,
+                                attacker_name: attacker_name.clone(),
+                                target_name: target_name.clone(),
                                 attacker_is_player,
                                 target_is_player,
                                 kind,
                             });
                         }
-                    } else {
+                        if killed {
+                            continue;
+                        }
+                    }
+                    HitResult::Miss => {
                         outcomes.push(CombatOutcome {
                             attacker,
                             target,
                             room,
-                            attacker_name,
-                            target_name,
+                            attacker_name: attacker_name.clone(),
+                            target_name: target_name.clone(),
                             attacker_is_player,
                             target_is_player,
                             kind: CombatOutcomeKind::Miss,
                         });
+                    }
+                    HitResult::Aborted => {
+                        // Hook has run and aborts default attack messages.
+                        // But if this attack killed/despawned/aborted, we might still check if we are dual-wielding,
+                        // or we might want to continue to offhand. Let's check if target is still valid/conscious.
+                        let target_exists = world.query_one::<&Health>(target).is_ok();
+                        if !target_exists {
+                            continue;
+                        }
+                    }
+                }
+
+                // Offhand attack if dual-wielding
+                if is_dual_wielding(world, attacker) {
+                    let oh_hit = calculate_hit(world, attacker, target, true);
+                    match oh_hit {
+                        HitResult::Hit => {
+                            let (oh_dmg, oh_type) = calculate_damage(world, attacker, target, true);
+
+                            // Read mob info before apply_damage (which despawns the target)
+                            let mob_template_id = world
+                                .query_one::<&crate::Npc>(target)
+                                .ok()
+                                .and_then(|mut q| q.get().map(|n| n.template_id.clone()));
+                            let mob_level = world
+                                .query_one::<&crate::Level>(target)
+                                .ok()
+                                .and_then(|mut q| q.get().copied())
+                                .unwrap_or(crate::Level(1))
+                                .0;
+
+                            let (final_damage, killed, unconscious, xp_gained, corpse) =
+                                apply_damage(world, attacker, target, oh_dmg, oh_type);
+                            if final_damage > 0 {
+                                let kind = if killed {
+                                    CombatOutcomeKind::Killed {
+                                        damage: final_damage,
+                                        damage_type: oh_type,
+                                        xp_gained,
+                                        corpse: corpse.unwrap(),
+                                        mob_template_id,
+                                        mob_level,
+                                    }
+                                } else {
+                                    CombatOutcomeKind::Hit {
+                                        damage: final_damage,
+                                        damage_type: oh_type,
+                                        unconscious,
+                                    }
+                                };
+                                outcomes.push(CombatOutcome {
+                                    attacker,
+                                    target,
+                                    room,
+                                    attacker_name,
+                                    target_name,
+                                    attacker_is_player,
+                                    target_is_player,
+                                    kind,
+                                });
+                            }
+                        }
+                        HitResult::Miss => {
+                            outcomes.push(CombatOutcome {
+                                attacker,
+                                target,
+                                room,
+                                attacker_name: attacker_name.clone(),
+                                target_name: target_name.clone(),
+                                attacker_is_player,
+                                target_is_player,
+                                kind: CombatOutcomeKind::Miss,
+                            });
+                        }
+                        HitResult::Aborted => {}
                     }
                 }
             }
