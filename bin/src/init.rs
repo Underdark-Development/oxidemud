@@ -1,10 +1,6 @@
-use oxide_core::templates::TemplateRegistry;
 use oxide_core::{
-    AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
-    Health, Item, ItemSkillRequirement, Level, Name, Npc, PatrolRoute, Position, Race, Room,
-    RoomExits, SetMembership, ShortDesc, WanderBounds, Weapon, WeaponHands, WeaponRange, World,
+    Direction, Entity, Exit, PatrolRoute, Position, Room, RoomExits, WanderBounds, World,
 };
-use std::str::FromStr;
 
 pub fn init_world() -> (World, Entity) {
     let mut world = World::new();
@@ -20,6 +16,8 @@ pub fn init_world() -> (World, Entity) {
 
     (world, void_room)
 }
+
+use oxide_core::templates::TemplateRegistry;
 
 /// Spawn all rooms and their mobs from the given area template into the ECS world.
 ///
@@ -114,16 +112,8 @@ pub fn spawn_area(
             };
 
             for _ in 0..spawn.count {
-                let ai_state = match mob_tpl.ai_mode.as_str() {
-                    "wander" => AiState::Wander { counter: 0 },
-                    "aggro" | "aggressive" => AiState::Aggro { hunt_target: None },
-                    "patrol" => AiState::Patrol {
-                        counter: 0,
-                        index: 0,
-                        forward: true,
-                    },
-                    _ => AiState::Idle,
-                };
+                // Call MobTemplate::spawn which handles components, AI state, trainer, friendly, and equipment
+                let npc = mob_tpl.spawn(world, room_entity, registry);
 
                 // Resolve patrol route from template room IDs
                 let patrol_route = if !mob_tpl.patrol_route.is_empty() {
@@ -168,188 +158,13 @@ pub fn spawn_area(
                     None
                 };
 
-                let npc = world.spawn((
-                    Position::new(room_entity),
-                    Name::new(&mob_tpl.name),
-                    Npc::new_with_aggro(
-                        &mob_tpl.id,
-                        mob_tpl.aggro_range,
-                        mob_tpl.aggro_players,
-                        mob_tpl.aggro_mobs,
-                        mob_tpl.aggro_race.clone(),
-                    )
-                    .with_ai_mode(&mob_tpl.ai_mode),
-                    Attributes::new(
-                        mob_tpl.attributes.strength,
-                        mob_tpl.attributes.dexterity,
-                        mob_tpl.attributes.intelligence,
-                        mob_tpl.attributes.wisdom,
-                        mob_tpl.attributes.constitution,
-                        mob_tpl.attributes.charisma,
-                    ),
-                    Health {
-                        current: mob_tpl.health.current,
-                        max: mob_tpl.health.max,
-                    },
-                    Level(mob_tpl.level),
-                    Armor {
-                        base: mob_tpl.armor,
-                        bonus: 0,
-                    },
-                    Equipment::new(),
-                    ai_state,
-                ));
-
-                // Add Race component if the mob template has one
-                if let Some(ref race_id) = mob_tpl.race {
-                    world.insert(npc, (Race(race_id.clone()),)).unwrap();
-                }
-
-                // Add ShortDesc component (falls back to name if not set)
-                let short_desc = if mob_tpl.short_desc.is_empty() {
-                    mob_tpl.name.clone()
-                } else {
-                    mob_tpl.short_desc.clone()
-                };
-                world.insert(npc, (ShortDesc(short_desc),)).unwrap();
-
-                // Add Friendly marker if the mob template says so
-                if mob_tpl.friendly {
-                    world.insert(npc, (Friendly,)).unwrap();
-                }
-
-                // Add Trainer component if trainer_types is non-empty
-                if !mob_tpl.trainer_types.is_empty() {
-                    world
-                        .insert(
-                            npc,
-                            (oxide_core::Trainer::new(mob_tpl.trainer_types.clone()),),
-                        )
-                        .unwrap();
-                }
-
                 if let Some(route) = patrol_route {
                     world.insert(npc, (route,)).unwrap();
                 }
                 if let Some(bounds) = wander_bounds {
                     world.insert(npc, (bounds,)).unwrap();
                 }
-
-                equip_mob_template_items(world, npc, mob_tpl, registry);
             }
-        }
-    }
-}
-
-fn equip_mob_template_items(
-    world: &mut World,
-    npc: Entity,
-    mob_tpl: &oxide_core::templates::MobTemplate,
-    registry: &TemplateRegistry,
-) {
-    if let (Some(damage), Some(damage_type)) = (&mob_tpl.damage, &mob_tpl.damage_type) {
-        if let Some(weapon) = make_weapon(damage, damage_type, 2.5, "melee") {
-            let natural_weapon = world.spawn((
-                Name::new(format!("{} attack", mob_tpl.name)),
-                Item::new(format!("{}:natural_attack", mob_tpl.id)),
-                weapon,
-            ));
-            equip_item(world, npc, EquipmentSlot::Weapon, natural_weapon);
-        }
-    }
-
-    for entry in &mob_tpl.equipment {
-        let Some(item_tpl) = registry.get_item(&entry.template_id) else {
-            tracing::warn!(
-                "Mob template '{}' references unknown equipment '{}'",
-                mob_tpl.id,
-                entry.template_id
-            );
-            continue;
-        };
-
-        let item = world.spawn((Name::new(&item_tpl.name), Item::new(&item_tpl.id)));
-
-        if let Some(weapon_def) = &item_tpl.weapon {
-            if let Some(weapon) = make_weapon(
-                &weapon_def.damage.0,
-                &weapon_def.damage_type,
-                weapon_def.speed,
-                &weapon_def.range,
-            ) {
-                world.insert(item, (weapon,)).unwrap();
-            }
-        }
-
-        // Populate SetMembership from template
-        if let Some(ref set) = item_tpl.set {
-            let membership = SetMembership::from(set.clone());
-            world.insert(item, (membership,)).unwrap();
-        }
-
-        // Populate ItemTriggers from template
-        if !item_tpl.triggers.is_empty() {
-            world
-                .insert(item, (oxide_core::ItemTriggers(item_tpl.triggers.clone()),))
-                .unwrap();
-        }
-
-        // Populate ItemSkillRequirement from template
-        if let Some(ref req) = item_tpl.requires_skill {
-            world
-                .insert(
-                    item,
-                    (ItemSkillRequirement {
-                        id: req.id.clone(),
-                        level: req.level,
-                    },),
-                )
-                .unwrap();
-        }
-
-        let slot = EquipmentSlot::from_str(&entry.slot).ok().or_else(|| {
-            item_tpl
-                .equipment
-                .as_ref()
-                .and_then(|equipment| EquipmentSlot::from_str(&equipment.slot).ok())
-        });
-
-        if let Some(slot) = slot {
-            equip_item(world, npc, slot, item);
-        } else {
-            tracing::warn!(
-                "Mob template '{}' has invalid equipment slot '{}' for '{}'",
-                mob_tpl.id,
-                entry.slot,
-                entry.template_id
-            );
-        }
-    }
-}
-
-fn make_weapon(damage: &str, damage_type: &str, speed: f32, range: &str) -> Option<Weapon> {
-    let damage_dice = damage.parse().ok()?;
-    let damage_type = oxide_core::DamageType::from_str(damage_type).ok()?;
-    let range = match range.to_lowercase().as_str() {
-        "ranged" => WeaponRange::Ranged,
-        "reach" => WeaponRange::Reach,
-        "thrown" => WeaponRange::Thrown,
-        _ => WeaponRange::Melee,
-    };
-
-    Some(Weapon {
-        damage_dice,
-        damage_type,
-        speed,
-        range,
-        hands: WeaponHands::OneHand,
-    })
-}
-
-fn equip_item(world: &mut World, npc: Entity, slot: EquipmentSlot, item: Entity) {
-    if let Ok(mut q) = world.query_one::<&mut Equipment>(npc) {
-        if let Some(equipment) = q.get() {
-            equipment.equip(slot, item);
         }
     }
 }
@@ -357,6 +172,7 @@ fn equip_item(world: &mut World, npc: Entity, slot: EquipmentSlot, item: Entity)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oxide_core::{Armor, Attributes, Equipment, EquipmentSlot, Npc, Weapon};
     use std::path::{Path, PathBuf};
 
     fn content_path() -> PathBuf {
