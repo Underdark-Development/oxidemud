@@ -958,11 +958,22 @@ Rhai scripts drive all dynamic behavior not captured by TOML: NPC logic, item pr
 
 Sandboxed `rhai::Engine` per execution. Limits: 8 modules, 32 call levels, 50k operations, 10k string size, 100 dynamic arrays, 50 maps.
 
-### Script Lifecycle
+### Script Lifecycle & Bridges
 
-Startup: scan `scripts/` dir, parse `.rhai` into AST, cache. Register event bindings (template `[[scripts]]` entries → event tag → AST). Runtime: event fires → `ScriptTriggerSystem` looks up binding → fresh engine + `ScriptCtx` → execute AST inline under World lock.
+To maintain modular boundaries and respect the dependency DAG, scripting uses dependency injection:
+- `core` defines the `ScriptingBridge` and `MessageOutputBridge` traits.
+- `scripting` implements `ScriptingBridge`, running the sandboxed Rhai engine and caching compiled ASTs.
+- `server` implements `MessageOutputBridge` (handling physical connection packet I/O).
+- `bin` registers these implementations in global cells at startup.
 
-`ScriptCtx`: entity, actor, target, world_ref. EntityHandle methods: name(), id(), room(), health(), level(), is_player(), say(), etc. RoomHandle: name(), echo(), entities(), exits(). WorldHandle: spawn_mob/remove_entity/grant_xp/grant_recipe/etc.
+Rhai scripts run synchronously under the World lock. Scripts receive a `ScriptWorld` wrapper around a raw pointer to the ECS `World` (safe for synchronous execution duration), exposing operations like mob spawning, movement, custom damage, and skill rank modifications.
+
+### Integration Hooks
+
+- **Combat Swing Hooks**: `execute_combat_hit_hook` executes on attacker/defender skills, passing a mutable `HitContext`. Scripts can add/subtract hit chance modifiers, override the hit outcome, or abort the attack roll entirely with a custom message (returning `HitResult::Aborted` to silence the default miss outputs). `execute_combat_damage_hook` allows modifying final damage amounts and types.
+- **Mob AI Hooks**: `execute_mob_ai` triggers on custom AI ticks, allowing scripts to override default mob behaviors (say, move, use skills, follow leaders via the `Following` component).
+- **Say Triggers**: `execute_say_hook` executes when a player speaks in a room, broadcasting to say triggers registered on the room itself, floor items, or carried equipment (enabling secret door words, magical talking swords, etc.).
+- **Active Skills**: A player-facing `use`/`cast` command resolves targeted spell/skill scripts in parallel with the main game loop, validating player skill ranks and executing the script.
 
 ### Security Model
 
@@ -983,6 +994,50 @@ Startup: scan `scripts/` dir, parse `.rhai` into AST, cache. Register event bind
 All OLC edits are transactional — modify in-memory `TemplateRegistry` immediately, persisted on `@area save` or DirtyFlush auto-save.
 
 **Builder workflow:** `@dig` creates room → `@link` connects → `@set` modifies → `@mob add` spawns → `@area save` writes to disk. Edits stored in `builder_edits` overlay (HashMap of diffs) applied on top of file templates. TOML files remain source of truth.
+
+### Scripting Implementation Details
+
+Below is the concrete implementation plan for the Rhai scripting integration:
+
+#### oxide-core changes
+- **`core/src/scripting.rs`**: Define scripting interface traits and registration cells:
+  - `HitContext` struct representing granular combat swing details: `attacker: Entity`, `target: Entity`, `is_offhand: bool`, `is_aborted: bool`, `abort_reason: Option<String>`, `hit_modifier: i32`, `override_hit: Option<bool>`.
+  - `ScriptingBridge` trait with methods: `execute_trigger`, `execute_combat_hit_hook`, `execute_combat_damage_hook`, `execute_mob_ai`, `execute_say_hook`, and `execute_use_skill`.
+  - `MessageOutputBridge` trait with methods: `send_to_entity` and `echo_to_room`.
+  - Expose global `OnceLock` cells to register and retrieve both bridges.
+- **`core/src/lib.rs`**: Export the `scripting` module, the `Following` component, and the `HitResult` enum.
+- **`core/src/components/character.rs`**: Add `Following` component: `pub struct Following { pub target: Entity, pub autofollow: bool }`.
+- **`core/src/components/skills.rs`**: Modify `SkillDef` to include an optional `script: Option<String>` field.
+- **`core/src/templates.rs`**: Modify `TriggerDef` to include an optional `script: Option<String>` field, and add `MobTemplate::spawn` to encapsulate NPC spawning.
+- **`core/src/systems/combat.rs`**:
+  - Define `HitResult` enum: `Hit`, `Miss`, `Aborted`.
+  - Make `apply_damage` public: `pub fn apply_damage`.
+  - Modify `calculate_hit` to return `HitResult` and use the `execute_combat_hit_hook` scripting bridge. If aborted, echoes the reason and returns `HitResult::Aborted`. If overridden, returns accordingly.
+  - Modify `calculate_damage` to take `&mut World` and use the `execute_combat_damage_hook` scripting bridge to let scripts modify final damage.
+  - Modify `run_combat_pulse` to check `HitResult`. If `Aborted`, does nothing (no miss message). If `Hit`, does damage. If `Miss`, records standard miss.
+- **`core/src/systems/ai.rs`**: Modify `tick_ai` to use `execute_mob_ai` if an NPC has an attached AI script.
+
+#### oxide-scripting changes
+- **`scripting/src/lib.rs`**: Implement `ScriptingBridge` and register Rhai wrappers.
+  - Implement a thread-safe cache (`RwLock` or `Mutex` around `HashMap<String, rhai::AST>`) of compiled scripts in `content/scripts/`.
+  - Implement a safe wrapper `ScriptWorld` wrapping `*mut World` with Send/Sync implementations.
+  - Register `ScriptWorld`, `Entity`, and `HitContext` with the `rhai::Engine`, exposing properties and helper methods for entity querying, combat damage, room exits/flags, and follower control.
+
+#### oxide-server changes
+- **`server/src/lib.rs`**: Export the `MessageOutputBridge` implementation.
+
+#### oxide-bin changes
+- **`bin/src/main.rs`**: Instantiate `ScriptEngine`, load scripts, and register bridges. Register new commands `use` and `cast` mapped to `commands::cmd_use`.
+- **`bin/src/init.rs`**: Refactor `spawn_area` to use `MobTemplate::spawn`.
+- **`bin/src/commands.rs`**:
+  - `cmd_say`: call `execute_say_hook` scripting bridge on the room, floor items, and speaker inventory/equipment.
+  - `move_player`: move any entities in the room following the moving entity to the destination room automatically.
+  - `cmd_use`: new command to parse and execute skill/spell scripts.
+
+#### content/scripts templates
+- **`content/scripts/skills/parry.rhai`**: Checks parry skill rank, verifies weapon, and calls `hit_ctx.abort(...)` on success.
+- **`content/scripts/mobs/goblin.rhai`**: Shouts warning and runs away if health drops below 20%.
+- **`content/scripts/rooms/open_sesame.rhai`**: Unlocks and opens the door to the north when keyword is spoken.
 
 ---
 
