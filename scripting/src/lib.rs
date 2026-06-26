@@ -899,4 +899,53 @@ fn test_fail() {
         assert_eq!(results[1].name, "test_fail");
         assert!(!results[1].success);
     }
+
+    #[test]
+    fn test_script_say_hook_execution() {
+        use oxide_core::{Direction, Exit, Position, RoomExits};
+        let engine = ScriptEngine::default();
+        let mut world = World::new();
+
+        let room = world.spawn((Room::new("Test Room", "Desc"),));
+        let _ = world.insert(room, (Position::new(room),));
+
+        let mut exits = RoomExits(vec![Exit::new(Direction::North, room)]);
+        exits.0[0].set_closed(true);
+        exits.0[0].set_locked(true);
+        let _ = world.insert(room, (exits,));
+
+        let mut scope = Scope::new();
+        scope.push("self", room);
+        scope.push("world", ScriptWorld::new(&mut world));
+
+        let exits_list = engine
+            .engine()
+            .eval_with_scope::<rhai::Array>(&mut scope, "world.room_exits(self)")
+            .unwrap();
+        assert_eq!(exits_list.len(), 1);
+        assert_eq!(exits_list[0].to_string(), "north");
+
+        let is_closed = engine
+            .engine()
+            .eval_with_scope::<bool>(&mut scope, r#"world.is_exit_closed(self, "north")"#)
+            .unwrap();
+        assert!(is_closed);
+
+        engine
+            .engine()
+            .run_with_scope(
+                &mut scope,
+                r#"
+            world.set_exit_locked(self, "north", false);
+            world.set_exit_closed(self, "north", false);
+        "#,
+            )
+            .unwrap();
+
+        let is_closed_now = engine
+            .engine()
+            .eval_with_scope::<bool>(&mut scope, r#"world.is_exit_closed(self, "north")"#)
+            .unwrap();
+        assert!(!is_closed_now);
+    }
 }
