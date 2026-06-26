@@ -1036,6 +1036,8 @@ pub struct RoomTemplate {
     /// If true, ghost players can revive here without their corpse.
     #[serde(default)]
     pub allow_revive: bool,
+    #[serde(default)]
+    pub script: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

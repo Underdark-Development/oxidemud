@@ -1221,6 +1221,7 @@ mod tests {
             flags: vec![],
             content: RoomContent::default(),
             allow_revive: false,
+            script: None,
         };
 
         let r2 = RoomTemplate {
@@ -1236,6 +1237,7 @@ mod tests {
             flags: vec![],
             content: RoomContent::default(),
             allow_revive: false,
+            script: None,
         };
 
         area.rooms.insert("room1".to_string(), r1);

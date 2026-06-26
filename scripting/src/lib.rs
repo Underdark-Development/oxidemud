@@ -1,4 +1,4 @@
-use oxide_core::{DamageType, Entity, HitContext, ScriptingBridge, World};
+use oxide_core::{DamageType, Entity, HitContext, ItemTriggers, Npc, Room, ScriptingBridge, World};
 use rhai::{Engine, Scope, AST};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -425,11 +425,54 @@ impl ScriptingBridge for ScriptEngine {
 
     fn execute_say_hook(
         &self,
-        _script_entity: Entity,
-        _speaker: Entity,
-        _message: &str,
-        _world: &mut World,
+        script_entity: Entity,
+        speaker: Entity,
+        message: &str,
+        world: &mut World,
     ) -> Result<(), String> {
+        let mut scripts_to_run: Vec<String> = Vec::new();
+
+        if let Ok(mut q) = world.query_one::<&Npc>(script_entity) {
+            if let Some(npc) = q.get() {
+                if let Some(ref s) = npc.script {
+                    scripts_to_run.push(s.clone());
+                }
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&Room>(script_entity) {
+            if let Some(room) = q.get() {
+                if let Some(ref s) = room.script {
+                    scripts_to_run.push(s.clone());
+                }
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&ItemTriggers>(script_entity) {
+            if let Some(triggers) = q.get() {
+                for trigger in &triggers.0 {
+                    if trigger.event == "say" {
+                        if let Some(ref s) = trigger.script {
+                            scripts_to_run.push(s.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        for script_path in scripts_to_run {
+            let ast = self.get_ast(&script_path)?;
+            let mut scope = Scope::new();
+            scope.push("self", script_entity);
+            scope.push("speaker", speaker);
+            scope.push("message", message.to_string());
+            scope.push("world", ScriptWorld::new(world));
+
+            self.engine
+                .call_fn::<()>(&mut scope, &ast, "on_say", ())
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

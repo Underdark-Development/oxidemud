@@ -280,6 +280,7 @@ impl OxideMcpServer {
             flags: Vec::new(),
             content: RoomContent::default(),
             allow_revive: false,
+            script: None,
         };
         let room_str = match toml::to_string_pretty(&room) {
             Ok(s) => s,
@@ -420,6 +421,7 @@ impl OxideMcpServer {
             flags: Vec::new(),
             content: RoomContent::default(),
             allow_revive: false,
+            script: None,
         };
         let room_str = match toml::to_string_pretty(&room) {
             Ok(s) => s,

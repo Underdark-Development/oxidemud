@@ -38,7 +38,7 @@ pub fn spawn_area(
     for (room_id, room_tpl) in &area.rooms {
         let key = format!("{}:{room_id}", area.id);
         let entity = world.spawn((
-            Room::new(&room_tpl.name, &room_tpl.description),
+            Room::new(&room_tpl.name, &room_tpl.description).with_script(room_tpl.script.clone()),
             oxide_core::RoomFlags::default(),
             oxide_core::SpawnKey(key),
         ));

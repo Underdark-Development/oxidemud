@@ -646,6 +646,7 @@ impl Screen for RoomGridScreen {
                         flags: Vec::new(),
                         content: Default::default(),
                         allow_revive: false,
+                        script: None,
                     };
 
                     let new_toml = toml::to_string_pretty(&new_room)

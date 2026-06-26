@@ -631,6 +631,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Unlock a door using a key",
         commands::cmd_unlock,
     );
+    server.register_command(
+        "use",
+        &[],
+        AccessLevel::Player,
+        "Skills",
+        "Use a skill or spell",
+        commands::cmd_use,
+    );
+    server.register_command(
+        "cast",
+        &[],
+        AccessLevel::Player,
+        "Skills",
+        "Cast a spell (equivalent to use)",
+        commands::cmd_use,
+    );
 
     // MVP additions: Ghost & Revival (reclaim, revive, toggle)
     server.register_command(

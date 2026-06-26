@@ -733,6 +733,7 @@ fn generate_default_content(
             flags: Vec::new(),
             content: RoomContent::default(),
             allow_revive: false,
+            script: None,
         })?,
         _ => return Err(format!("unknown category: {category}").into()),
     };

@@ -568,6 +568,43 @@ pub fn cmd_say(
             let _ = tx.send(bytes.clone());
         }
     }
+
+    if let Some(bridge) = core::scripting::get_scripting_bridge() {
+        let mut targets = Vec::new();
+        targets.push(room);
+        targets.extend(occupants.clone());
+
+        for (item_eid, (pos, _item)) in world.query::<(&core::Position, &core::Item)>().iter() {
+            if pos.room == room {
+                targets.push(core::Entity::from(item_eid));
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&core::Inventory>(entity) {
+            if let Some(inv) = q.get() {
+                targets.extend(inv.0.clone());
+            }
+        }
+
+        if let Ok(mut q) = world.query_one::<&core::Equipment>(entity) {
+            if let Some(eq) = q.get() {
+                for &(_slot, item_eid) in &eq.slots {
+                    targets.push(item_eid);
+                }
+            }
+        }
+
+        let mut unique_targets = Vec::new();
+        for t in targets {
+            if !unique_targets.contains(&t) {
+                unique_targets.push(t);
+            }
+        }
+
+        for target_eid in unique_targets {
+            let _ = bridge.execute_say_hook(target_eid, entity, args, world);
+        }
+    }
 }
 
 fn can_detect_ghost(world: &World, observer: core::Entity) -> bool {
@@ -826,6 +863,82 @@ fn move_player(
 
     // Auto-look
     cmd_look(world, conn, "", "", registry);
+
+    // Follower movement
+    trigger_follow(world, registry, entity, room, dest, direction);
+}
+
+fn trigger_follow(
+    world: &mut World,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    room: core::Entity,
+    dest: core::Entity,
+    direction: Direction,
+) {
+    let dir_long = direction.long_name();
+    let opposite = direction.opposite();
+    let opp_long = opposite.long_name();
+
+    let mut followers = Vec::new();
+    for (f_eid, (pos, following)) in world.query::<(&core::Position, &core::Following)>().iter() {
+        if pos.room == room && following.target == entity {
+            followers.push(core::Entity::from(f_eid));
+        }
+    }
+
+    for follower in followers {
+        let _ = world.insert(follower, (Position::new(dest), core::Dirty));
+        send_leave_broadcast(world, registry, follower, room, dir_long);
+        send_enter_broadcast(world, registry, follower, dest, opp_long);
+
+        if let Some(tx) = registry.sender(follower) {
+            let leader_name = get_name(world, entity).unwrap_or(Name::new("Someone"));
+            let _ = tx
+                .send(format!("You follow {} {dir_long}.\r\n", leader_name.as_str()).into_bytes());
+
+            struct FollowerConn<'a> {
+                entity: core::Entity,
+                tx: &'a tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+            }
+            impl<'a> Connection for FollowerConn<'a> {
+                fn send(&mut self, text: &str) {
+                    let _ = self.tx.send(text.as_bytes().to_vec());
+                }
+                fn send_line(&mut self, text: &str) {
+                    let _ = self.tx.send(format!("{}\r\n", text).into_bytes());
+                }
+                fn send_raw(&mut self, bytes: &[u8]) {
+                    let _ = self.tx.send(bytes.to_vec());
+                }
+                fn id(&self) -> u64 {
+                    0
+                }
+                fn entity(&self) -> Option<core::Entity> {
+                    Some(self.entity)
+                }
+                fn set_entity(&mut self, _entity: core::Entity) {}
+                fn disconnect(&mut self) {}
+                fn is_disconnected(&self) -> bool {
+                    false
+                }
+                fn flags(&self) -> oxide_server::ConnectionFlags {
+                    oxide_server::ConnectionFlags::new()
+                }
+                fn set_flags(&mut self, _flags: oxide_server::ConnectionFlags) {}
+                fn output_sender(&self) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
+                    Some(self.tx.clone())
+                }
+            }
+            let mut f_conn = FollowerConn {
+                entity: follower,
+                tx,
+            };
+            cmd_look(world, &mut f_conn, "", "", registry);
+        }
+
+        trigger_follow(world, registry, follower, room, dest, direction);
+    }
 }
 
 pub fn cmd_move(
@@ -4477,6 +4590,102 @@ pub fn cmd_weather(
     _registry: &ConnectionRegistry,
 ) {
     conn.send_line("The sky is clear and a gentle breeze blows from the east.");
+}
+
+pub fn cmd_use(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    if args.trim().is_empty() {
+        conn.send_line("Use what?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let mut parts = args.trim().splitn(2, ' ');
+    let skill_arg = parts.next().unwrap_or("").trim().to_lowercase();
+    let target_arg = parts.next().map(|t| t.trim());
+
+    let templates = oxide_server::get_templates();
+    let skill_def = match templates.as_ref().and_then(|t| {
+        if let Some(def) = t.get_skill(&skill_arg) {
+            Some(def.clone())
+        } else {
+            t.skills
+                .values()
+                .find(|def| def.name.to_lowercase() == skill_arg)
+                .cloned()
+        }
+    }) {
+        Some(def) => def,
+        None => {
+            conn.send_line(&format!("No skill or spell found matching '{skill_arg}'."));
+            return;
+        }
+    };
+
+    let skills = match world.query_one::<&core::LearnedSkills>(entity) {
+        Ok(mut q) => q.get().cloned().unwrap_or_default(),
+        Err(_) => core::LearnedSkills::new(),
+    };
+
+    let rank = skills.rank(&skill_def.id);
+    if rank == 0 {
+        conn.send_line(&format!("You do not know how to use '{}'.", skill_def.name));
+        return;
+    }
+
+    let target = if let Some(target_name) = target_arg {
+        let mut q = world.query::<(&core::Name, &core::Position)>();
+        let candidates: Vec<(String, core::Entity)> = q
+            .iter()
+            .filter(|(_, (_, pos))| pos.room == room)
+            .map(|(raw, (name, _))| (name.as_str().to_lowercase(), core::Entity::from(raw)))
+            .collect();
+        match core::trie::trie_match(target_name, candidates) {
+            core::trie::TrieMatch::One(e) => Some(e),
+            core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+            core::trie::TrieMatch::None => {
+                conn.send_line(&format!("You don't see '{target_name}' here."));
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Some(ref script_path) = skill_def.script {
+        if let Some(bridge) = core::scripting::get_scripting_bridge() {
+            if let Err(e) = bridge.execute_use_skill(script_path, entity, target, world) {
+                conn.send_line(&format!("Error executing script: {e}"));
+            }
+        } else {
+            conn.send_line("Scripting engine is not available.");
+        }
+    } else {
+        conn.send_line(&format!(
+            "No script defined for skill '{}'.",
+            skill_def.name
+        ));
+    }
 }
 
 #[cfg(test)]

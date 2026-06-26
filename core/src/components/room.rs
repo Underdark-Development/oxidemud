@@ -133,6 +133,7 @@ impl Position {
 pub struct Room {
     pub name: String,
     pub description: String,
+    pub script: Option<String>,
 }
 
 impl Room {
@@ -140,7 +141,13 @@ impl Room {
         Room {
             name: name.into(),
             description: description.into(),
+            script: None,
         }
+    }
+
+    pub fn with_script(mut self, script: Option<String>) -> Self {
+        self.script = script;
+        self
     }
 }
 
