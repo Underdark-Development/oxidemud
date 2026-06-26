@@ -204,6 +204,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let commands_cmd_look = commands::cmd_look;
+
+    // Instantiate and register ScriptEngine and MessageOutputBridge
+    let script_engine = Box::new(oxide_scripting::ScriptEngine::new(
+        content_path.join("scripts"),
+    ));
+    oxide_core::scripting::register_scripting_bridge(script_engine);
+    oxide_core::scripting::register_message_bridge(Box::new(oxide_server::ServerMessageBridge));
+
     let mut server = Server::new(config.bind_addr(), world, void_room)
         .with_database(db)
         .with_templates(templates)
