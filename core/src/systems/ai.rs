@@ -37,6 +37,22 @@ pub fn run_ai_pulse(world: &mut World) {
     };
 
     for entity in entities {
+        // Run custom AI script if the NPC template specifies one
+        if let Some(npc) = world
+            .query_one::<&Npc>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+        {
+            if let Some(ref script_path) = npc.script {
+                if let Some(bridge) = crate::scripting::get_scripting_bridge() {
+                    if bridge.execute_mob_ai(script_path, entity, world).is_ok() {
+                        // If the script successfully executed, it takes over this pulse.
+                        continue;
+                    }
+                }
+            }
+        }
+
         let state = match world
             .query_one::<&AiState>(entity)
             .ok()

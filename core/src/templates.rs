@@ -694,7 +694,13 @@ impl MobTemplate {
                 self.aggro_mobs,
                 self.aggro_race.clone(),
             )
-            .with_ai_mode(&self.ai_mode),
+            .with_ai_mode(&self.ai_mode)
+            .with_script(
+                self.scripts
+                    .iter()
+                    .find(|s| s.event == "ai")
+                    .map(|s| s.script.clone()),
+            ),
             crate::components::Attributes::new(
                 self.attributes.strength,
                 self.attributes.dexterity,

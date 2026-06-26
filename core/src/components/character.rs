@@ -221,6 +221,7 @@ pub struct Npc {
     pub aggro_players: bool,
     pub aggro_mobs: bool,
     pub aggro_race: Vec<String>,
+    pub script: Option<String>,
 }
 
 impl Npc {
@@ -232,6 +233,7 @@ impl Npc {
             aggro_players: false,
             aggro_mobs: false,
             aggro_race: Vec::new(),
+            script: None,
         }
     }
 
@@ -249,11 +251,17 @@ impl Npc {
             aggro_players,
             aggro_mobs,
             aggro_race,
+            script: None,
         }
     }
 
     pub fn with_ai_mode(mut self, ai_mode: impl Into<String>) -> Self {
         self.ai_mode = ai_mode.into();
+        self
+    }
+
+    pub fn with_script(mut self, script: Option<String>) -> Self {
+        self.script = script;
         self
     }
 }
