@@ -8,8 +8,6 @@ The cobblestone square of {yellow bold}Riverside Village{/} opens around you. An
 The {cyan}east{/} leads along a stone path toward a small temple.
 The {cyan}south{/} road winds toward the village gate.
 """
-portals = []
-flags = []
 
 [exits]
 south = "town_gate"
@@ -18,8 +16,6 @@ north = "market_stall"
 west = "starting_vale:guard_post"
 
 [content]
-items = []
-
 [[content.mobs]]
 template_id = "town_guard"
 count = 2

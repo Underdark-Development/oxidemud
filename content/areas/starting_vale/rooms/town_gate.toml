@@ -2,7 +2,7 @@ id = "town_gate"
 area = "starting_vale"
 name = "Town Gate"
 description = """
-A sturdy timber palisade rises fifteen feet high, flanked by two watchtowers. The {green}iron-bound gate{/} stands open, and a dirt road stretches south into the forest beyond.
+A sturdy timber palisade rises fifteen feet high, flanked by two watchtowers. The iron-bound gate stands open, and a dirt road stretches south into the forest beyond.
 
 {cyan}North{/} leads back into Riverside.
 {cyan}South{/}, the road disappears into the deepening wood.

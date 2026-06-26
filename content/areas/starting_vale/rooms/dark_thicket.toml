@@ -2,7 +2,7 @@ id = "dark_thicket"
 area = "starting_vale"
 name = "Dark Thicket"
 description = """
-The forest grows dense and {red}menacing{/} here. Brambles claw at your clothes, and the canopy blocks all but a murky twilight. The ground is slick with mud and scattered with gnawed bones. Furtive rustling sounds echo in the underbrush — rats, and perhaps worse.
+The forest grows dense and {red}menacing{/} here. Brambles claw at your clothes, and the thick canopy blocks all but a murky twilight. The ground is slick with mud and scattered with gnawed bones. Furtive rustling sounds echo in the underbrush — rats, and perhaps worse.
 
 The only clear path leads {cyan}west{/} back toward the forest crossing.
 """

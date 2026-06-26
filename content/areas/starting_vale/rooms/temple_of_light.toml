@@ -2,13 +2,14 @@ id = "temple_of_light"
 area = "starting_vale"
 name = "Temple of Light"
 description = """
-Sunlight streams through a stained-glass rose window, casting {cyan}shimmering blue{/} and {gold}amber{/} patterns across the marble floor. Simple wooden pews face a white stone altar where a single candle burns. The air is cool and still, carrying a faint scent of incense.
+Sunlight streams through a stained-glass rose window, casting {brightBlue}shimmering blue{/}, {brightGreen}green{/}, {brightRed}red{/}, and {brightYellow}amber{/} patterns across the marble floor. Simple wooden pews face a white stone altar where a single candle burns. The air is cool and still, carrying a faint scent of incense.
 
 An engraved plaque beside the door reads:
-{italic}"All who enter find rest.{/}"
+ {italic}"All who enter find rest.{/}"
 
-The {cyan}west{/} exit leads back to the village square.
+The path to the {cyan}west{/} leads back to the village square.
 """
+
 allow_revive = true
 exits = { west = "town_square" }
 

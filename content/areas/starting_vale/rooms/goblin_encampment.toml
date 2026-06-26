@@ -6,8 +6,9 @@ A crude camp sprawls in a clearing behind the watchtower. A dead fire pit ringed
 
 A splintered trapdoor is set into the ground near the tent, half-hidden under a moldy tarp. The crack in the tower wall is still visible to the east.
 """
-portals = [{keyword = "crack", dest = "ruined_watchtower", description = "A crack in the tower wall, leading back into the ruined watchtower.", flags = []}]
+
 flags = ["no_teleport"]
+portals = [{keyword = "crack", dest = "ruined_watchtower", description = "A crack in the tower wall, leading back into the ruined watchtower.", flags = []}]
 
 [exits]
 down = "starting_vale:hidden_undercroft"
