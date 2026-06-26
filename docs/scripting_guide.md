@@ -1,14 +1,18 @@
-# Scripting Guide
+# Scripting Guide (Planned)
 
-The game engine separates the driver (core engine features) from the game content. While TOML templates cover static data structures, all dynamic gameplay logic is written in **Rhai** scripts located in the `content/scripts/` directory.
+> **Status: Scaffold only.** The Rhai engine (`EngineWrapper`) and Rust↔Rhai bindings are defined but **not wired into the game loop**. No script files are loaded, cached, or executed at runtime. The trigger system (`process_triggers`) is wired for item events only and uses hardcoded spell-like effects, not Rhai scripts. This document describes the **target design**.
 
-Rhai scripts drive NPC AI, item spells/procs, quest triggers, room behaviors, and custom player commands.
+---
+
+The game engine separates the driver (core engine features) from the game content. While TOML templates cover static data structures, all dynamic gameplay logic will be written in **Rhai** scripts located in the `content/scripts/` directory.
+
+Rhai scripts will drive NPC AI, item spells/procs, quest triggers, room behaviors, and custom player commands.
 
 ---
 
 ## The Security Sandbox
 
-Since scripts can be loaded dynamically or created by builders, the Rhai engine runs inside a sandboxed execution environment with strict resource limits:
+Since scripts can be loaded dynamically or created by builders, the Rhai engine will run inside a sandboxed execution environment with strict resource limits:
 
 | Metric | Bounded Limit | Prevention |
 | :--- | :--- | :--- |
@@ -25,7 +29,7 @@ Additionally, the scripting sandbox:
 
 ---
 
-## Script Lifecycle
+## Script Lifecycle (Planned)
 
 1. **Caching**: During startup, the engine scans the `content/scripts/` directory, compiles all `.rhai` files into Abstract Syntax Trees (ASTs), and caches them in memory.
 2. **Event Binding**: Script triggers are linked via TOML template definitions (e.g. attaching a trigger to an item's `on_use` event).
@@ -34,7 +38,7 @@ Additionally, the scripting sandbox:
 
 ---
 
-## Script Execution Context (`ScriptCtx`)
+## Script Execution Context (`ScriptCtx`) (Planned)
 
 When a script is triggered, the engine injects three global handles into the script's scope:
 
@@ -44,7 +48,7 @@ When a script is triggered, the engine injects three global handles into the scr
 
 ---
 
-## Scripting API Reference
+## Scripting API Reference (Planned)
 
 ### `EntityHandle`
 Represents an active player, NPC, or item in the game world.
@@ -99,7 +103,7 @@ world.grant_recipe(actor, "iron_shortsword");
 
 ---
 
-## Example Script Trigger
+## Example Script Trigger (Planned)
 
 Here is an example script for a scroll of teleportation (`content/scripts/scroll_teleport.rhai`):
 

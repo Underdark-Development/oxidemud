@@ -27,7 +27,8 @@ You can customize the server behavior at launch using the following command-line
 #### Precedence Order
 Startup configuration parameters are applied in the following order of precedence (highest to lowest):
 1. **Command Line Flags** (e.g., `--port 4001`)
-2. **Environment Variables** (e.g., `OXIDE_CONTENT`)
+2. **Environment Variables**:
+   - `OXIDE_CONTENT` — Override the content directory path (default: `content/`)
 3. **Configuration File** (`content/server.toml`)
 4. **Built-in Defaults**
 
@@ -96,12 +97,26 @@ When launched, the server executes the following startup sequence:
 1. **CliParse**: Evaluates command-line options.
 2. **ConfigLoad**: Loads the configuration from the TOML file.
 3. **LoggingInit**: Sets up the log file writers.
-4. **ContentLoad**: Scans the template files under `content/` and compiles the `TemplateRegistry`.
+4. **ContentLoad**: Scans the template files under `content/` and compiles the `TemplateRegistry`. The content directory includes subdirectories for areas, mobs, items, races, classes, skills, shops, deities, affixes, sets, **passives**, **stances**, scripts, and top-level files for languages, socials, treasure classes, and server config.
 5. **Validation**: Runs integrity checks on the templates.
 6. **DatabaseOpen**: Connects to the SQLite database and executes migrations if needed.
 7. **WorldCreate**: Seeds the initial ECS `World`.
 8. **ScriptingInit**: Sets up the Rhai scripting runtime and resolver.
 9. **ListenerBind**: Binds to the TCP port and initiates the game loop.
+
+### Game Loop Ticks
+
+The server runs a multi-tick event loop. Each tick interval fires independently via `tokio::select!`:
+
+| Tick | Interval | Phase | Description |
+|---|---|---|---|
+| Combat | 2s | `combat_tick` | Processes all active combat engagements |
+| Big Tick | 30–90s (random) | `big_tick` | HP/MP/SP regen + prompt broadcast to all players |
+| Maintenance | 5s | `maintenance_tick` | Flushes dirty entities to SQLite |
+| Set Bonus | 10s | `set_bonus_tick` | Re-evaluates set item bonus thresholds |
+| Position Save | 60s | `position_save_tick` | Persists player positions to DB |
+
+The tick intervals are not configurable at runtime. See `game_mechanics.md` for regen formulas and rest state multipliers.
 
 ### Graceful Shutdown
 To trigger a graceful shutdown, administrators can send a `SIGINT` (Ctrl+C), a `SIGTERM` signal, or execute the in-game `shutdown` command.

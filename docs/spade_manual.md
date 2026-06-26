@@ -6,14 +6,14 @@
 
 ## Invocation Modes
 
-Spade can be started in different modes depending on whether you are editing offline files or interacting with a running server.
+| Command | Mode | Status | Description |
+| :--- | :--- | :--- | :--- |
+| `spade` | Offline Builder | **Implemented** | Opens the local TOML template editor, file browser, and validation suite directly from disk. |
+| `spade --mode online` | Online Client | **Planned** | Will connect to a running game server as a player/administrator. |
+| `spade --mode split` | Split Mode | **Planned** | Will open builder tools and MUD client side-by-side. |
+| `spade connect <host> <port>` | Quick Connect | **Planned** | Will connect to a game server using a saved profile. |
 
-| Command | Mode | Description |
-| :--- | :--- | :--- |
-| `spade` | Offline Builder | Default mode. Opens the local TOML template editor, file browser, and validation suite directly from disk. |
-| `spade --mode online` | Online Client | Connects to a running game server as a player/administrator with scrollable output, collapsible macro sidebars, and right-click target interactions. |
-| `spade --mode split` | Split Mode | Opens the builder tools on one half of the screen and the online MUD client on the other half. Toggle with `F9`. |
-| `spade connect <host> <port>` | Quick Connect | Instantly connects to the specified game server using a saved profile. |
+> Only **offline builder** mode is currently implemented. Online and split modes parse from CLI but are not wired.
 
 ---
 
@@ -23,10 +23,9 @@ Use the function keys to switch between primary workspace panels:
 
 ### F1: Entities Editor
 A split-pane editor:
-- **Left**: World tree listing all templates grouped by category (Races, Classes, Items, Mobs).
-- **Center**: Visual form builder to edit properties without raw text manipulation.
-- **Right**: Inspector panel displaying derived stats and runtime values.
-- Press `F10` to preview the generated TOML.
+- **Left**: World tree listing all templates grouped by category (Races, Classes, Items, Mobs, Areas, Skills, Stances, Passives, Affixes, Sets).
+- **Right**: Inline field editor with text, number, multiline, and dropdown edit modes. Supports dirty tracking, undo for field edits, and delete with confirmation.
+- Context-sensitive **Command Sidebar** (right edge) showing available actions for the selected entity.
 
 ### F2: Room Grid
 An ASCII-art map displaying the layout of the world:
@@ -36,30 +35,32 @@ An ASCII-art map displaying the layout of the world:
 
 ### F3: Validation Panel
 An interactive diagnostics suite:
-- Scans all files and lists errors (e.g., broken exits, invalid item level requirements) and warnings (e.g., missing descriptions).
-- Double-clicking or pressing `Enter` on an error automatically jumps to the file and line containing the issue in the Entities Editor.
+- Runs `TemplateRegistry::validate()` and lists errors (broken exits, invalid field values, etc.) and warnings (missing descriptions).
+- Errors displayed in a sortable table with columns: Type, ID, Field, Message.
 
 ### F4: File Browser
 A directory explorer for the `content/` path:
-- **Left**: Directory tree.
+- **Left**: Directory tree with expand/collapse.
 - **Right**: Syntax-highlighted text preview of raw `.toml` templates and `.rhai` script files.
 
 ### F5: Script Console
 An execution environment for Rhai scripting:
-- Write and execute multi-line Rhai scripts.
-- Contains a test runner that executes code enclosed in `//#test` and `//#end` blocks to run unit tests on scripts.
+- Write and execute multi-line Rhai scripts in a built-in editor with syntax highlighting (keyword colors, string highlighting, comment dimming).
+- **Console Output** pane shows script results and error messages.
+- Press `F9` to run the script. The engine discovers test functions (any function whose name starts with `test_`) and runs them in a try/catch harness.
+- Load script files from the File Browser via double-click / Enter.
 
-### F6: Live Dashboard
-A diagnostics panel for running servers:
-- Displays performance gauges, ticks per second, memory allocations, and database query latencies.
-- Shows a real-time tail of the server's warning and audit logs.
+### F6: Live Dashboard (Planned)
+A diagnostics panel for running servers — **not yet implemented**:
+- Will display performance gauges, ticks per second, memory allocations, and database query latencies.
+- Will show a real-time tail of the server's warning and audit logs.
 
 ---
 
 ## Keyboard and Controls Reference
 
 ### Navigation and Focus
-- `Tab` / `Shift+Tab` — Cycle focus between active panes. The focused pane is highlighted with a bright white or cyan border.
+- `Tab` / `Shift+Tab` — Cycle focus between active panes and the sidebar. The focused pane is highlighted with a bright white or cyan border.
 - `Arrows (↑/↓/←/→)` — Navigate lists, forms, and maps.
 - `Enter` — Open a folder, select a list item, or confirm an action.
 - `Escape` — Go back, dismiss context menus, or close modal dialogs.
@@ -68,19 +69,16 @@ A diagnostics panel for running servers:
 - `Ctrl+D` — Quit Spade.
 
 ### Editing Files
-- `Ctrl+S` — Save modified templates (in offline mode).
-- `Ctrl+Z` — Undo the last text edit.
-- `Ctrl+C` / `Ctrl+V` — Copy and paste text.
+- `Ctrl+S` — Save modified templates (persists TOML to disk).
+- `Ctrl+Z` — Undo the last field edit.
 - `/` — Open a search box to filter the active panel list.
 
-### Online MUD Client Controls
-- `Ctrl+B` — Toggle the macro buttons sidebar.
-- `Ctrl+K` — Clear the text scrollback buffer.
-- `Ctrl+L` — Toggle line numbers in the output window.
-- `Ctrl+T` — Toggle timestamps on incoming text lines.
-- `Ctrl+R` — Search command history.
-- `Ctrl+U` — Clear the current input line.
-- `Ctrl+A` / `Ctrl+E` — Jump to the beginning or end of the input line.
+### Script Console
+- `F9` — Run the current script and its test functions.
+- `Tab` — Switch focus between the script editor (top) and console output (bottom).
+
+### General
+- `Ctrl+M` — Toggle mouse support.
 
 ---
 
@@ -89,29 +87,48 @@ A diagnostics panel for running servers:
 Spade features full mouse support, which can be toggled using `Ctrl+M`:
 - **Left Click**: Select items, click sidebar command buttons, or select input fields.
 - **Double Left Click**: Open templates, folders, or items.
-- **Right Click**: Open context menus (e.g., right-clicking a player's name in MUD client mode to display actions like Stat, Tell, Goto, or Kick).
-- **Scroll Wheel**: Scroll up and down through help text, file previews, list boxes, and the MUD client output buffer.
-- **Pane Resizing**: Drag panel borders to resize splits.
+- **Scroll Wheel**: Scroll up and down through help text, file previews, list boxes, and script editor / console output.
+- `Ctrl+Click` on an entity preview in entities-screen table to navigate to that entity's detail view.
 
 ---
 
-## Connection Profiles (`~/.config/spade/profiles.toml`)
+## Connection Profiles (`~/.config/spade/config.toml`)
 
-Spade stores host profiles in the user's home directory. You can pre-configure server parameters to quickly jump online:
+Spade stores configuration in the user's home directory. You can pre-configure server parameters for future online mode:
 
 ```toml
-# profiles.toml
-[profiles.local]
+[connection]
 host = "127.0.0.1"
 port = 4000
-mode = "telnet"
 username = "admin"
 tls = false
 
-[profiles.production]
-host = "play.oxidemud.org"
-port = 443
-mode = "websocket"
-username = "staff_member"
-tls = true
+[prefs]
+mouse = true
+scrollback_size = 5000
+sidebar_open = true
 ```
+
+---
+
+## Feature Status Summary
+
+| Category | Feature | Status |
+| :--- | :--- | :--- |
+| **Offline Builder** | Entity tree + inline inspector | Implemented |
+| **Offline Builder** | Room grid (BFS map) | Implemented |
+| **Offline Builder** | Template validation | Implemented |
+| **Offline Builder** | File browser with preview | Implemented |
+| **Offline Builder** | Script console (editor + runner) | Implemented |
+| **Offline Builder** | Command Palette (Ctrl+P) | Implemented |
+| **Offline Builder** | Menu bar (File/Edit/View) | Implemented |
+| **Offline Builder** | Mouse support (click, scroll) | Implemented |
+| **Offline Builder** | TOML save-to-disk | Implemented |
+| **Online Client** | Telnet connection | Planned |
+| **Online Client** | Macro sidebar | Planned |
+| **Online Client** | Scrollback buffer | Planned |
+| **Online Client** | Command history | Planned |
+| **Split Mode** | Side-by-side builder + client | Planned |
+| **F6 Live Dashboard** | Performance gauges, log tail | Planned |
+| **Right-click Menus** | Context menus on entities | Planned |
+| **Pane Resizing** | Drag panel borders | Planned |

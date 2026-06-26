@@ -44,6 +44,10 @@ content/
 │   └── <affix_id>.toml               # Item affix definitions (prefix/suffix)
 ├── sets/
 │   └── <set_id>.toml                # Item set definitions and tier bonuses
+├── passives/
+│   └── <passive_id>.toml             # Passive trait/ability definitions
+├── stances/
+│   └── <stance_id>.toml              # Combat stance definitions
 ├── languages.toml                    # Languages granted at creation
 ├── socials.toml                      # Social emotes definitions
 └── treasure_classes.toml             # Random loot tier configurations
@@ -86,6 +90,15 @@ dest = "midgaard.temple_entrance"
 direction = "south"
 dest = "midgaard.market_square"
 
+# Doors: add door state fields to an exit
+[[exits]]
+direction = "east"
+dest = "midgaard.armory"
+is_door = true
+is_closed = true
+is_locked = true
+key_id = "iron_key"
+
 # Portals represent keyword-based movement
 [[portals]]
 keyword = "archway"
@@ -93,10 +106,44 @@ dest = "midgaard.temple_altar"
 description = "A shimmering stone archway."
 flags = ["hidden"]
 
+# Room content: mobs, items, and sets that spawn here
+[content]
+mobs = ["city_guard", "shopkeeper"]
+items = ["torch", "bench"]
+sets = [{ mob = "city_guard", items = ["steel_shortsword", "chainmail_chestpiece"] }]
+
 # Spawn configurations for characters created here
 [spawn]
 allowed_classes = ["cleric", "paladin"]
 description = "The sanctuary spawns holy acolytes."
+```
+
+#### Exit Door Fields
+
+Exits support optional door state fields. When `is_door = true`, the exit behaves as a door that can be opened, closed, locked, and unlocked.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `direction` | String | — | Direction name (`north`, `south`, `east`, `west`, `up`, `down`, `northeast`, `northwest`, `southeast`, `southwest`). |
+| `dest` | String | — | Destination room in `area_id.room_id` format. |
+| `is_door` | Bool | `false` | Whether this exit has a door. |
+| `is_closed` | Bool | `false` | Whether the door starts closed (blocks movement). |
+| `is_locked` | Bool | `false` | Whether the door starts locked. |
+| `key_id` | String | — | Item template ID of the key that locks/unlocks this door. |
+| `flags` | Array | `[]` | Exit flags: `hidden` (not shown in exit list). |
+| `description` | String | — | Extra description seen when looking in this direction. |
+
+The `open`, `close`, `lock`, and `unlock` commands operate on door exits. Locking/unlocking requires the matching key item in the player's inventory.
+
+#### Room Content
+
+Rooms can define a `[content]` section for mob/item spawns and equipment sets:
+
+```toml
+[content]
+mobs = ["city_guard", "shopkeeper"]       # Mob template IDs to spawn on reset
+items = ["torch", "bench"]                # Item template IDs to spawn on reset
+sets = [{ mob = "city_guard", items = ["steel_shortsword"] }]  # Equipment sets for mobs
 ```
 
 ### Mobs (`MobTemplate`)
@@ -106,10 +153,14 @@ Stored under `content/mobs/`.
 id = "city_guard"
 name = "a city guard"
 description = "A stout guard in chainmail patrols the streets."
+short_desc = "A guard is standing here."   # Displayed in room listings
 level = 5
 race = "human"
 size = "medium"
-faction = "midgaard_guards"
+armor = 12                                  # Base armor class (AC)
+damage = "1d8+2"                            # Natural weapon damage (dice notation)
+damage_type = "bludgeon"                    # Natural weapon damage type
+xp_value = 250                              # XP awarded on kill
 
 # AI behavior mode: idle, wander, patrol, aggro, combat, flee, return
 ai_mode = "patrol"
@@ -129,6 +180,26 @@ aggro_range = 5          # Distance in rooms to detect targets
 aggro_players = true     # Aggro on players
 aggro_mobs = false       # Aggro on other NPCs
 aggro_race = []          # Only aggro specific races (empty = all)
+
+# Faction affiliation
+faction = "midgaard_guards"
+faction_standing = 0     # Starting standing with faction (-100 to 100)
+
+# Trainer configuration — types this NPC can train
+trainer_types = ["attributes", "combat", "weapon"]
+
+# Language capabilities
+languages = ["common", "dwarvish"]
+
+# Known skills
+[[skills]]
+id = "shield_block"
+level = 3
+
+# Script hooks
+[[scripts]]
+event = "on_death"
+script = "guard_drops.rhai"
 
 [health]
 current = 100
@@ -163,7 +234,47 @@ max = 15
 [[loot.entries]]
 item = "healing_potion"
 chance = 25
+
+[loot.entries]
+treasure_class = "guard_gear"  # Random roll from treasure class
+chance = 15
 ```
+
+#### Mob Schema Fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `id` | String | — | Unique identifier for the mob template. |
+| `name` | String | — | Display name seen in room descriptions. |
+| `description` | String | — | Full description on `look` (supports color codes). |
+| `short_desc` | String | — | Brief description shown in room entity list. Falls back to `name`. |
+| `level` | Integer | `1` | NPC level; affects hit/damage and XP calculations. |
+| `race` | String | — | Race template ID; grants racial traits and size defaults. |
+| `size` | String | `"medium"` | Size category: `tiny`, `small`, `medium`, `large`, `huge`. |
+| `armor` | Integer | `0` | Base armor class value. |
+| `damage` | String | — | Natural weapon damage in dice notation (e.g. `1d6`, `2d4+3`). |
+| `damage_type` | String | — | Natural weapon damage type: `slash`, `pierce`, `bludgeon`, etc. |
+| `xp_value` | Integer | `0` | XP awarded when killed. |
+| `shop` | String | — | Shop template ID if this NPC is a vendor. |
+| `faction` | String | — | Faction template ID this NPC belongs to. |
+| `faction_standing` | Integer | `0` | Starting faction standing (–100 to 100). |
+| `friendly` | Bool | `false` | If true, never aggroes players. |
+| `ai_mode` | String | `"idle"` | AI behavior: `idle`, `wander`, `patrol`, `aggro`. |
+| `patrol_route` | Array | `[]` | Room IDs for patrol waypoints (`area.room` format). |
+| `wander_rooms` | Array | `[]` | Specific rooms to wander (empty = any in area). |
+| `wander_area` | Bool | `false` | If true, wanders anywhere in the current area. |
+| `aggro_range` | Integer | `0` | Room-distance to detect targets. `0` = room only. |
+| `aggro_players` | Bool | `false` | If true, aggroes on player characters. |
+| `aggro_mobs` | Bool | `false` | If true, aggroes on other NPCs. |
+| `aggro_race` | Array | `[]` | Only aggro specific races (empty = all races). |
+| `trainer_types` | Array | `[]` | Training categories this NPC teaches: `attributes`, `combat`, `weapon`, `magic`, `crafting`. |
+| `languages` | Array | `[]` | Languages the NPC speaks/knows. |
+| `scripts` | Array | `[]` | Script hooks that fire on game events. |
+| `health` | Section | — | `{ current, max }` — starting hit points. |
+| `attributes` | Section | — | `{ str, dex, int, wis, con, cha }` — base attributes. |
+| `equipment` | Array | `[]` | Equipment entries: `{ template_id, slot }`. |
+| `loot` | Section | — | Loot table: `{ entries: [{ item, chance, count?, treasure_class? }] }`. |
+| `skills` | Array | `[]` | Known skills: `{ id, level }`. |
 
 ---
 
@@ -321,6 +432,84 @@ Set bonuses are re-evaluated on equip/remove. If a tier threshold is crossed, th
 
 ---
 
+### Combat Stances (`StanceDef`)
+
+Stored in `content/stances/<stance_id>.toml`. Stances modify combat behavior and stats. Players switch stances with the `stance` command. Built-in stances: `normal`, `defensive`, `aggressive`, `berserk`.
+
+```toml
+id = "berserk"
+name = "Berserk"
+description = "Enter a raging fury, trading defense for raw damage."
+
+# Stat bonuses applied while in this stance
+stat_bonuses = { damage = 5, armor = -3, stun_resist = 10 }
+
+# Optional: restrict to specific weapon types (empty = all)
+allowed_weapons = ["axe", "bludgeon"]
+
+# Optional: restrict to specific armor types (empty = all)
+allowed_armor = []
+
+# Skill modifiers: { skill_id = bonus_pct }
+skill_modifiers = { "two_handed" = 10 }
+
+# Combat bonus percentages: { "hit" = bonus, "damage" = bonus, "armor" = bonus }
+combat_bonus = { hit = -5, damage = 25 }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | String | Unique stance identifier. |
+| `name` | String | Display name shown to the player. |
+| `description` | String | Description seen when examining the stance. |
+| `stat_bonuses` | Table | Attribute modifications: `{ damage, armor, stun_resist, etc. }`. |
+| `allowed_weapons` | Array | Weapon subtypes allowed (empty = all). |
+| `allowed_armor` | Array | Armor subtypes allowed (empty = all). |
+| `skill_modifiers` | Table | Skill rank bonuses: `{ skill_id = bonus_pct }`. |
+| `combat_bonus` | Table | Combat roll modifiers: `{ hit, damage, armor }` as percentages. |
+
+---
+
+### Passive Traits (`PassiveDef`)
+
+Stored in `content/passives/<passive_id>.toml`. Passives are always-active traits granted by race, class, equipment, or spells.
+
+```toml
+id = "toughness"
+name = "Toughness"
+description = "Increases maximum hit points."
+
+# Effect type: "stat_bonus", "grant_skill", "trigger"
+effect_type = "stat_bonus"
+
+# Stat modification (for effect_type = "stat_bonus")
+stat = "constitution"
+amount = 2
+
+# Skill granted (for effect_type = "grant_skill")
+grant_skill = "shield_block"
+
+# Trigger parameters (for effect_type = "trigger")
+trigger_chance = 20
+duration = 30
+cooldown = 60
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `id` | String | — | Unique passive identifier. |
+| `name` | String | — | Display name. |
+| `description` | String | — | Description of the passive effect. |
+| `effect_type` | String | — | `stat_bonus`, `grant_skill`, or `trigger`. |
+| `stat` | String | — | Attribute/skill name to modify (for `stat_bonus`). |
+| `amount` | Integer | `0` | Modifier value. |
+| `grant_skill` | String | — | Skill ID granted by this passive. |
+| `trigger_chance` | Integer | `0` | Percentage chance to fire (for `trigger` type). |
+| `duration` | Integer | `0` | Effect duration in seconds (0 = permanent). |
+| `cooldown` | Integer | `0` | Cooldown between triggers in seconds. |
+
+---
+
 ### Item Quality & Affixes
 
 Items have a quality tier that determines how many affixes they can roll when spawned as loot.
@@ -354,6 +543,8 @@ When loot drops, the system selects random affixes compatible with the item's sl
 
 Builders can modify the world dynamically using in-game OLC commands.
 
+> **Note:** Full OLC commands are planned. The following are partially or not yet implemented in code — documented here as the target API.
+
 - `@area create <id> <name>` — Creates a new zone.
 - `@area reset <id>` — Forces an immediate area reset.
 - `@area save <id>` — Writes all current in-memory edits for a zone back to its TOML files.
@@ -367,18 +558,20 @@ Builders can modify the world dynamically using in-game OLC commands.
 - `@mob add <mob_id>` — Spawns a mobile template into the current room.
 - `@mob remove <entity_id>` — Despawns a mobile.
 - `@item load <item_id>` — Loads a copy of an item template into your inventory.
+- `@validate [area_id]` — Runs full cross-reference validation on all templates, or a single area.
+- `@award <xp_amount>` — Grants XP to the current player (for testing).
 
 ---
 
 ## Validation and Integrity Checks
 
-To prevent crashes and gameplay glitches, the engine runs a **Cross-Reference Validation Pipeline** during startup, in Spade, and on demand via the `@validate` command or MCP.
+To prevent crashes and gameplay glitches, the engine runs a **Cross-Reference Validation Pipeline** during startup via the `validate_all` MCP tool, and per-area via `validate_area`.
 
 Validation checks verify:
 1. **Broken Links**: Exits and portals must point to valid rooms (`area_id.room_id`).
 2. **Missing Templates**: Mobs and items must reference valid race, class, and set definitions.
 3. **Attribute Bounds**: Attributes, ages, heights, and weights must lie within constraints set by the target race template.
-4. **Prerequisites Integrity**: Quests, recipes, and skills prerequisites cannot form circular dependencies.
+4. **Prerequisites Integrity**: Skills prerequisites are checked for circular dependencies via `validate_content_dag`.
 5. **Deity Policies**: Deity requirements on classes and alignments must be valid.
 6. **Skill Gates**: Item and weapon `requires_skill` definitions must reference valid skill IDs in the skills registry.
 
@@ -386,7 +579,10 @@ Validation checks verify:
 
 ## Hot-Reloading
 
-The engine runs a file-watcher (`notify` crate) on the `content/` directory:
-- When a template TOML file is saved, the engine automatically compiles and validates it.
-- If validation succeeds, the engine performs an **atomic swap** in the `TemplateRegistry` and broadcasts a `ContentReloaded` event.
-- If validation fails, the change is rejected, the error is logged to staff, and the old version remains active in memory.
+Hot-reloading is planned. Currently, content templates are loaded at server startup. To apply template changes:
+
+- **MCP offline mode**: The MCP server reads/writes TOML files directly and validates them. Changes are visible on next game server restart.
+- **MCP online mode** (planned): A REST bridge will push validated template changes to a running game server without restart.
+- **`notify` file-watcher** (planned): Automatic reload of templates and scripts on file save.
+
+For now, edit TOML files and restart the server to pick up changes.

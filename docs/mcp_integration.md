@@ -45,17 +45,36 @@ AI agents can execute the following tools via JSON-RPC calls:
 - `create_room` / `update_room` / `delete_room` — Manages room instances.
 - `link_rooms` — Connects two rooms via directional exits.
 - `add_portal` / `remove_portal` — Manages keyword-based portals.
-- `list_mobs` / `get_mob` / `create_mob` / `update_mob` / `delete_mob` — Manages NPC templates.
-- `list_items` / `get_item` / `create_item` / `update_item` / `delete_item` — Manages item templates.
-- `list_quests` / `get_quest` / `create_quest` / `update_quest` / `delete_quest` — Manages quest lines.
-- `list_recipes` / `get_recipe` / `create_recipe` — Manages crafting recipes.
-- `list_factions` / `get_faction` / `create_faction` — Manages faction definitions.
-- `list_shops` / `get_shop` / `create_shop` — Manages shop vendors.
+- `list_mobs` / `get_mob` / `create_mob` / `delete_mob` — Manages NPC templates.
+- `list_items` / `get_item` / `create_item` / `delete_item` — Manages item templates.
+- `list_shops` / `get_shop` — Lists shops or retrieves a single shop definition.
 
-### Validation & Search
-- `validate` — Runs the game's compilation validator. Accepts a `scope` parameter (`"all"`, `"area"`, or `"type"`) to narrow validation targets and returns a list of errors and warnings.
+### Template Lists & Inspect
+- `list_classes` — Lists all class templates in the registry.
+- `list_races` — Lists all race templates.
+- `list_skills` — Lists all skill templates.
+- `list_stances` — Lists all stance templates.
+- `list_passives` — Lists all passive trait definitions.
+- `list_triggers` — Lists available item trigger event types.
+- `get_template_raw` — Returns the raw TOML content for any template category + ID.
+- `preview_room <area_id> <room_id>` — Renders a room as a player would see it (name, description, exits, contents).
+- `preview_mob <mob_id>` — Renders a mob template's description and stats.
+- `preview_item <item_id>` — Renders an item template's description and properties.
 - `search` — Performs a fuzzy search across all template IDs, names, and descriptions.
 - `get_stats` — Returns count summaries of races, classes, mobs, items, rooms, and areas.
+
+### Validation
+- `validate` — Runs full cross-reference validation on all templates, checking broken links, missing templates, attribute bounds, skill gates, and deity policies.
+- `validate_area <area_id>` — Validates a single area file for structural integrity.
+- `validate_content_dag` — Validates skill prerequisite trees for circular dependency loops.
+
+### Simulation Tools
+- `simulate_combat` — Simulates `N` combat rounds between two mob templates (or a mob and a player-level character). Returns round-by-round hit/miss/damage results and aggregate stats.
+- `simulate_loot <mob_id> <iterations>` — Rolls loot drops from a mob template across multiple iterations and returns drop rate percentages.
+- `simulate_ai_wander <mob_id> <start_room> <ticks>` — Simulates an NPC's AI wander path across a given number of ticks, reporting room visit frequency.
+- `simulate_progression <race_id> <class_id> <start_level> <end_level>` — Simulates character level-by-level stat progression and returns the stat table.
+- `simulate_gear_loadout <race_id> <class_id> <level> [items...]` — Simulates a character's final stats with a given set of equipped items.
+- `simulate_shop_transaction <shop_id> <item_id>` — Simulates buy/sell pricing across reputation levels.
 
 ---
 

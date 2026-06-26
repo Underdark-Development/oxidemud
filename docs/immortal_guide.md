@@ -23,11 +23,75 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 
 ## Command Registry
 
-### Builder Commands
-- `@award <player> <xp>` — Grants a specific amount of experience points to a player.
-- OLC commands (`@area`, `@dig`, `@link`, `@set`, `@desc`, `@portal`, `@mob`, `@item`, `@load`). *See the [Builder Manual](builder_manual.md) for details.*
+> **Status note:** Most staff-specific OLC and moderation commands are planned. Currently only `@award` is implemented (builder level). See the [Builder Manual](builder_manual.md) for planned OLC command reference.
 
-### Immortal Commands
+### Player Commands (available to all access levels)
+
+#### General
+- `look` / `l` — Look at the room, a direction, or a target
+- `help` / `h` / `?` — Show available commands or help for a specific command
+- `who` — List connected players
+- `quit` / `exit` — Disconnect from the game
+- `motd` — Show message of the day
+- `commands` — List all commands you can use
+- `width <columns>` — Set screen width for text wrapping (0 = unlimited)
+- `time` — Show current in-game time
+- `weather` — Show current weather conditions
+
+#### Character
+- `score` / `stats` — Display character stats, attributes, and resources
+- `train` — List/train attributes using practice points (requires trainer)
+- `practice` — List/practice skills (requires trainer)
+- `sit` — Sit down (increases regen)
+- `rest` — Rest (faster regen)
+- `sleep` — Go to sleep (maximum regen)
+- `wake` — Wake from sleep
+- `stand` — Stand up (enables movement and combat)
+- `die` — Submit to death when unconscious (become a ghost)
+- `reclaim` — Reclaim your corpse to return to life
+- `revive` — Pray at a temple altar to return to life
+- `toggle` — Toggle player settings (`toggle resurrect`)
+- `prompt` — View/set custom prompt template
+- `pray` — Pray to your deity or at a deity's shrine
+
+#### Communication
+- `say <message>` — Speak aloud in the room
+- `tell <player> <message>` — Send a private message to any online player
+- `reply` / `r` — Reply to the last player who messaged you
+- `shout <message>` — Shout to all players in the same area
+- `whisper <player> <message>` — Whisper to a player in the same room
+
+#### Movement
+- `north` / `n`, `south` / `s`, `east` / `e`, `west` / `w`, `up` / `u`, `down` / `d`
+- `northeast` / `ne`, `northwest` / `nw`, `southeast` / `se`, `southwest` / `sw`
+- `open <direction>` — Open a closed door
+- `close <direction>` — Close an open door
+- `lock <direction>` — Lock a door (requires key)
+- `unlock <direction>` — Unlock a door (requires key)
+
+#### Combat
+- `kill <target>` — Attack a target
+- `flee` — Attempt to flee from combat
+- `stance` — View/set combat stance (normal, defensive, aggressive, berserk)
+
+#### Items
+- `inventory` / `inv` / `i` — List carried items
+- `equipment` / `eq` — Show worn/wielded equipment
+- `get` / `take <item>` — Pick up an item
+- `drop <item>` — Drop a carried item
+- `put <item> <container>` — Place item in container (not yet wired)
+- `give <item> <player>` — Give item to another (not yet wired)
+- `loot <corpse>` — Take all items from a corpse
+- `wear <item>` — Wear a piece of armor
+- `wield <item>` — Wield a weapon
+- `remove <slot>` — Unequip an item to inventory
+- `examine` / `exa` — Inspect an item's detailed properties
+
+### Builder Commands
+- `@award <xp>` — Grants XP to yourself (for testing). Currently the only implemented staff command.
+- (Planned: `@area`, `@dig`, `@link`, `@set`, `@desc`, `@portal`, `@mob`, `@item`, `@load`, `@validate` — see [Builder Manual](builder_manual.md))
+
+### Immortal Commands (planned)
 - `goto <room_id / player>` — Teleports the immortal instantly to the specified room or player.
 - `at <room_id / player> <command>` — Executes a command at the location of the specified target without moving the immortal.
 - `force <player> <command>` — Forces a player to execute a command.
@@ -42,7 +106,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 - `switch <mob_id>` — Possesses an NPC, taking control of its actions.
 - `return` — Releases control of a possessed NPC, returning to the immortal character.
 
-### God Commands
+### God Commands (planned)
 - `@purge [target]` — Deletes transient entities (e.g. mobs, items, corpses) from the current room.
 - `@slay <player / mob>` — Instantly reduces a target's health to 0, killing them.
 - `@restore <player>` — Fully restores a player's health, mana, stamina, and resource pools.
@@ -51,7 +115,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 - `freeze <player>` / `unfreeze <player>` — Locks a player's account to prevent them from executing any commands.
 - `load <item_id / mob_id>` — Loads a new instance of an item or mobile into the current room.
 
-### Admin Commands
+### Admin Commands (planned)
 - `shutdown` — Initiates a graceful shutdown of the server.
 - `restart` — Gracefully restarts the server.
 - `wizlock` — Locks the server, permitting only staff with `Builder` access or higher to connect.
