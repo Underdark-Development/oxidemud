@@ -602,6 +602,7 @@ fn generate_default_content(
             equipment: None,
             set: None,
             triggers: Vec::new(),
+            params: HashMap::new(),
         })?,
         "mobs" => toml::to_string_pretty(&MobTemplate {
             id: id.to_string(),
@@ -638,6 +639,7 @@ fn generate_default_content(
             friendly: false,
             skills: Vec::new(),
             scripts: Vec::new(),
+            params: HashMap::new(),
         })?,
         "races" => toml::to_string_pretty(&RaceTemplate {
             id: id.to_string(),
@@ -651,6 +653,7 @@ fn generate_default_content(
             appearance_bounds: AppearanceBounds::default(),
             age_default: 20,
             age_max: 100,
+            params: HashMap::new(),
         })?,
         "classes" => toml::to_string_pretty(&ClassTemplate {
             id: id.to_string(),
@@ -665,6 +668,7 @@ fn generate_default_content(
             allowed_races: Vec::new(),
             allowed_alignments: Vec::new(),
             auto_skills: Vec::new(),
+            params: HashMap::new(),
             skill_pool: Vec::new(),
             starting_skill_slots: 3,
             starting_items: Vec::new(),
@@ -678,6 +682,7 @@ fn generate_default_content(
             skill_type: oxide_core::SkillType::Combat,
             max_rank: 100,
             script: None,
+            params: HashMap::new(),
         })?,
         "stances" => toml::to_string_pretty(&StanceDef {
             id: id.to_string(),
@@ -687,11 +692,13 @@ fn generate_default_content(
             damage_bonus: 0,
             ac_penalty: 0,
             min_level: 1,
+            params: HashMap::new(),
         })?,
         "sets" => toml::to_string_pretty(&SetDef {
             id: id.to_string(),
             name: id.to_string(),
             bonuses: Vec::new(),
+            params: HashMap::new(),
         })?,
         "affixes" => toml::to_string_pretty(&AffixDef {
             id: id.to_string(),
@@ -704,12 +711,14 @@ fn generate_default_content(
             quality_min: "common".to_string(),
             slot: Vec::new(),
             weight: 1,
+            params: HashMap::new(),
         })?,
         "passives" => toml::to_string_pretty(&PassiveDef {
             id: id.to_string(),
             name: id.to_string(),
             description: String::new(),
             effects: Vec::new(),
+            params: HashMap::new(),
         })?,
         "areas" => toml::to_string_pretty(&AreaTemplate {
             id: id.to_string(),
@@ -734,6 +743,7 @@ fn generate_default_content(
             content: RoomContent::default(),
             allow_revive: false,
             script: None,
+            params: HashMap::new(),
         })?,
         _ => return Err(format!("unknown category: {category}").into()),
     };

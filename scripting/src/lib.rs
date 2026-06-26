@@ -495,6 +495,15 @@ impl ScriptingBridge for ScriptEngine {
         scope.push("target", target);
         scope.push("world", ScriptWorld::new(world));
 
+        // Inject ScriptParams if any
+        if let Ok(mut q) = world.query_one::<&oxide_core::ScriptParams>(entity) {
+            if let Some(params) = q.get() {
+                for (k, v) in &params.0 {
+                    scope.push(k.clone(), v.clone());
+                }
+            }
+        }
+
         self.engine
             .call_fn::<bool>(&mut scope, &ast, "on_trigger", ())
             .map_err(|e| e.to_string())
@@ -564,6 +573,15 @@ impl ScriptingBridge for ScriptEngine {
         scope.push("self", entity);
         scope.push("world", ScriptWorld::new(world));
 
+        // Inject ScriptParams if any
+        if let Ok(mut q) = world.query_one::<&oxide_core::ScriptParams>(entity) {
+            if let Some(params) = q.get() {
+                for (k, v) in &params.0 {
+                    scope.push(k.clone(), v.clone());
+                }
+            }
+        }
+
         self.engine
             .call_fn::<Option<String>>(&mut scope, &ast, "on_ai_pulse", ())
             .map_err(|e| e.to_string())
@@ -576,12 +594,21 @@ impl ScriptingBridge for ScriptEngine {
         message: &str,
         world: &mut World,
     ) -> Result<(), String> {
-        let mut scripts_to_run: Vec<String> = Vec::new();
+        // Collect scripts alongside their associated parameter mapping if any
+        let mut scripts_to_run: Vec<(String, HashMap<String, String>)> = Vec::new();
 
         if let Ok(mut q) = world.query_one::<&Npc>(script_entity) {
             if let Some(npc) = q.get() {
                 if let Some(ref s) = npc.script {
-                    scripts_to_run.push(s.clone());
+                    let mut params = HashMap::new();
+                    if let Ok(mut q_params) =
+                        world.query_one::<&oxide_core::ScriptParams>(script_entity)
+                    {
+                        if let Some(p) = q_params.get() {
+                            params = p.0.clone();
+                        }
+                    }
+                    scripts_to_run.push((s.clone(), params));
                 }
             }
         }
@@ -589,7 +616,15 @@ impl ScriptingBridge for ScriptEngine {
         if let Ok(mut q) = world.query_one::<&Room>(script_entity) {
             if let Some(room) = q.get() {
                 if let Some(ref s) = room.script {
-                    scripts_to_run.push(s.clone());
+                    let mut params = HashMap::new();
+                    if let Ok(mut q_params) =
+                        world.query_one::<&oxide_core::ScriptParams>(script_entity)
+                    {
+                        if let Some(p) = q_params.get() {
+                            params = p.0.clone();
+                        }
+                    }
+                    scripts_to_run.push((s.clone(), params));
                 }
             }
         }
@@ -599,20 +634,24 @@ impl ScriptingBridge for ScriptEngine {
                 for trigger in &triggers.0 {
                     if trigger.event == "say" {
                         if let Some(ref s) = trigger.script {
-                            scripts_to_run.push(s.clone());
+                            scripts_to_run.push((s.clone(), trigger.params.clone()));
                         }
                     }
                 }
             }
         }
 
-        for script_path in scripts_to_run {
+        for (script_path, params) in scripts_to_run {
             let ast = self.get_ast(&script_path)?;
             let mut scope = Scope::new();
             scope.push("self", script_entity);
             scope.push("speaker", speaker);
             scope.push("message", message.to_string());
             scope.push("world", ScriptWorld::new(world));
+
+            for (k, v) in params {
+                scope.push(k, v);
+            }
 
             self.engine
                 .call_fn::<()>(&mut scope, &ast, "on_say", ())
@@ -634,6 +673,13 @@ impl ScriptingBridge for ScriptEngine {
         scope.push("actor", actor);
         scope.push("target", target);
         scope.push("world", ScriptWorld::new(world));
+
+        // SkillDef parameters injection is handled by resolving SkillDef from learned skills or by checking if the skill entity or registry params exist.
+        // We can check if `actor` has the skill or query the database/registry. Let's look up the skill in LearnedSkills or Skills component if it is attached.
+        // But scripting uses execute_use_skill. Since the parameters are part of SkillDef (which is in registry), they could be loaded or injected. Let's look up SkillDef params.
+        // Wait, is there a SkillDef in the world we can query? Or is it passed in/available?
+        // Let's search how execute_use_skill is called in the engine.
+        // Let's inspect where execute_use_skill is called in core first.
 
         self.engine
             .call_fn::<()>(&mut scope, &ast, "on_use", ())
@@ -947,5 +993,48 @@ fn test_fail() {
             .eval_with_scope::<bool>(&mut scope, r#"world.is_exit_closed(self, "north")"#)
             .unwrap();
         assert!(!is_closed_now);
+    }
+
+    #[test]
+    fn test_say_hook_dynamic_parameters() {
+        use oxide_core::ScriptParams;
+        let engine = ScriptEngine::new("../content/scripts");
+        let mut world = World::new();
+
+        let room_id = world.spawn((
+            Room::new("Para Room", "Desc").with_script(Some("rooms/open_sesame.rhai".to_string())),
+            {
+                let mut p = HashMap::new();
+                p.insert("keyword".to_string(), "please open".to_string());
+                p.insert("direction".to_string(), "north".to_string());
+                ScriptParams(p)
+            },
+        ));
+
+        let mut exits = oxide_core::RoomExits(vec![oxide_core::Exit::new(
+            oxide_core::Direction::North,
+            room_id,
+        )]);
+        exits.0[0].set_closed(true);
+        exits.0[0].set_locked(true);
+        world.insert(room_id, (exits,)).unwrap();
+
+        // Speaker entity
+        let speaker = world.spawn(());
+
+        // Execute say hook which triggers open_sesame.rhai
+        engine
+            .execute_say_hook(room_id, speaker, "please open", &mut world)
+            .unwrap();
+
+        // Check if the door was opened using the dynamic keyword & direction parameters
+        let is_closed = world
+            .query_one::<&oxide_core::RoomExits>(room_id)
+            .unwrap()
+            .get()
+            .unwrap()
+            .0[0]
+            .is_closed();
+        assert!(!is_closed);
     }
 }

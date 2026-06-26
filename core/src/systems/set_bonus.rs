@@ -259,6 +259,7 @@ mod tests {
                         radius: None,
                     }],
                 }],
+                params: std::collections::HashMap::new(),
             },
         );
 

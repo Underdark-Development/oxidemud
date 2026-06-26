@@ -5598,6 +5598,7 @@ mod tests {
                 cooldown_secs: 2,
                 description: "Solar blessing".into(),
             }),
+            params: std::collections::HashMap::new(),
         };
         registry.deities.insert("solaris".into(), solaris);
 

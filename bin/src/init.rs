@@ -41,6 +41,7 @@ pub fn spawn_area(
             Room::new(&room_tpl.name, &room_tpl.description).with_script(room_tpl.script.clone()),
             oxide_core::RoomFlags::default(),
             oxide_core::SpawnKey(key),
+            oxide_core::ScriptParams(room_tpl.params.clone()),
         ));
         world.insert(entity, (Position::new(entity),)).unwrap();
         if room_tpl.allow_revive {

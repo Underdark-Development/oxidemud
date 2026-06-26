@@ -51,6 +51,8 @@ pub struct SkillDef {
     pub max_rank: u16,
     #[serde(default)]
     pub script: Option<String>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 impl SkillDef {
@@ -67,6 +69,7 @@ impl SkillDef {
             skill_type,
             max_rank: 100,
             script: None,
+            params: HashMap::new(),
         }
     }
 }

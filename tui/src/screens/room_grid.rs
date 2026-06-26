@@ -647,6 +647,7 @@ impl Screen for RoomGridScreen {
                         content: Default::default(),
                         allow_revive: false,
                         script: None,
+                        params: HashMap::new(),
                     };
 
                     let new_toml = toml::to_string_pretty(&new_room)

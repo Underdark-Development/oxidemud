@@ -398,6 +398,7 @@ mod tests {
                 }),
                 set: None,
                 triggers: vec![],
+                params: std::collections::HashMap::new(),
             },
         );
         t.affixes.insert(
@@ -413,6 +414,7 @@ mod tests {
                 quality_min: "uncommon".into(),
                 slot: vec!["weapon".into()],
                 weight: 1,
+                params: std::collections::HashMap::new(),
             },
         );
         t.affixes.insert(
@@ -428,6 +430,7 @@ mod tests {
                 quality_min: "common".into(),
                 slot: vec!["weapon".into()],
                 weight: 2,
+                params: std::collections::HashMap::new(),
             },
         );
         t
@@ -506,6 +509,7 @@ mod tests {
                 }),
                 set: None,
                 triggers: vec![],
+                params: std::collections::HashMap::new(),
             },
         );
         t.affixes.insert(
@@ -521,6 +525,7 @@ mod tests {
                 quality_min: "common".into(),
                 slot: vec!["weapon".into()],
                 weight: 2,
+                params: std::collections::HashMap::new(),
             },
         );
 

@@ -156,6 +156,7 @@ mod tests {
                 name: "Adaptability".into(),
                 description: "Versatile and adaptable.".into(),
                 effects: vec![],
+                params: std::collections::HashMap::new(),
             },
         );
         t.passives.insert(
@@ -165,6 +166,7 @@ mod tests {
                 name: "Darkvision".into(),
                 description: "See in the dark.".into(),
                 effects: vec![],
+                params: std::collections::HashMap::new(),
             },
         );
 
@@ -182,6 +184,7 @@ mod tests {
                 appearance_bounds: crate::templates::AppearanceBounds::default(),
                 age_default: 20,
                 age_max: 100,
+                params: std::collections::HashMap::new(),
             },
         );
         t.classes.insert(
@@ -208,6 +211,7 @@ mod tests {
                 starting_items: vec![],
                 starting_gold: crate::templates::WalletAmount::default(),
                 deity_policy: DeityPolicy::Any,
+                params: std::collections::HashMap::new(),
             },
         );
         t

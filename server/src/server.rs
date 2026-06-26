@@ -1105,6 +1105,7 @@ mod tests {
     use super::*;
     use oxide_core::templates::{ClassAttributeMods, ClassTemplate, DeityPolicy, WalletAmount};
     use oxide_core::CombatStats;
+    use std::collections::HashMap;
 
     fn make_player(world: &mut World, level: u8, xp: u64, attrs: Attributes) -> Entity {
         let e = world.spawn(());
@@ -1253,6 +1254,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
         registry.classes.insert("warrior".to_string(), warrior);
         let _ = TEMPLATES.set(Arc::new(registry));
@@ -1278,6 +1280,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
 
         // Level 1
@@ -1319,6 +1322,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
 
         // Level 5

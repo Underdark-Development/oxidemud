@@ -1022,6 +1022,7 @@ mod tests {
             shop: None,
             friendly: false,
             scripts: vec![],
+            params: HashMap::new(),
         };
         registry.mobs.insert("goblin".to_string(), mob);
 
@@ -1057,6 +1058,7 @@ mod tests {
             appearance_bounds: AppearanceBounds::default(),
             age_default: 20,
             age_max: 100,
+            params: HashMap::new(),
         };
         let class = ClassTemplate {
             id: "warrior".to_string(),
@@ -1076,6 +1078,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
         registry.races.insert("human".to_string(), race);
         registry.classes.insert("warrior".to_string(), class);
@@ -1099,6 +1102,7 @@ mod tests {
             appearance_bounds: AppearanceBounds::default(),
             age_default: 20,
             age_max: 100,
+            params: HashMap::new(),
         };
         let class = ClassTemplate {
             id: "warrior".to_string(),
@@ -1118,6 +1122,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
         let item = ItemTemplate {
             id: "sword".to_string(),
@@ -1143,6 +1148,7 @@ mod tests {
             equipment: None,
             set: None,
             triggers: vec![],
+            params: HashMap::new(),
         };
         registry.races.insert("human".to_string(), race);
         registry.classes.insert("warrior".to_string(), class);
@@ -1192,6 +1198,7 @@ mod tests {
             shop: None,
             friendly: false,
             scripts: vec![],
+            params: HashMap::new(),
         };
         registry.mobs.insert("goblin".to_string(), mob);
 
@@ -1222,6 +1229,7 @@ mod tests {
             content: RoomContent::default(),
             allow_revive: false,
             script: None,
+            params: HashMap::new(),
         };
 
         let r2 = RoomTemplate {
@@ -1238,6 +1246,7 @@ mod tests {
             content: RoomContent::default(),
             allow_revive: false,
             script: None,
+            params: HashMap::new(),
         };
 
         area.rooms.insert("room1".to_string(), r1);
@@ -1259,6 +1268,7 @@ mod tests {
             sell_rate: 1.2,
             restock_secs: 300,
             inventory: vec![],
+            params: HashMap::new(),
         };
         let item = ItemTemplate {
             id: "sword".to_string(),
@@ -1279,6 +1289,7 @@ mod tests {
             equipment: None,
             set: None,
             triggers: vec![],
+            params: HashMap::new(),
         };
         registry.shops.insert("shop".to_string(), shop);
         registry.items.insert("sword".to_string(), item);

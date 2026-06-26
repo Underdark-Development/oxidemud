@@ -181,6 +181,8 @@ pub struct RaceTemplate {
     /// Maximum natural age for this race.
     #[serde(default = "default_age_max")]
     pub age_max: u16,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 const fn default_age() -> u16 {
@@ -247,6 +249,8 @@ pub struct ClassTemplate {
     pub allowed_alignments: Vec<String>,
     #[serde(default)]
     pub auto_skills: Vec<String>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
     #[serde(default)]
     pub skill_pool: Vec<String>,
     #[serde(default = "default_starting_skill_slots")]
@@ -420,6 +424,8 @@ pub struct DeityTemplate {
     #[serde(default)]
     pub allowed_alignments: Vec<String>,
     pub prayer_effect: Option<PrayerEffect>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +446,8 @@ pub struct StanceDef {
     pub ac_penalty: i8,
     #[serde(default = "default_min_level")]
     pub min_level: u8,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 const fn default_min_level() -> u8 {
@@ -489,6 +497,8 @@ pub struct TriggerDef {
     pub target: String,
     #[serde(default)]
     pub script: Option<String>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -531,6 +541,8 @@ pub struct ItemTemplate {
     pub set: Option<SetMembership>,
     #[serde(default)]
     pub triggers: Vec<TriggerDef>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 fn default_quality() -> String {
@@ -664,6 +676,8 @@ pub struct MobTemplate {
     pub friendly: bool,
     #[serde(default)]
     pub scripts: Vec<ScriptHookEntry>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 impl MobTemplate {
@@ -720,6 +734,7 @@ impl MobTemplate {
             },
             crate::components::Equipment::new(),
             ai_state,
+            crate::components::ScriptParams(self.params.clone()),
         ));
 
         if let Some(ref race_id) = self.race {
@@ -902,6 +917,8 @@ pub struct SetDef {
     pub name: String,
     #[serde(default)]
     pub bonuses: Vec<SetBonusEntry>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -923,6 +940,8 @@ pub struct PassiveDef {
     pub description: String,
     #[serde(default)]
     pub effects: Vec<PassiveEffect>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -948,6 +967,8 @@ pub struct AffixDef {
     pub slot: Vec<String>,
     #[serde(default = "default_weight")]
     pub weight: u32,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 const fn default_weight() -> u32 {
@@ -1038,6 +1059,8 @@ pub struct RoomTemplate {
     pub allow_revive: bool,
     #[serde(default)]
     pub script: Option<String>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1128,6 +1151,8 @@ pub struct ShopTemplate {
     pub restock_secs: u64,
     #[serde(default)]
     pub inventory: Vec<ShopInventoryEntry>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1819,6 +1844,7 @@ mod tests {
             appearance_bounds: AppearanceBounds::default(),
             age_default: 20,
             age_max: 100,
+            params: HashMap::new(),
         }
     }
 
@@ -1849,6 +1875,7 @@ mod tests {
             starting_items: Vec::new(),
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         }
     }
 
@@ -1992,6 +2019,7 @@ effects = [{ effect_type = "stat", stat = "constitution", amount = 2 }]
             appearance_bounds: AppearanceBounds::default(),
             age_default: 20,
             age_max: 100,
+            params: HashMap::new(),
         };
         assert_eq!(r.attributes.strength, 10);
         assert!(r.allowed_classes.is_empty());

@@ -325,6 +325,7 @@ impl EntityInspectorScreen {
                         cast: "spell_id".to_string(),
                         target: "target".to_string(),
                         script: None,
+                        params: std::collections::HashMap::new(),
                     },
                 );
             }

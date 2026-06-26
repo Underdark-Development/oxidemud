@@ -281,6 +281,7 @@ impl OxideMcpServer {
             content: RoomContent::default(),
             allow_revive: false,
             script: None,
+            params: HashMap::new(),
         };
         let room_str = match toml::to_string_pretty(&room) {
             Ok(s) => s,
@@ -422,6 +423,7 @@ impl OxideMcpServer {
             content: RoomContent::default(),
             allow_revive: false,
             script: None,
+            params: HashMap::new(),
         };
         let room_str = match toml::to_string_pretty(&room) {
             Ok(s) => s,
@@ -800,6 +802,7 @@ impl OxideMcpServer {
             friendly: false,
             skills: Vec::new(),
             scripts: Vec::new(),
+            params: HashMap::new(),
         };
         match toml::to_string_pretty(&mob) {
             Ok(content) => {
@@ -877,6 +880,7 @@ impl OxideMcpServer {
             equipment: None,
             set: None,
             triggers: Vec::new(),
+            params: HashMap::new(),
         };
         match toml::to_string_pretty(&item) {
             Ok(content) => {

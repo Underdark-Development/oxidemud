@@ -2363,6 +2363,7 @@ mod tests {
         ClassAttributeMods, ClassTemplate, DeityPolicy, DeityTemplate, TemplateRegistry,
         WalletAmount,
     };
+    use std::collections::HashMap;
 
     #[test]
     fn test_deity_filtering() {
@@ -2387,6 +2388,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
         registry.classes.insert(warrior.id.clone(), warrior);
 
@@ -2411,6 +2413,7 @@ mod tests {
                 "chaotic_neutral".to_string(),
             ],
             prayer_effect: None,
+            params: HashMap::new(),
         };
         registry.deities.insert(astra.id.clone(), astra);
 
@@ -2438,6 +2441,7 @@ mod tests {
                 "chaotic_evil".to_string(),
             ],
             prayer_effect: None,
+            params: HashMap::new(),
         };
         registry.deities.insert(kronos.id.clone(), kronos);
 
@@ -2462,6 +2466,7 @@ mod tests {
                 "chaotic_evil".to_string(),
             ],
             prayer_effect: None,
+            params: HashMap::new(),
         };
         registry.deities.insert(vulgath.id.clone(), vulgath);
 
@@ -2489,6 +2494,7 @@ mod tests {
                 "chaotic_evil".to_string(),
             ],
             prayer_effect: None,
+            params: HashMap::new(),
         };
         registry.deities.insert(karrgath.id.clone(), karrgath);
 
@@ -2565,6 +2571,7 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
         };
         registry.classes.insert("warrior".to_string(), warrior);
 

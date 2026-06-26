@@ -99,6 +99,7 @@ mod tests {
             cast: "fire_bolt".into(),
             target: "target".into(),
             script: None,
+            params: std::collections::HashMap::new(),
         }]),));
 
         let mut q_eq = world.query_one::<&mut Equipment>(e).unwrap();
@@ -121,6 +122,7 @@ mod tests {
             cast: "fire_bolt".into(),
             target: "target".into(),
             script: None,
+            params: std::collections::HashMap::new(),
         }]),));
 
         let mut q_eq = world.query_one::<&mut Equipment>(e).unwrap();
