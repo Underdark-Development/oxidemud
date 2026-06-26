@@ -117,12 +117,13 @@ When a character or NPC dies, their body is represented as a transient `Corpse` 
 - The corpse is populated with the victim's inventory items and equipped items.
 - Corpses are transient and are not saved to the SQLite database.
 - **Decay Timers**:
-  - **Player Corpses**: Decay after **10 minutes** (600 seconds) of game time.
-  - **NPC Corpses**: Decay after **5 minutes** (300 seconds) of game time.
-- **Expiration**: When a corpse's decay timer expires, a pulse sweep transfers all remaining items in the corpse directly onto the room floor and despawns the corpse entity.
+  - **Player Corpses**: Decay after **30 minutes** (1800 seconds).
+  - **NPC Corpses**: Decay after **5 minutes** (300 seconds).
+- **Expiration**: When a corpse's decay timer expires, a pulse sweep transfers all remaining items (inventory + equipment) from the corpse onto the room floor and despawns the corpse entity.
 
-### 2. Loot Rules
-Loot rules determine who has the right to search or take items from a corpse:
+### 2. Loot Rules (Planned)
+`LootRule` variants exist on the `Corpse` component but are **not enforced by the loot command** — any player can loot any corpse. Future enforcement:
+
 - **Public**: Anyone can loot the corpse. (Default for NPC corpses).
 - **GroupOnly**: Only the owner or members of the owner's party/group can loot. (Default for player corpses).
 - **OwnerOnly**: Only the owner of the character can loot.
@@ -130,25 +131,54 @@ Loot rules determine who has the right to search or take items from a corpse:
 
 ### 3. Looting Commands
 In-game characters interact with corpses using standard command syntax:
-- `loot <corpse>`: Transfers all items from the corpse into the player's inventory (bypasses loot rules).
+- `loot <corpse>`: Transfers all **inventory** items from the corpse into the player's inventory. Equipped items are not taken by `loot`.
 - `get <item> <corpse>`: Transfers a specific item from the corpse's inventory into the player's inventory (not yet wired — use `loot`).
-- `get all <corpse>`: Transfers all items from the corpse into the player's inventory.
+- `get all <corpse>`: Transfers all items from the corpse's inventory into the player's inventory.
 
 ---
 
 ## Death & Ghost System
 
-When a player's health reaches 0 (or they choose to die while unconscious), they enter **ghost mode**.
+When a player's health drops to **−10 or below** (or they choose to die while unconscious via `die`), they enter **ghost mode** (`PlayerState::Dead`). NPCs die immediately when health reaches 0 or below.
 
-### Death Flow
+### Death Thresholds
 
-1. Health drops to 0 or below → `PlayerState` transitions to `Dead`
-2. A `Ghost` marker component is added — restricts commands and interactions
-3. A corpse entity spawns in the room containing the player's inventory and equipment
-4. The player's inventory and equipment are cleared
-5. The player's health is reset to full (ghost form)
-6. A death broadcast is sent to the room
-7. The player receives the ghost prompt
+| Condition | Entity Type | Result |
+|---|---|---|
+| HP ≤ 0 | NPC | `handle_death()` — corpse spawned, NPC despawned |
+| HP ≤ 0 (and > −10) | Player | **Unconscious** — bleed-out begins (lose 1 HP per big tick) |
+| HP ≤ −10 | Player | **Dead** (ghost) — `handle_death()` called |
+| `die` command | Player (unconscious) | Voluntary death — same as reaching −10 |
+
+### Death Flow (Players)
+
+1. `handle_death(world, entity)` is called (from combat, bleed-out, or `die` command)
+2. `spawn_corpse()` creates a corpse entity in the room containing the player's **inventory** and **equipment**
+3. `handle_combatant_down()` reassigns attackers to new targets
+4. Player's `Inventory.0` and `Equipment.slots` are cleared
+5. **XP penalty** applied: lose **10% of current XP**, capped to prevent de-leveling more than 5 levels (floor = level 1)
+6. Health reset to **1** (not full)
+7. `PlayerState::Dead` inserted (ghost mode)
+8. `LastMessenger` component removed
+9. Player teleported to their **`RecallRoom`** (or stays in current room if no recall set)
+10. `Dirty` marker added for persistence
+11. Death broadcast sent to the room: *"<name> is dead! R.I.P."*
+
+### Death Flow (NPCs)
+
+1. `handle_death()` called immediately at HP ≤ 0
+2. Corpse spawned with inventory and equipment
+3. Attacker awarded XP: `victim_level² × 50`
+4. NPC entity despawned
+
+### Bleed-Out (Unconscious State)
+
+When a player's HP drops to 0 or below but above −10, they enter `PlayerState::Alive { rest: RestState::Unconscious }`:
+
+- Lose **1 HP per big tick** (30–90s randomized)
+- Most commands are blocked; only `die` is whitelisted
+- `die` triggers `handle_death()` — submits to death and becomes a ghost
+- Without intervention, bleed-out reaches −10 on the next big tick
 
 ### Ghost State Restrictions
 
@@ -156,31 +186,43 @@ While in ghost form (`PlayerState::Dead`):
 
 | Allowed | Blocked |
 |---|---|
-| `look`, `say`, `tell`, `reply` | `kill`, `flee`, `get`, `drop`, `wear`, `wield`, `remove` |
-| `die`, `reclaim`, `revive` | All combat, equipment, and inventory commands |
+| `look`, `say` (ghost-text), `tell`, `reply` | `kill`, `flee`, `get`, `drop`, `wear`, `wield`, `remove` |
+| `die` (no-op while already dead), `reclaim`, `revive` | All combat, equipment, and inventory commands |
 | Movement (rooms) | Rest state changes (`sit`, `rest`, `sleep`, `wake`, `stand`) |
-| `quit` | |
+| `score`, `commands`, `help`, `quit` | |
 
-Ghost speech renders in alternating cyan/bright-blue colors. Ghosts appear as a cold shiver to normal players (unless they have `detect_invisible` or `detect_undead` effects, in which case they see the ghost).
+Ghost speech renders with alternating cyan/bright-blue characters via `format_ghost_text()`. Ghosts appear as *"You feel a cold shiver run down your spine."* to normal players. Players with `detect_invisible` or `detect_undead` active effects see the ghost's name and movement: *"The ghost of <name> floats north."*
 
 ### Reclaiming Your Body
 
-**`reclaim`** — If the player's corpse is in the same room, they can reclaim it:
+**`reclaim`** — If the player's corpse is in the same room, reclaim restores everything:
 
-1. Equipment from the corpse is transferred to the player
-2. Inventory from the corpse is transferred to the player
-3. Health is restored to full
-4. `PlayerState` returns to `Alive { rest: Standing }`
-5. The corpse entity is despawned
-6. A room broadcast announces the return
+1. Equipment from the corpse is transferred back to `Equipment.slots`
+2. Inventory from the corpse is transferred back to `Inventory.0`
+3. Health restored to max
+4. `PlayerState::Alive { rest: RestState::Standing }` inserted
+5. Corpse entity despawned
+6. `Dirty` marker added
+7. Room broadcast: *"<name> returns to life!"*
 
-**`revive`** — If the corpse is not present, the player must be in a room whose name contains "temple" or "altar". Reviving restores health and returns to alive state, but equipment and inventory remain in the corpse (must be retrieved separately).
+**`revive`** — Two paths:
 
-**`toggle resurrect`** — Players can set `no_resurrect = true` to prevent unwanted resurrection attempts.
+1. **Corpse in same room**: Delegates to `reclaim` (same behavior)
+2. **No corpse in room, in an `allow_revive` room**: Revives with health restored to max and state set to alive, but **items remain in the corpse** (must be retrieved from the corpse or the floor after it decays)
 
-### Death Penalty
+A room allows revive-from-ghost when its template has `allow_revive = true` (a boolean field on `RoomTemplate`, default `false`).
 
-XP penalty on death is tracked via `DeathPenalty` resource (`xp_penalty_pct`, `corpse_retention_secs`). The system marks affected entities as dirty so the penalty persists to the database.
+**`toggle resurrect`** / **`toggle res`** — Sets `Player.no_resurrect` flag. Stored on the player record but **not yet enforced** by reclaim/revive logic.
+
+### XP Penalty
+
+Applied on death in `handle_death()`:
+
+```
+loss = current_xp × 0.10
+```
+
+Capped to prevent de-leveling more than 5 levels below current level. Uses the cubic XP curve (`level³ × 100`) to compute the floor. The `Dirty` marker is added so the penalty persists to the database.
 
 ---
 
@@ -375,7 +417,7 @@ Default prompt is configurable via `server.toml` (`default_prompt` field).
 
 **`colors`** — Toggles ANSI color output (persisted to player DB).
 
-**`toggle`** — Toggles player settings. Currently only `toggle resurrect` is wired (prevents resurrection from temples).
+**`toggle`** — Toggles player settings. Currently only `toggle resurrect` is wired (prevents resurrection in `allow_revive` rooms).
 
 ---
 

@@ -48,7 +48,7 @@ server_name = "OxideMUD"
 max_clients = 256
 
 # The default prompt template assigned to new characters
-default_prompt = "<%hhp %hmhp> "
+default_prompt = "<%h/%Hhp %m/%Mmp> "
 
 [logging]
 # Number of days to retain server logs before pruning
