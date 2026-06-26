@@ -305,6 +305,23 @@ impl Database {
             )?;
         }
 
+        if current < 17 {
+            // Migration 17: add recall_room_id column to characters
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT recall_room_id FROM characters LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn.execute_batch(
+                    "ALTER TABLE characters ADD COLUMN recall_room_id INTEGER REFERENCES entities(id);",
+                )?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (17)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

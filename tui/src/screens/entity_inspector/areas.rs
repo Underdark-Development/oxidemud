@@ -12,7 +12,6 @@ impl EntityInspectorScreen {
         Self::add_field(table, "id", &area.id);
         Self::add_field(table, "name", &area.name);
         Self::add_field(table, "description", &area.description);
-        Self::add_field(table, "spawn_room", &area.spawn_room);
         Self::add_field(table, "rooms", area.rooms.len());
         Self::add_field(table, "flags", area.flags.join(", "));
 
@@ -75,7 +74,6 @@ impl EntityInspectorScreen {
             "id" => area.id = value.to_string(),
             "name" => area.name = value.to_string(),
             "description" => area.description = value.to_string(),
-            "spawn_room" => area.spawn_room = value.to_string(),
             "flags" => area.flags = value.split(',').map(|s| s.trim().to_string()).collect(),
             "level_range" => {
                 if value.is_empty() {

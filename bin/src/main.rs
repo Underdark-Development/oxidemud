@@ -165,44 +165,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Loaded {} affix(es)", templates.affixes.len());
     tracing::info!("Loaded {} passive(s)", templates.passives.len());
 
-    // Spawn all areas into the ECS world
-    let spawn_room = {
-        let mut entry_room = void_room;
-        for area in templates.areas.values() {
-            let room = spawn_area(&mut world, area, &templates);
-            if entry_room == void_room {
-                entry_room = room;
-            }
-            let sub_count = templates
-                .areas
-                .keys()
-                .filter(|id| id.starts_with(&format!("{}.", area.id)))
-                .count();
-            if sub_count > 0 {
-                tracing::info!(
-                    "Spawned area '{}' with {} room(s), {} sub-area(s); spawn room: {}",
-                    area.name,
-                    area.rooms.len(),
-                    sub_count,
-                    area.spawn_room
-                );
-            } else {
-                tracing::info!(
-                    "Spawned area '{}' with {} room(s); spawn room: {}",
-                    area.name,
-                    area.rooms.len(),
-                    area.spawn_room
-                );
-            }
+    // Validate templates before spawning
+    let errors = templates.validate();
+    if !errors.is_empty() {
+        for err in &errors {
+            tracing::error!(
+                "Validation error in {} '{}': {}",
+                err.template_type,
+                err.template_id,
+                err.message
+            );
         }
-        entry_room
-    };
+        panic!("Template validation failed — refusing to start");
+    }
+
+    // Spawn all areas into the ECS world
+    for area in templates.areas.values() {
+        spawn_area(&mut world, area, &templates);
+        let sub_count = templates
+            .areas
+            .keys()
+            .filter(|id| id.starts_with(&format!("{}.", area.id)))
+            .count();
+        if sub_count > 0 {
+            tracing::info!(
+                "Spawned area '{}' with {} room(s), {} sub-area(s)",
+                area.name,
+                area.rooms.len(),
+                sub_count,
+            );
+        } else {
+            tracing::info!(
+                "Spawned area '{}' with {} room(s)",
+                area.name,
+                area.rooms.len(),
+            );
+        }
+    }
 
     let commands_cmd_look = commands::cmd_look;
     let mut server = Server::new(config.bind_addr(), world, void_room)
         .with_database(db)
         .with_templates(templates)
-        .with_spawn_room(spawn_room)
         .with_on_entity_spawned(move |world, conn, registry| {
             commands_cmd_look(world, conn, "", "", registry);
         });

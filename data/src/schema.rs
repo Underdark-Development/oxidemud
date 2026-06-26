@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS characters (
     entity_id INTEGER NOT NULL REFERENCES entities(id),
     room_id INTEGER REFERENCES entities(id),
     spawn_key TEXT,
+    recall_room_id INTEGER REFERENCES entities(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT
 );

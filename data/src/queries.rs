@@ -77,6 +77,7 @@ pub struct CharacterRow {
     pub entity_id: i64,
     pub room_id: Option<i64>,
     pub spawn_key: Option<String>,
+    pub recall_room_id: Option<i64>,
     pub created_at: String,
     pub last_seen: Option<String>,
 }
@@ -86,7 +87,7 @@ pub fn get_characters_by_account(
     account_id: i64,
 ) -> Result<Vec<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, recall_room_id, created_at, last_seen \
          FROM characters WHERE account_id = ?1 ORDER BY created_at",
     )?;
     let rows = stmt.query_map(params![account_id], |row| {
@@ -105,8 +106,9 @@ pub fn get_characters_by_account(
             entity_id: row.get(11)?,
             room_id: row.get(12)?,
             spawn_key: row.get(13)?,
-            created_at: row.get(14)?,
-            last_seen: row.get(15)?,
+            recall_room_id: row.get(14)?,
+            created_at: row.get(15)?,
+            last_seen: row.get(16)?,
         })
     })?;
     rows.collect()
@@ -117,7 +119,7 @@ pub fn get_character_by_name(
     name: &str,
 ) -> Result<Option<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, recall_room_id, created_at, last_seen \
          FROM characters WHERE name = ?1",
     )?;
     let mut rows = stmt.query(params![name])?;
@@ -137,8 +139,9 @@ pub fn get_character_by_name(
             entity_id: row.get(11)?,
             room_id: row.get(12)?,
             spawn_key: row.get(13)?,
-            created_at: row.get(14)?,
-            last_seen: row.get(15)?,
+            recall_room_id: row.get(14)?,
+            created_at: row.get(15)?,
+            last_seen: row.get(16)?,
         })),
         None => Ok(None),
     }
@@ -210,6 +213,18 @@ pub fn update_character_spawn_key(
     conn.execute(
         "UPDATE characters SET spawn_key = ?1 WHERE entity_id = ?2",
         params![spawn_key, entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn update_character_recall_room(
+    conn: &Connection,
+    entity_id: i64,
+    recall_room_id: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE characters SET recall_room_id = ?1 WHERE entity_id = ?2",
+        params![recall_room_id, entity_id],
     )?;
     Ok(())
 }

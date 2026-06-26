@@ -43,7 +43,6 @@ pub struct Server {
     commands: CommandDispatch,
     next_conn_id: AtomicU64,
     void_room: Entity,
-    spawn_room: Entity,
     db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     shutdown_complete: Arc<Notify>,
@@ -59,7 +58,6 @@ impl Server {
             commands: CommandDispatch::new(),
             next_conn_id: AtomicU64::new(1),
             void_room,
-            spawn_room: void_room,
             db: None,
             templates: None,
             shutdown_complete: Arc::new(Notify::new()),
@@ -72,11 +70,6 @@ impl Server {
         cb: impl Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync + 'static,
     ) -> Self {
         self.on_entity_spawned = Some(Arc::new(cb));
-        self
-    }
-
-    pub fn with_spawn_room(mut self, spawn_room: Entity) -> Self {
-        self.spawn_room = spawn_room;
         self
     }
 
@@ -125,7 +118,6 @@ impl Server {
         let commands = Arc::new(self.commands);
         let _ = COMMANDS.set(commands.clone());
         let void_room = self.void_room;
-        let spawn_room = self.spawn_room;
         let db = self.db;
         let templates = self.templates;
         let shutdown_complete = self.shutdown_complete;
@@ -164,7 +156,7 @@ impl Server {
                     let on_entity_spawned = self.on_entity_spawned.clone();
                     tokio::spawn(async move {
                         handle_connection(
-                            conn_id, stream, world, registry, commands, void_room, spawn_room, db,
+                            conn_id, stream, world, registry, commands, void_room, db,
                             templates, on_entity_spawned,
                         )
                         .await;
@@ -200,7 +192,6 @@ async fn handle_connection(
     registry: Arc<Mutex<ConnectionRegistry>>,
     commands: Arc<CommandDispatch>,
     void_room: Entity,
-    spawn_room: Entity,
     db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
@@ -326,7 +317,6 @@ async fn handle_connection(
                             &mut w,
                             &mut reg,
                             void_room,
-                            spawn_room,
                         )
                         .await;
 

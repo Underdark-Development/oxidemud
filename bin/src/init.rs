@@ -1,4 +1,4 @@
-use oxide_core::templates::{AreaTemplate, TemplateRegistry};
+use oxide_core::templates::TemplateRegistry;
 use oxide_core::{
     AiState, Armor, Attributes, Direction, Entity, Equipment, EquipmentSlot, Exit, Friendly,
     Health, Item, ItemSkillRequirement, Level, Name, Npc, PatrolRoute, Position, Race, Room,
@@ -23,12 +23,15 @@ pub fn init_world() -> (World, Entity) {
 
 /// Spawn all rooms and their mobs from the given area template into the ECS world.
 ///
-/// Returns the Entity of the room designated as `spawn_room` in the template.
-/// Each room gets [`Room`], [`Position`], and [`RoomExits`] components.
+/// Each room gets [`Room`], [`Position`], [`RoomExits`], and [`SpawnKey`] components.
 /// Exits are resolved from room IDs to entity references in a second pass.
 /// Mob spawns defined in `RoomTemplate.content.mobs` are instantiated after
 /// room entities are created.
-pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateRegistry) -> Entity {
+pub fn spawn_area(
+    world: &mut World,
+    area: &oxide_core::templates::AreaTemplate,
+    registry: &TemplateRegistry,
+) {
     use std::collections::HashMap;
 
     let mut room_map: HashMap<&str, Entity> = HashMap::new();
@@ -236,8 +239,6 @@ pub fn spawn_area(world: &mut World, area: &AreaTemplate, registry: &TemplateReg
             }
         }
     }
-
-    room_map[area.spawn_room.as_str()]
 }
 
 fn equip_mob_template_items(

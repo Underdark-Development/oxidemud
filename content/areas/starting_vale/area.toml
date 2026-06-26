@@ -1,7 +1,6 @@
 id = "starting_vale"
 name = "The Starting Vale"
 description = "A peaceful valley cradled between forested hills, home to the hamlet of Riverside."
-spawn_room = "town_square"
 
 [[spawns]]
 room = "town_square"

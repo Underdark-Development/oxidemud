@@ -169,7 +169,6 @@ pub async fn handle_character_select_state(
     world: &mut World,
     registry: &ConnectionRegistry,
     _void_room: Entity,
-    spawn_room: Entity,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let input = input.trim();
@@ -260,7 +259,7 @@ pub async fn handle_character_select_state(
                 } else {
                     let char_row = &chars[idx - 1];
                     drop(db_guard);
-                    lines.extend(load_character(flow, world, spawn_room, char_row, db).await);
+                    lines.extend(load_character(flow, world, _void_room, char_row, db).await);
                 }
             } else {
                 drop(db_guard);
@@ -1489,14 +1488,13 @@ pub async fn handle_character_create_confirm_state(
     input: &str,
     db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
-    _void_room: Entity,
-    spawn_room: Entity,
+    void_room: Entity,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     match input.trim().to_lowercase().as_str() {
         "y" | "yes" => {
-            lines.extend(finalize_character(flow, db, world, spawn_room, templates).await);
+            lines.extend(finalize_character(flow, db, world, void_room, templates).await);
         }
         "n" | "no" => {
             clear_create_buffer(flow);
@@ -1534,7 +1532,7 @@ async fn finalize_character(
     flow: &mut LoginFlow,
     db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
-    fallback_room: Entity,
+    void_room: Entity,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
@@ -1609,10 +1607,9 @@ async fn finalize_character(
         CombatStats::default()
     };
 
-    // Resolve spawn room from spawn key, falling back to area's spawn_room
     let room_entity = templates
         .and_then(|t| t.find_room_by_key(world, &spawn_key))
-        .unwrap_or(fallback_room);
+        .unwrap_or(void_room);
 
     let db_guard = db_con.lock().await;
     let conn_db = db_guard.conn();
@@ -1815,6 +1812,12 @@ async fn finalize_character(
         }
     };
 
+    // Persist initial recall room (same as spawn point)
+    if let Err(e) = oxide_data::update_character_recall_room(conn_db, entity_id, room_db_id) {
+        lines.push(format!("Error saving recall room: {e}"));
+        return lines;
+    }
+
     let gender_id = flow
         .create_buffer
         .gender
@@ -1948,7 +1951,7 @@ fn spawn_starting_item(
 async fn load_character(
     flow: &mut LoginFlow,
     world: &mut World,
-    spawn_room: Entity,
+    void_room: Entity,
     char_row: &oxide_data::CharacterRow,
     db: &Mutex<oxide_data::Database>,
 ) -> Vec<String> {
@@ -2223,7 +2226,7 @@ async fn load_character(
 
     drop(db_guard);
 
-    // Resolve starting room: last saved position → spawn_key → global spawn
+    // Resolve starting room: last saved position → spawn_key → void_room
     let saved_room = char_row.room_id.and_then(|room_db_id| {
         world
             .query::<&DbId>()
@@ -2237,12 +2240,40 @@ async fn load_character(
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
-        .unwrap_or(spawn_room);
+        .unwrap_or(void_room);
 
-    let recall_room = valid_spawn_key
-        .as_deref()
-        .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
-        .unwrap_or(spawn_room);
+    // Resolve recall room: saved recall_room_id → spawn_key → void_room
+    // Persist recall_room_id on first resolution so we never need to re-resolve.
+    let recall_room = char_row
+        .recall_room_id
+        .and_then(|recall_db_id| {
+            world
+                .query::<&DbId>()
+                .iter()
+                .find(|(_, dbid)| dbid.0 == recall_db_id)
+                .map(|(raw, _)| Entity::from(raw))
+        })
+        .unwrap_or_else(|| {
+            valid_spawn_key
+                .as_deref()
+                .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
+                .unwrap_or(void_room)
+        });
+
+    // Persist recall_room_id if it wasn't already set
+    if char_row.recall_room_id.is_none() {
+        if let Ok(mut q) = world.query_one::<&DbId>(recall_room) {
+            if let Some(dbid) = q.get() {
+                let db_guard = db.lock().await;
+                let _ = oxide_data::update_character_recall_room(
+                    db_guard.conn(),
+                    char_row.entity_id,
+                    dbid.0,
+                );
+                drop(db_guard);
+            }
+        }
+    }
 
     let player = world.spawn((
         Position::new(room),
@@ -2541,7 +2572,6 @@ mod tests {
             id: "starting_vale".to_string(),
             name: "Starting Vale".to_string(),
             description: "A start area".to_string(),
-            spawn_room: "town_square".to_string(),
             level_range: None,
             flags: vec![],
             weather_zone: None,
@@ -2568,8 +2598,8 @@ mod tests {
         };
 
         let mut world = World::new();
-        let _void_room = world.spawn((oxide_core::Name::new("Void"),));
-        let spawn_room = world.spawn((
+        let void_room = world.spawn((oxide_core::Name::new("Void"),));
+        let town_square = world.spawn((
             oxide_core::Name::new("Town Square"),
             oxide_core::SpawnKey("starting_vale:town_square".to_string()),
         ));
@@ -2598,7 +2628,7 @@ mod tests {
         };
 
         let mut flow = LoginFlow::new();
-        let _lines = load_character(&mut flow, &mut world, spawn_room, &char_row, &db).await;
+        let _lines = load_character(&mut flow, &mut world, void_room, &char_row, &db).await;
 
         let player_entity = flow.entity.unwrap();
         let recall_comp = world
@@ -2607,7 +2637,8 @@ mod tests {
             .get()
             .map(|r| r.0)
             .unwrap();
-        assert_eq!(recall_comp, spawn_room);
+        // Recall room should resolve to town_square (healed from forest_crossing)
+        assert_eq!(recall_comp, town_square);
 
         let healed_char_row = {
             let db_guard = db.lock().await;

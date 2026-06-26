@@ -224,7 +224,6 @@ impl OxideMcpServer {
                     "id: {}\nname: {}\ndescription: {}",
                     p.id, area.name, area.description
                 );
-                out.push_str(&format!("\nspawn_room: {}", area.spawn_room));
                 out.push_str(&format!("\nrooms: {}", area.rooms.len()));
                 if let Some(ref lr) = area.level_range {
                     out.push_str(&format!("\nlevel_range: {}-{}", lr[0], lr[1]));
@@ -254,7 +253,6 @@ impl OxideMcpServer {
             id: p.id.clone(),
             name: p.name,
             description: p.description.unwrap_or_default(),
-            spawn_room: "start".to_string(),
             level_range: None,
             flags: Vec::new(),
             weather_zone: None,

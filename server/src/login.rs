@@ -144,7 +144,6 @@ impl LoginFlow {
         world: &mut World,
         registry: &mut ConnectionRegistry,
         void_room: Entity,
-        spawn_room: Entity,
     ) -> Vec<String> {
         let mut lines = match &self.state {
             LoginState::Connected => handlers::handle_connected_state(self),
@@ -170,10 +169,8 @@ impl LoginFlow {
                 handlers::handle_account_create_confirm_password_state(self, input, db).await
             }
             LoginState::CharacterSelect => {
-                handlers::handle_character_select_state(
-                    self, input, db, world, registry, void_room, spawn_room,
-                )
-                .await
+                handlers::handle_character_select_state(self, input, db, world, registry, void_room)
+                    .await
             }
             LoginState::CharacterCreateName => {
                 handlers::handle_character_create_name_state(self, input, db).await
@@ -238,7 +235,7 @@ impl LoginFlow {
             }
             LoginState::CharacterCreateConfirm => {
                 handlers::handle_character_create_confirm_state(
-                    self, input, db, world, void_room, spawn_room, templates,
+                    self, input, db, world, void_room, templates,
                 )
                 .await
             }
