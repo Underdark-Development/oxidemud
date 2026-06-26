@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 oxide-core = { path = "../core" }
-rhai = "1.19"
+hecs = "0.10"
+rhai = { version = "1.19", features = ["sync"] }

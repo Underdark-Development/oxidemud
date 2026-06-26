@@ -1,4 +1,8 @@
-use rhai::Engine;
+use oxide_core::{DamageType, Entity, HitContext, ScriptingBridge, World};
+use rhai::{Engine, Scope, AST};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct TestResult {
@@ -7,13 +11,202 @@ pub struct TestResult {
     pub error: Option<String>,
 }
 
+/// A thread-safe wrapper around the ECS `World` raw pointer.
+/// Rhai scripts run synchronously under the World lock, so this raw pointer
+/// remains valid for the duration of the script's execution.
+#[derive(Clone)]
+pub struct ScriptWorld {
+    world_ptr: *mut World,
+}
+
+// SAFETY: Rhai scripts run synchronously under the main game loop / world lock.
+// The pointer is only accessed while the lock is held.
+unsafe impl Send for ScriptWorld {}
+unsafe impl Sync for ScriptWorld {}
+
+impl ScriptWorld {
+    pub fn new(world: &mut World) -> Self {
+        ScriptWorld { world_ptr: world }
+    }
+
+    /// Access the underlying mutable reference to `World`.
+    ///
+    /// # SAFETY
+    /// The caller must ensure that the pointer remains valid and is not aliased
+    /// concurrently (which is guaranteed during synchronous script execution).
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn as_mut(&self) -> &mut World {
+        &mut *self.world_ptr
+    }
+
+    /// Access the underlying immutable reference to `World`.
+    ///
+    /// # SAFETY
+    /// The caller must ensure that the pointer remains valid.
+    pub unsafe fn as_ref(&self) -> &World {
+        &*self.world_ptr
+    }
+}
+
 pub struct ScriptEngine {
     engine: Engine,
+    script_dir: PathBuf,
+    ast_cache: RwLock<HashMap<String, AST>>,
 }
 
 impl ScriptEngine {
-    pub fn new() -> Self {
+    pub fn new(script_dir: impl Into<PathBuf>) -> Self {
         let mut engine = Engine::new();
+
+        // Security limits
+        engine.set_max_operations(50_000);
+        engine.set_max_call_levels(32);
+        engine.set_max_string_size(10_000);
+
+        // Register custom types
+        engine.register_type_with_name::<Entity>("Entity");
+        engine.register_type_with_name::<ScriptWorld>("World");
+        engine.register_type_with_name::<HitContext>("HitContext");
+        engine.register_type_with_name::<DamageType>("DamageType");
+
+        // Entity bindings
+        engine.register_fn("id", |entity: Entity| entity.id() as i64);
+        engine.register_fn("to_string", |entity: Entity| {
+            format!("Entity({})", entity.id())
+        });
+
+        // HitContext bindings
+        engine.register_get_set(
+            "is_aborted",
+            |ctx: &mut HitContext| ctx.is_aborted,
+            |ctx: &mut HitContext, val: bool| ctx.is_aborted = val,
+        );
+        engine.register_get_set(
+            "hit_modifier",
+            |ctx: &mut HitContext| ctx.hit_modifier as i64,
+            |ctx: &mut HitContext, val: i64| ctx.hit_modifier = val as i32,
+        );
+        engine.register_fn("abort", |ctx: &mut HitContext, reason: String| {
+            ctx.is_aborted = true;
+            ctx.abort_reason = Some(reason);
+        });
+        engine.register_fn("override_hit", |ctx: &mut HitContext, outcome: bool| {
+            ctx.override_hit = Some(outcome);
+        });
+
+        // DamageType bindings
+        engine.register_fn("to_string", |dt: DamageType| format!("{:?}", dt));
+
+        // World operations
+        // Spawning / Despawning
+        engine.register_fn("despawn", |world: ScriptWorld, entity: Entity| unsafe {
+            let _ = world.as_mut().despawn(entity);
+        });
+
+        // Querying components
+        engine.register_fn("get_hp", |world: ScriptWorld, entity: Entity| -> i64 {
+            unsafe {
+                let w = world.as_ref();
+                if let Ok(mut q) = w.query_one::<&oxide_core::Health>(entity) {
+                    q.get().map(|h| h.current as i64).unwrap_or(0)
+                } else {
+                    0
+                }
+            }
+        });
+        engine.register_fn(
+            "set_hp",
+            |world: ScriptWorld, entity: Entity, hp: i64| unsafe {
+                let w = world.as_mut();
+                if let Ok(mut q) = w.query_one::<&mut oxide_core::Health>(entity) {
+                    if let Some(h) = q.get() {
+                        h.current = hp as i32;
+                    }
+                }
+            },
+        );
+        engine.register_fn("get_max_hp", |world: ScriptWorld, entity: Entity| -> i64 {
+            unsafe {
+                let w = world.as_ref();
+                if let Ok(mut q) = w.query_one::<&oxide_core::Health>(entity) {
+                    q.get().map(|h| h.max as i64).unwrap_or(0)
+                } else {
+                    0
+                }
+            }
+        });
+        engine.register_fn("get_level", |world: ScriptWorld, entity: Entity| -> i64 {
+            unsafe {
+                let w = world.as_ref();
+                if let Ok(mut q) = w.query_one::<&oxide_core::Level>(entity) {
+                    q.get().map(|l| l.0 as i64).unwrap_or(1)
+                } else {
+                    1
+                }
+            }
+        });
+        engine.register_fn("get_name", |world: ScriptWorld, entity: Entity| -> String {
+            unsafe {
+                let w = world.as_ref();
+                if let Ok(mut q) = w.query_one::<&oxide_core::Name>(entity) {
+                    q.get()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "Someone".to_string())
+                } else {
+                    "Someone".to_string()
+                }
+            }
+        });
+
+        // Messaging
+        engine.register_fn("send_to", |entity: Entity, msg: String| {
+            if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                bridge.send_to_entity(entity, &msg);
+            }
+        });
+        engine.register_fn(
+            "echo_room",
+            |world: ScriptWorld, entity: Entity, msg: String| unsafe {
+                let w = world.as_ref();
+                let room = w
+                    .query_one::<&oxide_core::Position>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room));
+                if let Some(r) = room {
+                    if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                        bridge.echo_to_room(r, &msg);
+                    }
+                }
+            },
+        );
+
+        // Follower control
+        engine.register_fn(
+            "follow",
+            |world: ScriptWorld, entity: Entity, target: Entity| unsafe {
+                let w = world.as_mut();
+                let _ = w.insert(
+                    entity,
+                    (oxide_core::Following {
+                        target,
+                        autofollow: true,
+                    },),
+                );
+            },
+        );
+        engine.register_fn("unfollow", |world: ScriptWorld, entity: Entity| unsafe {
+            let w = world.as_mut();
+            let _ = w.remove_one::<oxide_core::Following>(entity);
+        });
+
+        // Mob spawning & Template spawn
+        engine.register_fn(
+            "spawn_mob",
+            |_world: ScriptWorld, _template_id: String, _room_entity: Entity| -> Entity {
+                Entity::from(hecs::Entity::from_bits(0).unwrap()) // Fallback if not hooked.
+            },
+        );
+
         engine.register_fn(
             "assert",
             |val: bool| -> Result<(), Box<rhai::EvalAltResult>> {
@@ -24,7 +217,36 @@ impl ScriptEngine {
                 }
             },
         );
-        ScriptEngine { engine }
+
+        ScriptEngine {
+            engine,
+            script_dir: script_dir.into(),
+            ast_cache: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Retrieve or compile an AST for the given script path relative to the script directory.
+    pub fn get_ast(&self, rel_path: &str) -> Result<AST, String> {
+        {
+            let cache = self.ast_cache.read().unwrap();
+            if let Some(ast) = cache.get(rel_path) {
+                return Ok(ast.clone());
+            }
+        }
+
+        let full_path = self.script_dir.join(rel_path);
+        let content = std::fs::read_to_string(&full_path)
+            .map_err(|e| format!("Failed to read script {}: {}", rel_path, e))?;
+
+        let processed = strip_tests(&content);
+        let ast = self
+            .engine
+            .compile(&processed)
+            .map_err(|e| format!("Compile error in {}: {}", rel_path, e))?;
+
+        let mut cache = self.ast_cache.write().unwrap();
+        cache.insert(rel_path.to_string(), ast.clone());
+        Ok(ast)
     }
 
     pub fn eval(&self, script: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -111,9 +333,128 @@ impl ScriptEngine {
     }
 }
 
+impl ScriptingBridge for ScriptEngine {
+    fn execute_trigger(
+        &self,
+        script: &str,
+        entity: Entity,
+        actor: Option<Entity>,
+        target: Option<Entity>,
+        world: &mut World,
+    ) -> Result<bool, String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("self", entity);
+        scope.push("actor", actor);
+        scope.push("target", target);
+        scope.push("world", ScriptWorld::new(world));
+
+        self.engine
+            .call_fn::<bool>(&mut scope, &ast, "on_trigger", ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn execute_combat_hit_hook(
+        &self,
+        attacker: Entity,
+        target: Entity,
+        is_offhand: bool,
+        world: &mut World,
+    ) -> Result<HitContext, String> {
+        let mut hit_ctx = HitContext {
+            attacker,
+            target,
+            is_offhand,
+            is_aborted: false,
+            abort_reason: None,
+            hit_modifier: 0,
+            override_hit: None,
+        };
+
+        // If target has parry, execute the parry script.
+        let has_parry = if let Ok(mut q) = world.query_one::<&oxide_core::LearnedSkills>(target) {
+            q.get().map(|s| s.has("parry")).unwrap_or(false)
+        } else {
+            false
+        };
+
+        if has_parry {
+            if let Ok(ast) = self.get_ast("skills/parry.rhai") {
+                let mut scope = Scope::new();
+                scope.push("world", ScriptWorld::new(world));
+                scope.push("hit_ctx", hit_ctx.clone());
+
+                if let Ok(returned_ctx) =
+                    self.engine
+                        .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
+                {
+                    hit_ctx = returned_ctx;
+                }
+            }
+        }
+
+        Ok(hit_ctx)
+    }
+
+    fn execute_combat_damage_hook(
+        &self,
+        _attacker: Entity,
+        _target: Entity,
+        damage: i32,
+        damage_type: DamageType,
+        _world: &mut World,
+    ) -> Result<(i32, DamageType), String> {
+        Ok((damage, damage_type))
+    }
+
+    fn execute_mob_ai(
+        &self,
+        script: &str,
+        entity: Entity,
+        world: &mut World,
+    ) -> Result<Option<String>, String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("self", entity);
+        scope.push("world", ScriptWorld::new(world));
+
+        self.engine
+            .call_fn::<Option<String>>(&mut scope, &ast, "on_ai_pulse", ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn execute_say_hook(
+        &self,
+        _script_entity: Entity,
+        _speaker: Entity,
+        _message: &str,
+        _world: &mut World,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn execute_use_skill(
+        &self,
+        script: &str,
+        actor: Entity,
+        target: Option<Entity>,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("actor", actor);
+        scope.push("target", target);
+        scope.push("world", ScriptWorld::new(world));
+
+        self.engine
+            .call_fn::<()>(&mut scope, &ast, "on_use", ())
+            .map_err(|e| e.to_string())
+    }
+}
+
 impl Default for ScriptEngine {
     fn default() -> Self {
-        Self::new()
+        Self::new("content/scripts")
     }
 }
 
@@ -221,33 +562,33 @@ mod tests {
 
     #[test]
     fn test_eval_arithmetic() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         engine.eval("let x = 1 + 2;").unwrap();
     }
 
     #[test]
     fn test_eval_string() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         engine.eval(r#"let msg = "hello";"#).unwrap();
     }
 
     #[test]
     fn test_eval_syntax_error() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         let result = engine.eval("let x = ;");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_eval_undefined_var() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         let result = engine.eval("let y = undefined_var;");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_engine_accessors() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         assert!(engine.engine().compile("let a = 1;").is_ok());
     }
 
@@ -325,7 +666,7 @@ let b = 2;
 
     #[test]
     fn test_run_tests_with_blocks() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         let script = r#"
 let val = 10;
 //#test success block
@@ -353,7 +694,7 @@ assert(val == 20);
 
     #[test]
     fn test_run_tests_fallback_fns() {
-        let engine = ScriptEngine::new();
+        let engine = ScriptEngine::new("src");
         let script = r#"
 fn test_success() {
     let x = 1;

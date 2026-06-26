@@ -76,7 +76,7 @@ impl ScriptConsoleScreen {
         let code = self.lines.join("\n");
         self.log_output("--- Running script ---".to_string());
 
-        let engine = oxide_scripting::ScriptEngine::new();
+        let engine = oxide_scripting::ScriptEngine::default();
 
         // Check if there are any test functions
         let results = engine.run_tests(&code);
