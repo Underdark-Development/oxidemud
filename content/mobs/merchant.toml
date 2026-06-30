@@ -2,8 +2,8 @@ id = "merchant"
 name = "Elias the Merchant"
 description = "A portly man with a warm smile and keen eyes, dressed in a well-worn canvas apron."
 short_desc = "Elias the Merchant"
-level = 2
-armor = 1
+level = 10
+armor = 10
 race = "human"
 size = "medium"
 equipment = []
@@ -24,12 +24,12 @@ strength = 10
 dexterity = 10
 intelligence = 10
 wisdom = 10
-constitution = 10
+constitution = 16
 charisma = 10
 
 [health]
-current = 15
-max = 15
+current = 200
+max = 200
 
 [loot]
 entries = []

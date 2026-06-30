@@ -7,7 +7,7 @@ armor = 4
 damage = "1d6+2"
 damage_type = "slash"
 size = "small"
-xp_value = 55
+xp_value = 75
 ai_mode = "wander"
 patrol_route = []
 wander_rooms = [
@@ -39,8 +39,8 @@ constitution = 11
 charisma = 6
 
 [health]
-current = 140
-max = 140
+current = 50
+max = 50
 
 [[loot.entries]]
 item = "copper_coin"

@@ -7,7 +7,7 @@ armor = 2
 damage = "1d4+1"
 damage_type = "bludgeon"
 size = "small"
-xp_value = 35
+xp_value = 45
 ai_mode = "wander"
 wander_rooms = ["ruined_watchtower", "forest_crossing"]
 aggro_range = 6
@@ -28,8 +28,8 @@ constitution = 10
 charisma = 5
 
 [health]
-current = 120
-max = 120
+current = 30
+max = 30
 
 [[equipment]]
 template_id = "wooden_cudgel"
