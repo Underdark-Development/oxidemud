@@ -1205,9 +1205,7 @@ impl OxideMcpServer {
             Err(e) => format!("Error validating content DAG: {e}"),
         }
     }
-}
 
-impl OxideMcpServer {
     fn update_room_fields(
         &self,
         area_id: &str,
