@@ -20,11 +20,19 @@ use crate::simulator;
 #[derive(Clone)]
 pub struct OxideMcpServer {
     content_path: PathBuf,
+    #[allow(dead_code)]
+    api_url: Option<String>,
+    #[allow(dead_code)]
+    api_key: Option<String>,
 }
 
 impl OxideMcpServer {
-    pub fn new(content_path: PathBuf) -> Self {
-        OxideMcpServer { content_path }
+    pub fn new(content_path: PathBuf, api_url: Option<String>, api_key: Option<String>) -> Self {
+        OxideMcpServer {
+            content_path,
+            api_url,
+            api_key,
+        }
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
@@ -197,6 +205,49 @@ struct SimulateShopTransactionParams {
     shop_id: String,
     #[schemars(description = "ID of the item template to buy/sell")]
     item_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct SimulateCharacterCreationParams {
+    race_id: String,
+    class_id: String,
+    #[schemars(description = "Base strength value (8 to 18)")]
+    strength: u8,
+    #[schemars(description = "Base dexterity value (8 to 18)")]
+    dexterity: u8,
+    #[schemars(description = "Base intelligence value (8 to 18)")]
+    intelligence: u8,
+    #[schemars(description = "Base wisdom value (8 to 18)")]
+    wisdom: u8,
+    #[schemars(description = "Base constitution value (8 to 18)")]
+    constitution: u8,
+    #[schemars(description = "Base charisma value (8 to 18)")]
+    charisma: u8,
+    #[schemars(description = "Optional list of additional selected skill IDs to include")]
+    selected_skills: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct PutItemParams {
+    player_name: String,
+    item_template_id: String,
+    count: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct TeleportParams {
+    player_name: String,
+    room_key: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct ForceCommandParams {
+    player_name: String,
+    command: String,
 }
 
 #[tool_router(server_handler)]
@@ -1207,4 +1258,360 @@ impl OxideMcpServer {
             room_id
         )
     }
+
+    #[tool(
+        description = "Simulate character creation (online if MUD server is connected, otherwise offline fallback)"
+    )]
+    async fn simulate_character_creation(
+        &self,
+        params: Parameters<SimulateCharacterCreationParams>,
+    ) -> String {
+        let p = params.0;
+
+        // 1. Try Online Mode if API is configured
+        if let (Some(url), Some(key)) = (&self.api_url, &self.api_key) {
+            let client = reqwest::Client::new();
+            let req_url = format!("{}/api/character/simulate", url.trim_end_matches('/'));
+
+            let payload = serde_json::json!({
+                "race_id": p.race_id,
+                "class_id": p.class_id,
+                "base_attributes": {
+                    "strength": p.strength,
+                    "dexterity": p.dexterity,
+                    "intelligence": p.intelligence,
+                    "wisdom": p.wisdom,
+                    "constitution": p.constitution,
+                    "charisma": p.charisma
+                },
+                "selected_skills": p.selected_skills
+            });
+
+            match client
+                .post(&req_url)
+                .header("Authorization", format!("Bearer {}", key))
+                .json(&payload)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        match resp.json::<serde_json::Value>().await {
+                            Ok(sim_res) => {
+                                return format_online_simulation_report(
+                                    &p.race_id,
+                                    &p.class_id,
+                                    &sim_res,
+                                )
+                            }
+                            Err(e) => {
+                                return format!("Failed to parse MUD Server response as JSON: {e}")
+                            }
+                        }
+                    } else {
+                        match resp.text().await {
+                            Ok(err_text) => {
+                                return format!("MUD Server validation error: {err_text}")
+                            }
+                            Err(_) => {
+                                return format!("MUD Server returned error status: {}", status)
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to connect to MUD server online simulation: {e}. Falling back to offline simulation.");
+                }
+            }
+        }
+
+        // 2. Offline Fallback Mode
+        let (registry, _) = self.load();
+        match simulator::simulate_character_creation(
+            &registry,
+            &p.race_id,
+            &p.class_id,
+            p.strength,
+            p.dexterity,
+            p.intelligence,
+            p.wisdom,
+            p.constitution,
+            p.charisma,
+            &p.selected_skills.unwrap_or_default(),
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating character creation: {e}"),
+        }
+    }
+
+    #[tool(description = "List all currently connected players in the MUD (Online Only)")]
+    async fn list_connected_players(&self) -> String {
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/players", url.trim_end_matches('/'));
+        match client
+            .get(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    if let Ok(players) = resp.json::<Vec<serde_json::Value>>().await {
+                        if players.is_empty() {
+                            return "No players currently online.".to_string();
+                        }
+                        let mut out = "### Connected Players:\n\n".to_string();
+                        out.push_str("| Name | Level | Class | Race | Room Key |\n");
+                        out.push_str("|---|---|---|---|---|\n");
+                        for p in players {
+                            out.push_str(&format!(
+                                "| {} | {} | {} | {} | {} |\n",
+                                p.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                                p.get("level").and_then(|v| v.as_i64()).unwrap_or(1),
+                                p.get("class").and_then(|v| v.as_str()).unwrap_or("None"),
+                                p.get("race").and_then(|v| v.as_str()).unwrap_or("None"),
+                                p.get("room_key")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("Unknown")
+                            ));
+                        }
+                        out
+                    } else {
+                        "Error parsing players list from server.".to_string()
+                    }
+                } else {
+                    format!("Server returned error status: {}", resp.status())
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Put an item from a template into a player's inventory (Online Only)")]
+    async fn imm_put_item(&self, params: Parameters<PutItemParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/put_item", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "item_template_id": p.item_template_id,
+            "count": p.count
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse MUD Server response as JSON: {e}"),
+                    }
+                } else {
+                    match resp.text().await {
+                        Ok(err_text) => format!("Error from server: {err_text}"),
+                        Err(_) => format!("Server returned error status: {}", status),
+                    }
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Teleport a player to a specific room by its key (Online Only)")]
+    async fn imm_teleport(&self, params: Parameters<TeleportParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/teleport", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "room_key": p.room_key
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse MUD Server response as JSON: {e}"),
+                    }
+                } else {
+                    match resp.text().await {
+                        Ok(err_text) => format!("Error from server: {err_text}"),
+                        Err(_) => format!("Server returned error status: {}", status),
+                    }
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Force a player to execute a command as if they typed it (Online Only)")]
+    async fn imm_force_command(&self, params: Parameters<ForceCommandParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/force_command", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "command": p.command
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse MUD Server response as JSON: {e}"),
+                    }
+                } else {
+                    match resp.text().await {
+                        Ok(err_text) => format!("Error from server: {err_text}"),
+                        Err(_) => format!("Server returned error status: {}", status),
+                    }
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn format_online_simulation_report(
+    race_id: &str,
+    class_id: &str,
+    sim: &serde_json::Value,
+) -> String {
+    let mut out = format!(
+        "### Character Creation Simulation (Online Mode): Race = `{}`, Class = `{}`\n\n",
+        race_id, class_id
+    );
+
+    if let Some(attrs) = sim.get("attributes") {
+        out.push_str("#### Final Attributes:\n");
+        out.push_str(&format!(
+            "*   Str: {}\n",
+            attrs.get("strength").and_then(|v| v.as_i64()).unwrap_or(10)
+        ));
+        out.push_str(&format!(
+            "*   Dex: {}\n",
+            attrs
+                .get("dexterity")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(10)
+        ));
+        out.push_str(&format!(
+            "*   Int: {}\n",
+            attrs
+                .get("intelligence")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(10)
+        ));
+        out.push_str(&format!(
+            "*   Wis: {}\n",
+            attrs.get("wisdom").and_then(|v| v.as_i64()).unwrap_or(10)
+        ));
+        out.push_str(&format!(
+            "*   Con: {}\n",
+            attrs
+                .get("constitution")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(10)
+        ));
+        out.push_str(&format!(
+            "*   Cha: {}\n\n",
+            attrs.get("charisma").and_then(|v| v.as_i64()).unwrap_or(10)
+        ));
+    }
+
+    out.push_str("#### Derived Resources:\n");
+    out.push_str(&format!(
+        "*   **Hit Points (HP)**: {}\n",
+        sim.get("hp").and_then(|v| v.as_i64()).unwrap_or(1)
+    ));
+    out.push_str(&format!(
+        "*   **Mana**: {}\n",
+        sim.get("mana").and_then(|v| v.as_i64()).unwrap_or(0)
+    ));
+    out.push_str(&format!(
+        "*   **Stamina**: {}\n\n",
+        sim.get("stamina").and_then(|v| v.as_i64()).unwrap_or(0)
+    ));
+
+    if let Some(gold) = sim.get("starting_gold") {
+        out.push_str("#### Starting Gold:\n");
+        out.push_str(&format!(
+            "*   Copper: {}, Silver: {}, Gold: {}, Platinum: {}\n\n",
+            gold.get("copper").and_then(|v| v.as_i64()).unwrap_or(0),
+            gold.get("silver").and_then(|v| v.as_i64()).unwrap_or(0),
+            gold.get("gold").and_then(|v| v.as_i64()).unwrap_or(0),
+            gold.get("platinum").and_then(|v| v.as_i64()).unwrap_or(0)
+        ));
+    }
+
+    if let Some(skills) = sim.get("auto_skills").and_then(|v| v.as_array()) {
+        out.push_str("#### Auto-Granted Skills:\n");
+        if skills.is_empty() {
+            out.push_str("*   *(None)*\n");
+        } else {
+            for s in skills {
+                if let Some(s_str) = s.as_str() {
+                    out.push_str(&format!("*   `{}`\n", s_str));
+                }
+            }
+        }
+    }
+
+    out
 }

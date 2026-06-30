@@ -31,6 +31,31 @@ fn default_log_rotation() -> String {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ApiConfig {
+    #[serde(default = "default_api_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_api_bind_addr")]
+    pub bind_addr: String,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            bind_addr: "127.0.0.1:8080".to_string(),
+        }
+    }
+}
+
+fn default_api_enabled() -> bool {
+    true
+}
+
+fn default_api_bind_addr() -> String {
+    "127.0.0.1:8080".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub server_name: String,
     pub max_clients: u16,
@@ -38,6 +63,8 @@ pub struct ServerConfig {
     pub default_prompt: String,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub api: ApiConfig,
 }
 
 fn default_prompt() -> String {
@@ -62,6 +89,7 @@ pub fn init(path: &Path) {
             max_clients: 256,
             default_prompt: default_prompt(),
             logging: LoggingConfig::default(),
+            api: ApiConfig::default(),
         }
     } else {
         toml::from_str(&content).unwrap_or_else(|e| {
@@ -74,6 +102,7 @@ pub fn init(path: &Path) {
                 max_clients: 256,
                 default_prompt: default_prompt(),
                 logging: LoggingConfig::default(),
+                api: ApiConfig::default(),
             }
         })
     };

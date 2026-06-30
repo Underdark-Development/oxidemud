@@ -972,6 +972,176 @@ pub fn validate_content_dag(content_path: &Path) -> Result<String, String> {
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_character_creation(
+    registry: &TemplateRegistry,
+    race_id: &str,
+    class_id: &str,
+    strength: u8,
+    dexterity: u8,
+    intelligence: u8,
+    wisdom: u8,
+    constitution: u8,
+    charisma: u8,
+    selected_skills: &[String],
+) -> Result<String, String> {
+    let race = registry
+        .races
+        .get(race_id)
+        .ok_or_else(|| format!("Race '{}' not found", race_id))?;
+
+    let class = registry
+        .classes
+        .get(class_id)
+        .ok_or_else(|| format!("Class '{}' not found", class_id))?;
+
+    // Validate attributes (Standard Array or Point-Buy)
+    let base_attrs = [
+        strength,
+        dexterity,
+        intelligence,
+        wisdom,
+        constitution,
+        charisma,
+    ];
+    let mut sorted_attrs = base_attrs;
+    sorted_attrs.sort();
+    let expected_array = [8, 10, 12, 13, 14, 15];
+
+    let mut is_valid = sorted_attrs == expected_array;
+    if !is_valid {
+        // Try point buy check
+        let mut total_cost = 0;
+        let mut point_buy_ok = true;
+        for &v in &base_attrs {
+            if !(8..=18).contains(&v) {
+                point_buy_ok = false;
+                break;
+            }
+            let mut current = 8;
+            let mut cost = 0;
+            const PB_COSTS: [u8; 11] = [1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4];
+            while current < v {
+                if !(8..18).contains(&current) {
+                    point_buy_ok = false;
+                    break;
+                }
+                cost += PB_COSTS[(current - 8) as usize];
+                current += 1;
+            }
+            total_cost += cost;
+        }
+        if point_buy_ok && total_cost == 27 {
+            is_valid = true;
+        }
+    }
+
+    if !is_valid {
+        return Err("Attributes must match either Standard Array [15, 14, 13, 12, 10, 8] or Point-Buy (27 points spent, max 18 per stat)".to_string());
+    }
+
+    // Compute final attributes (race base + class mods + chosen - 8)
+    let base_str = race.attributes.strength as i16;
+    let base_dex = race.attributes.dexterity as i16;
+    let base_int = race.attributes.intelligence as i16;
+    let base_wis = race.attributes.wisdom as i16;
+    let base_con = race.attributes.constitution as i16;
+    let base_cha = race.attributes.charisma as i16;
+
+    let mod_str = class.attribute_mods.strength as i16;
+    let mod_dex = class.attribute_mods.dexterity as i16;
+    let mod_int = class.attribute_mods.intelligence as i16;
+    let mod_wis = class.attribute_mods.wisdom as i16;
+    let mod_con = class.attribute_mods.constitution as i16;
+    let mod_cha = class.attribute_mods.charisma as i16;
+
+    let final_str = (base_str + mod_str + strength as i16 - 8).clamp(3, 50) as u8;
+    let final_dex = (base_dex + mod_dex + dexterity as i16 - 8).clamp(3, 50) as u8;
+    let final_int = (base_int + mod_int + intelligence as i16 - 8).clamp(3, 50) as u8;
+    let final_wis = (base_wis + mod_wis + wisdom as i16 - 8).clamp(3, 50) as u8;
+    let final_con = (base_con + mod_con + constitution as i16 - 8).clamp(3, 50) as u8;
+    let final_cha = (base_cha + mod_cha + charisma as i16 - 8).clamp(3, 50) as u8;
+
+    let hp = class.hit_die as i32 + (final_con as i32 - 10) / 2;
+    let hp = hp.max(1);
+
+    let mana = oxide_core::Mana::from_formula(1, final_int as u16, final_wis as u16);
+    let stamina = oxide_core::Stamina::from_formula(1, final_str as u16, final_dex as u16);
+
+    let mut auto_skills = HashSet::new();
+    for ability in &race.racial_abilities {
+        auto_skills.insert(ability.clone());
+    }
+    for skill_id in &class.auto_skills {
+        auto_skills.insert(skill_id.clone());
+    }
+    for skill_id in selected_skills {
+        auto_skills.insert(skill_id.clone());
+    }
+
+    let mut auto_skills_sorted: Vec<String> = auto_skills.into_iter().collect();
+    auto_skills_sorted.sort();
+
+    let gold = &class.starting_gold;
+
+    let mut out = format!(
+        "### Character Creation Simulation: Race = `{}`, Class = `{}`\n\n",
+        race_id, class_id
+    );
+    out.push_str("#### Base Attributes (Chosen):\n");
+    out.push_str(&format!(
+        "*   Str: {}, Dex: {}, Int: {}, Wis: {}, Con: {}, Cha: {}\n\n",
+        strength, dexterity, intelligence, wisdom, constitution, charisma
+    ));
+    out.push_str("#### Final Attributes:\n");
+    out.push_str(&format!(
+        "*   Str: {} (Racial Base: {}, Class Mod: {})\n",
+        final_str, race.attributes.strength, class.attribute_mods.strength
+    ));
+    out.push_str(&format!(
+        "*   Dex: {} (Racial Base: {}, Class Mod: {})\n",
+        final_dex, race.attributes.dexterity, class.attribute_mods.dexterity
+    ));
+    out.push_str(&format!(
+        "*   Int: {} (Racial Base: {}, Class Mod: {})\n",
+        final_int, race.attributes.intelligence, class.attribute_mods.intelligence
+    ));
+    out.push_str(&format!(
+        "*   Wis: {} (Racial Base: {}, Class Mod: {})\n",
+        final_wis, race.attributes.wisdom, class.attribute_mods.wisdom
+    ));
+    out.push_str(&format!(
+        "*   Con: {} (Racial Base: {}, Class Mod: {})\n",
+        final_con, race.attributes.constitution, class.attribute_mods.constitution
+    ));
+    out.push_str(&format!(
+        "*   Cha: {} (Racial Base: {}, Class Mod: {})\n\n",
+        final_cha, race.attributes.charisma, class.attribute_mods.charisma
+    ));
+    out.push_str("#### Derived Resources:\n");
+    out.push_str(&format!(
+        "*   **Hit Points (HP)**: {} (Hit Die: d{})\n",
+        hp, class.hit_die
+    ));
+    out.push_str(&format!("*   **Mana**: {}\n", mana.max));
+    out.push_str(&format!("*   **Stamina**: {}\n\n", stamina.max));
+    out.push_str("#### Starting Gold:\n");
+    out.push_str(&format!(
+        "*   Copper: {}, Silver: {}, Gold: {}, Platinum: {}\n\n",
+        gold.copper, gold.silver, gold.gold, gold.platinum
+    ));
+    out.push_str("#### Auto-Granted Skills:\n");
+    if auto_skills_sorted.is_empty() {
+        out.push_str("*   *(None)*\n");
+    } else {
+        for s in auto_skills_sorted {
+            out.push_str(&format!("*   `{}`\n", s));
+        }
+    }
+
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1085,6 +1255,96 @@ mod tests {
 
         let res = simulate_progression(&registry, "human", "warrior", 1, 5).unwrap();
         assert!(res.contains("Progression Simulation for `Human Warrior`"));
+    }
+
+    #[test]
+    fn test_simulate_character_creation() {
+        let mut registry = TemplateRegistry::new();
+        let race = RaceTemplate {
+            id: "human".to_string(),
+            name: "Human".to_string(),
+            description: "A versatile human".to_string(),
+            attributes: RaceAttributes {
+                strength: 10,
+                dexterity: 10,
+                intelligence: 10,
+                wisdom: 10,
+                constitution: 10,
+                charisma: 10,
+            },
+            allowed_classes: vec![],
+            allowed_alignments: vec![],
+            racial_abilities: vec!["human_versatility".to_string()],
+            allowed_genders: HashMap::new(),
+            appearance_bounds: AppearanceBounds::default(),
+            age_default: 20,
+            age_max: 100,
+            params: HashMap::new(),
+        };
+        let class = ClassTemplate {
+            id: "warrior".to_string(),
+            name: "Warrior".to_string(),
+            description: "A battle-hardened warrior".to_string(),
+            hit_die: 10,
+            attribute_mods: ClassAttributeMods {
+                strength: 2,
+                dexterity: 0,
+                intelligence: 0,
+                wisdom: 0,
+                constitution: 1,
+                charisma: 0,
+            },
+            bab: "good".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec!["swordplay".to_string()],
+            skill_pool: vec![],
+            starting_skill_slots: 2,
+            starting_items: vec![],
+            starting_gold: WalletAmount {
+                copper: 100,
+                silver: 10,
+                gold: 5,
+                platinum: 1,
+            },
+            deity_policy: DeityPolicy::Any,
+            params: HashMap::new(),
+        };
+        registry.races.insert("human".to_string(), race);
+        registry.classes.insert("warrior".to_string(), class);
+
+        // Test with Standard Array: [15, 14, 13, 12, 10, 8]
+        let res = simulate_character_creation(
+            &registry,
+            "human",
+            "warrior",
+            15, // str
+            14, // dex
+            13, // int
+            12, // wis
+            10, // con
+            8,  // cha
+            &["shield_bash".to_string()],
+        )
+        .unwrap();
+
+        assert!(res.contains("Character Creation Simulation: Race = `human`, Class = `warrior`"));
+        assert!(res.contains("Final Attributes:"));
+        assert!(res.contains("Str: 19")); // 10 (race) + 2 (class) + 15 (chosen) - 8 = 19
+        assert!(res.contains("Con: 13")); // 10 (race) + 1 (class) + 10 (chosen) - 8 = 13
+        assert!(res.contains("Hit Points (HP)**: 11")); // 10 (hit die) + (13-10)/2 = 11
+        assert!(res.contains("swordplay"));
+        assert!(res.contains("human_versatility"));
+        assert!(res.contains("shield_bash"));
+        assert!(res.contains("Platinum: 1"));
+
+        // Test with invalid stats (should fail)
+        let fail_res =
+            simulate_character_creation(&registry, "human", "warrior", 18, 18, 18, 18, 18, 18, &[]);
+        assert!(fail_res.is_err());
     }
 
     #[test]

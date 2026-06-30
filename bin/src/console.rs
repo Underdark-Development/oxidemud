@@ -55,6 +55,7 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
             "broadcast" => cmd_broadcast(args).await,
             "account" => cmd_account(&mut reader, args).await,
             "character" => cmd_character(&mut reader, args).await,
+            "apikey" => cmd_apikey(args).await,
             "shutdown" => {
                 if confirm_destructive(&mut reader, "shutdown").await {
                     tracing::info!("Console: initiating shutdown");
@@ -90,6 +91,9 @@ fn print_help() {
     println!(
         "  character set <char> <f> <v>   Modify character field (level, xp, name, race, class)"
     );
+    println!("  apikey generate <u> [desc]     Generate a new REST API key for user <u>");
+    println!("  apikey list                    List active REST API keys (full keys)");
+    println!("  apikey revoke <k>              Revoke/delete API key <k>");
     println!("  shutdown                       Gracefully stop the server");
     println!("  restart                        Gracefully stop (restart not yet implemented)");
     println!();
@@ -379,5 +383,133 @@ async fn cmd_character_set(char_name: &str, field: &str, value: &str) {
             println!("Character '{char_name}' field '{field}' set to '{value}'.");
         }
         Err(e) => println!("Error: {e}"),
+    }
+}
+
+async fn cmd_apikey(args: &str) {
+    let parts: Vec<&str> = args.splitn(2, char::is_whitespace).collect();
+    match parts.as_slice() {
+        ["generate", rest] => {
+            let subparts: Vec<&str> = rest.splitn(2, char::is_whitespace).collect();
+            match subparts.as_slice() {
+                [username] => cmd_apikey_generate(username, None).await,
+                [username, desc] => cmd_apikey_generate(username, Some(desc)).await,
+                _ => println!("Usage: apikey generate <username> [description]"),
+            }
+        }
+        ["list"] => cmd_apikey_list().await,
+        ["revoke", key] => cmd_apikey_revoke(key).await,
+        _ => {
+            println!("Usage:");
+            println!("  apikey generate <username> [description]   Generate a new API key");
+            println!("  apikey list                                List active API keys");
+            println!("  apikey revoke <key>                        Revoke/delete an API key");
+        }
+    }
+}
+
+async fn cmd_apikey_generate(username: &str, description: Option<&str>) {
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    let account = match oxide_data::get_account_by_username(conn.conn(), username) {
+        Ok(Some(a)) => a,
+        Ok(None) => {
+            println!("Account '{username}' not found.");
+            return;
+        }
+        Err(e) => {
+            println!("Database error: {e}");
+            return;
+        }
+    };
+
+    let key = uuid::Uuid::new_v4().to_string();
+    match oxide_data::insert_api_key(conn.conn(), &key, account.id, description) {
+        Ok(()) => {
+            println!("New API key generated successfully:");
+            println!("  User:        {}", account.username);
+            println!("  Access Tier: {}", account.access_level);
+            println!("  Key:         {key}");
+            if let Some(desc) = description {
+                println!("  Description: {desc}");
+            }
+            println!("  IMPORTANT: Store this key safely. It will not be shown again.");
+        }
+        Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_apikey_list() {
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    let mut stmt = match conn.conn().prepare(
+        "SELECT k.key, a.username, k.description, k.created_at 
+         FROM api_keys k 
+         JOIN accounts a ON k.account_id = a.id",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("Database error: {e}");
+            return;
+        }
+    };
+
+    let rows = stmt.query_map([], |row| {
+        let key: String = row.get(0)?;
+        let username: String = row.get(1)?;
+        let desc: Option<String> = row.get(2)?;
+        let created_at: String = row.get(3)?;
+        Ok((key, username, desc, created_at))
+    });
+
+    match rows {
+        Ok(iter) => {
+            println!();
+            println!(
+                "{:<36} | {:<15} | {:<20} | {:<20}",
+                "API Key", "User", "Description", "Created At"
+            );
+            println!("{}", "-".repeat(100));
+            for r in iter.flatten() {
+                let desc = r.2.unwrap_or_default();
+                println!("{:<36} | {:<15} | {:<20} | {:<20}", r.0, r.1, desc, r.3);
+            }
+            println!();
+        }
+        Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_apikey_revoke(key: &str) {
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    match conn.conn().execute(
+        "DELETE FROM api_keys WHERE key = ?1",
+        rusqlite::params![key],
+    ) {
+        Ok(0) => println!("API key not found."),
+        Ok(n) => println!("Revoked {n} API key(s)."),
+        Err(e) => println!("Database error: {e}"),
     }
 }

@@ -13,6 +13,44 @@ pub fn delete_entity(conn: &Connection, entity_id: i64) -> Result<(), rusqlite::
     Ok(())
 }
 
+pub fn insert_api_key(
+    conn: &Connection,
+    key: &str,
+    account_id: i64,
+    description: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO api_keys (key, account_id, description) VALUES (?1, ?2, ?3)",
+        params![key, account_id, description],
+    )?;
+    Ok(())
+}
+
+pub fn validate_api_key(
+    conn: &Connection,
+    key: &str,
+) -> Result<Option<(i64, String, String)>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.username, a.access_level 
+         FROM api_keys k 
+         JOIN accounts a ON k.account_id = a.id 
+         WHERE k.key = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![key], |row| {
+        Ok((
+            row.get::<_, i64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+
+    if let Some(res) = rows.next() {
+        Ok(Some(res?))
+    } else {
+        Ok(None)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AccountRow {
     pub id: i64,

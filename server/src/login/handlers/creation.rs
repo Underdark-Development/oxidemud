@@ -96,7 +96,7 @@ fn point_buy_cost(current: u8) -> Option<u8> {
 }
 
 /// Compute final attributes from race base + class mod + player-chosen base.
-fn compute_final_attributes(
+pub fn compute_final_attributes(
     templates: Option<&TemplateRegistry>,
     race_id: &str,
     class_id: &str,
@@ -154,7 +154,7 @@ fn compute_final_attributes(
 }
 
 /// Retrieve starting gold from class template.
-fn class_starting_gold(templates: Option<&TemplateRegistry>, class_id: &str) -> Wallet {
+pub fn class_starting_gold(templates: Option<&TemplateRegistry>, class_id: &str) -> Wallet {
     templates
         .and_then(|t| t.get_class(class_id))
         .map(|c| {

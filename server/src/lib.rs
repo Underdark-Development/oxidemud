@@ -1,3 +1,4 @@
+pub mod api;
 mod cmd;
 pub mod config;
 mod connection;

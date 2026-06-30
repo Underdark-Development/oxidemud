@@ -228,9 +228,16 @@ CREATE TABLE IF NOT EXISTS characters (
 );
 
 CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    key TEXT PRIMARY KEY NOT NULL,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ";
 
-pub const VERSION: i64 = 16;
+pub const VERSION: i64 = 20;
 
 #[cfg(test)]
 mod tests {

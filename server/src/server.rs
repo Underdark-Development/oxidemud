@@ -132,6 +132,17 @@ impl Server {
             server_shutdown_rx,
         );
 
+        // Spawn the REST API server if enabled
+        let api_config = crate::config::get().api.clone();
+        let api_shutdown_rx = shutdown.clone();
+        tokio::spawn(async move {
+            if api_config.enabled {
+                if let Err(e) = crate::api::start_api_server(api_config, api_shutdown_rx).await {
+                    tracing::error!("REST API server error: {e}");
+                }
+            }
+        });
+
         loop {
             tokio::select! {
                 biased;

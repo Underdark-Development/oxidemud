@@ -354,6 +354,22 @@ impl Database {
             )?;
         }
 
+        if current < 20 {
+            // Migration 20: add api_keys table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS api_keys (
+                    key TEXT PRIMARY KEY NOT NULL,
+                    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    description TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (20)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

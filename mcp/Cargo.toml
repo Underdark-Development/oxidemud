@@ -15,4 +15,5 @@ toml = "0.8"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "io-util"] }
 anyhow = "1"
 fastrand = "2"
+reqwest = { version = "0.12", features = ["json"] }
 
