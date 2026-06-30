@@ -1792,10 +1792,10 @@ impl TemplateRegistry {
     }
 
     /// Find a room entity by its spawn key (`"area_id:room_id"`).
-    /// Searches all spawned rooms with a matching [`SpawnKey`](crate::SpawnKey) component.
+    /// Searches all spawned rooms with a matching [`RoomKey`](crate::RoomKey) component.
     pub fn find_room_by_key(&self, world: &crate::World, key: &str) -> Option<crate::Entity> {
-        use crate::SpawnKey;
-        let mut query = world.query::<(&SpawnKey,)>();
+        use crate::RoomKey;
+        let mut query = world.query::<(&RoomKey,)>();
         for (e, (sk,)) in query.iter() {
             if sk.0 == key {
                 return Some(crate::Entity::from(e));

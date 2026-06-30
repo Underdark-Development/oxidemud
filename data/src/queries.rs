@@ -75,9 +75,9 @@ pub struct CharacterRow {
     pub level: i64,
     pub experience: i64,
     pub entity_id: i64,
-    pub room_id: Option<i64>,
     pub spawn_key: Option<String>,
-    pub recall_room_id: Option<i64>,
+    pub current_room_key: Option<String>,
+    pub recall_room_key: Option<String>,
     pub created_at: String,
     pub last_seen: Option<String>,
 }
@@ -87,7 +87,7 @@ pub fn get_characters_by_account(
     account_id: i64,
 ) -> Result<Vec<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, recall_room_id, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, spawn_key, current_room_key, recall_room_key, created_at, last_seen \
          FROM characters WHERE account_id = ?1 ORDER BY created_at",
     )?;
     let rows = stmt.query_map(params![account_id], |row| {
@@ -104,9 +104,9 @@ pub fn get_characters_by_account(
             level: row.get(9)?,
             experience: row.get(10)?,
             entity_id: row.get(11)?,
-            room_id: row.get(12)?,
-            spawn_key: row.get(13)?,
-            recall_room_id: row.get(14)?,
+            spawn_key: row.get(12)?,
+            current_room_key: row.get(13)?,
+            recall_room_key: row.get(14)?,
             created_at: row.get(15)?,
             last_seen: row.get(16)?,
         })
@@ -119,7 +119,7 @@ pub fn get_character_by_name(
     name: &str,
 ) -> Result<Option<CharacterRow>, rusqlite::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, room_id, spawn_key, recall_room_id, created_at, last_seen \
+        "SELECT id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, spawn_key, current_room_key, recall_room_key, created_at, last_seen \
          FROM characters WHERE name = ?1",
     )?;
     let mut rows = stmt.query(params![name])?;
@@ -137,9 +137,9 @@ pub fn get_character_by_name(
             level: row.get(9)?,
             experience: row.get(10)?,
             entity_id: row.get(11)?,
-            room_id: row.get(12)?,
-            spawn_key: row.get(13)?,
-            recall_room_id: row.get(14)?,
+            spawn_key: row.get(12)?,
+            current_room_key: row.get(13)?,
+            recall_room_key: row.get(14)?,
             created_at: row.get(15)?,
             last_seen: row.get(16)?,
         })),
@@ -155,18 +155,18 @@ pub fn create_character(
     race: &str,
     class: &str,
     entity_id: i64,
-    room_id: Option<i64>,
     spawn_key: Option<&str>,
+    current_room_key: Option<&str>,
 ) -> Result<i64, rusqlite::Error> {
     if let Some(spawn_key) = spawn_key {
         conn.execute(
-            "INSERT INTO characters (account_id, name, race, class, entity_id, room_id, spawn_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![account_id, name, race, class, entity_id, room_id, spawn_key],
+            "INSERT INTO characters (account_id, name, race, class, entity_id, spawn_key, current_room_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![account_id, name, race, class, entity_id, spawn_key, current_room_key],
         )?;
     } else {
         conn.execute(
-            "INSERT INTO characters (account_id, name, race, class, entity_id, room_id, spawn_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
-            params![account_id, name, race, class, entity_id, room_id],
+            "INSERT INTO characters (account_id, name, race, class, entity_id, spawn_key, current_room_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![account_id, name, race, class, entity_id, spawn_key, current_room_key],
         )?;
     }
     Ok(conn.last_insert_rowid())
@@ -193,18 +193,6 @@ pub fn update_character_level(
     Ok(())
 }
 
-pub fn update_character_position(
-    conn: &Connection,
-    entity_id: i64,
-    room_entity_id: i64,
-) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "UPDATE characters SET room_id = ?1 WHERE entity_id = ?2",
-        params![room_entity_id, entity_id],
-    )?;
-    Ok(())
-}
-
 pub fn update_character_spawn_key(
     conn: &Connection,
     entity_id: i64,
@@ -217,14 +205,26 @@ pub fn update_character_spawn_key(
     Ok(())
 }
 
-pub fn update_character_recall_room(
+pub fn update_character_current_room_key(
     conn: &Connection,
     entity_id: i64,
-    recall_room_id: i64,
+    current_room_key: &str,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "UPDATE characters SET recall_room_id = ?1 WHERE entity_id = ?2",
-        params![recall_room_id, entity_id],
+        "UPDATE characters SET current_room_key = ?1 WHERE entity_id = ?2",
+        params![current_room_key, entity_id],
+    )?;
+    Ok(())
+}
+
+pub fn update_character_recall_room_key(
+    conn: &Connection,
+    entity_id: i64,
+    recall_room_key: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE characters SET recall_room_key = ?1 WHERE entity_id = ?2",
+        params![recall_room_key, entity_id],
     )?;
     Ok(())
 }
@@ -1276,7 +1276,6 @@ mod tests {
     #[test]
     fn test_create_character() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "charowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
@@ -1287,7 +1286,7 @@ mod tests {
             "human",
             "warrior",
             eid,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1297,7 +1296,6 @@ mod tests {
     #[test]
     fn test_get_character_by_name() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "owner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
@@ -1308,7 +1306,7 @@ mod tests {
             "elf",
             "ranger",
             eid,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1332,7 +1330,6 @@ mod tests {
     #[test]
     fn test_get_characters_by_account() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "multiowner", &hash).unwrap();
         let eid1 = insert_entity(&conn, "player").unwrap();
@@ -1344,7 +1341,7 @@ mod tests {
             "human",
             "warrior",
             eid1,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1355,7 +1352,7 @@ mod tests {
             "elf",
             "mage",
             eid2,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1376,7 +1373,6 @@ mod tests {
     #[test]
     fn test_delete_character() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "delowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
@@ -1387,7 +1383,7 @@ mod tests {
             "human",
             "warrior",
             eid,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1400,7 +1396,6 @@ mod tests {
     #[test]
     fn test_character_name_unique() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash1 = hash_password("pass1");
         let hash2 = hash_password("pass2");
         let account1 = create_account(&conn, "unique1", &hash1).unwrap();
@@ -1414,7 +1409,7 @@ mod tests {
             "human",
             "warrior",
             eid1,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1425,7 +1420,7 @@ mod tests {
             "elf",
             "mage",
             eid2,
-            Some(room_id),
+            Some("test:room"),
             None,
         );
         assert!(result.is_err());
@@ -1434,7 +1429,6 @@ mod tests {
     #[test]
     fn test_update_character_level() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "levelowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
@@ -1445,7 +1439,7 @@ mod tests {
             "human",
             "warrior",
             eid,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();
@@ -1457,10 +1451,8 @@ mod tests {
     }
 
     #[test]
-    fn test_update_character_position() {
+    fn test_update_character_current_room_key() {
         let conn = setup();
-        let room1 = insert_entity(&conn, "room").unwrap();
-        let room2 = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "posowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
@@ -1471,20 +1463,19 @@ mod tests {
             "human",
             "warrior",
             eid,
-            Some(room1),
+            Some("test:room1"),
             None,
         )
         .unwrap();
-        update_character_position(&conn, eid, room2).unwrap();
+        update_character_current_room_key(&conn, eid, "test:room2").unwrap();
 
         let char_row = get_character_by_name(&conn, "Wanderer").unwrap().unwrap();
-        assert_eq!(char_row.room_id, Some(room2));
+        assert_eq!(char_row.current_room_key, Some("test:room2".to_string()));
     }
 
     #[test]
     fn test_update_character_last_seen() {
         let conn = setup();
-        let room_id = insert_entity(&conn, "room").unwrap();
         let hash = hash_password("pass");
         let account_id = create_account(&conn, "seenowner", &hash).unwrap();
         let eid = insert_entity(&conn, "player").unwrap();
@@ -1495,7 +1486,7 @@ mod tests {
             "human",
             "warrior",
             eid,
-            Some(room_id),
+            Some("test:room"),
             None,
         )
         .unwrap();

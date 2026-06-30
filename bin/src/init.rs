@@ -2,7 +2,7 @@ use oxide_core::{
     Direction, Entity, Exit, PatrolRoute, Position, Room, RoomExits, WanderBounds, World,
 };
 
-pub fn init_world() -> (World, Entity) {
+pub fn init_world() -> World {
     let mut world = World::new();
 
     let void_room = world.spawn((
@@ -14,14 +14,14 @@ pub fn init_world() -> (World, Entity) {
         .insert(void_room, (Position::new(void_room),))
         .expect("void room should exist");
 
-    (world, void_room)
+    world
 }
 
 use oxide_core::templates::TemplateRegistry;
 
 /// Spawn all rooms and their mobs from the given area template into the ECS world.
 ///
-/// Each room gets [`Room`], [`Position`], [`RoomExits`], and [`SpawnKey`] components.
+/// Each room gets [`Room`], [`Position`], [`RoomExits`], and [`RoomKey`] components.
 /// Exits are resolved from room IDs to entity references in a second pass.
 /// Mob spawns defined in `RoomTemplate.content.mobs` are instantiated after
 /// room entities are created.
@@ -40,7 +40,7 @@ pub fn spawn_area(
         let entity = world.spawn((
             Room::new(&room_tpl.name, &room_tpl.description).with_script(room_tpl.script.clone()),
             oxide_core::RoomFlags::default(),
-            oxide_core::SpawnKey(key),
+            oxide_core::RoomKey(key),
             oxide_core::ScriptParams(room_tpl.params.clone()),
         ));
         world.insert(entity, (Position::new(entity),)).unwrap();
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn spawn_area_applies_mob_combat_template_fields() {
-        let (mut world, _) = init_world();
+        let mut world = init_world();
         let (registry, _) = oxide_core::content::load_registry(&content_path());
         let area = registry
             .get_area("starting_vale")
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn spawn_trainer_npc_attaches_trainer_component() {
-        let (mut world, _) = init_world();
+        let mut world = init_world();
         let (registry, _) = oxide_core::content::load_registry(&content_path());
         let area = registry
             .get_area("starting_vale")

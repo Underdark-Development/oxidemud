@@ -22,7 +22,7 @@ use crate::telnet::INITIAL_NEGOTIATION;
 use oxide_core::templates::TemplateRegistry;
 use oxide_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Name, Player, Position, PracticePoints, Room, SpawnKey, Wallet, World,
+    LearnedSkills, Level, Name, Player, Position, PracticePoints, RoomKey, Wallet, World,
 };
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
@@ -42,7 +42,6 @@ pub struct Server {
     registry: Arc<Mutex<ConnectionRegistry>>,
     commands: CommandDispatch,
     next_conn_id: AtomicU64,
-    void_room: Entity,
     db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     shutdown_complete: Arc<Notify>,
@@ -50,14 +49,13 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(bind_addr: impl Into<String>, world: World, void_room: Entity) -> Self {
+    pub fn new(bind_addr: impl Into<String>, world: World) -> Self {
         Server {
             bind_addr: bind_addr.into(),
             world: Arc::new(Mutex::new(world)),
             registry: Arc::new(Mutex::new(ConnectionRegistry::new())),
             commands: CommandDispatch::new(),
             next_conn_id: AtomicU64::new(1),
-            void_room,
             db: None,
             templates: None,
             shutdown_complete: Arc::new(Notify::new()),
@@ -117,7 +115,6 @@ impl Server {
         let registry = self.registry;
         let commands = Arc::new(self.commands);
         let _ = COMMANDS.set(commands.clone());
-        let void_room = self.void_room;
         let db = self.db;
         let templates = self.templates;
         let shutdown_complete = self.shutdown_complete;
@@ -156,7 +153,7 @@ impl Server {
                     let on_entity_spawned = self.on_entity_spawned.clone();
                     tokio::spawn(async move {
                         handle_connection(
-                            conn_id, stream, world, registry, commands, void_room, db,
+                            conn_id, stream, world, registry, commands, db,
                             templates, on_entity_spawned,
                         )
                         .await;
@@ -191,7 +188,6 @@ async fn handle_connection(
     world: Arc<Mutex<World>>,
     registry: Arc<Mutex<ConnectionRegistry>>,
     commands: Arc<CommandDispatch>,
-    void_room: Entity,
     db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
@@ -316,7 +312,6 @@ async fn handle_connection(
                             templates.as_deref(),
                             &mut w,
                             &mut reg,
-                            void_room,
                         )
                         .await;
 
@@ -439,30 +434,11 @@ async fn handle_connection(
                     .ok()
                     .and_then(|mut q| q.get().cloned());
 
-                let room_db_id = position.and_then(|room_entity| {
-                    w.query_one::<&DbId>(room_entity)
-                        .ok()
-                        .and_then(|mut q| q.get().copied())
-                        .map(|dbid| dbid.0)
-                });
-
-                let _room_spawn_key = position.and_then(|room_entity| {
-                    w.query_one::<&SpawnKey>(room_entity)
+                let room_key = position.and_then(|room_entity| {
+                    w.query_one::<&RoomKey>(room_entity)
                         .ok()
                         .and_then(|mut q| q.get().map(|sk| sk.0.clone()))
                 });
-
-                let mut room_info = None;
-                if room_db_id.is_none() {
-                    if let Some(room_entity) = position {
-                        if let Ok(mut q_room) = w.query_one::<(&Room, &SpawnKey)>(room_entity) {
-                            if let Some((r, sk)) = q_room.get() {
-                                room_info =
-                                    Some((r.name.clone(), r.description.clone(), sk.0.clone()));
-                            }
-                        }
-                    }
-                }
 
                 let mut inventory_items = Vec::new();
                 if let Ok(mut q) = w.query_one::<&Inventory>(entity) {
@@ -507,9 +483,7 @@ async fn handle_connection(
                     mana,
                     stamina,
                     position,
-                    room_db_id,
-                    _room_spawn_key,
-                    room_info,
+                    room_key,
                     wallet,
                     skills,
                     practice_points,
@@ -526,17 +500,15 @@ async fn handle_connection(
         };
 
         // 2. Save player progress to DB while not holding world lock
-        let room_to_db_id = if let Some((
+        if let Some((
             db_id,
             level,
             xp,
             health,
             mana,
             stamina,
-            room_entity,
-            mut room_db_id,
-            _room_spawn_key,
-            room_info,
+            _room_entity,
+            room_key,
             wallet,
             skills,
             practice_points,
@@ -548,29 +520,9 @@ async fn handle_connection(
             equipment_items,
         )) = player_save_data
         {
-            let mut new_rid = None;
             if let Some(ref db) = db {
                 let db_guard = db.lock().await;
                 let conn_db = db_guard.conn();
-
-                // If room has no DB record yet, insert it now
-                if room_db_id.is_none() {
-                    if let Some(_re) = room_entity {
-                        if let Ok(rid) = oxide_data::insert_entity(conn_db, "room") {
-                            room_db_id = Some(rid);
-                            new_rid = Some(rid);
-                            if let Some((name, desc, spawn_key)) = &room_info {
-                                let _ = oxide_data::save_room_component(
-                                    conn_db,
-                                    rid,
-                                    name,
-                                    desc,
-                                    Some(spawn_key),
-                                );
-                            }
-                        }
-                    }
-                }
 
                 // Save Level & XP
                 if let Some(level) = level {
@@ -687,9 +639,9 @@ async fn handle_connection(
                     let _ =
                         oxide_data::save_description_component(conn_db, db_id.0, &description.0);
                 }
-                // Save Position
-                if let Some(rid) = room_db_id {
-                    let _ = oxide_data::update_character_position(conn_db, db_id.0, rid);
+                // Save Position (room key)
+                if let Some(ref key) = room_key {
+                    let _ = oxide_data::update_character_current_room_key(conn_db, db_id.0, key);
                     let _ = oxide_data::update_character_last_seen(conn_db, db_id.0);
                 }
 
@@ -735,19 +687,12 @@ async fn handle_connection(
                         oxide_data::save_equipment_slot(conn_db, db_id.0, &slot_str, item_db_id);
                 }
             }
-            (room_entity, new_rid)
-        } else {
-            (None, None)
-        };
+        }
 
         // 3. Lock world and registry again to remove connection and despawn
         {
             let mut w = world.lock().await;
             let mut reg = registry.lock().await;
-
-            if let (Some(re), Some(rid)) = room_to_db_id {
-                let _ = w.insert(re, (DbId(rid),));
-            }
 
             // Despawn inventory and equipment items
             let mut items_to_despawn = Vec::new();

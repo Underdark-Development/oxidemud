@@ -136,7 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
     });
 
-    let (mut world, void_room) = init_world();
+    let mut world = init_world();
 
     let content_path = config
         .motd_path
@@ -212,7 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     oxide_core::scripting::register_scripting_bridge(script_engine);
     oxide_core::scripting::register_message_bridge(Box::new(oxide_server::ServerMessageBridge));
 
-    let mut server = Server::new(config.bind_addr(), world, void_room)
+    let mut server = Server::new(config.bind_addr(), world)
         .with_database(db)
         .with_templates(templates)
         .with_on_entity_spawned(move |world, conn, registry| {

@@ -322,6 +322,38 @@ impl Database {
             )?;
         }
 
+        if current < 18 {
+            // Migration 18: add current_room_key column to characters
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT current_room_key FROM characters LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn
+                    .execute_batch("ALTER TABLE characters ADD COLUMN current_room_key TEXT;")?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (18)",
+                [],
+            )?;
+        }
+
+        if current < 19 {
+            // Migration 19: add recall_room_key column to characters
+            let has_col: bool = self
+                .conn
+                .prepare("SELECT recall_room_key FROM characters LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn
+                    .execute_batch("ALTER TABLE characters ADD COLUMN recall_room_key TEXT;")?;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (19)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

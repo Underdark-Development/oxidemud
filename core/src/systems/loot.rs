@@ -306,8 +306,12 @@ pub fn spawn_loot_item(
 ) -> Option<Entity> {
     let item_tmpl = templates.get_item(&spawn.template_id)?;
 
-    // Core: Item + Name
-    let entity = world.spawn((Item::new(&spawn.template_id), Name::new(&item_tmpl.name)));
+    // Core: Item + Name + ScriptParams
+    let entity = world.spawn((
+        Item::new(&spawn.template_id),
+        Name::new(&item_tmpl.name),
+        crate::ScriptParams(item_tmpl.params.clone()),
+    ));
 
     // Weapon stats
     if let Some(wpn) = &item_tmpl.weapon {

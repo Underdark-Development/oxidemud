@@ -3759,7 +3759,7 @@ pub fn cmd_shout(
         }
     };
 
-    let area_id = match world.query_one::<&core::SpawnKey>(room) {
+    let area_id = match world.query_one::<&core::RoomKey>(room) {
         Ok(mut q) => q
             .get()
             .map(|sk| sk.0.split_once(':').unwrap().0.to_string()),
@@ -3791,7 +3791,7 @@ pub fn cmd_shout(
             continue;
         }
         if let Some(other_room) = get_pos_room(world, other) {
-            if let Ok(mut q) = world.query_one::<&core::SpawnKey>(other_room) {
+            if let Ok(mut q) = world.query_one::<&core::RoomKey>(other_room) {
                 if let Some(sk) = q.get() {
                     if sk.0.starts_with(&area_id) {
                         if let Some(tx) = registry.sender(other) {
@@ -5602,10 +5602,8 @@ mod tests {
         };
         registry.deities.insert("solaris".into(), solaris);
 
-        let mut world = World::new();
-        let void_room = world.spawn((Room::new("Void", "Empty"), VoidRoom));
-        let _server =
-            oxide_server::Server::new("127.0.0.1:0", world, void_room).with_templates(registry);
+        let world = World::new();
+        let _server = oxide_server::Server::new("127.0.0.1:0", world).with_templates(registry);
     }
 
     #[test]

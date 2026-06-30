@@ -2,9 +2,9 @@ use tokio::sync::Mutex;
 
 use oxide_core::templates::{SkillResolveError, TemplateRegistry};
 use oxide_core::{
-    Alignment, Class, CombatStats, DbId, Description, Entity, Equipment, Experience, Gender,
-    Health, Inventory, Level, Mana, Name, Player, Position, PracticePoints, Race, RecallRoom,
-    Stamina, Wallet, World,
+    Alignment, Class, CombatStats, DbId, Description, Equipment, Experience, Gender, Health,
+    Inventory, Level, Mana, Name, Player, Position, PracticePoints, Race, RecallRoom, Stamina,
+    Wallet, World,
 };
 
 use crate::registry::ConnectionRegistry;
@@ -168,7 +168,6 @@ pub async fn handle_character_select_state(
     db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
     registry: &ConnectionRegistry,
-    _void_room: Entity,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     let input = input.trim();
@@ -259,7 +258,7 @@ pub async fn handle_character_select_state(
                 } else {
                     let char_row = &chars[idx - 1];
                     drop(db_guard);
-                    lines.extend(load_character(flow, world, _void_room, char_row, db).await);
+                    lines.extend(load_character(flow, world, char_row, db).await);
                 }
             } else {
                 drop(db_guard);
@@ -1488,13 +1487,12 @@ pub async fn handle_character_create_confirm_state(
     input: &str,
     db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
-    void_room: Entity,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     match input.trim().to_lowercase().as_str() {
         "y" | "yes" => {
-            lines.extend(finalize_character(flow, db, world, void_room, templates).await);
+            lines.extend(finalize_character(flow, db, world, templates).await);
         }
         "n" | "no" => {
             clear_create_buffer(flow);
@@ -1532,7 +1530,6 @@ async fn finalize_character(
     flow: &mut LoginFlow,
     db: Option<&Mutex<oxide_data::Database>>,
     world: &mut World,
-    void_room: Entity,
     templates: Option<&TemplateRegistry>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
@@ -1609,35 +1606,10 @@ async fn finalize_character(
 
     let room_entity = templates
         .and_then(|t| t.find_room_by_key(world, &spawn_key))
-        .unwrap_or(void_room);
+        .expect("spawn_key must resolve to a valid room");
 
     let db_guard = db_con.lock().await;
     let conn_db = db_guard.conn();
-
-    // Ensure the room entity has a DB record for the characters.room_id FK.
-    // Rooms are initially spawned without DB records; insert on first use.
-    let room_db_id = {
-        let existing = world
-            .query_one::<&DbId>(room_entity)
-            .ok()
-            .and_then(|mut q| q.get().copied())
-            .map(|dbid| dbid.0);
-        match existing {
-            Some(id) => id,
-            None => match oxide_data::insert_entity(conn_db, "room") {
-                Ok(id) => {
-                    world
-                        .insert(room_entity, (DbId(id),))
-                        .expect("room must exist to add DbId");
-                    id
-                }
-                Err(e) => {
-                    lines.push(format!("Error saving character: {e}"));
-                    return lines;
-                }
-            },
-        }
-    };
 
     let entity_id = match oxide_data::insert_entity(conn_db, "player") {
         Ok(id) => id,
@@ -1802,8 +1774,8 @@ async fn finalize_character(
         &race_id,
         &class_id,
         entity_id,
-        Some(room_db_id),
         Some(&spawn_key),
+        None, // new character hasn't saved a position yet
     ) {
         Ok(id) => id,
         Err(e) => {
@@ -1813,7 +1785,7 @@ async fn finalize_character(
     };
 
     // Persist initial recall room (same as spawn point)
-    if let Err(e) = oxide_data::update_character_recall_room(conn_db, entity_id, room_db_id) {
+    if let Err(e) = oxide_data::update_character_recall_room_key(conn_db, entity_id, &spawn_key) {
         lines.push(format!("Error saving recall room: {e}"));
         return lines;
     }
@@ -1925,17 +1897,18 @@ fn spawn_starting_item(
     templates: &TemplateRegistry,
     item_id: &str,
 ) {
-    use oxide_core::SpawnKey;
-
-    let Some(item_tmpl) = templates.get_item(item_id) else {
-        return;
+    let spawn = oxide_core::systems::loot::ItemSpawn {
+        template_id: item_id.to_string(),
+        count: 1,
+        quality: oxide_core::systems::loot::QualityTier::Common,
+        prefix_ids: vec![],
+        suffix_ids: vec![],
     };
 
-    let item_entity = world.spawn((
-        Name::new(item_tmpl.name.clone()),
-        SpawnKey(format!("starting_item:{}", item_id)),
-        oxide_core::Item::new(item_id),
-    ));
+    let Some(item_entity) = oxide_core::systems::loot::spawn_loot_item(world, &spawn, templates)
+    else {
+        return;
+    };
 
     if let Ok(mut q) = world.query_one::<&mut Inventory>(player) {
         if let Some(inv) = q.get() {
@@ -1951,7 +1924,6 @@ fn spawn_starting_item(
 async fn load_character(
     flow: &mut LoginFlow,
     world: &mut World,
-    void_room: Entity,
     char_row: &oxide_data::CharacterRow,
     db: &Mutex<oxide_data::Database>,
 ) -> Vec<String> {
@@ -2226,54 +2198,29 @@ async fn load_character(
 
     drop(db_guard);
 
-    // Resolve starting room: last saved position → spawn_key → void_room
-    let saved_room = char_row.room_id.and_then(|room_db_id| {
-        world
-            .query::<&DbId>()
-            .iter()
-            .find(|(_, dbid)| dbid.0 == room_db_id)
-            .map(|(raw, _)| Entity::from(raw))
-    });
-    let room = saved_room
+    // Resolve current room: saved room key → spawn_key
+    let room = char_row
+        .current_room_key
+        .as_deref()
+        .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         .or_else(|| {
             valid_spawn_key
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
-        .unwrap_or(void_room);
+        .expect("current_room_key or spawn_key must resolve to a valid room");
 
-    // Resolve recall room: saved recall_room_id → spawn_key → void_room
-    // Persist recall_room_id on first resolution so we never need to re-resolve.
+    // Resolve recall room: saved recall key → spawn_key
     let recall_room = char_row
-        .recall_room_id
-        .and_then(|recall_db_id| {
-            world
-                .query::<&DbId>()
-                .iter()
-                .find(|(_, dbid)| dbid.0 == recall_db_id)
-                .map(|(raw, _)| Entity::from(raw))
-        })
-        .unwrap_or_else(|| {
+        .recall_room_key
+        .as_deref()
+        .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
+        .or_else(|| {
             valid_spawn_key
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
-                .unwrap_or(void_room)
-        });
-
-    // Persist recall_room_id if it wasn't already set
-    if char_row.recall_room_id.is_none() {
-        if let Ok(mut q) = world.query_one::<&DbId>(recall_room) {
-            if let Some(dbid) = q.get() {
-                let db_guard = db.lock().await;
-                let _ = oxide_data::update_character_recall_room(
-                    db_guard.conn(),
-                    char_row.entity_id,
-                    dbid.0,
-                );
-                drop(db_guard);
-            }
-        }
-    }
+        })
+        .expect("recall_room_key or spawn_key must resolve to a valid room");
 
     let player = world.spawn((
         Position::new(room),
@@ -2605,10 +2552,9 @@ mod tests {
         };
 
         let mut world = World::new();
-        let void_room = world.spawn((oxide_core::Name::new("Void"),));
-        let town_square = world.spawn((
+        world.spawn((
             oxide_core::Name::new("Town Square"),
-            oxide_core::SpawnKey("starting_vale:town_square".to_string()),
+            oxide_core::RoomKey("starting_vale:town_square".to_string()),
         ));
 
         let _char_id = {
@@ -2621,8 +2567,8 @@ mod tests {
                 "human",
                 "warrior",
                 entity_id,
-                None,
-                Some("starting_vale:forest_crossing"),
+                Some("starting_vale:town_square"),
+                Some("starting_vale:town_square"),
             )
             .unwrap()
         };
@@ -2635,7 +2581,7 @@ mod tests {
         };
 
         let mut flow = LoginFlow::new();
-        let _lines = load_character(&mut flow, &mut world, void_room, &char_row, &db).await;
+        let _lines = load_character(&mut flow, &mut world, &char_row, &db).await;
 
         let player_entity = flow.entity.unwrap();
         let recall_comp = world
@@ -2644,8 +2590,14 @@ mod tests {
             .get()
             .map(|r| r.0)
             .unwrap();
-        // Recall room should resolve to town_square (healed from forest_crossing)
-        assert_eq!(recall_comp, town_square);
+        assert_eq!(
+            world
+                .query_one::<&oxide_core::RoomKey>(recall_comp)
+                .unwrap()
+                .get()
+                .map(|k| &k.0),
+            Some(&"starting_vale:town_square".to_string())
+        );
 
         let healed_char_row = {
             let db_guard = db.lock().await;

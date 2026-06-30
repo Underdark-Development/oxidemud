@@ -7,7 +7,7 @@ use oxide_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use oxide_core::templates::SetDef;
 use oxide_core::{
     Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Player, Position, PracticePoints, Wallet, World,
+    LearnedSkills, Level, Player, Position, PracticePoints, RoomKey, Wallet, World,
 };
 use tokio::sync::Mutex;
 use tokio::time::interval;
@@ -31,7 +31,6 @@ pub fn spawn_game_loop(
 
         let mut maintenance_tick = interval(Duration::from_secs(5));
         let mut set_bonus_tick = interval(Duration::from_secs(10));
-        let mut position_save_tick = interval(Duration::from_secs(60));
 
         loop {
             tokio::select! {
@@ -151,15 +150,6 @@ pub fn spawn_game_loop(
                         systems::set_bonus::reconcile_all_set_bonuses(&mut w, &set_defs);
                     }
                     drop(w);
-                }
-                _ = position_save_tick.tick() => {
-                    if let Some(ref db) = db {
-                        if let Ok(db_guard) = db.try_lock() {
-                            let mut w = world.lock().await;
-                            save_player_positions(&mut w, &db_guard);
-                            drop(w);
-                        }
-                    }
                 }
             }
         }
@@ -696,8 +686,7 @@ fn current_xp(world: &World, player: Entity) -> u64 {
         .unwrap_or(0)
 }
 
-/// Save every online player's current room to the database.
-/// Inserts a DB entity record for any room that doesn't have one yet.
+/// Save every online player's current room key to the database.
 pub(crate) fn save_player_positions(world: &mut World, db: &oxide_data::Database) {
     let conn = db.conn();
     let players: Vec<(i64, Entity)> = world
@@ -707,20 +696,13 @@ pub(crate) fn save_player_positions(world: &mut World, db: &oxide_data::Database
         .collect();
 
     for (player_entity_id, room_entity) in players {
-        let existing_room_db_id = world
-            .query_one::<&DbId>(room_entity)
+        if let Some(room_key) = world
+            .query_one::<&RoomKey>(room_entity)
             .ok()
-            .and_then(|mut q| q.get().copied())
-            .map(|dbid| dbid.0);
-
-        let room_db_id = existing_room_db_id.or_else(|| {
-            oxide_data::insert_entity(conn, "room").ok().inspect(|&id| {
-                let _ = world.insert(room_entity, (DbId(id),));
-            })
-        });
-
-        if let Some(rid) = room_db_id {
-            let _ = oxide_data::update_character_position(conn, player_entity_id, rid);
+            .and_then(|mut q| q.get().map(|k| k.0.clone()))
+        {
+            let _ =
+                oxide_data::update_character_current_room_key(conn, player_entity_id, &room_key);
             let _ = oxide_data::update_character_last_seen(conn, player_entity_id);
         }
     }
