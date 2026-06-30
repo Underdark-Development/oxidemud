@@ -957,6 +957,15 @@ pub fn handle_death(world: &mut World, victim: Entity) -> Entity {
 
         let _ = world.insert(victim, (Position::new(dest), crate::Dirty));
     } else {
+        // Despawn equipped item entities — they don't go on the corpse
+        let equipped_items: Vec<Entity> = world
+            .query_one::<&Equipment>(victim)
+            .ok()
+            .and_then(|mut q| q.get().map(|eq| eq.slots.iter().map(|(_, e)| *e).collect()))
+            .unwrap_or_default();
+        for entity in equipped_items {
+            let _ = world.despawn(entity);
+        }
         let _ = world.despawn(victim);
     }
 
@@ -964,17 +973,25 @@ pub fn handle_death(world: &mut World, victim: Entity) -> Entity {
 }
 
 pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) -> Entity {
+    let is_player = world
+        .query_one::<&crate::Player>(victim)
+        .is_ok_and(|mut q| q.get().is_some());
+
     let inv = world
         .query_one::<&Inventory>(victim)
         .ok()
         .and_then(|mut q| q.get().cloned())
         .unwrap_or_default();
 
-    let eq = world
-        .query_one::<&Equipment>(victim)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default();
+    let eq = if is_player {
+        world
+            .query_one::<&Equipment>(victim)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .unwrap_or_default()
+    } else {
+        Equipment::new()
+    };
 
     let pos = match world
         .query_one::<&Position>(victim)
@@ -992,10 +1009,6 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
         .unwrap_or_else(|| "Someone".to_owned());
 
     let corpse_name = Name::new(format!("Corpse of {victim_name}"));
-
-    let is_player = world
-        .query_one::<&crate::Player>(victim)
-        .is_ok_and(|mut q| q.get().is_some());
 
     let (owner, decay_secs, lootable_by) = if is_player {
         (Some(victim), 1800, LootRule::OwnerOnly)

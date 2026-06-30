@@ -7,7 +7,6 @@ armor = 4
 damage = "1d6+2"
 damage_type = "slash"
 size = "small"
-equipment = []
 xp_value = 55
 ai_mode = "wander"
 patrol_route = []
@@ -26,6 +25,10 @@ languages = ["goblin"]
 skills = []
 friendly = false
 scripts = []
+
+[[equipment]]
+template_id = "rusted_dagger"
+slot = "weapon"
 
 [attributes]
 strength = 12
@@ -53,10 +56,6 @@ chance = 55
 
 [[loot.entries]]
 item = "ragged_leather_vest"
-chance = 15
-
-[[loot.entries]]
-item = "wooden_cudgel"
 chance = 15
 
 [[loot.entries]]
