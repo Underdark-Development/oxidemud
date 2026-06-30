@@ -809,18 +809,18 @@ pub fn show_character_deity_prompt(
         lines.push("No deities are available.".to_string());
         return lines;
     }
-    for deity_id in options {
+    for (i, deity_id) in options.iter().enumerate() {
         if let Some(t) = templates.and_then(|reg| reg.deities.get(deity_id)) {
-            lines.push(format!("  {} - {}", t.name, t.description));
+            lines.push(format!("{}. {} - {}", i + 1, t.name, t.description));
             lines.push(format!("    Symbol:   {}", t.symbol));
             if let Some(ref align) = t.alignment {
-                lines.push(format!("    Alignment:{}", align));
+                lines.push(format!("    Alignment: {}", align));
             }
             if !t.domains.is_empty() {
-                lines.push(format!("    Domains:  {}", t.domains.join(", ")));
+                lines.push(format!("    Domains:   {}", t.domains.join(", ")));
             }
         } else {
-            lines.push(format!("  {}", deity_id));
+            lines.push(format!("{}. {}", i + 1, deity_id));
         }
     }
     lines.push(String::new());
@@ -835,10 +835,10 @@ pub fn show_character_deity_prompt(
 
     match class_policy {
         DeityPolicy::Any | DeityPolicy::None => {
-            lines.push("Enter deity name (or 'none'):".to_string());
+            lines.push("Pick a deity by number, type the name, or type 'none':".to_string());
         }
         _ => {
-            lines.push("Enter deity name:".to_string());
+            lines.push("Pick a deity by number or type the name:".to_string());
         }
     }
     lines
@@ -896,11 +896,11 @@ pub fn show_appearance_build_prompt(_flow: &LoginFlow, options: &[String]) -> Ve
     let mut lines = Vec::new();
     lines.push(String::new());
     lines.push("--- Choose a Build ---".to_string());
-    for build in options {
-        lines.push(format!("  {}", build));
+    for (i, build) in options.iter().enumerate() {
+        lines.push(format!("{}. {}", i + 1, build));
     }
     lines.push(String::new());
-    lines.push("Enter build:".to_string());
+    lines.push("Pick a build by number or type the name:".to_string());
     lines
 }
 
@@ -908,11 +908,11 @@ pub fn show_appearance_hair_color_prompt(_flow: &LoginFlow, options: &[String]) 
     let mut lines = Vec::new();
     lines.push(String::new());
     lines.push("--- Choose a Hair Color ---".to_string());
-    for opt in options {
-        lines.push(format!("  {}", opt));
+    for (i, opt) in options.iter().enumerate() {
+        lines.push(format!("{}. {}", i + 1, opt));
     }
     lines.push(String::new());
-    lines.push("Enter hair color:".to_string());
+    lines.push("Pick a hair color by number or type the name:".to_string());
     lines
 }
 
@@ -927,11 +927,11 @@ pub fn show_appearance_eye_color_prompt(_flow: &LoginFlow, options: &[String]) -
     let mut lines = Vec::new();
     lines.push(String::new());
     lines.push("--- Choose an Eye Color ---".to_string());
-    for opt in options {
-        lines.push(format!("  {}", opt));
+    for (i, opt) in options.iter().enumerate() {
+        lines.push(format!("{}. {}", i + 1, opt));
     }
     lines.push(String::new());
-    lines.push("Enter eye color:".to_string());
+    lines.push("Pick an eye color by number or type the name:".to_string());
     lines
 }
 
@@ -939,11 +939,11 @@ pub fn show_appearance_skin_tone_prompt(_flow: &LoginFlow, options: &[String]) -
     let mut lines = Vec::new();
     lines.push(String::new());
     lines.push("--- Choose a Skin Tone ---".to_string());
-    for opt in options {
-        lines.push(format!("  {}", opt));
+    for (i, opt) in options.iter().enumerate() {
+        lines.push(format!("{}. {}", i + 1, opt));
     }
     lines.push(String::new());
-    lines.push("Enter skin tone:".to_string());
+    lines.push("Pick a skin tone by number or type the name:".to_string());
     lines
 }
 

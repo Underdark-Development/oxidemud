@@ -1788,6 +1788,7 @@ impl TemplateRegistry {
                 }
             }
         }
+        result.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.room.cmp(&b.1.room)));
         result
     }
 

@@ -64,6 +64,16 @@ fn roll_all_stats() -> [u8; 6] {
     stats
 }
 
+/// Match an option by 1-based index or by name (case-insensitive).
+fn match_option_index_or_name<'a>(input_lower: &str, options: &'a [String]) -> Option<&'a String> {
+    if let Ok(idx) = input_lower.parse::<usize>() {
+        if idx > 0 && idx <= options.len() {
+            return Some(&options[idx - 1]);
+        }
+    }
+    options.iter().find(|o| o.to_lowercase() == input_lower)
+}
+
 /// Parse a stat name abbreviation to index (0-5).
 fn stat_index(s: &str) -> Option<usize> {
     match s {
@@ -400,7 +410,8 @@ pub fn handle_character_create_gender_state(
         .unwrap_or_default();
 
     // Parse input: number, or "other:<subject>/<object>/<possessive>"
-    let gender_ids: Vec<String> = allowed_genders.keys().cloned().collect();
+    let mut gender_ids: Vec<String> = allowed_genders.keys().cloned().collect();
+    gender_ids.sort();
 
     // Handle "other" input — requires pronoun specification
     if input.starts_with("other:") || input.starts_with("custom:") {
@@ -883,6 +894,7 @@ pub fn handle_alignment_state(
         }
     }
 
+    flow.create_buffer.alignment = Some(alignment.to_string());
     lines.extend(transition_to_deity(flow, templates));
     lines
 }
@@ -1028,7 +1040,22 @@ pub fn handle_character_create_deity_state(
         }
     }
 
-    let matched_deity = options.iter().find(|d| d.to_lowercase() == input_lower);
+    let matched_deity = if let Ok(idx) = input_lower.parse::<usize>() {
+        if idx > 0 && idx <= options.len() {
+            Some(&options[idx - 1])
+        } else {
+            None
+        }
+    } else {
+        options.iter().find(|d| {
+            d.to_lowercase() == input_lower
+                || templates
+                    .and_then(|t| t.deities.get(*d))
+                    .map(|deity| deity.name.to_lowercase() == input_lower)
+                    .unwrap_or(false)
+        })
+    };
+
     if let Some(deity_id) = matched_deity {
         flow.create_buffer.deity = Some(deity_id.clone());
         transition_from_deity(flow, templates);
@@ -1104,7 +1131,7 @@ pub fn handle_appearance_build_state(
         }
     };
 
-    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    let matched = match_option_index_or_name(&input_lower, &options);
     if let Some(build) = matched {
         flow.create_buffer.appearance_build = Some(build.clone());
         flow.state = LoginState::CharacterCreateAppearanceHairStyle;
@@ -1149,7 +1176,7 @@ pub fn handle_appearance_hair_color_state(
         }
     };
 
-    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    let matched = match_option_index_or_name(&input_lower, &options);
     if let Some(color) = matched {
         flow.create_buffer.appearance_hair_color = Some(color.clone());
         let bounds = get_race_appearance_bounds(flow, templates);
@@ -1179,7 +1206,7 @@ pub fn handle_appearance_eye_color_state(
         }
     };
 
-    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    let matched = match_option_index_or_name(&input_lower, &options);
     if let Some(color) = matched {
         flow.create_buffer.appearance_eye_color = Some(color.clone());
         let bounds = get_race_appearance_bounds(flow, templates);
@@ -1209,7 +1236,7 @@ pub fn handle_appearance_skin_tone_state(
         }
     };
 
-    let matched = options.iter().find(|o| o.to_lowercase() == input_lower);
+    let matched = match_option_index_or_name(&input_lower, &options);
     if let Some(tone) = matched {
         flow.create_buffer.appearance_skin_tone = Some(tone.clone());
         flow.state = LoginState::CharacterCreateAge;
@@ -1604,9 +1631,14 @@ async fn finalize_character(
         CombatStats::default()
     };
 
-    let room_entity = templates
-        .and_then(|t| t.find_room_by_key(world, &spawn_key))
-        .expect("spawn_key must resolve to a valid room");
+    let room_entity = match templates.and_then(|t| t.find_room_by_key(world, &spawn_key)) {
+        Some(r) => r,
+        None => {
+            lines.push("Error: The selected starting room could not be found. Please select a starting location again.".to_string());
+            flow.state = LoginState::CharacterCreateSpawn;
+            return lines;
+        }
+    };
 
     let db_guard = db_con.lock().await;
     let conn_db = db_guard.conn();
@@ -2208,7 +2240,12 @@ async fn load_character(
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
-        .expect("current_room_key or spawn_key must resolve to a valid room");
+        .or_else(|| {
+            use oxide_core::{Entity, RoomKey};
+            let mut query = world.query::<(&RoomKey,)>();
+            query.iter().next().map(|(e, _)| Entity::from(e))
+        })
+        .expect("Must find at least one room in the world");
 
     // Resolve recall room: saved recall key → spawn_key
     let recall_room = char_row
@@ -2220,7 +2257,12 @@ async fn load_character(
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
-        .expect("recall_room_key or spawn_key must resolve to a valid room");
+        .or_else(|| {
+            use oxide_core::{Entity, RoomKey};
+            let mut query = world.query::<(&RoomKey,)>();
+            query.iter().next().map(|(e, _)| Entity::from(e))
+        })
+        .expect("Must find at least one room in the world");
 
     let player = world.spawn((
         Position::new(room),
@@ -2609,5 +2651,198 @@ mod tests {
             healed_char_row.spawn_key,
             Some("starting_vale:town_square".to_string())
         );
+    }
+
+    #[test]
+    fn test_gender_selection_sorting() {
+        use oxide_core::templates::{
+            AppearanceBounds, GenderPronouns, RaceAttributes, RaceTemplate,
+        };
+        let mut registry = TemplateRegistry::new();
+        let mut race = RaceTemplate {
+            id: "human".to_string(),
+            name: "Human".to_string(),
+            description: "A human".to_string(),
+            attributes: RaceAttributes::default(),
+            allowed_classes: vec![],
+            allowed_alignments: vec![],
+            racial_abilities: vec![],
+            allowed_genders: HashMap::new(),
+            appearance_bounds: AppearanceBounds::default(),
+            age_default: 20,
+            age_max: 100,
+            params: HashMap::new(),
+        };
+        // Insert out of alphabetical order
+        race.allowed_genders.insert(
+            "neutral".to_string(),
+            GenderPronouns {
+                subject: "they".into(),
+                object: "them".into(),
+                possessive: "their".into(),
+            },
+        );
+        race.allowed_genders.insert(
+            "male".to_string(),
+            GenderPronouns {
+                subject: "he".into(),
+                object: "him".into(),
+                possessive: "his".into(),
+            },
+        );
+        race.allowed_genders.insert(
+            "female".to_string(),
+            GenderPronouns {
+                subject: "she".into(),
+                object: "her".into(),
+                possessive: "hers".into(),
+            },
+        );
+        registry.races.insert("human".to_string(), race);
+
+        let mut flow = LoginFlow::new();
+        flow.create_buffer.race = Some("human".to_string());
+        flow.state = LoginState::CharacterCreateGender;
+
+        // In both show_character_gender_prompt and handle_character_create_gender_state,
+        // options will be sorted alphabetically: ["female", "male", "neutral"]
+        // Select index 1 (which should be "female")
+        let _ = handle_character_create_gender_state(&mut flow, "1", Some(&registry));
+        assert_eq!(flow.create_buffer.gender.as_deref(), Some("female"));
+    }
+
+    #[test]
+    fn test_deity_selection_index_and_names() {
+        let mut registry = TemplateRegistry::new();
+        let astra = DeityTemplate {
+            id: "astra".to_string(),
+            name: "Astra Goddess".to_string(),
+            description: "A deity".to_string(),
+            alignment: None,
+            symbol: "".to_string(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_races: vec![],
+            allowed_classes: vec![],
+            allowed_alignments: vec![],
+            prayer_effect: None,
+            params: HashMap::new(),
+        };
+        registry.deities.insert("astra".to_string(), astra);
+
+        // Select by index
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::CharacterCreateDeity(vec!["astra".to_string()]);
+        flow.create_buffer.class = Some("warrior".to_string());
+        let _ = handle_character_create_deity_state(&mut flow, "1", Some(&registry));
+        assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
+
+        // Select by ID case-insensitive
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::CharacterCreateDeity(vec!["astra".to_string()]);
+        flow.create_buffer.class = Some("warrior".to_string());
+        let _ = handle_character_create_deity_state(&mut flow, "AsTrA", Some(&registry));
+        assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
+
+        // Select by name case-insensitive
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::CharacterCreateDeity(vec!["astra".to_string()]);
+        flow.create_buffer.class = Some("warrior".to_string());
+        let _ = handle_character_create_deity_state(&mut flow, "astra goddess", Some(&registry));
+        assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
+    }
+
+    #[test]
+    fn test_appearance_build_selection() {
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::CharacterCreateAppearanceBuild(vec![
+            "slim".to_string(),
+            "heavy".to_string(),
+        ]);
+
+        // Select by index
+        let _ = handle_appearance_build_state(&mut flow, "2", None);
+        assert_eq!(
+            flow.create_buffer.appearance_build.as_deref(),
+            Some("heavy")
+        );
+
+        // Select by name
+        flow.state = LoginState::CharacterCreateAppearanceBuild(vec![
+            "slim".to_string(),
+            "heavy".to_string(),
+        ]);
+        let _ = handle_appearance_build_state(&mut flow, "sLiM", None);
+        assert_eq!(flow.create_buffer.appearance_build.as_deref(), Some("slim"));
+    }
+
+    #[tokio::test]
+    async fn test_load_character_fallback() {
+        let mut world = World::new();
+        let fallback_room = world.spawn((
+            oxide_core::Name::new("The Limbo Fallback"),
+            oxide_core::RoomKey("limbo:1".to_string()),
+        ));
+
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+        let account_id = {
+            let db_guard = db.lock().await;
+            oxide_data::create_account(db_guard.conn(), "testuser2", "hash").unwrap()
+        };
+
+        let _char_id = {
+            let db_guard = db.lock().await;
+            let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
+            oxide_data::create_character(
+                db_guard.conn(),
+                account_id,
+                "FallbackChar",
+                "human",
+                "warrior",
+                entity_id,
+                Some("deleted_room:3"),
+                Some("deleted_room:3"),
+            )
+            .unwrap()
+        };
+
+        let char_row = {
+            let db_guard = db.lock().await;
+            let _ = db_guard.conn().execute(
+                "UPDATE characters SET current_room_key = 'deleted_room:1', recall_room_key = 'deleted_room:2' WHERE name = 'FallbackChar'",
+                [],
+            );
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .into_iter()
+                .find(|c| c.name == "FallbackChar")
+                .unwrap()
+        };
+
+        let mut flow = LoginFlow::new();
+        let _lines = load_character(&mut flow, &mut world, &char_row, &db).await;
+
+        let player_entity = flow.entity.unwrap();
+        let position = world
+            .query_one::<&Position>(player_entity)
+            .unwrap()
+            .get()
+            .map(|p| p.room)
+            .unwrap();
+        assert_eq!(position, fallback_room);
+    }
+
+    #[test]
+    fn test_alignment_setting() {
+        let registry = TemplateRegistry::new();
+        let mut flow = LoginFlow::new();
+        flow.create_buffer.race = Some("human".to_string());
+        flow.create_buffer.class = Some("warrior".to_string());
+        flow.state = LoginState::CharacterCreateAlignment;
+
+        // Select lawful good (index 1)
+        let _ = handle_alignment_state(&mut flow, "1", Some(&registry));
+        assert_eq!(flow.create_buffer.alignment.as_deref(), Some("lawful_good"));
     }
 }
