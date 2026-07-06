@@ -326,6 +326,10 @@ pub fn spawn_loot_item(
                 "thrown" => WeaponRange::Thrown,
                 _ => WeaponRange::Melee,
             };
+            let hands = match wpn.hands.to_lowercase().as_str() {
+                "twohand" | "twohanded" | "two_hand" | "two_handed" => WeaponHands::TwoHand,
+                _ => WeaponHands::OneHand,
+            };
             let _ = world.insert(
                 entity,
                 (Weapon {
@@ -333,7 +337,7 @@ pub fn spawn_loot_item(
                     damage_type,
                     speed: wpn.speed,
                     range,
-                    hands: WeaponHands::OneHand,
+                    hands,
                 },),
             );
         }

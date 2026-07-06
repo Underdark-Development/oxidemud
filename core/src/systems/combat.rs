@@ -276,8 +276,19 @@ pub fn calculate_hit(
 
     let ac = calculate_ac(world, target);
 
+    let has_ambidexterity = world
+        .query_one::<&crate::components::LearnedSkills>(attacker)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| s.has("ambidexterity")))
+        .unwrap_or(false);
+
     let dw_penalty = if is_dual_wielding(world, attacker) {
-        dual_wield_penalty(is_offhand)
+        let base_penalty = dual_wield_penalty(is_offhand);
+        if has_ambidexterity {
+            base_penalty / 2
+        } else {
+            base_penalty
+        }
     } else {
         0
     };
@@ -792,12 +803,7 @@ pub fn apply_damage(
         {
             let _ = world.insert(
                 target,
-                (
-                    PlayerState::Alive {
-                        rest: RestState::Unconscious,
-                    },
-                    crate::Dirty,
-                ),
+                (PlayerState::Resting(RestState::Unconscious), crate::Dirty),
             );
         }
         (final_damage, false, true, 0, None)
@@ -1010,15 +1016,20 @@ pub fn spawn_corpse(world: &mut World, victim: Entity, _killer: Option<Entity>) 
 
     let corpse_name = Name::new(format!("Corpse of {victim_name}"));
 
-    let (owner, decay_secs, lootable_by) = if is_player {
-        (Some(victim), 1800, LootRule::OwnerOnly)
+    let (owner, owner_db_id, decay_secs, lootable_by) = if is_player {
+        let db_id = world
+            .query_one::<&crate::components::DbId>(victim)
+            .ok()
+            .and_then(|mut q| q.get().map(|d| d.0));
+        (Some(victim), db_id, 1800, LootRule::OwnerOnly)
     } else {
-        (None, 300, LootRule::Public)
+        (None, None, 300, LootRule::Public)
     };
 
     world.spawn((
         Corpse {
             owner,
+            owner_db_id,
             created_at: std::time::Instant::now(),
             decay_secs,
             lootable_by,
@@ -1147,15 +1158,17 @@ mod tests {
             Health::new(1),
             Inventory(vec![item]),
             Equipment::new(),
+            crate::Player::new(1),
+            crate::components::DbId(42),
         ));
         spawn_corpse(&mut world, victim, None);
         // Corpse should exist in the same room
-        let corpse_count = world
-            .query::<(&Corpse, &Position)>()
-            .iter()
-            .filter(|(_, (_, pos))| pos.room == room)
-            .count();
-        assert_eq!(corpse_count, 1);
+        let mut q = world.query::<(&Corpse, &Position)>();
+        let mut iter = q.iter();
+        let (_, (corpse, pos)) = iter.next().unwrap();
+        assert_eq!(pos.room, room);
+        assert_eq!(corpse.owner_db_id, Some(42));
+        assert_eq!(corpse.owner, Some(victim));
     }
 
     #[test]
@@ -1466,5 +1479,74 @@ mod tests {
             .unwrap()
             .0;
         assert_eq!(xp, xp_gained);
+    }
+
+    #[test]
+    fn test_effective_speed() {
+        use crate::components::{Weapon, WeaponHands};
+        use crate::dice::DiceRoll;
+        let one_handed_wep = Weapon {
+            damage_dice: DiceRoll::new(1, 6, 0),
+            damage_type: DamageType::Slash,
+            speed: 2.0,
+            range: crate::components::WeaponRange::Melee,
+            hands: WeaponHands::OneHand,
+        };
+        assert_eq!(one_handed_wep.effective_speed(), 2.0);
+
+        let two_handed_wep = Weapon {
+            damage_dice: DiceRoll::new(2, 6, 0),
+            damage_type: DamageType::Slash,
+            speed: 2.0,
+            range: crate::components::WeaponRange::Melee,
+            hands: WeaponHands::TwoHand,
+        };
+        assert_eq!(two_handed_wep.effective_speed(), 2.4); // 2.0 * 1.2
+    }
+
+    #[test]
+    fn test_ambidexterity_mitigation() {
+        // Check dual wield penalty with vs without Ambidexterity
+        let penalty_with_main = {
+            let has_ambidexterity = true;
+            let base_penalty = dual_wield_penalty(false); // main hand
+            if has_ambidexterity {
+                base_penalty / 2
+            } else {
+                base_penalty
+            }
+        };
+        let penalty_without_main = {
+            let has_ambidexterity = false;
+            let base_penalty = dual_wield_penalty(false); // main hand
+            if has_ambidexterity {
+                base_penalty / 2
+            } else {
+                base_penalty
+            }
+        };
+        assert_eq!(penalty_with_main, -1);
+        assert_eq!(penalty_without_main, -2);
+
+        let penalty_with_off = {
+            let has_ambidexterity = true;
+            let base_penalty = dual_wield_penalty(true); // off hand
+            if has_ambidexterity {
+                base_penalty / 2
+            } else {
+                base_penalty
+            }
+        };
+        let penalty_without_off = {
+            let has_ambidexterity = false;
+            let base_penalty = dual_wield_penalty(true); // off hand
+            if has_ambidexterity {
+                base_penalty / 2
+            } else {
+                base_penalty
+            }
+        };
+        assert_eq!(penalty_with_off, -2);
+        assert_eq!(penalty_without_off, -4);
     }
 }

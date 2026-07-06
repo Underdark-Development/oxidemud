@@ -769,7 +769,7 @@ fn move_player(
         if let Some(state) = q.get() {
             match state {
                 core::PlayerState::Dead => {} // Ghost can move
-                core::PlayerState::Alive { rest } => match rest {
+                core::PlayerState::Resting(rest) => match rest {
                     core::RestState::Standing => {}
                     core::RestState::Sitting => {
                         conn.send_line("You cannot move while sitting down.");
@@ -1371,7 +1371,7 @@ pub fn cmd_kill(
                     conn.send_line("You are a ghost! You cannot attack anything.");
                     return;
                 }
-                core::PlayerState::Alive { rest } => match rest {
+                core::PlayerState::Resting(rest) => match rest {
                     core::RestState::Standing | core::RestState::Sitting => {}
                     core::RestState::Resting => {
                         conn.send_line("You cannot attack while resting.");
@@ -1768,18 +1768,55 @@ pub fn cmd_wear(
         }
     }
 
-    // Check if it's armor (has Armor component) or general wearable
-    let has_armor = world
-        .query_one::<&core::Armor>(item)
-        .is_ok_and(|mut q| q.get().is_some());
-    let slot = if has_armor {
-        // Determine slot from item's template or name
-        // Default to Torso for armor items
-        core::EquipmentSlot::Torso
+    let slot = if let Some(templates) = oxide_server::get_templates() {
+        if let Ok(mut q) = world.query_one::<&core::Item>(item) {
+            if let Some(item_comp) = q.get() {
+                if let Some(item_tmpl) = templates.items.get(&item_comp.template_id) {
+                    if let Some(eq_def) = &item_tmpl.equipment {
+                        use std::str::FromStr;
+                        core::EquipmentSlot::from_str(&eq_def.slot)
+                            .unwrap_or(core::EquipmentSlot::Torso)
+                    } else {
+                        conn.send_line("You can't wear that.");
+                        return;
+                    }
+                } else {
+                    conn.send_line("You can't wear that.");
+                    return;
+                }
+            } else {
+                conn.send_line("You can't wear that.");
+                return;
+            }
+        } else {
+            conn.send_line("You can't wear that.");
+            return;
+        }
     } else {
-        conn.send_line("You can't wear that.");
+        conn.send_line("Server error: templates unavailable.");
         return;
     };
+
+    if slot == core::EquipmentSlot::Shield {
+        let wielding_two_handed = world
+            .query_one::<&core::Equipment>(entity)
+            .ok()
+            .and_then(|mut q| {
+                q.get().and_then(|eq| {
+                    eq.equipped(&core::EquipmentSlot::Weapon)
+                        .and_then(|w_entity| world.query_one::<&core::Weapon>(*w_entity).ok())
+                        .and_then(|mut w_query| w_query.get().map(|w| w.is_two_handed()))
+                })
+            })
+            .unwrap_or(false);
+
+        if wielding_two_handed {
+            conn.send_line(
+                "You are wielding a two-handed weapon and cannot use a shield/off-hand.",
+            );
+            return;
+        }
+    }
 
     // Remove from inventory
     if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
@@ -1888,6 +1925,12 @@ pub fn cmd_wield(
         }
     }
 
+    let is_two_handed = world
+        .query_one::<&core::Weapon>(item)
+        .ok()
+        .and_then(|mut q| q.get().map(|w| w.is_two_handed()))
+        .unwrap_or(false);
+
     // Equip to Weapon slot
     if let Ok(mut q) = world.query_one::<&mut core::Equipment>(entity) {
         if let Some(eq) = q.get() {
@@ -1898,6 +1941,25 @@ pub fn cmd_wield(
                     }
                 }
             }
+
+            if is_two_handed {
+                if let Some(old_shield) = eq.unequip(&core::EquipmentSlot::Shield) {
+                    if let Ok(mut name_q) = world.query_one::<&core::Name>(old_shield) {
+                        if let Some(sname) = name_q.get() {
+                            conn.send_line(&format!(
+                                "You unequip {} to wield the two-handed weapon.",
+                                sname.0
+                            ));
+                        }
+                    }
+                    if let Ok(mut iq) = world.query_one::<&mut core::Inventory>(entity) {
+                        if let Some(inv) = iq.get() {
+                            inv.0.push(old_shield);
+                        }
+                    }
+                }
+            }
+
             eq.equip(core::EquipmentSlot::Weapon, item);
             conn.send_line("You wield it.");
         }
@@ -2327,6 +2389,28 @@ pub fn cmd_loot(
             return;
         }
     };
+
+    // Check loot rules
+    let player_db_id = world
+        .query_one::<&core::DbId>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|d| d.0));
+
+    if let Ok(mut q) = world.query_one::<&core::Corpse>(corpse) {
+        if let Some(c_comp) = q.get() {
+            match c_comp.lootable_by {
+                core::LootRule::Public => {}
+                core::LootRule::OwnerOnly | core::LootRule::GroupOnly | core::LootRule::Faction => {
+                    let is_owner = c_comp.owner == Some(entity)
+                        || (player_db_id.is_some() && c_comp.owner_db_id == player_db_id);
+                    if !is_owner {
+                        conn.send_line("This corpse does not belong to you.");
+                        return;
+                    }
+                }
+            }
+        }
+    }
 
     // Transfer items from corpse inventory to player inventory
     let items = world
@@ -3276,14 +3360,12 @@ pub fn cmd_sit(
         core::PlayerState::Dead => {
             conn.send_line("You are a ghost! Ghosts do not sit down.");
         }
-        core::PlayerState::Alive { rest } => match rest {
+        core::PlayerState::Resting(rest) => match rest {
             core::RestState::Sitting => {
                 conn.send_line("You are already sitting.");
             }
             core::RestState::Standing | core::RestState::Resting => {
-                let next_state = core::PlayerState::Alive {
-                    rest: core::RestState::Sitting,
-                };
+                let next_state = core::PlayerState::Resting(core::RestState::Sitting);
                 let _ = world.insert(entity, (next_state, core::Dirty));
                 conn.send_line("You sit down.");
                 if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
@@ -3340,14 +3422,12 @@ pub fn cmd_rest(
         core::PlayerState::Dead => {
             conn.send_line("You are a ghost! Ghosts do not rest.");
         }
-        core::PlayerState::Alive { rest } => match rest {
+        core::PlayerState::Resting(rest) => match rest {
             core::RestState::Resting => {
                 conn.send_line("You are already resting.");
             }
             core::RestState::Standing | core::RestState::Sitting | core::RestState::Sleeping => {
-                let next_state = core::PlayerState::Alive {
-                    rest: core::RestState::Resting,
-                };
+                let next_state = core::PlayerState::Resting(core::RestState::Resting);
                 let _ = world.insert(entity, (next_state, core::Dirty));
                 conn.send_line("You lean back and rest.");
                 if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
@@ -3401,14 +3481,12 @@ pub fn cmd_sleep(
         core::PlayerState::Dead => {
             conn.send_line("You are a ghost! Ghosts do not sleep.");
         }
-        core::PlayerState::Alive { rest } => match rest {
+        core::PlayerState::Resting(rest) => match rest {
             core::RestState::Sleeping => {
                 conn.send_line("You are already sleeping.");
             }
             core::RestState::Standing | core::RestState::Sitting | core::RestState::Resting => {
-                let next_state = core::PlayerState::Alive {
-                    rest: core::RestState::Sleeping,
-                };
+                let next_state = core::PlayerState::Resting(core::RestState::Sleeping);
                 let _ = world.insert(entity, (next_state, core::Dirty));
                 conn.send_line("You lie down and go to sleep.");
                 if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
@@ -3462,11 +3540,9 @@ pub fn cmd_wake(
         core::PlayerState::Dead => {
             conn.send_line("You are a ghost! You cannot wake up.");
         }
-        core::PlayerState::Alive { rest } => match rest {
+        core::PlayerState::Resting(rest) => match rest {
             core::RestState::Sleeping => {
-                let next_state = core::PlayerState::Alive {
-                    rest: core::RestState::Resting,
-                };
+                let next_state = core::PlayerState::Resting(core::RestState::Resting);
                 let _ = world.insert(entity, (next_state, core::Dirty));
                 conn.send_line("You wake up.");
                 if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
@@ -3523,14 +3599,12 @@ pub fn cmd_stand(
         core::PlayerState::Dead => {
             conn.send_line("You are a ghost! Ghosts stand in ethereal form.");
         }
-        core::PlayerState::Alive { rest } => match rest {
+        core::PlayerState::Resting(rest) => match rest {
             core::RestState::Standing => {
                 conn.send_line("You are already standing.");
             }
             core::RestState::Sitting | core::RestState::Resting | core::RestState::Sleeping => {
-                let next_state = core::PlayerState::Alive {
-                    rest: core::RestState::Standing,
-                };
+                let next_state = core::PlayerState::Resting(core::RestState::Standing);
                 let _ = world.insert(entity, (next_state, core::Dirty));
                 conn.send_line("You stand up.");
                 if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
@@ -4311,10 +4385,7 @@ pub fn cmd_die(
     }
     if !is_unconscious {
         if let Ok(mut q) = world.query_one::<&core::PlayerState>(entity) {
-            if let Some(core::PlayerState::Alive {
-                rest: core::RestState::Unconscious,
-            }) = q.get()
-            {
+            if let Some(core::PlayerState::Resting(core::RestState::Unconscious)) = q.get() {
                 is_unconscious = true;
             }
         }
@@ -4375,13 +4446,35 @@ pub fn cmd_reclaim(
         return;
     }
 
+    let player_db_id = world
+        .query_one::<&core::DbId>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|d| d.0));
+
     let corpse_entity = if let Some(room) = get_pos_room(world, entity) {
         let mut found = None;
-        let mut q = world.query::<(&core::Corpse, &core::Position)>();
-        for (raw, (corpse, pos)) in q.iter() {
-            if pos.room == room && corpse.owner == Some(entity) {
-                found = Some(core::Entity::from(raw));
-                break;
+        let mut to_update = None;
+        {
+            let mut q = world.query::<(&core::Corpse, &core::Position)>();
+            for (raw, (corpse, pos)) in q.iter() {
+                if pos.room == room {
+                    let is_owner = corpse.owner == Some(entity)
+                        || (player_db_id.is_some() && corpse.owner_db_id == player_db_id);
+                    if is_owner {
+                        found = Some(core::Entity::from(raw));
+                        if corpse.owner != Some(entity) {
+                            to_update = Some(core::Entity::from(raw));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some(c_entity) = to_update {
+            if let Ok(mut q) = world.query_one::<&mut core::Corpse>(c_entity) {
+                if let Some(corpse) = q.get() {
+                    corpse.owner = Some(entity);
+                }
             }
         }
         found
@@ -4430,9 +4523,7 @@ pub fn cmd_reclaim(
     let _ = world.insert(
         entity,
         (
-            core::PlayerState::Alive {
-                rest: core::RestState::Standing,
-            },
+            core::PlayerState::Resting(core::RestState::Standing),
             core::Dirty,
         ),
     );
@@ -4486,13 +4577,22 @@ pub fn cmd_revive(
         }
     };
 
+    let player_db_id = world
+        .query_one::<&core::DbId>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|d| d.0));
+
     let corpse_entity = {
         let mut found = None;
         let mut q = world.query::<(&core::Corpse, &core::Position)>();
         for (raw, (corpse, pos)) in q.iter() {
-            if pos.room == room && corpse.owner == Some(entity) {
-                found = Some(core::Entity::from(raw));
-                break;
+            if pos.room == room {
+                let is_owner = corpse.owner == Some(entity)
+                    || (player_db_id.is_some() && corpse.owner_db_id == player_db_id);
+                if is_owner {
+                    found = Some(core::Entity::from(raw));
+                    break;
+                }
             }
         }
         found
@@ -4519,9 +4619,7 @@ pub fn cmd_revive(
     let _ = world.insert(
         entity,
         (
-            core::PlayerState::Alive {
-                rest: core::RestState::Standing,
-            },
+            core::PlayerState::Resting(core::RestState::Standing),
             core::Dirty,
         ),
     );
@@ -5602,6 +5700,66 @@ mod tests {
         };
         registry.deities.insert("solaris".into(), solaris);
 
+        // Two-handed weapon template
+        let two_handed_tmpl = core::templates::ItemTemplate {
+            id: "two_handed_sword".to_string(),
+            name: "Greatsword".to_string(),
+            description: "A heavy two-handed sword.".to_string(),
+            item_type: "weapon".to_string(),
+            subtype: "sword".to_string(),
+            quality: "common".to_string(),
+            level_requirement: 1,
+            weight: 8.0,
+            value: 100,
+            flags: vec![],
+            allowed_classes: vec![],
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            requires_skill: None,
+            weapon: Some(core::templates::WeaponDef {
+                damage: core::templates::DiceString("2d6".to_string()),
+                damage_type: "slash".to_string(),
+                speed: 2.0,
+                range: "melee".to_string(),
+                hands: "TwoHand".to_string(),
+            }),
+            equipment: None,
+            set: None,
+            triggers: vec![],
+            params: std::collections::HashMap::new(),
+        };
+        registry
+            .items
+            .insert("two_handed_sword".to_string(), two_handed_tmpl);
+
+        // Shield template
+        let shield_tmpl = core::templates::ItemTemplate {
+            id: "wooden_shield".to_string(),
+            name: "Wooden Shield".to_string(),
+            description: "A simple wooden shield.".to_string(),
+            item_type: "armor".to_string(),
+            subtype: "shield".to_string(),
+            quality: "common".to_string(),
+            level_requirement: 1,
+            weight: 5.0,
+            value: 10,
+            flags: vec![],
+            allowed_classes: vec![],
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            requires_skill: None,
+            weapon: None,
+            equipment: Some(core::templates::EquipmentDef {
+                slot: "shield".to_string(),
+            }),
+            set: None,
+            triggers: vec![],
+            params: std::collections::HashMap::new(),
+        };
+        registry
+            .items
+            .insert("wooden_shield".to_string(), shield_tmpl);
+
         let world = World::new();
         let _server = oxide_server::Server::new("127.0.0.1:0", world).with_templates(registry);
     }
@@ -5715,6 +5873,7 @@ mod tests {
         let corpse = world.spawn((
             core::Corpse {
                 owner: Some(player),
+                owner_db_id: None,
                 created_at: std::time::Instant::now(),
                 decay_secs: 1800,
                 lootable_by: core::LootRule::OwnerOnly,
@@ -5742,9 +5901,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             state,
-            core::PlayerState::Alive {
-                rest: core::RestState::Standing
-            }
+            core::PlayerState::Resting(core::RestState::Standing)
         ));
 
         let hp = world
@@ -5780,9 +5937,7 @@ mod tests {
         let player = world.spawn((
             Position::new(room_a),
             Name::new("TestPlayer"),
-            core::PlayerState::Alive {
-                rest: core::RestState::Standing,
-            },
+            core::PlayerState::Resting(core::RestState::Standing),
             core::Health::new(20),
             core::Inventory::new(),
             core::Equipment::new(),
@@ -5811,7 +5966,7 @@ mod tests {
             .get()
             .cloned()
             .unwrap();
-        assert!(matches!(state, core::PlayerState::Alive { .. }));
+        assert!(matches!(state, core::PlayerState::Resting(..)));
 
         // Now set HP to 0 (unconscious) and call die
         if let Ok(mut q) = world.query_one::<&mut core::Health>(player) {
@@ -5870,9 +6025,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             state,
-            core::PlayerState::Alive {
-                rest: core::RestState::Standing
-            }
+            core::PlayerState::Resting(core::RestState::Standing)
         ));
 
         let hp = world
@@ -6128,5 +6281,167 @@ mod tests {
         assert!(lines
             .iter()
             .any(|l| l.contains("No way! You are fighting for your life!")));
+    }
+
+    #[test]
+    fn test_loot_rules_checks() {
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let (player, mut conn, registry) = test_player(&mut world, room_a);
+
+        // Add DbId and inventory to player
+        world
+            .insert(player, (core::DbId(42), core::Inventory::new()))
+            .unwrap();
+
+        // Spawn a sword in the corpse
+        let item = world.spawn((core::Item::new("sword"),));
+
+        // Corpse owned by someone else
+        let _corpse_other = world.spawn((
+            core::Corpse {
+                owner: None,
+                owner_db_id: Some(99),
+                created_at: std::time::Instant::now(),
+                decay_secs: 1800,
+                lootable_by: core::LootRule::OwnerOnly,
+            },
+            Position::new(room_a),
+            core::Name::new("corpse"),
+            core::Inventory(vec![item]),
+        ));
+
+        // Attempt to loot
+        cmd_loot(&mut world, &mut conn, "loot", "corpse", &registry);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("This corpse does not belong to you.")));
+
+        // Corpse owned by player's database ID
+        let _corpse_mine = world.spawn((
+            core::Corpse {
+                owner: None,
+                owner_db_id: Some(42),
+                created_at: std::time::Instant::now(),
+                decay_secs: 1800,
+                lootable_by: core::LootRule::OwnerOnly,
+            },
+            Position::new(room_a),
+            core::Name::new("my_corpse"),
+            core::Inventory(vec![item]),
+        ));
+
+        // Attempt to loot own corpse
+        cmd_loot(&mut world, &mut conn, "loot", "my_corpse", &registry);
+        let lines = conn.take_lines();
+        assert!(!lines
+            .iter()
+            .any(|l| l.contains("This corpse does not belong to you.")));
+    }
+
+    #[test]
+    fn test_two_handed_slot_restrictions() {
+        init_test_templates();
+
+        let (mut world, _void, room_a, _room_b) = test_world();
+        let (player, mut conn, conn_reg) = test_player(&mut world, room_a);
+
+        // Spawn items
+        let weapon_entity = world.spawn((
+            core::Item::new("two_handed_sword"),
+            core::Name::new("Greatsword"),
+            core::Weapon {
+                damage_dice: core::dice::DiceRoll::new(2, 6, 0),
+                damage_type: core::DamageType::Slash,
+                speed: 2.0,
+                range: core::WeaponRange::Melee,
+                hands: core::WeaponHands::TwoHand,
+            },
+        ));
+        let shield_entity = world.spawn((
+            core::Item::new("wooden_shield"),
+            core::Name::new("Wooden Shield"),
+            core::Armor { base: 2, bonus: 0 },
+        ));
+
+        // Insert inventory and equipment components on player
+        world
+            .insert(
+                player,
+                (
+                    core::Inventory(vec![weapon_entity, shield_entity]),
+                    core::Equipment::new(),
+                ),
+            )
+            .unwrap();
+
+        // 1. Wield the two-handed weapon
+        cmd_wield(&mut world, &mut conn, "wield", "greatsword", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("You wield it.")));
+
+        // Verify two-handed weapon is equipped in Weapon slot
+        let has_weapon = world
+            .query_one::<&core::Equipment>(player)
+            .ok()
+            .and_then(|mut q| {
+                q.get()
+                    .map(|eq| eq.equipped(&core::EquipmentSlot::Weapon).copied())
+            })
+            .flatten();
+        assert_eq!(has_weapon, Some(weapon_entity));
+
+        // 2. Attempt to wear the shield -> should fail because wielding two-handed
+        cmd_wear(&mut world, &mut conn, "wear", "wooden shield", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l
+            .contains("You are wielding a two-handed weapon and cannot use a shield/off-hand.")));
+
+        // Verify shield is NOT equipped
+        let has_shield = world
+            .query_one::<&core::Equipment>(player)
+            .ok()
+            .and_then(|mut q| {
+                q.get()
+                    .map(|eq| eq.equipped(&core::EquipmentSlot::Shield).copied())
+            })
+            .flatten();
+        assert!(has_shield.is_none());
+
+        // 3. Remove the weapon, equip the shield first
+        cmd_remove(&mut world, &mut conn, "remove", "weapon", &conn_reg);
+        let _ = conn.take_lines();
+
+        cmd_wear(&mut world, &mut conn, "wear", "wooden shield", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("You wear it.")));
+
+        // 4. Now wield the two-handed weapon -> should automatically unequip the shield!
+        cmd_wield(&mut world, &mut conn, "wield", "greatsword", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You unequip Wooden Shield to wield the two-handed weapon.")));
+
+        // Verify shield is unequipped and back in inventory, and weapon is wielded
+        let has_shield = world
+            .query_one::<&core::Equipment>(player)
+            .ok()
+            .and_then(|mut q| {
+                q.get()
+                    .map(|eq| eq.equipped(&core::EquipmentSlot::Shield).copied())
+            })
+            .flatten();
+        assert!(has_shield.is_none());
+
+        let has_weapon = world
+            .query_one::<&core::Equipment>(player)
+            .ok()
+            .and_then(|mut q| {
+                q.get()
+                    .map(|eq| eq.equipped(&core::EquipmentSlot::Weapon).copied())
+            })
+            .flatten();
+        assert_eq!(has_weapon, Some(weapon_entity));
     }
 }

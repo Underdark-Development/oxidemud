@@ -169,21 +169,30 @@ pub fn simulate_combat(
                 .parse()
                 .map_err(|_| format!("Invalid damage type '{}'", wpn_def.damage_type))?;
 
+            let hands = match wpn_def.hands.to_lowercase().as_str() {
+                "twohand" | "twohanded" | "two_hand" | "two_handed" => {
+                    oxide_core::WeaponHands::TwoHand
+                }
+                _ => {
+                    if wep_tmpl
+                        .requires_skill
+                        .as_ref()
+                        .map(|s| s.id == "two_handed")
+                        .unwrap_or(false)
+                    {
+                        oxide_core::WeaponHands::TwoHand
+                    } else {
+                        oxide_core::WeaponHands::OneHand
+                    }
+                }
+            };
+
             let wep_entity = world.spawn((Weapon {
                 damage_dice: dice,
                 damage_type,
                 speed: wpn_def.speed,
                 range: oxide_core::WeaponRange::Melee,
-                hands: if wep_tmpl
-                    .requires_skill
-                    .as_ref()
-                    .map(|s| s.id == "two_handed")
-                    .unwrap_or(false)
-                {
-                    oxide_core::WeaponHands::TwoHand
-                } else {
-                    oxide_core::WeaponHands::OneHand
-                },
+                hands,
             },));
             attacker_eq.equip(EquipmentSlot::Weapon, wep_entity);
         }
@@ -469,6 +478,23 @@ pub fn simulate_gear_loadout(
                 .damage_type
                 .parse()
                 .map_err(|_| format!("Invalid damage type '{}'", wep_def.damage_type))?;
+            let hands = match wep_def.hands.to_lowercase().as_str() {
+                "twohand" | "twohanded" | "two_hand" | "two_handed" => {
+                    oxide_core::WeaponHands::TwoHand
+                }
+                _ => {
+                    if item_tmpl
+                        .requires_skill
+                        .as_ref()
+                        .map(|s| s.id == "two_handed")
+                        .unwrap_or(false)
+                    {
+                        oxide_core::WeaponHands::TwoHand
+                    } else {
+                        oxide_core::WeaponHands::OneHand
+                    }
+                }
+            };
             world
                 .insert(
                     item_entity,
@@ -477,16 +503,7 @@ pub fn simulate_gear_loadout(
                         damage_type,
                         speed: wep_def.speed,
                         range: oxide_core::WeaponRange::Melee,
-                        hands: if item_tmpl
-                            .requires_skill
-                            .as_ref()
-                            .map(|s| s.id == "two_handed")
-                            .unwrap_or(false)
-                        {
-                            oxide_core::WeaponHands::TwoHand
-                        } else {
-                            oxide_core::WeaponHands::OneHand
-                        },
+                        hands,
                     },),
                 )
                 .unwrap();
@@ -1404,6 +1421,7 @@ mod tests {
                 damage_type: "slash".to_string(),
                 speed: 1.5,
                 range: "melee".to_string(),
+                hands: "OneHand".to_string(),
             }),
             equipment: None,
             set: None,

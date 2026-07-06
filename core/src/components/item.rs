@@ -152,6 +152,14 @@ impl Weapon {
     pub fn is_two_handed(&self) -> bool {
         self.hands == WeaponHands::TwoHand
     }
+
+    pub fn effective_speed(&self) -> f32 {
+        if self.is_two_handed() {
+            self.speed * 1.2
+        } else {
+            self.speed
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

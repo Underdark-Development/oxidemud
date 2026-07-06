@@ -252,11 +252,11 @@ CombatState:
 
 The core combat formulas, including the attack flow, to-hit checks, defense/Armor Class, damage calculation, damage types, resistances, and weapon styles are documented in [game_mechanics.md](file:///Users/therealklanni/Projects/mud/docs/game_mechanics.md).
 
-### Weapon Styles (Planned Extensions)
+### Weapon Styles
 
-The following weapon style mechanics are planned but not yet implemented:
-- **Two-handed weapon speed**: Two-handed weapons are planned to have a 1.2x speed modifier.
-- **Ambidexterity skill**: The ambidexterity skill is planned to halve the dual-wield hit penalties (halving the primary hand -2 and off-hand -4 penalties).
+The following weapon style mechanics are implemented:
+- **Two-handed weapon speed**: Two-handed weapons have a 1.2x speed modifier (exposed via `effective_speed()`). Wielding one automatically unequips the shield/off-hand slot, and equipping to the shield slot is blocked.
+- **Ambidexterity skill**: The ambidexterity skill halves the dual-wield hit penalties (halving the primary hand -2 and off-hand -4 penalties to -1 and -2, respectively).
 
 ---
 

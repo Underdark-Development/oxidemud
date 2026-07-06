@@ -33,9 +33,9 @@ impl RestState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlayerState {
-    Alive { rest: RestState },
+    Resting(RestState),
     Stunned { remaining_ms: u64 },
     Casting { remaining_ms: u64 },
     Dead,
@@ -43,9 +43,7 @@ pub enum PlayerState {
 
 impl Default for PlayerState {
     fn default() -> Self {
-        PlayerState::Alive {
-            rest: RestState::Standing,
-        }
+        PlayerState::Resting(RestState::Standing)
     }
 }
 
@@ -59,7 +57,7 @@ pub struct Following {
 impl PlayerState {
     pub fn rest(&self) -> RestState {
         match self {
-            PlayerState::Alive { rest } => *rest,
+            PlayerState::Resting(rest) => *rest,
             PlayerState::Stunned { .. } => RestState::Standing,
             PlayerState::Casting { .. } => RestState::Standing,
             PlayerState::Dead => RestState::Dead,

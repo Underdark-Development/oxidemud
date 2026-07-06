@@ -235,9 +235,7 @@ mod tests {
                 max: 100,
             },
             Attributes::default(),
-            PlayerState::Alive {
-                rest: RestState::Unconscious,
-            },
+            PlayerState::Resting(RestState::Unconscious),
             Name::new("Bleeder"),
             crate::Player {
                 account_id: 1,
@@ -269,9 +267,7 @@ mod tests {
                 max: 100,
             },
             Attributes::default(),
-            PlayerState::Alive {
-                rest: RestState::Unconscious,
-            },
+            PlayerState::Resting(RestState::Unconscious),
             Name::new("Bleeder"),
             crate::Player {
                 account_id: 1,

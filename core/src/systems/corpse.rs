@@ -70,6 +70,7 @@ mod tests {
         let corpse = world.spawn((
             Corpse {
                 owner: None,
+                owner_db_id: None,
                 created_at: Instant::now(),
                 decay_secs: 3600,
                 lootable_by: LootRule::Public,

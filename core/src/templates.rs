@@ -466,10 +466,16 @@ pub struct WeaponDef {
     pub speed: f32,
     #[serde(default = "default_weapon_range")]
     pub range: String,
+    #[serde(default = "default_weapon_hands")]
+    pub hands: String,
 }
 
 fn default_weapon_speed() -> f32 {
     2.5
+}
+
+fn default_weapon_hands() -> String {
+    "one_hand".to_string()
 }
 
 fn default_weapon_range() -> String {
@@ -808,12 +814,18 @@ impl MobTemplate {
                                 "thrown" => crate::components::WeaponRange::Thrown,
                                 _ => crate::components::WeaponRange::Melee,
                             };
+                            let hands = match weapon_def.hands.to_lowercase().as_str() {
+                                "twohand" | "twohanded" | "two_hand" | "two_handed" => {
+                                    crate::components::WeaponHands::TwoHand
+                                }
+                                _ => crate::components::WeaponHands::OneHand,
+                            };
                             let weapon = crate::components::Weapon {
                                 damage_dice: weapon_dice,
                                 damage_type: dt,
                                 speed: weapon_def.speed,
                                 range,
-                                hands: crate::components::WeaponHands::OneHand,
+                                hands,
                             };
                             world.insert(item, (weapon,)).unwrap();
                         }

@@ -94,18 +94,18 @@ How a character chooses to wield their weapons changes their hit and damage outp
 ### 1. Two-Handed Style
 - Wielding a single weapon designated as two-handed.
 - Grants **1.5× Strength Modifier** bonus to damage calculations.
-- Prevents equipping a shield or off-hand item.
-- *Note: Weapon speed modifications (planned 1.2x) are not yet implemented.*
+- Prevents equipping a shield or off-hand item. Wielding automatically unequips any shield or off-hand item.
+- Exposes a 1.2x weapon speed modifier.
 
 ### 2. Dual-Wield Style
 - Wielding a weapon in both the primary hand and the off-hand (shield slot).
 - **Hit Penalties**:
-  - Primary hand attack has a `-2` penalty to hit.
-  - Off-hand attack has a `-4` penalty to hit.
+  - Primary hand attack has a `-2` penalty to hit (halved to `-1` with Ambidexterity).
+  - Off-hand attack has a `-4` penalty to hit (halved to `-2` with Ambidexterity).
 - **Damage Modifiers**:
   - Primary hand weapon uses full Strength Modifier.
   - Off-hand weapon gets only **0.5× Strength Modifier** bonus.
-- *Note: Weapon speed modifications, dual-attack timing, and the Ambidexterity skill mitigation are not yet implemented; only the raw damage and hit penalties are currently wired.*
+- Wielding hit penalties are mitigated by learning the **Ambidexterity** skill.
 
 ---
 
@@ -173,7 +173,7 @@ When a player's health drops to **−10 or below** (or they choose to die while 
 
 ### Bleed-Out (Unconscious State)
 
-When a player's HP drops to 0 or below but above −10, they enter `PlayerState::Alive { rest: RestState::Unconscious }`:
+When a player's HP drops to 0 or below but above −10, they enter `PlayerState::Resting(RestState::Unconscious)`:
 
 - Lose **1 HP per big tick** (30–90s randomized)
 - Most commands are blocked; only `die` is whitelisted
@@ -200,7 +200,7 @@ Ghost speech renders with alternating cyan/bright-blue characters via `format_gh
 1. Equipment from the corpse is transferred back to `Equipment.slots`
 2. Inventory from the corpse is transferred back to `Inventory.0`
 3. Health restored to max
-4. `PlayerState::Alive { rest: RestState::Standing }` inserted
+4. `PlayerState::Resting(RestState::Standing)` inserted
 5. Corpse entity despawned
 6. `Dirty` marker added
 7. Room broadcast: *"<name> returns to life!"*

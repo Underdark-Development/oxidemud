@@ -80,10 +80,16 @@ impl EntityInspectorScreen {
             .map(|w| w.speed.to_string())
             .unwrap_or_default();
         let weapon_range = item.weapon.as_ref().map(|w| w.range.as_str()).unwrap_or("");
+        let weapon_hands = item
+            .weapon
+            .as_ref()
+            .map(|w| w.hands.as_str())
+            .unwrap_or("OneHand");
         Self::add_field(table, "weapon.damage", weapon_damage);
         Self::add_field(table, "weapon.damage_type", weapon_type);
         Self::add_field(table, "weapon.speed", weapon_speed);
         Self::add_field(table, "weapon.range", weapon_range);
+        Self::add_field(table, "weapon.hands", weapon_hands);
 
         // Optionals: Equipment
         let eq_slot = item
@@ -204,7 +210,8 @@ impl EntityInspectorScreen {
                     }
                 }
             }
-            "weapon.damage" | "weapon.damage_type" | "weapon.speed" | "weapon.range" => {
+            "weapon.damage" | "weapon.damage_type" | "weapon.speed" | "weapon.range"
+            | "weapon.hands" => {
                 if value.is_empty() && item.weapon.is_some() {
                     if field == "weapon.damage" {
                         item.weapon = None;
@@ -215,6 +222,8 @@ impl EntityInspectorScreen {
                             w.speed = 1.0;
                         } else if field == "weapon.range" {
                             w.range = String::new();
+                        } else if field == "weapon.hands" {
+                            w.hands = "OneHand".to_string();
                         }
                     }
                 } else {
@@ -226,6 +235,7 @@ impl EntityInspectorScreen {
                                 damage_type: "slashing".to_string(),
                                 speed: 1.5,
                                 range: "melee".to_string(),
+                                hands: "OneHand".to_string(),
                             });
                     match field {
                         "weapon.damage" => {
@@ -234,6 +244,7 @@ impl EntityInspectorScreen {
                         "weapon.damage_type" => w.damage_type = value.to_string(),
                         "weapon.speed" => w.speed = value.parse().map_err(|_| "invalid number")?,
                         "weapon.range" => w.range = value.to_string(),
+                        "weapon.hands" => w.hands = value.to_string(),
                         _ => {}
                     }
                     item.weapon = Some(w);

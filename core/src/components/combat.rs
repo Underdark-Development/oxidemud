@@ -197,6 +197,7 @@ impl Resistance {
 #[derive(Debug, Clone)]
 pub struct Corpse {
     pub owner: Option<Entity>,
+    pub owner_db_id: Option<i64>,
     pub created_at: std::time::Instant,
     pub decay_secs: u64,
     pub lootable_by: LootRule,

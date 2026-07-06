@@ -66,9 +66,9 @@ impl CommandDispatch {
             }
             if !is_unconscious {
                 if let Ok(mut q) = world.query_one::<&oxide_core::PlayerState>(entity) {
-                    if let Some(oxide_core::PlayerState::Alive {
-                        rest: oxide_core::RestState::Unconscious,
-                    }) = q.get()
+                    if let Some(oxide_core::PlayerState::Resting(
+                        oxide_core::RestState::Unconscious,
+                    )) = q.get()
                     {
                         is_unconscious = true;
                     }
