@@ -23,6 +23,7 @@ pub use scripting::{
 };
 pub use systems::ai::AiState;
 pub use systems::combat::HitResult;
+pub use systems::player_state::run_player_state_decay;
 pub use systems::skill_gate::run_skill_gate_pulse;
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use templates::ExitTemplate;

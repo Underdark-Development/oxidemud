@@ -209,6 +209,10 @@ impl Player {
             no_resurrect: false,
         }
     }
+
+    pub fn can_be_resurrected(&self) -> bool {
+        !self.no_resurrect
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -538,6 +542,14 @@ mod tests {
         let p = Player::new(42);
         assert_eq!(p.account_id, 42);
         assert_eq!(p.prompt, None);
+    }
+
+    #[test]
+    fn test_player_can_be_resurrected() {
+        let mut p = Player::new(42);
+        assert!(p.can_be_resurrected());
+        p.no_resurrect = true;
+        assert!(!p.can_be_resurrected());
     }
 
     #[test]

@@ -3,6 +3,7 @@ pub mod combat;
 pub mod corpse;
 pub mod loot;
 pub mod passive;
+pub mod player_state;
 pub mod regen;
 pub mod set_bonus;
 pub mod skill_gate;

@@ -6,9 +6,11 @@ use oxide_core::systems;
 use oxide_core::systems::combat::{CombatOutcome, CombatOutcomeKind};
 use oxide_core::templates::SetDef;
 use oxide_core::{
-    Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Player, Position, PracticePoints, RoomKey, Wallet, World,
+    run_player_state_decay, Alignment, Attributes, DbId, Description, Entity, Equipment,
+    Experience, Health, Inventory, LearnedSkills, Level, Player, Position, PracticePoints, RoomKey,
+    Wallet, World,
 };
+
 use tokio::sync::Mutex;
 use tokio::time::interval;
 
@@ -31,6 +33,8 @@ pub fn spawn_game_loop(
 
         let mut maintenance_tick = interval(Duration::from_secs(5));
         let mut set_bonus_tick = interval(Duration::from_secs(10));
+        let mut player_state_tick = interval(Duration::from_millis(250));
+        let mut last_player_state_tick = Instant::now();
 
         loop {
             tokio::select! {
@@ -151,6 +155,49 @@ pub fn spawn_game_loop(
                     }
                     drop(w);
                 }
+                _ = player_state_tick.tick() => {
+                    let now = Instant::now();
+                    let elapsed = now - last_player_state_tick;
+                    last_player_state_tick = now;
+
+                    let mut w = world.lock().await;
+                    let reg = registry.lock().await;
+
+                    let transitions = run_player_state_decay(&mut w, elapsed);
+                    for (entity, old_state, new_state) in transitions {
+                        let name = w
+                            .query_one::<&oxide_core::Name>(entity)
+                            .ok()
+                            .and_then(|mut q| q.get().map(|n| n.as_str().to_string()));
+
+                        let room = w
+                            .query_one::<&oxide_core::Position>(entity)
+                            .ok()
+                            .and_then(|mut q| q.get().map(|p| p.room));
+
+                        if let Some(tx) = reg.sender(entity) {
+                            match (old_state, new_state) {
+                                (oxide_core::PlayerState::Stunned { .. }, oxide_core::PlayerState::Resting(oxide_core::RestState::Standing)) => {
+                                    let _ = tx.send(b"You recover from your stun and stand up.\r\n".to_vec());
+                                    if let (Some(name), Some(room)) = (&name, room) {
+                                        let msg = format!("{} recovers from their stun and stands up.\r\n", name);
+                                        reg.broadcast_to_room(&w, room, &msg, Some(entity));
+                                    }
+                                }
+                                (oxide_core::PlayerState::Casting { .. }, oxide_core::PlayerState::Resting(oxide_core::RestState::Standing)) => {
+                                    let _ = tx.send(b"You finish casting your spell.\r\n".to_vec());
+                                    if let (Some(name), Some(room)) = (&name, room) {
+                                        let msg = format!("{} finishes casting their spell.\r\n", name);
+                                        reg.broadcast_to_room(&w, room, &msg, Some(entity));
+                                    }
+                                }
+                                _ => {}
+                            }
+                            crate::prompt::send_player_prompt(&w, entity, &reg);
+                        }
+                    }
+                }
+
             }
         }
     });
