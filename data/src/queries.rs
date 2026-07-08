@@ -1204,6 +1204,81 @@ pub fn load_stance_component(
     }
 }
 
+pub fn save_quest_log_component(
+    conn: &Connection,
+    entity_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_quest_log (entity_id, log_json) VALUES (?1, ?2)",
+        params![entity_id, json],
+    )?;
+    Ok(())
+}
+
+pub fn load_quest_log_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT log_json FROM components_quest_log WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_faction_standing_component(
+    conn: &Connection,
+    entity_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_faction_standing (entity_id, standing_json) VALUES (?1, ?2)",
+        params![entity_id, json],
+    )?;
+    Ok(())
+}
+
+pub fn load_faction_standing_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT standing_json FROM components_faction_standing WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn save_learned_recipes_component(
+    conn: &Connection,
+    entity_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_learned_recipes (entity_id, recipes_json) VALUES (?1, ?2)",
+        params![entity_id, json],
+    )?;
+    Ok(())
+}
+
+pub fn load_learned_recipes_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT recipes_json FROM components_learned_recipes WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

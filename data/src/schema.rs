@@ -235,9 +235,24 @@ CREATE TABLE IF NOT EXISTS api_keys (
     description TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS components_quest_log (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    log_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_faction_standing (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    standing_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS components_learned_recipes (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    recipes_json TEXT NOT NULL
+);
 ";
 
-pub const VERSION: i64 = 20;
+pub const VERSION: i64 = 23;
 
 #[cfg(test)]
 mod tests {
@@ -278,15 +293,18 @@ mod tests {
             "components_equipment",
             "components_exit",
             "components_experience",
+            "components_faction_standing",
             "components_golds",
             "components_health",
             "components_inventory_items",
             "components_item",
             "components_level",
+            "components_learned_recipes",
             "components_mana",
             "components_npc",
             "components_player",
             "components_practice_points",
+            "components_quest_log",
             "components_position",
             "components_room",
             "components_skills",

@@ -1,11 +1,15 @@
 pub mod ai;
 pub mod combat;
 pub mod corpse;
+pub mod crafting;
+pub mod faction;
 pub mod loot;
 pub mod passive;
 pub mod player_state;
+pub mod quest;
 pub mod regen;
 pub mod set_bonus;
 pub mod skill_gate;
+pub mod skill_use;
 pub mod stance;
 pub mod trigger;

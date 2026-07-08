@@ -428,6 +428,162 @@ pub struct DeityTemplate {
     pub params: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestDef {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub level_requirement: u8,
+    #[serde(default)]
+    pub repeatable: bool,
+    #[serde(default)]
+    pub auto_complete: bool,
+    pub giver_npc: Option<String>,
+    pub turn_in_npc: Option<String>,
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
+    pub objectives: Vec<QuestObjective>,
+    pub rewards: QuestRewards,
+    #[serde(default)]
+    pub scripts: Option<QuestScripts>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum QuestObjective {
+    Kill { mob: String, count: u32 },
+    Gather { item: String, count: u32 },
+    Deliver { item: String, npc: String },
+    Explore { room: String },
+    Talk { npc: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuestRewards {
+    #[serde(default)]
+    pub xp: u64,
+    #[serde(default)]
+    pub gold: u64,
+    #[serde(default)]
+    pub items: Vec<QuestRewardItem>,
+    #[serde(default)]
+    pub faction: Vec<QuestRewardFaction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestRewardItem {
+    pub item_template_id: String,
+    #[serde(default = "default_reward_count")]
+    pub count: u32,
+}
+
+fn default_reward_count() -> u32 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestRewardFaction {
+    pub faction_id: String,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QuestScripts {
+    pub on_accept: Option<String>,
+    pub on_update: Option<String>,
+    pub on_complete: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Faction template
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactionDef {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub starting_standing: i32,
+    #[serde(default = "default_min_standing")]
+    pub min_standing: i32,
+    #[serde(default = "default_max_standing")]
+    pub max_standing: i32,
+    pub ranks: Vec<FactionRank>,
+    #[serde(default)]
+    pub relationships: HashMap<String, f32>,
+    pub aggro_below: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FactionRank {
+    pub name: String,
+    pub threshold: i32,
+}
+
+fn default_min_standing() -> i32 {
+    -10000
+}
+
+fn default_max_standing() -> i32 {
+    10000
+}
+
+impl FactionDef {
+    pub fn get_rank(&self, standing: i32) -> String {
+        let mut best_rank = "Neutral".to_string();
+        let mut max_threshold = i32::MIN;
+
+        for rank in &self.ranks {
+            if standing >= rank.threshold && rank.threshold >= max_threshold {
+                best_rank = rank.name.clone();
+                max_threshold = rank.threshold;
+            }
+        }
+        best_rank
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Recipe template
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeDef {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub station: Option<String>,
+    pub skill_requirement: Option<RecipeSkillReq>,
+    pub difficulty: u32,
+    pub materials: Vec<RecipeMaterial>,
+    pub result: RecipeResult,
+    pub success_chance: u8,
+    #[serde(default)]
+    pub quality_scaling: bool,
+    pub script: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeSkillReq {
+    pub id: String,
+    pub rank: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeMaterial {
+    pub template_id: String,
+    pub quantity: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeResult {
+    pub template_id: String,
+    pub quantity: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Stance template
 // ---------------------------------------------------------------------------
@@ -873,6 +1029,21 @@ impl MobTemplate {
             }
         }
 
+        if let Some(ref faction_id) = self.faction {
+            let aggro_below = registry
+                .factions
+                .get(faction_id)
+                .map(|f| f.aggro_below)
+                .unwrap_or(-500);
+            let _ = world.insert(
+                npc,
+                (crate::components::FactionMember::new(
+                    faction_id.clone(),
+                    aggro_below,
+                ),),
+            );
+        }
+
         npc
     }
 }
@@ -1240,6 +1411,9 @@ pub struct TemplateRegistry {
     pub skills: HashMap<String, SkillDef>,
     pub shops: HashMap<String, ShopTemplate>,
     pub deities: HashMap<String, DeityTemplate>,
+    pub quests: HashMap<String, QuestDef>,
+    pub factions: HashMap<String, FactionDef>,
+    pub recipes: HashMap<String, RecipeDef>,
     pub indices: DerivedIndices,
 }
 
@@ -1564,6 +1738,123 @@ impl TemplateRegistry {
                         template_id: id.clone(),
                         field: "allowed_alignments".into(),
                         message: format!("invalid alignment constraint: {align}"),
+                    });
+                }
+            }
+        }
+
+        // Validate quests
+        for (id, quest) in &self.quests {
+            if let Some(giver) = &quest.giver_npc {
+                if !self.mobs.contains_key(giver) {
+                    errors.push(ValidationError {
+                        template_type: "quest",
+                        template_id: id.clone(),
+                        field: "giver_npc".into(),
+                        message: format!("references unknown mob: {giver}"),
+                    });
+                }
+            }
+            if let Some(turn_in) = &quest.turn_in_npc {
+                if !self.mobs.contains_key(turn_in) {
+                    errors.push(ValidationError {
+                        template_type: "quest",
+                        template_id: id.clone(),
+                        field: "turn_in_npc".into(),
+                        message: format!("references unknown mob: {turn_in}"),
+                    });
+                }
+            }
+            for prereq in &quest.prerequisites {
+                if !self.quests.contains_key(prereq) {
+                    errors.push(ValidationError {
+                        template_type: "quest",
+                        template_id: id.clone(),
+                        field: "prerequisites".into(),
+                        message: format!("references unknown quest prerequisite: {prereq}"),
+                    });
+                }
+            }
+            for (idx, obj) in quest.objectives.iter().enumerate() {
+                match obj {
+                    QuestObjective::Kill { mob, .. } => {
+                        if !self.mobs.contains_key(mob) {
+                            errors.push(ValidationError {
+                                template_type: "quest",
+                                template_id: id.clone(),
+                                field: format!("objectives[{}].mob", idx),
+                                message: format!("references unknown mob: {mob}"),
+                            });
+                        }
+                    }
+                    QuestObjective::Gather { item, .. } => {
+                        if !self.items.contains_key(item) {
+                            errors.push(ValidationError {
+                                template_type: "quest",
+                                template_id: id.clone(),
+                                field: format!("objectives[{}].item", idx),
+                                message: format!("references unknown item: {item}"),
+                            });
+                        }
+                    }
+                    QuestObjective::Deliver { item, npc } => {
+                        if !self.items.contains_key(item) {
+                            errors.push(ValidationError {
+                                template_type: "quest",
+                                template_id: id.clone(),
+                                field: format!("objectives[{}].item", idx),
+                                message: format!("references unknown item: {item}"),
+                            });
+                        }
+                        if !self.mobs.contains_key(npc) {
+                            errors.push(ValidationError {
+                                template_type: "quest",
+                                template_id: id.clone(),
+                                field: format!("objectives[{}].npc", idx),
+                                message: format!("references unknown mob: {npc}"),
+                            });
+                        }
+                    }
+                    QuestObjective::Explore { room } => {
+                        let mut valid = false;
+                        if let Some((area_id, room_id)) = room.split_once(':') {
+                            if let Some(area) = self.areas.get(area_id) {
+                                if area.rooms.contains_key(room_id) {
+                                    valid = true;
+                                }
+                            }
+                        }
+                        if !valid {
+                            errors.push(ValidationError {
+                                template_type: "quest",
+                                template_id: id.clone(),
+                                field: format!("objectives[{}].room", idx),
+                                message: format!("references unknown room: {room}"),
+                            });
+                        }
+                    }
+                    QuestObjective::Talk { npc } => {
+                        if !self.mobs.contains_key(npc) {
+                            errors.push(ValidationError {
+                                template_type: "quest",
+                                template_id: id.clone(),
+                                field: format!("objectives[{}].npc", idx),
+                                message: format!("references unknown mob: {npc}"),
+                            });
+                        }
+                    }
+                }
+            }
+            for (idx, item_reward) in quest.rewards.items.iter().enumerate() {
+                if !self.items.contains_key(&item_reward.item_template_id) {
+                    errors.push(ValidationError {
+                        template_type: "quest",
+                        template_id: id.clone(),
+                        field: format!("rewards.items[{}].item_template_id", idx),
+                        message: format!(
+                            "references unknown item: {}",
+                            item_reward.item_template_id
+                        ),
                     });
                 }
             }

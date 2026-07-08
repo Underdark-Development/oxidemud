@@ -1,8 +1,8 @@
 use oxide_core::templates::TemplateRegistry;
 use oxide_core::templates::{
     AffixDef, AppearanceBounds, AreaTemplate, ClassAttributeMods, ClassTemplate, DeityPolicy,
-    HealthBounds, ItemTemplate, LootTable, MobTemplate, PassiveDef, RaceAttributes, RaceTemplate,
-    RoomContent, RoomTemplate, SetDef, StanceDef, WalletAmount,
+    HealthBounds, ItemTemplate, LootTable, MobTemplate, PassiveDef, QuestDef, QuestRewards,
+    RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef, StanceDef, WalletAmount,
 };
 use ratatui::{
     buffer::Buffer,
@@ -544,6 +544,9 @@ impl EntitiesScreen {
         match data.category.as_str() {
             "mobs" => self.registry.mobs.get(&data.id).map(|m| m.name.clone()),
             "items" => self.registry.items.get(&data.id).map(|i| i.name.clone()),
+            "quests" => self.registry.quests.get(&data.id).map(|q| q.name.clone()),
+            "factions" => self.registry.factions.get(&data.id).map(|f| f.name.clone()),
+            "recipes" => self.registry.recipes.get(&data.id).map(|r| r.name.clone()),
             "races" => self.registry.races.get(&data.id).map(|r| r.name.clone()),
             "classes" => self.registry.classes.get(&data.id).map(|c| c.name.clone()),
             "skills" => self.registry.skills.get(&data.id).map(|s| s.name.clone()),
@@ -569,6 +572,9 @@ fn normalize_category(category: &str) -> &str {
         ("mob", "mobs"),
         ("room", "rooms"),
         ("area", "areas"),
+        ("quest", "quests"),
+        ("faction", "factions"),
+        ("recipe", "recipes"),
     ];
     for (s, p) in MAP {
         if *s == category {
@@ -583,6 +589,53 @@ fn generate_default_content(
     id: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let content = match category {
+        "recipes" => toml::to_string_pretty(&oxide_core::RecipeDef {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            station: None,
+            skill_requirement: None,
+            difficulty: 1,
+            materials: Vec::new(),
+            result: oxide_core::RecipeResult {
+                template_id: String::new(),
+                quantity: 1,
+            },
+            success_chance: 95,
+            quality_scaling: false,
+            script: None,
+        })?,
+        "factions" => toml::to_string_pretty(&oxide_core::FactionDef {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            starting_standing: 0,
+            min_standing: -10000,
+            max_standing: 10000,
+            ranks: Vec::new(),
+            relationships: std::collections::HashMap::new(),
+            aggro_below: -500,
+        })?,
+        "quests" => toml::to_string_pretty(&QuestDef {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            level_requirement: 1,
+            repeatable: false,
+            auto_complete: false,
+            giver_npc: None,
+            turn_in_npc: None,
+            prerequisites: Vec::new(),
+            objectives: Vec::new(),
+            rewards: QuestRewards {
+                xp: 0,
+                gold: 0,
+                items: Vec::new(),
+                faction: Vec::new(),
+            },
+            scripts: None,
+            params: HashMap::new(),
+        })?,
         "items" => toml::to_string_pretty(&ItemTemplate {
             id: id.to_string(),
             name: id.to_string(),
@@ -675,15 +728,12 @@ fn generate_default_content(
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
         })?,
-        "skills" => toml::to_string_pretty(&oxide_core::SkillDef {
-            id: id.to_string(),
-            name: id.to_string(),
-            description: String::new(),
-            skill_type: oxide_core::SkillType::Combat,
-            max_rank: 100,
-            script: None,
-            params: HashMap::new(),
-        })?,
+        "skills" => toml::to_string_pretty(&oxide_core::SkillDef::new(
+            id,
+            id,
+            "",
+            oxide_core::SkillType::Combat,
+        ))?,
         "stances" => toml::to_string_pretty(&StanceDef {
             id: id.to_string(),
             name: id.to_string(),
@@ -758,6 +808,21 @@ fn insert_draft_into_registry(
     toml_str: &str,
 ) {
     match category {
+        "quests" => {
+            if let Ok(t) = toml::from_str::<QuestDef>(toml_str) {
+                registry.quests.insert(id.to_string(), t);
+            }
+        }
+        "factions" => {
+            if let Ok(t) = toml::from_str::<oxide_core::FactionDef>(toml_str) {
+                registry.factions.insert(id.to_string(), t);
+            }
+        }
+        "recipes" => {
+            if let Ok(t) = toml::from_str::<oxide_core::RecipeDef>(toml_str) {
+                registry.recipes.insert(id.to_string(), t);
+            }
+        }
         "items" => {
             if let Ok(t) = toml::from_str::<ItemTemplate>(toml_str) {
                 registry.items.insert(id.to_string(), t);
@@ -825,6 +890,15 @@ fn insert_draft_into_registry(
 /// Remove an entity from the in-memory registry (used for draft deletion).
 pub(crate) fn remove_from_registry(registry: &mut TemplateRegistry, category: &str, id: &str) {
     match category {
+        "quests" => {
+            registry.quests.remove(id);
+        }
+        "factions" => {
+            registry.factions.remove(id);
+        }
+        "recipes" => {
+            registry.recipes.remove(id);
+        }
         "items" => {
             registry.items.remove(id);
         }

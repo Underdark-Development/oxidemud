@@ -852,6 +852,20 @@ fn move_player(
     // Move the player
     let _ = world.insert(entity, (Position::new(dest), core::Dirty));
 
+    // Check room exploration objectives
+    if let Some(room_key) = world
+        .query_one::<&core::RoomKey>(dest)
+        .ok()
+        .and_then(|mut q| q.get().map(|k| k.0.clone()))
+    {
+        if let Some(templates) = oxide_server::get_templates() {
+            let msgs = core::handle_explore_event(world, entity, &room_key, &templates);
+            for msg in msgs {
+                conn.send_line(&msg);
+            }
+        }
+    }
+
     // Broadcast leave
     let dir_long = direction.long_name();
     let opposite = direction.opposite();
@@ -2261,6 +2275,13 @@ pub fn cmd_get(
             conn.send_line("You pick it up.");
         }
     }
+
+    if let Some(templates) = oxide_server::get_templates() {
+        let msgs = core::reconcile_gather_objectives(world, entity, &templates);
+        for msg in msgs {
+            conn.send_line(&msg);
+        }
+    }
 }
 
 pub fn cmd_drop(
@@ -2312,6 +2333,13 @@ pub fn cmd_drop(
         if let Some(floor) = q.get() {
             floor.0.push(item);
             conn.send_line("You drop it.");
+        }
+    }
+
+    if let Some(templates) = oxide_server::get_templates() {
+        let msgs = core::reconcile_gather_objectives(world, entity, &templates);
+        for msg in msgs {
+            conn.send_line(&msg);
         }
     }
 }
@@ -4690,7 +4718,7 @@ pub fn cmd_weather(
     conn.send_line("The sky is clear and a gentle breeze blows from the east.");
 }
 
-pub fn cmd_use(
+pub fn cmd_quest(
     world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
@@ -4705,12 +4733,236 @@ pub fn cmd_use(
         }
     };
 
-    if args.trim().is_empty() {
-        conn.send_line("Use what?");
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        list_quests(world, conn, entity, &templates);
         return;
     }
 
-    let room = match get_pos_room(world, entity) {
+    match parts[0] {
+        "list" => {
+            list_quests(world, conn, entity, &templates);
+        }
+        "show" | "info" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: quest show <quest_id>");
+                return;
+            }
+            show_quest(world, conn, entity, parts[1], &templates);
+        }
+        "accept" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: quest accept <quest_id>");
+                return;
+            }
+            accept_quest_command(world, conn, entity, parts[1], &templates);
+        }
+        "complete" | "turnin" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: quest complete <quest_id>");
+                return;
+            }
+            complete_quest_command(world, conn, entity, parts[1], &templates);
+        }
+        "abandon" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: quest abandon <quest_id>");
+                return;
+            }
+            abandon_quest_command(world, conn, entity, parts[1]);
+        }
+        _ => {
+            conn.send_line("Unknown quest subcommand. Try: list, show, accept, complete, abandon");
+        }
+    }
+}
+
+fn list_quests(
+    world: &World,
+    conn: &mut dyn Connection,
+    player: core::Entity,
+    templates: &core::templates::TemplateRegistry,
+) {
+    let mut q_log = match world.query_one::<&core::QuestLog>(player) {
+        Ok(q) => q,
+        Err(_) => {
+            conn.send_line("You have no quest log.");
+            return;
+        }
+    };
+    let quest_log = match q_log.get() {
+        Some(log) => log,
+        None => {
+            conn.send_line("You have no quest log.");
+            return;
+        }
+    };
+
+    if quest_log.active.is_empty() && quest_log.completed.is_empty() {
+        conn.send_line("You have no quests.");
+        return;
+    }
+
+    if !quest_log.active.is_empty() {
+        conn.send_line("Active Quests:");
+        for (quest_id, progress) in &quest_log.active {
+            if let Some(quest_def) = templates.quests.get(quest_id) {
+                let all_done = progress.objectives.iter().all(|o| o.completed);
+                let status = if all_done { " (Ready to turn in)" } else { "" };
+                conn.send_line(&format!(
+                    "  {} - {}{}",
+                    quest_def.id, quest_def.name, status
+                ));
+            } else {
+                conn.send_line(&format!("  {} (Unknown Quest definition)", quest_id));
+            }
+        }
+    }
+
+    if !quest_log.completed.is_empty() {
+        conn.send_line("Completed Quests:");
+        for quest_id in &quest_log.completed {
+            if let Some(quest_def) = templates.quests.get(quest_id) {
+                conn.send_line(&format!("  {} - {}", quest_def.id, quest_def.name));
+            } else {
+                conn.send_line(&format!("  {}", quest_id));
+            }
+        }
+    }
+}
+
+fn show_quest(
+    world: &World,
+    conn: &mut dyn Connection,
+    player: core::Entity,
+    quest_id: &str,
+    templates: &core::templates::TemplateRegistry,
+) {
+    let mut q_log = match world.query_one::<&core::QuestLog>(player) {
+        Ok(q) => q,
+        Err(_) => {
+            conn.send_line("You have no quest log.");
+            return;
+        }
+    };
+    let quest_log = match q_log.get() {
+        Some(log) => log,
+        None => {
+            conn.send_line("You have no quest log.");
+            return;
+        }
+    };
+
+    let progress = match quest_log.active.get(quest_id) {
+        Some(p) => p,
+        None => {
+            if quest_log.completed.contains(quest_id) {
+                if let Some(quest_def) = templates.quests.get(quest_id) {
+                    conn.send_line(&format!(
+                        "Quest: {}\r\nStatus: Completed\r\nDescription: {}",
+                        quest_def.name, quest_def.description
+                    ));
+                } else {
+                    conn.send_line(&format!("Quest '{}' (Completed)", quest_id));
+                }
+            } else {
+                conn.send_line("You are not on that quest.");
+            }
+            return;
+        }
+    };
+
+    let quest_def = match templates.quests.get(quest_id) {
+        Some(d) => d,
+        None => {
+            conn.send_line("Error: Quest definition not found.");
+            return;
+        }
+    };
+
+    conn.send_line(&format!("Quest: {}", quest_def.name));
+    conn.send_line(&format!("Description: {}", quest_def.description));
+    conn.send_line("Objectives:");
+    for (objective, obj_progress) in quest_def.objectives.iter().zip(&progress.objectives) {
+        let status = if obj_progress.completed { "[x]" } else { "[ ]" };
+        match objective {
+            core::templates::QuestObjective::Kill { mob, count } => {
+                let mob_name = templates
+                    .mobs
+                    .get(mob)
+                    .map(|m| m.name.as_str())
+                    .unwrap_or(mob);
+                conn.send_line(&format!(
+                    "  {} Kill {}: {}/{}",
+                    status, mob_name, obj_progress.current, count
+                ));
+            }
+            core::templates::QuestObjective::Gather { item, count } => {
+                let item_name = templates
+                    .items
+                    .get(item)
+                    .map(|i| i.name.as_str())
+                    .unwrap_or(item);
+                conn.send_line(&format!(
+                    "  {} Gather {}: {}/{}",
+                    status, item_name, obj_progress.current, count
+                ));
+            }
+            core::templates::QuestObjective::Deliver { item, npc } => {
+                let item_name = templates
+                    .items
+                    .get(item)
+                    .map(|i| i.name.as_str())
+                    .unwrap_or(item);
+                let npc_name = templates
+                    .mobs
+                    .get(npc)
+                    .map(|m| m.name.as_str())
+                    .unwrap_or(npc);
+                conn.send_line(&format!(
+                    "  {} Deliver {} to {}",
+                    status, item_name, npc_name
+                ));
+            }
+            core::templates::QuestObjective::Explore { room } => {
+                conn.send_line(&format!("  {} Explore room: {}", status, room));
+            }
+            core::templates::QuestObjective::Talk { npc } => {
+                let npc_name = templates
+                    .mobs
+                    .get(npc)
+                    .map(|m| m.name.as_str())
+                    .unwrap_or(npc);
+                conn.send_line(&format!("  {} Talk to {}", status, npc_name));
+            }
+        }
+    }
+}
+
+fn accept_quest_command(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    player: core::Entity,
+    quest_id: &str,
+    templates: &core::templates::TemplateRegistry,
+) {
+    let quest_def = match templates.quests.get(quest_id) {
+        Some(qd) => qd,
+        None => {
+            conn.send_line(&format!("Quest '{}' does not exist.", quest_id));
+            return;
+        }
+    };
+
+    let room = match get_pos_room(world, player) {
         Some(r) => r,
         None => {
             conn.send_line("You are nowhere.");
@@ -4718,71 +4970,516 @@ pub fn cmd_use(
         }
     };
 
-    let mut parts = args.trim().splitn(2, ' ');
-    let skill_arg = parts.next().unwrap_or("").trim().to_lowercase();
-    let target_arg = parts.next().map(|t| t.trim());
-
-    let templates = oxide_server::get_templates();
-    let skill_def = match templates.as_ref().and_then(|t| {
-        if let Some(def) = t.get_skill(&skill_arg) {
-            Some(def.clone())
-        } else {
-            t.skills
-                .values()
-                .find(|def| def.name.to_lowercase() == skill_arg)
-                .cloned()
+    if let Some(ref giver_id) = quest_def.giver_npc {
+        let occupants = core::util::entities_in_room(world, room);
+        let mut giver_present = false;
+        for occupant in occupants {
+            if let Ok(mut q_npc) = world.query_one::<&core::Npc>(occupant) {
+                if let Some(npc) = q_npc.get() {
+                    if npc.template_id == *giver_id {
+                        giver_present = true;
+                        break;
+                    }
+                }
+            }
         }
-    }) {
-        Some(def) => def,
+        if !giver_present {
+            let giver_name = templates
+                .mobs
+                .get(giver_id)
+                .map(|m| m.name.as_str())
+                .unwrap_or(giver_id);
+            conn.send_line(&format!(
+                "You must be near {} to accept this quest.",
+                giver_name
+            ));
+            return;
+        }
+    }
+
+    match core::accept_quest(world, player, quest_id, templates) {
+        Ok(msgs) => {
+            for msg in msgs {
+                conn.send_line(&msg);
+            }
+        }
+        Err(err) => {
+            conn.send_line(&err);
+        }
+    }
+}
+
+fn complete_quest_command(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    player: core::Entity,
+    quest_id: &str,
+    templates: &core::templates::TemplateRegistry,
+) {
+    let quest_def = match templates.quests.get(quest_id) {
+        Some(qd) => qd,
         None => {
-            conn.send_line(&format!("No skill or spell found matching '{skill_arg}'."));
+            conn.send_line(&format!("Quest '{}' does not exist.", quest_id));
             return;
         }
     };
 
-    let skills = match world.query_one::<&core::LearnedSkills>(entity) {
-        Ok(mut q) => q.get().cloned().unwrap_or_default(),
-        Err(_) => core::LearnedSkills::new(),
+    let room = match get_pos_room(world, player) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
     };
 
-    let rank = skills.rank(&skill_def.id);
-    if rank == 0 {
-        conn.send_line(&format!("You do not know how to use '{}'.", skill_def.name));
-        return;
-    }
-
-    let target = if let Some(target_name) = target_arg {
-        let mut q = world.query::<(&core::Name, &core::Position)>();
-        let candidates: Vec<(String, core::Entity)> = q
-            .iter()
-            .filter(|(_, (_, pos))| pos.room == room)
-            .map(|(raw, (name, _))| (name.as_str().to_lowercase(), core::Entity::from(raw)))
-            .collect();
-        match core::trie::trie_match(target_name, candidates) {
-            core::trie::TrieMatch::One(e) => Some(e),
-            core::trie::TrieMatch::Many(items) => items.into_iter().next(),
-            core::trie::TrieMatch::None => {
-                conn.send_line(&format!("You don't see '{target_name}' here."));
-                return;
+    if let Some(ref turn_in_id) = quest_def.turn_in_npc {
+        let occupants = core::util::entities_in_room(world, room);
+        let mut turn_in_present = false;
+        for occupant in occupants {
+            if let Ok(mut q_npc) = world.query_one::<&core::Npc>(occupant) {
+                if let Some(npc) = q_npc.get() {
+                    if npc.template_id == *turn_in_id {
+                        turn_in_present = true;
+                        break;
+                    }
+                }
             }
         }
+        if !turn_in_present {
+            let turn_in_name = templates
+                .mobs
+                .get(turn_in_id)
+                .map(|m| m.name.as_str())
+                .unwrap_or(turn_in_id);
+            conn.send_line(&format!(
+                "You must be near {} to complete this quest.",
+                turn_in_name
+            ));
+            return;
+        }
+    }
+
+    match core::complete_quest(world, player, quest_id, templates) {
+        Ok(msgs) => {
+            for msg in msgs {
+                conn.send_line(&msg);
+            }
+            let level_up_msgs = oxide_server::award_xp(world, player);
+            for msg in level_up_msgs {
+                conn.send_line(&msg);
+            }
+        }
+        Err(err) => {
+            conn.send_line(&err);
+        }
+    }
+}
+
+fn abandon_quest_command(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    player: core::Entity,
+    quest_id: &str,
+) {
+    match core::abandon_quest(world, player, quest_id) {
+        Ok(msgs) => {
+            for msg in msgs {
+                conn.send_line(&msg);
+            }
+        }
+        Err(err) => {
+            conn.send_line(&err);
+        }
+    }
+}
+
+pub fn cmd_use(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let mut parts = args.split_whitespace();
+    let skill_input = match parts.next() {
+        Some(s) => s,
+        None => {
+            conn.send_line("Use what skill?");
+            return;
+        }
+    };
+
+    let target_arg = parts.next();
+
+    let skill_id = match templates.resolve_skill(skill_input, None) {
+        Ok(id) => id,
+        Err(core::templates::SkillResolveError::NotFound) => {
+            conn.send_line(&format!(
+                "You don't know any skill named '{}'.",
+                skill_input
+            ));
+            return;
+        }
+        Err(core::templates::SkillResolveError::Multiple(candidates)) => {
+            let names: Vec<&str> = candidates.iter().map(|(id, _)| id.as_str()).collect();
+            conn.send_line(&format!("Which skill did you mean? {}", names.join(", ")));
+            return;
+        }
+    };
+
+    let skill_def = match templates.skills.get(&skill_id) {
+        Some(def) => def,
+        None => {
+            conn.send_line("Error: Skill definition not found in registry.");
+            return;
+        }
+    };
+
+    let target_entity = if let Some(target_name) = target_arg {
+        let room = match get_pos_room(world, entity) {
+            Some(r) => r,
+            None => {
+                conn.send_line("You are nowhere.");
+                return;
+            }
+        };
+
+        let occupants = core::util::entities_in_room(world, room);
+        let mut matched = None;
+        for occupant in occupants {
+            if occupant == entity {
+                continue;
+            }
+            if let Ok(mut q_name) = world.query_one::<&core::Name>(occupant) {
+                if let Some(name) = q_name.get() {
+                    if name
+                        .0
+                        .to_lowercase()
+                        .starts_with(&target_name.to_lowercase())
+                    {
+                        matched = Some(occupant);
+                        break;
+                    }
+                }
+            }
+        }
+        if matched.is_none() {
+            conn.send_line(&format!("You don't see '{}' here.", target_name));
+            return;
+        }
+        matched
     } else {
         None
     };
 
-    if let Some(ref script_path) = skill_def.script {
-        if let Some(bridge) = core::scripting::get_scripting_bridge() {
-            if let Err(e) = bridge.execute_use_skill(script_path, entity, target, world) {
-                conn.send_line(&format!("Error executing script: {e}"));
+    if let Err(err) = core::can_use_skill(world, entity, skill_def, target_entity) {
+        conn.send_line(&err);
+        return;
+    }
+
+    let _ = core::deduct_resource_cost(world, entity, &skill_def.cost);
+
+    if skill_def.cooldown_secs > 0 {
+        let mut cd_comp = world
+            .query_one::<&core::SkillCooldowns>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .unwrap_or_default();
+        cd_comp
+            .cooldowns
+            .insert(skill_def.id.clone(), skill_def.cooldown_secs);
+        let _ = world.insert(entity, (cd_comp, core::Dirty));
+    }
+
+    conn.send_line(&format!("You use {}!", skill_def.name));
+
+    if let Ok(mut q_name) = world.query_one::<&core::Name>(entity) {
+        if let Some(name) = q_name.get() {
+            if let Some(room) = get_pos_room(world, entity) {
+                let msg = format!("{} uses {}!", name.0, skill_def.name);
+                broadcast_to_room_except(world, registry, room, entity, &msg);
             }
-        } else {
-            conn.send_line("Scripting engine is not available.");
         }
-    } else {
+    }
+
+    if let Some(ref effect) = skill_def.effect {
+        let msgs = core::apply_skill_effect(
+            world,
+            entity,
+            target_entity,
+            effect,
+            &skill_def.name,
+            &templates,
+        );
+        for msg in msgs {
+            conn.send_line(&msg);
+        }
+    }
+}
+
+pub fn cmd_cast(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let mut parts = args.split_whitespace();
+    let skill_input = match parts.next() {
+        Some(s) => s,
+        None => {
+            conn.send_line("Cast what spell?");
+            return;
+        }
+    };
+
+    let skill_id = match templates.resolve_skill(skill_input, None) {
+        Ok(id) => id,
+        Err(core::templates::SkillResolveError::NotFound) => {
+            conn.send_line(&format!(
+                "You don't know any spell named '{}'.",
+                skill_input
+            ));
+            return;
+        }
+        Err(core::templates::SkillResolveError::Multiple(candidates)) => {
+            let names: Vec<&str> = candidates.iter().map(|(id, _)| id.as_str()).collect();
+            conn.send_line(&format!("Which spell did you mean? {}", names.join(", ")));
+            return;
+        }
+    };
+
+    let skill_def = match templates.skills.get(&skill_id) {
+        Some(def) => def,
+        None => {
+            conn.send_line("Error: Spell definition not found in registry.");
+            return;
+        }
+    };
+
+    if !matches!(skill_def.skill_type, core::SkillType::Magic) {
+        conn.send_line("That is not a magic spell! Use 'use' instead.");
+        return;
+    }
+
+    cmd_use(world, conn, name, args, registry);
+}
+
+pub fn cmd_faction(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let fs = match world.query_one::<&core::FactionStanding>(entity) {
+        Ok(mut q) => q.get().cloned().unwrap_or_default(),
+        Err(_) => core::FactionStanding::new(),
+    };
+
+    if fs.standings.is_empty() {
+        conn.send_line("You have no faction standings.");
+        return;
+    }
+
+    conn.send_line("Your faction standings:");
+    conn.send_line("------------------------------------------------");
+    for (faction_id, standing) in &fs.standings {
+        let faction_name = templates
+            .factions
+            .get(faction_id)
+            .map(|f| f.name.as_str())
+            .unwrap_or(faction_id);
+
+        let rank = templates
+            .factions
+            .get(faction_id)
+            .map(|f| f.get_rank(*standing))
+            .unwrap_or_else(|| "Neutral".to_string());
+
         conn.send_line(&format!(
-            "No script defined for skill '{}'.",
-            skill_def.name
+            "{:<24} : {:>6} ({})",
+            faction_name, standing, rank
         ));
+    }
+}
+
+pub fn cmd_recipes(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let lr = match world.query_one::<&core::LearnedRecipes>(entity) {
+        Ok(mut q) => q.get().cloned().unwrap_or_default(),
+        Err(_) => core::LearnedRecipes::new(),
+    };
+
+    if lr.recipes.is_empty() {
+        conn.send_line("You do not know any crafting recipes.");
+        return;
+    }
+
+    conn.send_line("You know the following recipes:");
+    conn.send_line("------------------------------------------------");
+    for recipe_id in &lr.recipes {
+        if let Some(recipe) = templates.recipes.get(recipe_id) {
+            conn.send_line(&format!(
+                "{} (Difficulty {}, Success Chance {}%):",
+                recipe.name, recipe.difficulty, recipe.success_chance
+            ));
+            conn.send_line(&format!("  Description: {}", recipe.description));
+            if let Some(ref station) = recipe.station {
+                conn.send_line(&format!("  Station: {}", station.replace("station:", "")));
+            }
+            if let Some(ref skill_req) = recipe.skill_requirement {
+                conn.send_line(&format!(
+                    "  Skill: {} (Rank {})",
+                    skill_req.id, skill_req.rank
+                ));
+            }
+            conn.send_line("  Materials:");
+            for material in &recipe.materials {
+                let mat_name = templates
+                    .items
+                    .get(&material.template_id)
+                    .map(|i| i.name.as_str())
+                    .unwrap_or(&material.template_id);
+                conn.send_line(&format!("    - {} x {}", mat_name, material.quantity));
+            }
+            let res_name = templates
+                .items
+                .get(&recipe.result.template_id)
+                .map(|i| i.name.as_str())
+                .unwrap_or(&recipe.result.template_id);
+            conn.send_line("  Result:");
+            conn.send_line(&format!("    - {} x {}", res_name, recipe.result.quantity));
+            conn.send_line("");
+        }
+    }
+}
+
+pub fn cmd_craft(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let recipe_input = args.trim();
+    if recipe_input.is_empty() {
+        conn.send_line("Craft what recipe?");
+        return;
+    }
+
+    let recipe_input_lower = recipe_input.to_lowercase();
+    let lr = match world.query_one::<&core::LearnedRecipes>(entity) {
+        Ok(mut q) => q.get().cloned().unwrap_or_default(),
+        Err(_) => core::LearnedRecipes::new(),
+    };
+
+    let mut candidates = Vec::new();
+    for recipe_id in &lr.recipes {
+        if let Some(recipe) = templates.recipes.get(recipe_id) {
+            if recipe.name.to_lowercase().starts_with(&recipe_input_lower)
+                || recipe_id.to_lowercase().starts_with(&recipe_input_lower)
+            {
+                candidates.push((recipe_id.clone(), recipe.name.clone()));
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        conn.send_line(&format!(
+            "You don't know any recipe matching '{}'.",
+            recipe_input
+        ));
+        return;
+    }
+
+    if candidates.len() > 1 {
+        let names: Vec<String> = candidates.iter().map(|(_, name)| name.clone()).collect();
+        conn.send_line(&format!("Which recipe did you mean? {}", names.join(", ")));
+        return;
+    }
+
+    let (recipe_id, _) = &candidates[0];
+    match core::craft_recipe(world, entity, recipe_id, &templates) {
+        Ok(msg) => conn.send_line(&msg),
+        Err(err) => conn.send_line(&format!("Error: {}", err)),
     }
 }
 

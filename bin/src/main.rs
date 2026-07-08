@@ -244,6 +244,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::cmd_score,
     );
     server.register_command(
+        "quest",
+        &["quests"],
+        AccessLevel::Player,
+        "Character",
+        "Manage your quests (list, show, accept, complete, abandon)",
+        commands::cmd_quest,
+    );
+    server.register_command(
+        "faction",
+        &["factions"],
+        AccessLevel::Player,
+        "Character",
+        "Display your faction standings and ranks",
+        commands::cmd_faction,
+    );
+    server.register_command(
+        "recipes",
+        &[],
+        AccessLevel::Player,
+        "Character",
+        "Display your learned crafting recipes",
+        commands::cmd_recipes,
+    );
+    server.register_command(
+        "craft",
+        &[],
+        AccessLevel::Player,
+        "Abilities",
+        "Craft an item using a learned recipe",
+        commands::cmd_craft,
+    );
+    server.register_command(
+        "use",
+        &[],
+        AccessLevel::Player,
+        "Abilities",
+        "Use a learned combat, craft, tech, physical, or social skill",
+        commands::cmd_use,
+    );
+    server.register_command(
+        "cast",
+        &[],
+        AccessLevel::Player,
+        "Abilities",
+        "Cast a learned magic spell",
+        commands::cmd_cast,
+    );
+    server.register_command(
         "motd",
         &[],
         AccessLevel::Player,

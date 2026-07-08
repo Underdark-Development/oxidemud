@@ -386,6 +386,45 @@ fn check_aggro(world: &mut World, entity: Entity, npc: &Npc) -> bool {
             return true;
         }
 
+        // Faction-based Aggro (takes precedence over level-based aggro)
+        let faction_member = world
+            .query_one::<&crate::components::FactionMember>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned());
+
+        if let Some(fac) = faction_member {
+            if world
+                .query_one::<&crate::Player>(target)
+                .is_ok_and(|mut q| q.get().is_some())
+            {
+                let is_ghost = world
+                    .query_one::<&crate::PlayerState>(target)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|s| matches!(s, crate::PlayerState::Dead)))
+                    .unwrap_or(false);
+                if !is_ghost {
+                    let standing = world
+                        .query_one::<&crate::components::FactionStanding>(target)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|fs| fs.standing(&fac.faction_id)))
+                        .unwrap_or(0);
+                    if standing < fac.aggro_below {
+                        let stance = crate::systems::stance::get_active_stance(world, entity);
+                        crate::systems::combat::transition_combat_state(
+                            world,
+                            entity,
+                            CombatState::Engaged {
+                                target,
+                                round_started: std::time::Instant::now(),
+                                stance,
+                            },
+                        );
+                        return true;
+                    }
+                }
+            }
+        }
+
         // Aggro weak players
         if npc.aggro_players
             && world

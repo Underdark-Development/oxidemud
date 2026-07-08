@@ -23,10 +23,22 @@ pub use scripting::{
 };
 pub use systems::ai::AiState;
 pub use systems::combat::HitResult;
+pub use systems::crafting::{can_craft_recipe, craft_recipe};
+pub use systems::faction::{adjust_faction_standing, handle_faction_kill};
 pub use systems::player_state::run_player_state_decay;
+pub use systems::quest::{
+    abandon_quest, accept_quest, complete_quest, handle_explore_event, handle_kill_event,
+    handle_talk_event, reconcile_gather_objectives,
+};
 pub use systems::skill_gate::run_skill_gate_pulse;
+pub use systems::skill_use::{
+    apply_skill_effect, can_use_skill, deduct_resource_cost, get_modified_attributes,
+    run_cooldown_decay, run_temporary_effect_decay,
+};
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
-pub use templates::ExitTemplate;
+pub use templates::{
+    ExitTemplate, FactionDef, FactionRank, RecipeDef, RecipeMaterial, RecipeResult, RecipeSkillReq,
+};
 pub use util::entities_in_room;
 
 use hecs as _hecs;

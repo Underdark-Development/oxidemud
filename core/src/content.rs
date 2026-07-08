@@ -22,6 +22,9 @@ pub fn load_registry(content_path: &Path) -> (TemplateRegistry, FileMap) {
     registry.skills = load_dir(content_path, "skills", &mut file_map);
     registry.shops = load_dir(content_path, "shops", &mut file_map);
     registry.deities = load_dir(content_path, "deities", &mut file_map);
+    registry.quests = load_dir(content_path, "quests", &mut file_map);
+    registry.factions = load_dir(content_path, "factions", &mut file_map);
+    registry.recipes = load_dir(content_path, "recipes", &mut file_map);
 
     registry.build_indices();
     (registry, file_map)

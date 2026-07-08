@@ -3,9 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use oxide_core::templates::{
-    AffixDef, AreaTemplate, ClassTemplate, ExitTemplate, HealthBounds, ItemTemplate, LootTable,
-    MobTemplate, PassiveDef, RaceAttributes, RaceTemplate, RoomContent, RoomTemplate, SetDef,
-    StanceDef,
+    AffixDef, AreaTemplate, ClassTemplate, ExitTemplate, FactionDef, HealthBounds, ItemTemplate,
+    LootTable, MobTemplate, PassiveDef, QuestDef, QuestRewards, RaceAttributes, RaceTemplate,
+    RecipeDef, RoomContent, RoomTemplate, SetDef, StanceDef,
 };
 use oxide_core::SkillDef;
 use rmcp::{
@@ -952,6 +952,165 @@ impl OxideMcpServer {
         let (_, file_map) = self.load();
         match content::delete_file(&file_map, "items", &p.id) {
             Ok(()) => format!("Deleted item '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all quest templates")]
+    fn list_quests(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .quests
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Quests",
+        )
+    }
+
+    #[tool(description = "List all faction templates")]
+    fn list_factions(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .factions
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Factions",
+        )
+    }
+
+    #[tool(description = "Create a new faction template")]
+    fn create_faction(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("factions")
+            .join(format!("{}.toml", p.id));
+        let faction = FactionDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            starting_standing: 0,
+            min_standing: -10000,
+            max_standing: 10000,
+            ranks: Vec::new(),
+            relationships: HashMap::new(),
+            aggro_below: -500,
+        };
+        match toml::to_string_pretty(&faction) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write faction: {e}");
+                }
+                format!("Created faction '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize faction: {e}"),
+        }
+    }
+
+    #[tool(description = "List all recipe templates")]
+    fn list_recipes(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .recipes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Recipes",
+        )
+    }
+
+    #[tool(description = "Create a new recipe template")]
+    fn create_recipe(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("recipes")
+            .join(format!("{}.toml", p.id));
+        let recipe = RecipeDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            station: None,
+            skill_requirement: None,
+            difficulty: 1,
+            materials: Vec::new(),
+            result: oxide_core::templates::RecipeResult {
+                template_id: String::new(),
+                quantity: 1,
+            },
+            success_chance: 95,
+            quality_scaling: false,
+            script: None,
+        };
+        match toml::to_string_pretty(&recipe) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write recipe: {e}");
+                }
+                format!("Created recipe '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize recipe: {e}"),
+        }
+    }
+
+    #[tool(description = "Create a new quest template")]
+    fn create_quest(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("quests")
+            .join(format!("{}.toml", p.id));
+        let quest = QuestDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            level_requirement: 1,
+            repeatable: false,
+            auto_complete: false,
+            giver_npc: None,
+            turn_in_npc: None,
+            prerequisites: Vec::new(),
+            objectives: Vec::new(),
+            rewards: QuestRewards {
+                xp: 0,
+                gold: 0,
+                items: Vec::new(),
+                faction: Vec::new(),
+            },
+            scripts: None,
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&quest) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write quest: {e}");
+                }
+                format!("Created quest '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize quest: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a quest template")]
+    fn delete_quest(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "quests", &p.id) {
+            Ok(()) => format!("Deleted quest '{}'", p.id),
             Err(e) => format!("Error: {e}"),
         }
     }

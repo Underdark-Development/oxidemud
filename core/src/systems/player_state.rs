@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn test_casting_decay() {
         let mut world = World::new();
-        let entity = world.spawn((
+        let _entity = world.spawn((
             PlayerState::Casting { remaining_ms: 2000 },
             Name::new("TestCaster"),
         ));

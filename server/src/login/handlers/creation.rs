@@ -2117,6 +2117,24 @@ async fn load_character(
         skills.set_rank(&skill_id, rank);
     }
 
+    let quest_log = oxide_data::load_quest_log_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|json| serde_json::from_str::<oxide_core::QuestLog>(&json).unwrap_or_default())
+        .unwrap_or_default();
+
+    let faction_standing = oxide_data::load_faction_standing_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|json| serde_json::from_str::<oxide_core::FactionStanding>(&json).unwrap_or_default())
+        .unwrap_or_default();
+
+    let learned_recipes = oxide_data::load_learned_recipes_component(conn_db, entity_id)
+        .ok()
+        .flatten()
+        .map(|json| serde_json::from_str::<oxide_core::LearnedRecipes>(&json).unwrap_or_default())
+        .unwrap_or_default();
+
     // Load inventory
     let inv_rows = oxide_data::load_inventory(conn_db, entity_id).unwrap_or_default();
     let mut inventory = oxide_core::Inventory::new();
@@ -2302,6 +2320,9 @@ async fn load_character(
             appearance,
             age,
             deity,
+            quest_log,
+            faction_standing,
+            learned_recipes,
         ),
     );
 

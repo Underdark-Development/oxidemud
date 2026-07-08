@@ -35,6 +35,7 @@ pub fn spawn_game_loop(
         let mut set_bonus_tick = interval(Duration::from_secs(10));
         let mut player_state_tick = interval(Duration::from_millis(250));
         let mut last_player_state_tick = Instant::now();
+        let mut skill_decay_tick = interval(Duration::from_secs(1));
 
         loop {
             tokio::select! {
@@ -61,8 +62,26 @@ pub fn spawn_game_loop(
 
                     // Level-up check for kills
                     for outcome in &outcomes {
-                        if let CombatOutcomeKind::Killed { .. } = &outcome.kind {
+                        if let CombatOutcomeKind::Killed { ref mob_template_id, .. } = &outcome.kind {
                             if outcome.attacker_is_player {
+                                if let Some(templates) = crate::get_templates() {
+                                    if let Some(ref mob_id) = mob_template_id {
+                                        let quest_msgs = oxide_core::handle_kill_event(&mut w, outcome.attacker, mob_id, &templates);
+                                        for msg in &quest_msgs {
+                                            if let Some(tx) = reg.sender(outcome.attacker) {
+                                                let _ = tx.send(format!("{msg}\r\n").into_bytes());
+                                            }
+                                        }
+
+                                        let faction_msgs = oxide_core::handle_faction_kill(&mut w, outcome.attacker, mob_id, &templates);
+                                        for msg in &faction_msgs {
+                                            if let Some(tx) = reg.sender(outcome.attacker) {
+                                                let _ = tx.send(format!("{msg}\r\n").into_bytes());
+                                            }
+                                        }
+                                    }
+                                }
+
                                 let msgs = crate::award_xp(&mut w, outcome.attacker);
                                 for msg in &msgs {
                                     if let Some(tx) = reg.sender(outcome.attacker) {
@@ -195,6 +214,20 @@ pub fn spawn_game_loop(
                             }
                             crate::prompt::send_player_prompt(&w, entity, &reg);
                         }
+                    }
+                }
+                _ = skill_decay_tick.tick() => {
+                    let mut w = world.lock().await;
+                    let reg = registry.lock().await;
+
+                    oxide_core::run_cooldown_decay(&mut w, 1);
+
+                    let expired = oxide_core::run_temporary_effect_decay(&mut w, 1);
+                    for (entity, source, stat) in expired {
+                        if let Some(tx) = reg.sender(entity) {
+                            let _ = tx.send(format!("Your {} buff/debuff from {} has worn off.\r\n", stat, source).into_bytes());
+                        }
+                        crate::prompt::send_player_prompt(&w, entity, &reg);
                     }
                 }
 
@@ -720,6 +753,39 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &oxide
     {
         if let Some(ref deity_id) = deity.0 {
             let _ = oxide_data::save_deity_component(conn, db_id, deity_id);
+        }
+    }
+
+    // 17. QuestLog
+    if let Some(quest_log) = world
+        .query_one::<&oxide_core::QuestLog>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Ok(json) = serde_json::to_string(&quest_log) {
+            let _ = oxide_data::save_quest_log_component(conn, db_id, &json);
+        }
+    }
+
+    // 18. FactionStanding
+    if let Some(faction_standing) = world
+        .query_one::<&oxide_core::FactionStanding>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Ok(json) = serde_json::to_string(&faction_standing) {
+            let _ = oxide_data::save_faction_standing_component(conn, db_id, &json);
+        }
+    }
+
+    // 19. LearnedRecipes
+    if let Some(learned_recipes) = world
+        .query_one::<&oxide_core::LearnedRecipes>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Ok(json) = serde_json::to_string(&learned_recipes) {
+            let _ = oxide_data::save_learned_recipes_component(conn, db_id, &json);
         }
     }
 }

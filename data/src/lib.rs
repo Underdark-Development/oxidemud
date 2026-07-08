@@ -370,6 +370,48 @@ impl Database {
             )?;
         }
 
+        if current < 21 {
+            // Migration 21: add components_quest_log table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_quest_log (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    log_json TEXT NOT NULL
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (21)",
+                [],
+            )?;
+        }
+
+        if current < 22 {
+            // Migration 22: add components_faction_standing table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_faction_standing (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    standing_json TEXT NOT NULL
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (22)",
+                [],
+            )?;
+        }
+
+        if current < 23 {
+            // Migration 23: add components_learned_recipes table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_learned_recipes (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    recipes_json TEXT NOT NULL
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (23)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

@@ -42,6 +42,76 @@ impl SkillType {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
+pub enum Targeting {
+    #[default]
+    SelfTarget,
+    Single {
+        range: u8,
+    },
+    Room,
+    Area {
+        radius: u8,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(tag = "type", content = "value", rename_all = "lowercase")]
+pub enum ResourceCost {
+    #[default]
+    None,
+    Stamina(u16),
+    Mana(u16),
+    Energy(u16),
+    Psi(u16),
+    Gold(u64),
+    Xp(u64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum EffectTemplate {
+    Damage {
+        dice: String,
+    },
+    Heal {
+        dice: String,
+    },
+    Buff {
+        stat: String,
+        amount: i32,
+        duration: u32,
+    },
+    Debuff {
+        stat: String,
+        amount: i32,
+        duration: u32,
+    },
+    Teleport {
+        room: String,
+    },
+    Script {
+        id: String,
+    },
+    Spawn {
+        mob_id: String,
+        count: u32,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemporaryEffect {
+    pub effect: EffectTemplate,
+    pub remaining_secs: u32,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SkillCooldowns {
+    pub cooldowns: HashMap<String, u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
     pub id: String,
@@ -49,6 +119,32 @@ pub struct SkillDef {
     pub description: String,
     pub skill_type: SkillType,
     pub max_rank: u16,
+
+    #[serde(default)]
+    pub level_requirement: u8,
+    #[serde(default)]
+    pub cooldown_secs: u32,
+    #[serde(default)]
+    pub targeting: Targeting,
+    #[serde(default)]
+    pub cost: ResourceCost,
+    #[serde(default)]
+    pub effect: Option<EffectTemplate>,
+    #[serde(default)]
+    pub allowed_classes: Vec<String>,
+    #[serde(default)]
+    pub allowed_races: Vec<String>,
+    #[serde(default)]
+    pub requires_skill: Option<String>,
+    #[serde(default)]
+    pub must_train: bool,
+    #[serde(default)]
+    pub trainer_types: Vec<String>,
+    #[serde(default)]
+    pub use_while_fighting: bool,
+    #[serde(default)]
+    pub use_while_sitting: bool,
+
     #[serde(default)]
     pub script: Option<String>,
     #[serde(default)]
@@ -68,6 +164,18 @@ impl SkillDef {
             description: description.into(),
             skill_type,
             max_rank: 100,
+            level_requirement: 1,
+            cooldown_secs: 0,
+            targeting: Targeting::SelfTarget,
+            cost: ResourceCost::None,
+            effect: None,
+            allowed_classes: Vec::new(),
+            allowed_races: Vec::new(),
+            requires_skill: None,
+            must_train: false,
+            trainer_types: Vec::new(),
+            use_while_fighting: true,
+            use_while_sitting: false,
             script: None,
             params: HashMap::new(),
         }

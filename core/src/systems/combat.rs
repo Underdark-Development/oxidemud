@@ -1,8 +1,8 @@
 use crate::dice::DiceRoll;
 use crate::systems::trigger::process_triggers;
 use crate::{
-    Armor, Attributes, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Friendly,
-    Health, Inventory, LastMessenger, Level, LootRule, Name, Npc, Player, PlayerState, Position,
+    Armor, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Friendly, Health,
+    Inventory, LastMessenger, Level, LootRule, Name, Npc, Player, PlayerState, Position,
     RecallRoom, Resistance, RestState, RoomExits, Weapon, WeaponHands, World,
 };
 
@@ -114,12 +114,7 @@ pub fn calculate_ac(world: &World, entity: Entity) -> i32 {
         .and_then(|mut q| q.get().copied())
         .unwrap_or(Level(1));
 
-    let dex = world
-        .query_one::<&Attributes>(entity)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default()
-        .dexterity;
+    let dex = crate::get_modified_attributes(world, entity).dexterity;
 
     let armor = world
         .query_one::<&Armor>(entity)
@@ -157,12 +152,7 @@ pub fn calculate_damage(
     target: Entity,
     is_offhand: bool,
 ) -> (i32, DamageType) {
-    let str = world
-        .query_one::<&Attributes>(attacker)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default()
-        .strength;
+    let str = crate::get_modified_attributes(world, attacker).strength;
 
     let level = world
         .query_one::<&Level>(attacker)
@@ -267,12 +257,7 @@ pub fn calculate_hit(
         .unwrap_or(Level(1))
         .0 as i32;
 
-    let str = world
-        .query_one::<&Attributes>(attacker)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default()
-        .strength;
+    let str = crate::get_modified_attributes(world, attacker).strength;
 
     let ac = calculate_ac(world, target);
 
@@ -633,11 +618,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                 }
 
                 // Flee check: d20 + dex_mod >= 10
-                let dex = world
-                    .query_one::<&Attributes>(attacker)
-                    .ok()
-                    .and_then(|mut q| q.get().map(|a| a.dexterity))
-                    .unwrap_or(10);
+                let dex = crate::get_modified_attributes(world, attacker).dexterity;
                 let dex_mod = (dex as i32 - 10) / 2;
 
                 let roll = fastrand::i32(1..=20);
@@ -1062,7 +1043,7 @@ pub fn grant_xp(world: &mut World, attacker: Entity, victim: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Experience, Name};
+    use crate::{Attributes, Experience, Name};
 
     fn setup_world() -> (World, Entity, Entity) {
         let mut world = World::new();

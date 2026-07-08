@@ -105,6 +105,33 @@ impl EntitiesScreen {
         );
         add_group(
             &mut roots,
+            &self.registry.quests,
+            "Quests",
+            "quests",
+            |q| q.name.clone(),
+            filter_str,
+            &self.unsaved,
+        );
+        add_group(
+            &mut roots,
+            &self.registry.factions,
+            "Factions",
+            "factions",
+            |f| f.name.clone(),
+            filter_str,
+            &self.unsaved,
+        );
+        add_group(
+            &mut roots,
+            &self.registry.recipes,
+            "Recipes",
+            "recipes",
+            |r| r.name.clone(),
+            filter_str,
+            &self.unsaved,
+        );
+        add_group(
+            &mut roots,
             &self.registry.races,
             "Races",
             "races",
