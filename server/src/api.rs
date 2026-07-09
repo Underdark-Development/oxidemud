@@ -1,5 +1,5 @@
 use axum::{
-    extract::Request,
+    extract::{Path, Request},
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::Response,
@@ -92,6 +92,7 @@ pub async fn start_api_server(
     let app = Router::new()
         .route("/api/players", get(list_players))
         .route("/api/character/simulate", post(simulate_character))
+        .route("/api/character/:name", get(get_character_state))
         .route("/api/imm/put_item", post(imm_put_item))
         .route("/api/imm/teleport", post(imm_teleport))
         .route("/api/imm/force_command", post(imm_force_command))
@@ -312,6 +313,154 @@ async fn simulate_character(
         },
         auto_skills,
     }))
+}
+
+fn load_player_data_from_db(
+    db: &oxide_data::Database,
+    name: &str,
+) -> Result<serde_json::Value, (StatusCode, String)> {
+    let conn = db.conn();
+    let char_row = match oxide_data::get_character_by_name(conn, name) {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Character '{}' not found", name),
+            ))
+        }
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {e}"),
+            ))
+        }
+    };
+
+    let entity_id = char_row.entity_id;
+
+    let attrs = oxide_data::load_attributes_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or(oxide_data::AttributesRow {
+            strength: 10,
+            dexterity: 10,
+            intelligence: 10,
+            wisdom: 10,
+            constitution: 10,
+            charisma: 10,
+        });
+
+    let hp = oxide_data::load_health_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or((20, 20));
+
+    let mana_current = oxide_data::load_mana_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let stamina_current = oxide_data::load_stamina_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let level = oxide_data::load_level_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or(1);
+
+    let xp = oxide_data::load_experience_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or(0);
+
+    let alignment = oxide_data::load_alignment_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
+    let _gold = oxide_data::load_golds_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .unwrap_or((0, 0, 0, 0));
+
+    let skills_map = oxide_data::load_skills(conn, entity_id).unwrap_or_default();
+
+    let quest_log = oxide_data::load_quest_log_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .map(|json| serde_json::from_str::<oxide_core::QuestLog>(&json).unwrap_or_default())
+        .unwrap_or_default();
+
+    let completed_quests: Vec<String> = quest_log.completed.iter().cloned().collect();
+
+    let faction_standing = oxide_data::load_faction_standing_component(conn, entity_id)
+        .ok()
+        .flatten()
+        .map(|json| serde_json::from_str::<oxide_core::FactionStanding>(&json).unwrap_or_default())
+        .unwrap_or_default();
+
+    let inv_rows = oxide_data::load_inventory(conn, entity_id).unwrap_or_default();
+    let mut inventory = Vec::new();
+    for (item_db_id, _) in inv_rows {
+        if let Ok(Some(template_id)) = oxide_data::load_item_component(conn, item_db_id) {
+            inventory.push(template_id);
+        }
+    }
+
+    let eq_rows = oxide_data::load_equipment(conn, entity_id).unwrap_or_default();
+    let mut equipment = std::collections::HashMap::new();
+    for (slot_str, item_db_id) in eq_rows {
+        if let Ok(Some(template_id)) = oxide_data::load_item_component(conn, item_db_id) {
+            equipment.insert(slot_str, template_id);
+        }
+    }
+
+    Ok(serde_json::json!({
+        "name": char_row.name,
+        "race_id": char_row.race,
+        "class_id": char_row.class,
+        "level": level,
+        "experience": xp,
+        "alignment": alignment,
+        "attributes": {
+            "strength": attrs.strength,
+            "dexterity": attrs.dexterity,
+            "intelligence": attrs.intelligence,
+            "wisdom": attrs.wisdom,
+            "constitution": attrs.constitution,
+            "charisma": attrs.charisma
+        },
+        "health": {
+            "current": hp.0,
+            "max": hp.1
+        },
+        "mana": {
+            "current": mana_current,
+            "max": oxide_core::Mana::from_formula(level as u16, attrs.intelligence as u16, attrs.wisdom as u16).max
+        },
+        "stamina": {
+            "current": stamina_current,
+            "max": oxide_core::Stamina::from_formula(level as u16, attrs.strength as u16, attrs.dexterity as u16).max
+        },
+        "skills": skills_map,
+        "completed_quests": completed_quests,
+        "faction_standings": faction_standing.standings,
+        "inventory": inventory,
+        "equipment": equipment
+    }))
+}
+
+async fn get_character_state(
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let db_lock = crate::get_db().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Database unavailable".to_string(),
+    ))?;
+    let db = db_lock.lock().await;
+    load_player_data_from_db(&db, &name).map(Json)
 }
 
 const POINT_BUY_COST: [u8; 11] = [1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4];
@@ -641,4 +790,82 @@ async fn execute_forced_command(
 
     command_dispatch.execute(&mut world, &mut conn, command_text, &reg);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_player_data_from_db() {
+        let db = oxide_data::Database::open_in_memory().unwrap();
+        let conn = db.conn();
+
+        conn.execute(
+            "INSERT INTO accounts (id, username, password_hash, access_level) VALUES (1, 'legolas_acc', 'hash', 'player')",
+            [],
+        )
+        .unwrap();
+
+        conn.execute("INSERT INTO entities (id, type) VALUES (100, 'player')", [])
+            .unwrap();
+
+        conn.execute(
+            "INSERT INTO characters (id, account_id, name, race, class, gender, pronoun_subject, pronoun_object, pronoun_possessive, level, experience, entity_id, spawn_key, current_room_key, recall_room_key) \
+             VALUES (1, 1, 'Legolas', 'elf', 'ranger', 'male', 'he', 'him', 'his', 10, 25000, 100, 'room_1', 'room_1', 'room_1')",
+            [],
+        )
+        .unwrap();
+
+        let attrs = oxide_data::AttributesRow {
+            strength: 12,
+            dexterity: 18,
+            intelligence: 11,
+            wisdom: 14,
+            constitution: 12,
+            charisma: 10,
+        };
+        oxide_data::save_attributes_component(conn, 100, &attrs).unwrap();
+
+        oxide_data::save_health_component(conn, 100, 85, 85).unwrap();
+        oxide_data::save_level_component(conn, 100, 10).unwrap();
+        oxide_data::save_experience_component(conn, 100, 25000).unwrap();
+
+        let mut skills = std::collections::HashMap::new();
+        skills.insert("archery".to_string(), 45);
+        oxide_data::save_skills(conn, 100, &skills).unwrap();
+
+        let res = load_player_data_from_db(&db, "Legolas").unwrap();
+
+        assert_eq!(res.get("name").and_then(|v| v.as_str()), Some("Legolas"));
+        assert_eq!(res.get("race_id").and_then(|v| v.as_str()), Some("elf"));
+        assert_eq!(res.get("class_id").and_then(|v| v.as_str()), Some("ranger"));
+        assert_eq!(res.get("level").and_then(|v| v.as_u64()), Some(10));
+        assert_eq!(res.get("experience").and_then(|v| v.as_u64()), Some(25000));
+        assert_eq!(
+            res.pointer("/attributes/strength").and_then(|v| v.as_u64()),
+            Some(12)
+        );
+        assert_eq!(
+            res.pointer("/attributes/dexterity")
+                .and_then(|v| v.as_u64()),
+            Some(18)
+        );
+        assert_eq!(
+            res.pointer("/health/current").and_then(|v| v.as_u64()),
+            Some(85)
+        );
+        assert_eq!(
+            res.pointer("/health/max").and_then(|v| v.as_u64()),
+            Some(85)
+        );
+        assert_eq!(
+            res.pointer("/skills/archery").and_then(|v| v.as_u64()),
+            Some(45)
+        );
+
+        let fail_res = load_player_data_from_db(&db, "Nobody");
+        assert!(fail_res.is_err());
+        assert_eq!(fail_res.unwrap_err().0, StatusCode::NOT_FOUND);
+    }
 }

@@ -57,6 +57,39 @@ impl OxideMcpServer {
         }
         out.trim().to_string()
     }
+
+    async fn fetch_player_state(&self, name: &str) -> Result<LoadedPlayer, String> {
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return Err("Offline mode: cannot fetch real player data. Provide --url and --key to connect to the MUD server.".to_string()),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/character/{}", url.trim_end_matches('/'), name);
+
+        match client
+            .get(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<LoadedPlayer>().await {
+                        Ok(player) => Ok(player),
+                        Err(e) => Err(format!("Failed to parse MUD Server response as JSON: {e}")),
+                    }
+                } else {
+                    match resp.text().await {
+                        Ok(err_text) => Err(format!("Error from server: {err_text}")),
+                        Err(_) => Err(format!("Server returned error status: {}", status)),
+                    }
+                }
+            }
+            Err(e) => Err(format!("Failed to connect to MUD server: {e}")),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -254,6 +287,8 @@ struct ForceCommandParams {
 struct SimulateCraftingParams {
     #[schemars(description = "ID of the recipe template")]
     recipe_id: String,
+    #[schemars(description = "Optional real player name from database to load stats from")]
+    player_name: Option<String>,
     #[schemars(description = "Character level (optional, default: 1)")]
     player_level: Option<u8>,
     #[schemars(description = "Dexterity modifier check override (optional, default: 10)")]
@@ -270,6 +305,8 @@ struct SimulateCraftingParams {
 struct SimulateSkillUseParams {
     #[schemars(description = "ID of the skill template to use")]
     skill_id: String,
+    #[schemars(description = "Optional real actor name from database to load stats from")]
+    actor_name: Option<String>,
     #[schemars(description = "Actor level (1 to 100, default: 1)")]
     actor_level: Option<u8>,
     #[schemars(description = "Actor class ID (optional)")]
@@ -298,12 +335,14 @@ struct SimulateSkillUseParams {
 struct SimulatePrayerParams {
     #[schemars(description = "ID of the deity template")]
     deity_id: String,
+    #[schemars(description = "Optional real player name from database to load stats from")]
+    player_name: Option<String>,
     #[schemars(description = "ID of the player race template")]
-    player_race: String,
+    player_race: Option<String>,
     #[schemars(description = "ID of the player class template")]
-    player_class: String,
-    #[schemars(description = "Player alignment (e.g. 'Lawful Good')")]
-    player_alignment: String,
+    player_class: Option<String>,
+    #[schemars(description = "Player alignment (e.g. 'Lawful Good') (optional)")]
+    player_alignment: Option<String>,
     #[schemars(description = "Mock cleric level (optional, default: 1)")]
     cleric_level: Option<u8>,
     #[schemars(description = "Player base wisdom (default: 10)")]
@@ -314,14 +353,24 @@ struct SimulatePrayerParams {
 struct SimulatePrestigeParams {
     #[schemars(description = "ID of the prestige class template")]
     prestige_class_id: String,
-    #[schemars(description = "Mock class levels (e.g. { 'warrior': 5 })")]
-    base_classes: HashMap<String, u8>,
-    #[schemars(description = "Mock skill ranks (e.g. { 'swordplay': 5 })")]
-    skill_ranks: HashMap<String, u16>,
-    #[schemars(description = "Mock list of completed quest IDs")]
-    completed_quests: Vec<String>,
-    #[schemars(description = "Mock faction standings (e.g. { 'guard': 500 })")]
-    faction_standings: HashMap<String, i32>,
+    #[schemars(description = "Optional real player name from database to load stats from")]
+    player_name: Option<String>,
+    #[schemars(
+        description = "Mock class levels (e.g. { 'warrior': 5 }) (bypassed if player_name matches a real character)"
+    )]
+    base_classes: Option<HashMap<String, u8>>,
+    #[schemars(
+        description = "Mock skill ranks (e.g. { 'swordplay': 5 }) (bypassed if player_name matches a real character)"
+    )]
+    skill_ranks: Option<HashMap<String, u16>>,
+    #[schemars(
+        description = "Mock list of completed quest IDs (bypassed if player_name matches a real character)"
+    )]
+    completed_quests: Option<Vec<String>>,
+    #[schemars(
+        description = "Mock faction standings (e.g. { 'guard': 500 }) (bypassed if player_name matches a real character)"
+    )]
+    faction_standings: Option<HashMap<String, i32>>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -344,12 +393,42 @@ struct SimulateGroupParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SimulateDeathParams {
+    #[schemars(description = "Optional real player name from database to load stats from")]
+    player_name: Option<String>,
     #[schemars(description = "Current character level (1 to 100)")]
-    current_level: u8,
+    current_level: Option<u8>,
     #[schemars(description = "Current experience points")]
-    current_xp: u64,
+    current_xp: Option<u64>,
     #[schemars(description = "Is current room an allow_revive room")]
     allow_revive_room: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct LoadedPlayer {
+    name: String,
+    race_id: String,
+    class_id: String,
+    level: u8,
+    experience: u64,
+    alignment: String,
+    attributes: LoadedAttributes,
+    skills: HashMap<String, u16>,
+    completed_quests: Vec<String>,
+    faction_standings: HashMap<String, i32>,
+    inventory: Vec<String>,
+    equipment: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct LoadedAttributes {
+    strength: u8,
+    dexterity: u8,
+    intelligence: u8,
+    wisdom: u8,
+    constitution: u8,
+    charisma: u8,
 }
 
 #[tool_router(server_handler)]
@@ -1468,78 +1547,220 @@ impl OxideMcpServer {
     }
 
     #[tool(description = "Simulate recipe crafting outcomes based on character stats")]
-    fn simulate_crafting(&self, params: Parameters<SimulateCraftingParams>) -> String {
+    async fn simulate_crafting(&self, params: Parameters<SimulateCraftingParams>) -> String {
         let p = params.0;
         let (registry, _) = self.load();
+
+        let mut player_level = p.player_level.unwrap_or(1);
+        let mut dexterity = p.dexterity.unwrap_or(10);
+        let mut intelligence = p.intelligence.unwrap_or(10);
+        let mut skill_rank = p.skill_rank.unwrap_or(0);
+        let mut loaded_msg = String::new();
+
+        if let Some(ref name) = p.player_name {
+            match self.fetch_player_state(name).await {
+                Ok(player) => {
+                    player_level = player.level;
+                    dexterity = player.attributes.dexterity;
+                    intelligence = player.attributes.intelligence;
+                    if let Some(recipe) = registry.recipes.get(&p.recipe_id) {
+                        if let Some(ref req) = recipe.skill_requirement {
+                            skill_rank = player.skills.get(&req.id).copied().unwrap_or(0);
+                        }
+                    }
+                    loaded_msg = format!(
+                        "*   **Simulation Actor**: Loaded from Database (`{}` - Level {} {})\n\n",
+                        player.name, player.level, player.class_id
+                    );
+                }
+                Err(e) => return format!("Error loading player from database: {e}"),
+            }
+        }
+
         match simulator::simulate_crafting(
             &registry,
             &p.recipe_id,
-            p.player_level.unwrap_or(1),
-            p.dexterity.unwrap_or(10),
-            p.intelligence.unwrap_or(10),
-            p.skill_rank.unwrap_or(0),
+            player_level,
+            dexterity,
+            intelligence,
+            skill_rank,
             p.has_station.unwrap_or(true),
         ) {
-            Ok(result) => result,
+            Ok(result) => {
+                if !loaded_msg.is_empty() {
+                    format!("{}{}", loaded_msg, result)
+                } else {
+                    result
+                }
+            }
             Err(e) => format!("Error simulating crafting: {e}"),
         }
     }
 
     #[tool(description = "Simulate casting spells or using active abilities")]
-    fn simulate_skill_use(&self, params: Parameters<SimulateSkillUseParams>) -> String {
+    async fn simulate_skill_use(&self, params: Parameters<SimulateSkillUseParams>) -> String {
         let p = params.0;
         let (registry, _) = self.load();
+
+        let mut actor_level = p.actor_level.unwrap_or(1);
+        let mut actor_class = p.actor_class.clone();
+        let mut actor_race = p.actor_race.clone();
+        let mut strength = p.strength;
+        let mut dexterity = p.dexterity;
+        let mut intelligence = p.intelligence;
+        let mut wisdom = p.wisdom;
+        let mut constitution = p.constitution;
+        let mut charisma = p.charisma;
+        let mut skill_rank = p.skill_rank;
+        let mut loaded_msg = String::new();
+
+        if let Some(ref name) = p.actor_name {
+            match self.fetch_player_state(name).await {
+                Ok(player) => {
+                    actor_level = player.level;
+                    actor_class = Some(player.class_id.clone());
+                    actor_race = Some(player.race_id);
+                    strength = Some(player.attributes.strength);
+                    dexterity = Some(player.attributes.dexterity);
+                    intelligence = Some(player.attributes.intelligence);
+                    wisdom = Some(player.attributes.wisdom);
+                    constitution = Some(player.attributes.constitution);
+                    charisma = Some(player.attributes.charisma);
+                    skill_rank = Some(player.skills.get(&p.skill_id).copied().unwrap_or(0));
+                    loaded_msg = format!(
+                        "*   **Simulation Actor**: Loaded from Database (`{}` - Level {} {})\n\n",
+                        player.name, player.level, player.class_id
+                    );
+                }
+                Err(e) => return format!("Error loading actor from database: {e}"),
+            }
+        }
+
         match simulator::simulate_skill_use(
             &registry,
             &p.skill_id,
-            p.actor_level.unwrap_or(1),
-            p.actor_class.as_deref(),
-            p.actor_race.as_deref(),
-            p.strength,
-            p.dexterity,
-            p.intelligence,
-            p.wisdom,
-            p.constitution,
-            p.charisma,
-            p.skill_rank,
+            actor_level,
+            actor_class.as_deref(),
+            actor_race.as_deref(),
+            strength,
+            dexterity,
+            intelligence,
+            wisdom,
+            constitution,
+            charisma,
+            skill_rank,
             p.target_level,
         ) {
-            Ok(result) => result,
+            Ok(result) => {
+                if !loaded_msg.is_empty() {
+                    format!("{}{}", loaded_msg, result)
+                } else {
+                    result
+                }
+            }
             Err(e) => format!("Error simulating skill use: {e}"),
         }
     }
 
     #[tool(description = "Simulate adoption constraints and prayer buff effects for a deity")]
-    fn simulate_prayer(&self, params: Parameters<SimulatePrayerParams>) -> String {
+    async fn simulate_prayer(&self, params: Parameters<SimulatePrayerParams>) -> String {
         let p = params.0;
         let (registry, _) = self.load();
+
+        let mut player_race = p.player_race.unwrap_or_else(|| "human".to_string());
+        let mut player_class = p.player_class.unwrap_or_else(|| "cleric".to_string());
+        let mut player_alignment = p.player_alignment.unwrap_or_else(|| "Neutral".to_string());
+        let mut cleric_level = p.cleric_level;
+        let mut wisdom = p.wisdom.unwrap_or(10);
+        let mut loaded_msg = String::new();
+
+        if let Some(ref name) = p.player_name {
+            match self.fetch_player_state(name).await {
+                Ok(player) => {
+                    player_race = player.race_id;
+                    player_class = player.class_id.clone();
+                    player_alignment = player.alignment;
+                    if player_class.to_lowercase() == "cleric"
+                        || player_class.to_lowercase() == "paladin"
+                    {
+                        cleric_level = Some(player.level);
+                    }
+                    wisdom = player.attributes.wisdom;
+                    loaded_msg = format!(
+                        "*   **Simulation Actor**: Loaded from Database (`{}` - Level {} {})\n\n",
+                        player.name, player.level, player.class_id
+                    );
+                }
+                Err(e) => return format!("Error loading player from database: {e}"),
+            }
+        }
+
         match simulator::simulate_prayer(
             &registry,
             &p.deity_id,
-            &p.player_race,
-            &p.player_class,
-            &p.player_alignment,
-            p.cleric_level,
-            p.wisdom.unwrap_or(10),
+            &player_race,
+            &player_class,
+            &player_alignment,
+            cleric_level,
+            wisdom,
         ) {
-            Ok(result) => result,
+            Ok(result) => {
+                if !loaded_msg.is_empty() {
+                    format!("{}{}", loaded_msg, result)
+                } else {
+                    result
+                }
+            }
             Err(e) => format!("Error simulating prayer: {e}"),
         }
     }
 
     #[tool(description = "Check if a character satisfies requirements for a prestige class")]
-    fn simulate_prestige_eligibility(&self, params: Parameters<SimulatePrestigeParams>) -> String {
+    async fn simulate_prestige_eligibility(
+        &self,
+        params: Parameters<SimulatePrestigeParams>,
+    ) -> String {
         let p = params.0;
         let (registry, _) = self.load();
+
+        let mut base_classes = p.base_classes.unwrap_or_default();
+        let mut skill_ranks = p.skill_ranks.unwrap_or_default();
+        let mut completed_quests = p.completed_quests.unwrap_or_default();
+        let mut faction_standings = p.faction_standings.unwrap_or_default();
+        let mut loaded_msg = String::new();
+
+        if let Some(ref name) = p.player_name {
+            match self.fetch_player_state(name).await {
+                Ok(player) => {
+                    base_classes.clear();
+                    base_classes.insert(player.class_id.clone(), player.level);
+                    skill_ranks = player.skills;
+                    completed_quests = player.completed_quests;
+                    faction_standings = player.faction_standings;
+                    loaded_msg = format!(
+                        "*   **Simulation Actor**: Loaded from Database (`{}` - Level {} {})\n\n",
+                        player.name, player.level, player.class_id
+                    );
+                }
+                Err(e) => return format!("Error loading player from database: {e}"),
+            }
+        }
+
         match simulator::simulate_prestige_eligibility(
             &registry,
             &p.prestige_class_id,
-            &p.base_classes,
-            &p.skill_ranks,
-            &p.completed_quests,
-            &p.faction_standings,
+            &base_classes,
+            &skill_ranks,
+            &completed_quests,
+            &faction_standings,
         ) {
-            Ok(result) => result,
+            Ok(result) => {
+                if !loaded_msg.is_empty() {
+                    format!("{}{}", loaded_msg, result)
+                } else {
+                    result
+                }
+            }
             Err(e) => format!("Error simulating prestige eligibility: {e}"),
         }
     }
@@ -1569,11 +1790,34 @@ impl OxideMcpServer {
     #[tool(
         description = "Calculate XP loss penalties, corpse decay, and ghost parameters when a player dies"
     )]
-    fn simulate_death_penalty(&self, params: Parameters<SimulateDeathParams>) -> String {
+    async fn simulate_death_penalty(&self, params: Parameters<SimulateDeathParams>) -> String {
         let p = params.0;
-        match simulator::simulate_death_penalty(p.current_level, p.current_xp, p.allow_revive_room)
-        {
-            Ok(result) => result,
+        let mut current_level = p.current_level.unwrap_or(1);
+        let mut current_xp = p.current_xp.unwrap_or(0);
+        let mut loaded_msg = String::new();
+
+        if let Some(ref name) = p.player_name {
+            match self.fetch_player_state(name).await {
+                Ok(player) => {
+                    current_level = player.level;
+                    current_xp = player.experience;
+                    loaded_msg = format!(
+                        "*   **Simulation Actor**: Loaded from Database (`{}` - Level {} {})\n\n",
+                        player.name, player.level, player.class_id
+                    );
+                }
+                Err(e) => return format!("Error loading player from database: {e}"),
+            }
+        }
+
+        match simulator::simulate_death_penalty(current_level, current_xp, p.allow_revive_room) {
+            Ok(result) => {
+                if !loaded_msg.is_empty() {
+                    format!("{}{}", loaded_msg, result)
+                } else {
+                    result
+                }
+            }
             Err(e) => format!("Error simulating death penalty: {e}"),
         }
     }
