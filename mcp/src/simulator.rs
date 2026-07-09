@@ -2,10 +2,11 @@ use oxide_core::systems::combat::{calculate_damage, calculate_hit};
 use oxide_core::systems::loot::roll_loot;
 use oxide_core::systems::passive::apply_all_passives;
 use oxide_core::systems::set_bonus::evaluate_set_bonuses;
-use oxide_core::templates::TemplateRegistry;
+use oxide_core::templates::{DeityPolicy, TemplateRegistry};
 use oxide_core::{
-    ActiveEffect, Armor, Attributes, Equipment, EquipmentSlot, Health, Level, Position,
-    SetMembership, SetTracker, Weapon, World,
+    apply_skill_effect, can_use_skill, deduct_resource_cost, ActiveEffect, Armor, Attributes,
+    Energy, Equipment, EquipmentSlot, Health, LearnedSkills, Level, Mana, PlayerState, Position,
+    Psi, RestState, SetMembership, SetTracker, SkillCooldowns, Stamina, Weapon, World,
 };
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -1159,10 +1160,703 @@ pub fn simulate_character_creation(
     Ok(out)
 }
 
+pub fn simulate_crafting(
+    registry: &TemplateRegistry,
+    recipe_id: &str,
+    _player_level: u8,
+    dexterity: u8,
+    intelligence: u8,
+    skill_rank: u16,
+    has_station: bool,
+) -> Result<String, String> {
+    let recipe = registry
+        .recipes
+        .get(recipe_id)
+        .ok_or_else(|| format!("Recipe '{}' not found", recipe_id))?;
+
+    let item_res = registry
+        .items
+        .get(&recipe.result.template_id)
+        .ok_or_else(|| {
+            format!(
+                "Resulting item template '{}' not found",
+                recipe.result.template_id
+            )
+        })?;
+
+    let station_ok = if let Some(_req_station) = &recipe.station {
+        has_station
+    } else {
+        true
+    };
+
+    if !station_ok {
+        return Ok(format!(
+            "### Crafting Simulation Failed\n\n*   **Reason**: Missing required crafting station: `{}`\n",
+            recipe.station.as_deref().unwrap_or("")
+        ));
+    }
+
+    if let Some(req) = &recipe.skill_requirement {
+        if skill_rank < req.rank as u16 {
+            return Ok(format!(
+                "### Crafting Simulation Failed\n\n*   **Reason**: Crafting skill too low. Required: `{}`, Current: `{}`\n",
+                req.rank, skill_rank
+            ));
+        }
+    }
+
+    let base_chance = recipe.success_chance as i32;
+    let stat_bonus = ((dexterity as i32 + intelligence as i32) / 2 - 10) / 2;
+    let final_chance = (base_chance + stat_bonus).clamp(5, 95);
+
+    let roll = fastrand::i32(1..=100);
+    let success = roll <= final_chance;
+    let is_critical_failure = roll == 100;
+
+    let mut out = format!("### Crafting Simulation: Recipe = `{}`\n\n", recipe.name);
+    out.push_str(&format!(
+        "*   **Result Item**: `{}` ({})\n",
+        recipe.result.template_id, item_res.name
+    ));
+    out.push_str(&format!("*   **Skill Rank**: {}\n", skill_rank));
+    out.push_str(&format!(
+        "*   **Success Chance**: {}% (Base: {}%, Stat Bonus: {})\n",
+        final_chance, base_chance, stat_bonus
+    ));
+    out.push_str(&format!(
+        "*   **Roll**: {} ➔ {}\n\n",
+        roll,
+        if success {
+            "SUCCESS"
+        } else if is_critical_failure {
+            "CRITICAL FAILURE"
+        } else {
+            "FAILURE"
+        }
+    ));
+
+    if success {
+        let diff = recipe.difficulty as i32;
+        let margin = (skill_rank as i32 - diff).max(0);
+        let quality_roll = fastrand::i32(1..=100) + margin;
+
+        let quality = if quality_roll >= 120 {
+            "legendary"
+        } else if quality_roll >= 100 {
+            "epic"
+        } else if quality_roll >= 80 {
+            "rare"
+        } else if quality_roll >= 50 {
+            "uncommon"
+        } else {
+            "common"
+        };
+
+        let xp_gained = recipe.difficulty.pow(2) * 10;
+
+        out.push_str("#### Success Details:\n");
+        out.push_str(&format!(
+            "*   **Quantity Crafted**: {}\n",
+            recipe.result.quantity
+        ));
+        out.push_str(&format!(
+            "*   **Result Quality Tier**: `{:?}` (Quality Roll: {})\n",
+            quality, quality_roll
+        ));
+        out.push_str(&format!("*   **Experience Gained**: {} XP\n", xp_gained));
+        out.push_str("*   **Materials Consumed**: All materials consumed successfully.\n");
+    } else if is_critical_failure {
+        out.push_str("#### Failure Details:\n");
+        out.push_str(
+            "*   **Outcome**: Critical Failure! All crafting materials were completely lost.\n",
+        );
+    } else {
+        out.push_str("#### Failure Details:\n");
+        out.push_str(
+            "*   **Outcome**: Failed. 50% of the crafting materials were salvaged/recovered.\n",
+        );
+    }
+
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn simulate_skill_use(
+    registry: &TemplateRegistry,
+    skill_id: &str,
+    actor_level: u8,
+    actor_class: Option<&str>,
+    actor_race: Option<&str>,
+    strength: Option<u8>,
+    dexterity: Option<u8>,
+    intelligence: Option<u8>,
+    wisdom: Option<u8>,
+    constitution: Option<u8>,
+    charisma: Option<u8>,
+    skill_rank: Option<u16>,
+    target_level: Option<u8>,
+) -> Result<String, String> {
+    let skill = registry
+        .skills
+        .get(skill_id)
+        .ok_or_else(|| format!("Skill template '{}' not found", skill_id))?;
+
+    let mut world = World::new();
+    let room = world.spawn(());
+
+    let actor_attrs = Attributes::new(
+        strength.unwrap_or(10),
+        dexterity.unwrap_or(10),
+        intelligence.unwrap_or(10),
+        wisdom.unwrap_or(10),
+        constitution.unwrap_or(10),
+        charisma.unwrap_or(10),
+    );
+    let mut actor_skills = LearnedSkills::new();
+    let rank = skill_rank.unwrap_or(1);
+    actor_skills.skills.insert(skill_id.to_string(), rank);
+
+    let actor = world.spawn((
+        oxide_core::Name("Actor".to_string()),
+        Level(actor_level),
+        Health::new(100),
+        Mana::new(100),
+        Stamina::new(100),
+        Energy::new(100),
+        Psi::new(100),
+        oxide_core::Wallet::new(0, 0, 10, 0),
+        oxide_core::Experience(1000),
+        actor_skills,
+        PlayerState::Resting(RestState::Standing),
+        Position::new(room),
+        SkillCooldowns::default(),
+        oxide_core::CombatState::NotInCombat,
+        actor_attrs,
+    ));
+
+    if let Some(c) = actor_class {
+        let _ = world.insert(actor, (oxide_core::Class(c.to_string()),));
+    }
+    if let Some(r) = actor_race {
+        let _ = world.insert(actor, (oxide_core::Race(r.to_string()),));
+    }
+
+    let target = world.spawn((
+        oxide_core::Name("Target".to_string()),
+        Level(target_level.unwrap_or(1)),
+        Health::new(100),
+        Position::new(room),
+    ));
+
+    let mut out = format!(
+        "### Skill/Spell Use Simulation: Skill = `{}`\n\n",
+        skill.name
+    );
+
+    match can_use_skill(&world, actor, skill, Some(target)) {
+        Ok(_) => {
+            out.push_str("*   **Validation Check**: PASSED\n");
+            let _ = deduct_resource_cost(&mut world, actor, &skill.cost);
+            out.push_str(&format!("*   **Resource Cost**: `{:?}`\n", skill.cost));
+
+            if let Some(effect) = &skill.effect {
+                let messages = apply_skill_effect(
+                    &mut world,
+                    actor,
+                    Some(target),
+                    effect,
+                    &skill.name,
+                    registry,
+                );
+
+                out.push_str("\n#### Resolution Log:\n");
+                if messages.is_empty() {
+                    out.push_str("*   *(No output messages generated)*\n");
+                } else {
+                    for m in messages {
+                        out.push_str(&format!("*   {}\n", m));
+                    }
+                }
+            } else {
+                out.push_str("\n*   *This skill has no effect defined in its template.*\n");
+            }
+
+            let final_mana = world
+                .query_one::<&Mana>(actor)
+                .map(|mut q| q.get().map(|m| m.current).unwrap_or(0))
+                .unwrap_or(0);
+            let final_stamina = world
+                .query_one::<&Stamina>(actor)
+                .map(|mut q| q.get().map(|m| m.current).unwrap_or(0))
+                .unwrap_or(0);
+            let final_hp = world
+                .query_one::<&Health>(actor)
+                .map(|mut q| q.get().map(|m| m.current).unwrap_or(0))
+                .unwrap_or(0);
+            let target_hp = world
+                .query_one::<&Health>(target)
+                .map(|mut q| q.get().map(|m| m.current).unwrap_or(0))
+                .unwrap_or(0);
+
+            out.push_str("\n#### Post-execution States:\n");
+            out.push_str(&format!("*   Actor HP: {}\n", final_hp));
+            out.push_str(&format!("*   Actor Mana: {}\n", final_mana));
+            out.push_str(&format!("*   Actor Stamina: {}\n", final_stamina));
+            out.push_str(&format!("*   Target HP: {}\n", target_hp));
+        }
+        Err(err_msg) => {
+            out.push_str("*   **Validation Check**: FAILED\n");
+            out.push_str(&format!("*   **Error Reason**: {}\n", err_msg));
+        }
+    }
+
+    Ok(out)
+}
+
+pub fn simulate_prayer(
+    registry: &TemplateRegistry,
+    deity_id: &str,
+    player_race: &str,
+    player_class: &str,
+    player_alignment: &str,
+    cleric_level: Option<u8>,
+    wisdom: u8,
+) -> Result<String, String> {
+    let deity = registry
+        .deities
+        .get(deity_id)
+        .ok_or_else(|| format!("Deity '{}' not found", deity_id))?;
+
+    let _race = registry
+        .races
+        .get(player_race)
+        .ok_or_else(|| format!("Race '{}' not found", player_race))?;
+
+    let class = registry
+        .classes
+        .get(player_class)
+        .ok_or_else(|| format!("Class '{}' not found", player_class))?;
+
+    let policy_ok = match &class.deity_policy {
+        DeityPolicy::None => false,
+        DeityPolicy::Any => true,
+        DeityPolicy::Required => true,
+        DeityPolicy::Subset(allowed_list) => allowed_list
+            .iter()
+            .any(|id| id.to_lowercase() == deity_id.to_lowercase()),
+    };
+
+    let race_ok = if deity.allowed_races.is_empty() {
+        true
+    } else {
+        deity
+            .allowed_races
+            .iter()
+            .any(|r| r.to_lowercase() == player_race.to_lowercase())
+    };
+
+    let class_ok = if deity.allowed_classes.is_empty() {
+        true
+    } else {
+        deity
+            .allowed_classes
+            .iter()
+            .any(|c| c.to_lowercase() == player_class.to_lowercase())
+    };
+
+    let align_ok = if deity.allowed_alignments.is_empty() {
+        true
+    } else {
+        deity
+            .allowed_alignments
+            .iter()
+            .any(|a| a.to_lowercase() == player_alignment.to_lowercase())
+    };
+
+    let eligible = policy_ok && race_ok && class_ok && align_ok;
+
+    let mut out = format!(
+        "### Deity Adoption & Prayer Simulation: Deity = `{}`\n\n",
+        deity.name
+    );
+    out.push_str("#### Eligibility Matrix:\n");
+    out.push_str(&format!(
+        "*   Class Deity Policy check: {}\n",
+        if policy_ok { "PASSED" } else { "FAILED" }
+    ));
+    out.push_str(&format!(
+        "*   Race alignment check: {}\n",
+        if race_ok { "PASSED" } else { "FAILED" }
+    ));
+    out.push_str(&format!(
+        "*   Class restrictions check: {}\n",
+        if class_ok { "PASSED" } else { "FAILED" }
+    ));
+    out.push_str(&format!(
+        "*   Alignment restrictions check: {}\n\n",
+        if align_ok { "PASSED" } else { "FAILED" }
+    ));
+    out.push_str(&format!(
+        "*   **Overall Eligibility**: {}\n\n",
+        if eligible {
+            "**ELIGIBLE**"
+        } else {
+            "**INELIGIBLE**"
+        }
+    ));
+
+    if eligible {
+        if let Some(effect) = &deity.prayer_effect {
+            let base_duration = effect.duration_secs;
+            let cooldown = effect.cooldown_secs;
+
+            let wis_mod = ((wisdom as i32 - 10) / 2).max(0) as u64;
+            let level_mult = cleric_level.unwrap_or(1) as u64;
+            let final_duration = base_duration + (wis_mod * 10) + (level_mult * 5);
+
+            out.push_str("#### Prayer Simulation (Cast Outcomes):\n");
+            out.push_str(&format!("*   **Buff / Effect ID**: `{}`\n", effect.buff_id));
+            out.push_str(&format!(
+                "*   **Base Duration**: {} seconds\n",
+                base_duration
+            ));
+            out.push_str(&format!("*   **Final Duration (Scaled)**: {} seconds (Wis bonus: +{}s, Level bonus: +{}s)\n", final_duration, wis_mod * 10, level_mult * 5));
+            out.push_str(&format!("*   **Cooldown**: {} seconds\n", cooldown));
+            out.push_str(&format!(
+                "*   **Flavor Description**: *\"{}\"*\n",
+                effect.description
+            ));
+        } else {
+            out.push_str("#### Prayer Simulation:\n");
+            out.push_str("*   *This deity does not have an active prayer effect defined in their template.*\n");
+        }
+    }
+
+    Ok(out)
+}
+
+pub fn simulate_prestige_eligibility(
+    registry: &TemplateRegistry,
+    prestige_class_id: &str,
+    base_classes: &HashMap<String, u8>,
+    skill_ranks: &HashMap<String, u16>,
+    completed_quests: &[String],
+    faction_standings: &HashMap<String, i32>,
+) -> Result<String, String> {
+    let p_class = registry
+        .classes
+        .get(prestige_class_id)
+        .ok_or_else(|| format!("Prestige class '{}' not found", prestige_class_id))?;
+
+    let is_prestige = p_class
+        .params
+        .get("prestige")
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false);
+
+    if !is_prestige {
+        return Err(format!(
+            "Class '{}' is not configured as a prestige class (params.prestige is not true)",
+            prestige_class_id
+        ));
+    }
+
+    let mut out = format!("### Prestige Class Eligibility: `{}`\n\n", p_class.name);
+    out.push_str("#### Requirements Checklist:\n");
+
+    let mut eligible = true;
+
+    if let Some(req_lvl_str) = p_class.params.get("requires_level") {
+        if let Ok(req_lvl) = req_lvl_str.parse::<u8>() {
+            let total_level: u8 = base_classes.values().sum();
+            let met = total_level >= req_lvl;
+            if !met {
+                eligible = false;
+            }
+            out.push_str(&format!(
+                "*   [{}] Total character level >= {} (Current: {})\n",
+                if met { "x" } else { " " },
+                req_lvl,
+                total_level
+            ));
+        }
+    }
+
+    if let Some(req_class_str) = p_class.params.get("requires_class") {
+        let parts: Vec<&str> = req_class_str.split(':').collect();
+        if parts.len() == 2 {
+            if let Ok(req_lvl) = parts[1].trim().parse::<u8>() {
+                let class_id = parts[0].trim().to_lowercase();
+                let current_lvl = base_classes.get(&class_id).copied().unwrap_or(0);
+                let met = current_lvl >= req_lvl;
+                if !met {
+                    eligible = false;
+                }
+                out.push_str(&format!(
+                    "*   [{}] Level in class `{}` >= {} (Current: {})\n",
+                    if met { "x" } else { " " },
+                    class_id,
+                    req_lvl,
+                    current_lvl
+                ));
+            }
+        }
+    }
+
+    if let Some(req_skill_str) = p_class.params.get("requires_skills") {
+        let parts: Vec<&str> = req_skill_str.split(':').collect();
+        if parts.len() == 2 {
+            if let Ok(req_rank) = parts[1].trim().parse::<u16>() {
+                let skill_id = parts[0].trim().to_lowercase();
+                let current_rank = skill_ranks.get(&skill_id).copied().unwrap_or(0);
+                let met = current_rank >= req_rank;
+                if !met {
+                    eligible = false;
+                }
+                out.push_str(&format!(
+                    "*   [{}] Rank in skill `{}` >= {} (Current: {})\n",
+                    if met { "x" } else { " " },
+                    skill_id,
+                    req_rank,
+                    current_rank
+                ));
+            }
+        }
+    }
+
+    if let Some(req_race) = p_class.params.get("requires_race") {
+        let allowed = p_class.allowed_races.is_empty()
+            || p_class
+                .allowed_races
+                .iter()
+                .any(|r| r.to_lowercase() == req_race.to_lowercase());
+        if !allowed {
+            eligible = false;
+        }
+        out.push_str(&format!(
+            "*   [{}] Race allowed: `{}`\n",
+            if allowed { "x" } else { " " },
+            req_race
+        ));
+    }
+
+    if let Some(req_align) = p_class.params.get("requires_alignment") {
+        let allowed = p_class.allowed_alignments.is_empty()
+            || p_class
+                .allowed_alignments
+                .iter()
+                .any(|a| a.to_lowercase() == req_align.to_lowercase());
+        if !allowed {
+            eligible = false;
+        }
+        out.push_str(&format!(
+            "*   [{}] Alignment allowed: `{}`\n",
+            if allowed { "x" } else { " " },
+            req_align
+        ));
+    }
+
+    if let Some(req_quest) = p_class.params.get("requires_quest") {
+        let met = completed_quests
+            .iter()
+            .any(|q| q.to_lowercase() == req_quest.to_lowercase());
+        if !met {
+            eligible = false;
+        }
+        out.push_str(&format!(
+            "*   [{}] Completed quest: `{}`\n",
+            if met { "x" } else { " " },
+            req_quest
+        ));
+    }
+
+    if let Some(req_faction_str) = p_class.params.get("requires_faction") {
+        let parts: Vec<&str> = req_faction_str.split(':').collect();
+        if parts.len() == 2 {
+            if let Ok(req_val) = parts[1].trim().parse::<i32>() {
+                let faction_id = parts[0].trim().to_lowercase();
+                let current_val = faction_standings.get(&faction_id).copied().unwrap_or(0);
+                let met = current_val >= req_val;
+                if !met {
+                    eligible = false;
+                }
+                out.push_str(&format!(
+                    "*   [{}] Standing with faction `{}` >= {} (Current: {})\n",
+                    if met { "x" } else { " " },
+                    faction_id,
+                    req_val,
+                    current_val
+                ));
+            }
+        }
+    }
+
+    out.push_str(&format!(
+        "\n*   **Final Status**: {}\n",
+        if eligible {
+            "**ELIGIBLE TO ADOPT**"
+        } else {
+            "**NOT ELIGIBLE**"
+        }
+    ));
+
+    Ok(out)
+}
+
+pub struct MockMember {
+    pub class_id: String,
+    pub has_shield: bool,
+    pub is_front_row: bool,
+}
+
+pub fn simulate_group_formation(formation: &str, members: &[MockMember]) -> Result<String, String> {
+    let size = members.len();
+    let fmt_lower = formation.to_lowercase();
+
+    let mut out = format!("### Group Formation Simulation: `{}`\n\n", formation);
+    out.push_str(&format!("*   **Total Members**: {}\n", size));
+
+    let (min_size, detail) = match fmt_lower.as_str() {
+        "line" => (2, "Line: requires min 2 members. Modifiers: +1 AC front, -1 AC back."),
+        "scattered" => (2, "Scattered: requires min 2 members. Modifiers: -2 AC, +10% dodge."),
+        "column" => (3, "Column: requires min 3 members. Modifiers: +1 damage first hit."),
+        "wedge" => (3, "Wedge: requires min 3 members. Modifiers: +2 attack, -4 AC leader."),
+        "shield wall" => (2, "Shield Wall: requires min 2 members. Modifiers: +2 AC, -2 attack. Shields required for all members."),
+        _ => return Err(format!("Unknown formation '{}'. Valid options: Line, Scattered, Column, Wedge, Shield Wall", formation)),
+    };
+
+    out.push_str(&format!("*   **Rules**: {}\n\n", detail));
+
+    if size < min_size {
+        out.push_str(&format!("*   **Status**: **INVALID FORMATION** (Requires at least {} members, but only has {})\n", min_size, size));
+        return Ok(out);
+    }
+
+    if fmt_lower == "shield wall" {
+        let missing_shield = members.iter().any(|m| !m.has_shield);
+        if missing_shield {
+            out.push_str("*   **Status**: **INVALID FORMATION** (All members must equip a shield for Shield Wall)\n");
+            return Ok(out);
+        }
+    }
+
+    out.push_str("| Member # | Class | Position | Shield? | Modifiers Applied |\n");
+    out.push_str("|---|---|---|---|---|\n");
+
+    for (idx, m) in members.iter().enumerate() {
+        let is_leader = idx == 0;
+        let pos_str = if is_leader { "Leader" } else { "Member" };
+        let shield_str = if m.has_shield { "Yes" } else { "No" };
+
+        let modifiers = match fmt_lower.as_str() {
+            "line" => {
+                if m.is_front_row {
+                    "+1 AC (Front Row)"
+                } else {
+                    "-1 AC (Back Row)"
+                }
+            }
+            "scattered" => "-2 AC, +10% Dodge",
+            "column" if is_leader => "+1 Damage on First Hit (Lead)",
+            "column" => "None",
+            "wedge" => {
+                if is_leader {
+                    "+2 Attack, -4 AC (Leader Penalty)"
+                } else {
+                    "+2 Attack"
+                }
+            }
+            "shield wall" => "+2 AC, -2 Attack",
+            _ => "None",
+        };
+
+        out.push_str(&format!(
+            "| #{} | {} | {} | {} | {} |\n",
+            idx + 1,
+            m.class_id,
+            pos_str,
+            shield_str,
+            modifiers
+        ));
+    }
+
+    out.push_str("\n*   **Status**: **ACTIVE & VALID**\n");
+
+    Ok(out)
+}
+
+pub fn simulate_death_penalty(
+    current_level: u8,
+    current_xp: u64,
+    allow_revive_room: bool,
+) -> Result<String, String> {
+    if !(1..=100).contains(&current_level) {
+        return Err("Level must be between 1 and 100".to_string());
+    }
+
+    let _xp_floor = (current_level as u64).pow(3) * 100;
+    let penalty = (current_xp as f64 * 0.10) as u64;
+
+    let min_level = current_level.saturating_sub(5).max(1);
+    let min_xp_floor = (min_level as u64).pow(3) * 100;
+
+    let final_xp = current_xp.saturating_sub(penalty);
+    let capped = final_xp < min_xp_floor;
+    let actual_xp = if capped { min_xp_floor } else { final_xp };
+    let actual_penalty = current_xp - actual_xp;
+
+    let mut out = format!(
+        "### Player Death & Ghost Simulation: Level {}\n\n",
+        current_level
+    );
+    out.push_str("#### Experience Penalty:\n");
+    out.push_str(&format!("*   **Current Experience**: {} XP\n", current_xp));
+    out.push_str(&format!("*   **Raw 10% Penalty**: -{} XP\n", penalty));
+    out.push_str(&format!(
+        "*   **De-level Protection Floor (Level {} Floor)**: {} XP\n",
+        min_level, min_xp_floor
+    ));
+    out.push_str(&format!(
+        "*   **Actual Penalty Applied**: -{} XP {}\n",
+        actual_penalty,
+        if capped {
+            "(CAPPED by de-level protection)"
+        } else {
+            ""
+        }
+    ));
+    out.push_str(&format!(
+        "*   **Post-Death Experience**: {} XP\n\n",
+        actual_xp
+    ));
+
+    out.push_str("#### State & Resurrect Changes:\n");
+    out.push_str("*   **Health Restored**: `1` HP (Unconscious threshold is -10 HP)\n");
+    out.push_str("*   **Rest State**: `PlayerState::Dead` (Ghost State)\n");
+    out.push_str("*   **Inventory & Equipment**: Completely cleared (dropped into a player corpse entity in room)\n");
+    out.push_str("*   **Corpse Decay Duration**: 30 minutes (1800 seconds)\n");
+    out.push_str(&format!(
+        "*   **Revive Room allowed**: {}\n",
+        if allow_revive_room {
+            "Yes (Naked revive allowed without corpse)"
+        } else {
+            "No (Must walk back to corpse to reclaim)"
+        }
+    ));
+
+    out.push_str("\n#### Ghost Speech Constraints:\n");
+    out.push_str("*   All normal speech is filtered through `format_ghost_text()`.\n");
+    out.push_str("*   **Example translation**: `\"hello world\"` ➔ rendered as alternating cyan and blue characters.\n");
+
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oxide_core::templates::*;
+    use oxide_core::templates::{DeityTemplate, PrayerEffect, *};
+    use oxide_core::{EffectTemplate, ResourceCost, SkillDef, SkillType, Targeting};
 
     #[test]
     fn test_simulate_loot() {
@@ -1607,5 +2301,261 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_simulate_crafting() {
+        let mut registry = TemplateRegistry::new();
+        let recipe = RecipeDef {
+            id: "potion".to_string(),
+            name: "Healing Potion".to_string(),
+            description: "Restores health".to_string(),
+            station: Some("alchemy_lab".to_string()),
+            skill_requirement: Some(RecipeSkillReq {
+                id: "alchemy".to_string(),
+                rank: 5,
+            }),
+            difficulty: 5,
+            materials: vec![],
+            result: RecipeResult {
+                template_id: "red_potion".to_string(),
+                quantity: 1,
+            },
+            success_chance: 80,
+            quality_scaling: false,
+            script: None,
+        };
+        let item = ItemTemplate {
+            id: "red_potion".to_string(),
+            name: "Red Potion".to_string(),
+            description: "Restores 50 HP".to_string(),
+            item_type: "usable".to_string(),
+            subtype: "potion".to_string(),
+            quality: "common".to_string(),
+            level_requirement: 1,
+            weight: 0.5,
+            value: 10,
+            flags: vec![],
+            allowed_classes: vec![],
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            requires_skill: None,
+            weapon: None,
+            equipment: None,
+            set: None,
+            triggers: vec![],
+            params: HashMap::new(),
+        };
+        registry.recipes.insert("potion".to_string(), recipe);
+        registry.items.insert("red_potion".to_string(), item);
+
+        let res_no_station = simulate_crafting(&registry, "potion", 1, 10, 10, 5, false).unwrap();
+        assert!(res_no_station.contains("Missing required crafting station"));
+
+        let res_low_skill = simulate_crafting(&registry, "potion", 1, 10, 10, 2, true).unwrap();
+        assert!(res_low_skill.contains("Crafting skill too low"));
+
+        let res_success = simulate_crafting(&registry, "potion", 1, 10, 10, 6, true).unwrap();
+        assert!(res_success.contains("Crafting Simulation: Recipe = `Healing Potion`"));
+    }
+
+    #[test]
+    fn test_simulate_skill_use() {
+        let mut registry = TemplateRegistry::new();
+        let mut skill = SkillDef::new("heal", "Lesser Heal", "Heals target", SkillType::Magic);
+        skill.max_rank = 5;
+        skill.level_requirement = 1;
+        skill.cooldown_secs = 5;
+        skill.targeting = Targeting::Single { range: 10 };
+        skill.cost = ResourceCost::Mana(10);
+        skill.effect = Some(EffectTemplate::Heal {
+            dice: "1d8+2".to_string(),
+        });
+        registry.skills.insert("heal".to_string(), skill);
+
+        let res = simulate_skill_use(
+            &registry,
+            "heal",
+            1,
+            None,
+            None,
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(10),
+            Some(1),
+            Some(1),
+        )
+        .unwrap();
+
+        assert!(res.contains("Skill/Spell Use Simulation: Skill = `Lesser Heal`"));
+        assert!(res.contains("Validation Check**: PASSED"));
+        assert!(res.contains("Resource Cost"));
+    }
+
+    #[test]
+    fn test_simulate_prayer() {
+        let mut registry = TemplateRegistry::new();
+        let race = RaceTemplate {
+            id: "human".to_string(),
+            name: "Human".to_string(),
+            description: "".to_string(),
+            attributes: RaceAttributes::default(),
+            allowed_classes: vec![],
+            allowed_alignments: vec![],
+            racial_abilities: vec![],
+            allowed_genders: HashMap::new(),
+            appearance_bounds: AppearanceBounds::default(),
+            age_default: 20,
+            age_max: 100,
+            params: HashMap::new(),
+        };
+        let class = ClassTemplate {
+            id: "cleric".to_string(),
+            name: "Cleric".to_string(),
+            description: "".to_string(),
+            hit_die: 8,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "medium".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "good".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            params: HashMap::new(),
+            skill_pool: vec![],
+            starting_skill_slots: 2,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
+        };
+        let deity = DeityTemplate {
+            id: "sol".to_string(),
+            name: "Sol".to_string(),
+            description: "".to_string(),
+            alignment: None,
+            symbol: "".to_string(),
+            favored_weapon: None,
+            tenets: vec![],
+            domains: vec![],
+            allowed_alignments: vec!["lawful good".to_string()],
+            allowed_classes: vec![],
+            allowed_races: vec![],
+            prayer_effect: Some(PrayerEffect {
+                buff_id: "sol_blessing".to_string(),
+                description: "Warm light".to_string(),
+                duration_secs: 60,
+                cooldown_secs: 300,
+            }),
+            params: HashMap::new(),
+        };
+        registry.races.insert("human".to_string(), race);
+        registry.classes.insert("cleric".to_string(), class);
+        registry.deities.insert("sol".to_string(), deity);
+
+        let res = simulate_prayer(
+            &registry,
+            "sol",
+            "human",
+            "cleric",
+            "lawful good",
+            Some(5),
+            14,
+        )
+        .unwrap();
+        assert!(res.contains("Deity Adoption & Prayer Simulation: Deity = `Sol`"));
+        assert!(res.contains("Overall Eligibility**: **ELIGIBLE**"));
+        assert!(res.contains("Buff / Effect ID**: `sol_blessing`"));
+
+        let res_fail = simulate_prayer(
+            &registry,
+            "sol",
+            "human",
+            "cleric",
+            "chaotic evil",
+            Some(5),
+            14,
+        )
+        .unwrap();
+        assert!(res_fail.contains("Overall Eligibility**: **INELIGIBLE**"));
+    }
+
+    #[test]
+    fn test_simulate_prestige_eligibility() {
+        let mut registry = TemplateRegistry::new();
+        let class = ClassTemplate {
+            id: "paladin".to_string(),
+            name: "Paladin".to_string(),
+            description: "".to_string(),
+            hit_die: 10,
+            attribute_mods: ClassAttributeMods::default(),
+            bab: "full".to_string(),
+            fort_save: "good".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: vec![],
+            allowed_alignments: vec![],
+            auto_skills: vec![],
+            params: HashMap::from([
+                ("prestige".to_string(), "true".to_string()),
+                ("requires_class".to_string(), "warrior:5".to_string()),
+                ("requires_skills".to_string(), "swordplay:5".to_string()),
+            ]),
+            skill_pool: vec![],
+            starting_skill_slots: 2,
+            starting_items: vec![],
+            starting_gold: WalletAmount::default(),
+            deity_policy: DeityPolicy::Any,
+        };
+        registry.classes.insert("paladin".to_string(), class);
+
+        let mut base_classes = HashMap::new();
+        base_classes.insert("warrior".to_string(), 5);
+
+        let mut skill_ranks = HashMap::new();
+        skill_ranks.insert("swordplay".to_string(), 5);
+
+        let res = simulate_prestige_eligibility(
+            &registry,
+            "paladin",
+            &base_classes,
+            &skill_ranks,
+            &[],
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        assert!(res.contains("Prestige Class Eligibility: `Paladin`"));
+        assert!(res.contains("Final Status**: **ELIGIBLE TO ADOPT**"));
+    }
+
+    #[test]
+    fn test_simulate_group_formation() {
+        let members = vec![
+            MockMember {
+                class_id: "warrior".to_string(),
+                has_shield: true,
+                is_front_row: true,
+            },
+            MockMember {
+                class_id: "cleric".to_string(),
+                has_shield: true,
+                is_front_row: false,
+            },
+        ];
+
+        let res = simulate_group_formation("shield wall", &members).unwrap();
+        assert!(res.contains("Group Formation Simulation: `shield wall`"));
+        assert!(res.contains("Status**: **ACTIVE & VALID**"));
+    }
+
+    #[test]
+    fn test_simulate_death_penalty() {
+        let res = simulate_death_penalty(10, 20000, true).unwrap();
+        assert!(res.contains("Player Death & Ghost Simulation: Level 10"));
+        assert!(res.contains("Actual Penalty Applied**: -2000 XP"));
     }
 }

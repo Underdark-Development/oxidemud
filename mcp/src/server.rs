@@ -250,6 +250,108 @@ struct ForceCommandParams {
     command: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateCraftingParams {
+    #[schemars(description = "ID of the recipe template")]
+    recipe_id: String,
+    #[schemars(description = "Character level (optional, default: 1)")]
+    player_level: Option<u8>,
+    #[schemars(description = "Dexterity modifier check override (optional, default: 10)")]
+    dexterity: Option<u8>,
+    #[schemars(description = "Intelligence modifier check override (optional, default: 10)")]
+    intelligence: Option<u8>,
+    #[schemars(description = "Skill rank for crafting (optional, default: 0)")]
+    skill_rank: Option<u16>,
+    #[schemars(description = "Has required station present in the room (optional, default: true)")]
+    has_station: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateSkillUseParams {
+    #[schemars(description = "ID of the skill template to use")]
+    skill_id: String,
+    #[schemars(description = "Actor level (1 to 100, default: 1)")]
+    actor_level: Option<u8>,
+    #[schemars(description = "Actor class ID (optional)")]
+    actor_class: Option<String>,
+    #[schemars(description = "Actor race ID (optional)")]
+    actor_race: Option<String>,
+    #[schemars(description = "Actor base strength (optional, default: 10)")]
+    strength: Option<u8>,
+    #[schemars(description = "Actor base dexterity (optional, default: 10)")]
+    dexterity: Option<u8>,
+    #[schemars(description = "Actor base intelligence (optional, default: 10)")]
+    intelligence: Option<u8>,
+    #[schemars(description = "Actor base wisdom (optional, default: 10)")]
+    wisdom: Option<u8>,
+    #[schemars(description = "Actor base constitution (optional, default: 10)")]
+    constitution: Option<u8>,
+    #[schemars(description = "Actor base charisma (optional, default: 10)")]
+    charisma: Option<u8>,
+    #[schemars(description = "Mock skill rank for this skill (optional, default: 1)")]
+    skill_rank: Option<u16>,
+    #[schemars(description = "Target level (optional, default: 1)")]
+    target_level: Option<u8>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulatePrayerParams {
+    #[schemars(description = "ID of the deity template")]
+    deity_id: String,
+    #[schemars(description = "ID of the player race template")]
+    player_race: String,
+    #[schemars(description = "ID of the player class template")]
+    player_class: String,
+    #[schemars(description = "Player alignment (e.g. 'Lawful Good')")]
+    player_alignment: String,
+    #[schemars(description = "Mock cleric level (optional, default: 1)")]
+    cleric_level: Option<u8>,
+    #[schemars(description = "Player base wisdom (default: 10)")]
+    wisdom: Option<u8>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulatePrestigeParams {
+    #[schemars(description = "ID of the prestige class template")]
+    prestige_class_id: String,
+    #[schemars(description = "Mock class levels (e.g. { 'warrior': 5 })")]
+    base_classes: HashMap<String, u8>,
+    #[schemars(description = "Mock skill ranks (e.g. { 'swordplay': 5 })")]
+    skill_ranks: HashMap<String, u16>,
+    #[schemars(description = "Mock list of completed quest IDs")]
+    completed_quests: Vec<String>,
+    #[schemars(description = "Mock faction standings (e.g. { 'guard': 500 })")]
+    faction_standings: HashMap<String, i32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct MockMemberParam {
+    #[schemars(description = "Class template ID")]
+    class_id: String,
+    #[schemars(description = "Equipped with a shield")]
+    has_shield: bool,
+    #[schemars(description = "Front row position (otherwise back row)")]
+    is_front_row: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateGroupParams {
+    #[schemars(description = "Formation name (Line, Scattered, Column, Wedge, Shield Wall)")]
+    formation: String,
+    #[schemars(description = "List of party members")]
+    members: Vec<MockMemberParam>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SimulateDeathParams {
+    #[schemars(description = "Current character level (1 to 100)")]
+    current_level: u8,
+    #[schemars(description = "Current experience points")]
+    current_xp: u64,
+    #[schemars(description = "Is current room an allow_revive room")]
+    allow_revive_room: bool,
+}
+
 #[tool_router(server_handler)]
 impl OxideMcpServer {
     #[tool(description = "List all areas")]
@@ -1362,6 +1464,117 @@ impl OxideMcpServer {
         match simulator::validate_content_dag(&self.content_path) {
             Ok(result) => result,
             Err(e) => format!("Error validating content DAG: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate recipe crafting outcomes based on character stats")]
+    fn simulate_crafting(&self, params: Parameters<SimulateCraftingParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_crafting(
+            &registry,
+            &p.recipe_id,
+            p.player_level.unwrap_or(1),
+            p.dexterity.unwrap_or(10),
+            p.intelligence.unwrap_or(10),
+            p.skill_rank.unwrap_or(0),
+            p.has_station.unwrap_or(true),
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating crafting: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate casting spells or using active abilities")]
+    fn simulate_skill_use(&self, params: Parameters<SimulateSkillUseParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_skill_use(
+            &registry,
+            &p.skill_id,
+            p.actor_level.unwrap_or(1),
+            p.actor_class.as_deref(),
+            p.actor_race.as_deref(),
+            p.strength,
+            p.dexterity,
+            p.intelligence,
+            p.wisdom,
+            p.constitution,
+            p.charisma,
+            p.skill_rank,
+            p.target_level,
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating skill use: {e}"),
+        }
+    }
+
+    #[tool(description = "Simulate adoption constraints and prayer buff effects for a deity")]
+    fn simulate_prayer(&self, params: Parameters<SimulatePrayerParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_prayer(
+            &registry,
+            &p.deity_id,
+            &p.player_race,
+            &p.player_class,
+            &p.player_alignment,
+            p.cleric_level,
+            p.wisdom.unwrap_or(10),
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating prayer: {e}"),
+        }
+    }
+
+    #[tool(description = "Check if a character satisfies requirements for a prestige class")]
+    fn simulate_prestige_eligibility(&self, params: Parameters<SimulatePrestigeParams>) -> String {
+        let p = params.0;
+        let (registry, _) = self.load();
+        match simulator::simulate_prestige_eligibility(
+            &registry,
+            &p.prestige_class_id,
+            &p.base_classes,
+            &p.skill_ranks,
+            &p.completed_quests,
+            &p.faction_standings,
+        ) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating prestige eligibility: {e}"),
+        }
+    }
+
+    #[tool(
+        description = "Evaluate stat and AC modifiers applied to a group based on party layout and formation"
+    )]
+    fn simulate_group_formation(&self, params: Parameters<SimulateGroupParams>) -> String {
+        let p = params.0;
+
+        let members: Vec<simulator::MockMember> = p
+            .members
+            .into_iter()
+            .map(|m| simulator::MockMember {
+                class_id: m.class_id,
+                has_shield: m.has_shield,
+                is_front_row: m.is_front_row,
+            })
+            .collect();
+
+        match simulator::simulate_group_formation(&p.formation, &members) {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating group formation: {e}"),
+        }
+    }
+
+    #[tool(
+        description = "Calculate XP loss penalties, corpse decay, and ghost parameters when a player dies"
+    )]
+    fn simulate_death_penalty(&self, params: Parameters<SimulateDeathParams>) -> String {
+        let p = params.0;
+        match simulator::simulate_death_penalty(p.current_level, p.current_xp, p.allow_revive_room)
+        {
+            Ok(result) => result,
+            Err(e) => format!("Error simulating death penalty: {e}"),
         }
     }
 
