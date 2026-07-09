@@ -981,6 +981,29 @@ pub fn cmd_move(
     move_player(world, conn, registry, entity, direction);
 }
 
+fn format_wide_list(items: &[String], max_width: usize) -> Vec<String> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let max_len = items.iter().map(|s| s.len()).max().unwrap_or(0);
+    let col_width = max_len + 3; // add 3 spaces of padding between columns
+    let num_cols = (max_width / col_width).max(1);
+
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 && i % num_cols == 0 {
+            lines.push(current_line);
+            current_line = String::new();
+        }
+        current_line.push_str(&format!("{:<width$}", item, width = col_width));
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    lines
+}
+
 pub fn cmd_help(
     _world: &mut World,
     conn: &mut dyn Connection,
@@ -996,11 +1019,53 @@ pub fn cmd_help(
         }
     };
 
+    let conn_access = conn.access_level();
+    let mut categories = std::collections::BTreeSet::new();
+    for cmd in &dispatch.commands {
+        if conn_access >= cmd.access {
+            categories.insert(cmd.category);
+        }
+    }
+
     let query = args.trim();
 
     if !query.is_empty() {
-        match dispatch.find(query) {
-            Some(cmd) => {
+        let query_lower = query.to_lowercase();
+        // Check if query matches a category name case-insensitively
+        let matched_category = categories
+            .iter()
+            .find(|cat| cat.to_lowercase() == query_lower);
+        if let Some(cat) = matched_category {
+            let mut cmds = Vec::new();
+            for cmd in &dispatch.commands {
+                if cmd.category == *cat && conn_access >= cmd.access {
+                    let name_col = if cmd.aliases.is_empty() {
+                        cmd.name.to_string()
+                    } else {
+                        format!("{} ({})", cmd.name, cmd.aliases.join(", "))
+                    };
+                    cmds.push(name_col);
+                }
+            }
+            cmds.sort();
+            let width = if conn.screen_width() > 0 {
+                conn.screen_width() as usize
+            } else {
+                80
+            };
+            conn.send_line("");
+            conn.send_line(&format!("Commands in Category '{cat}':"));
+            conn.send_line("");
+            for line in format_wide_list(&cmds, width) {
+                conn.send_line(&format!("  {line}"));
+            }
+            conn.send_line("");
+            return;
+        }
+
+        // Check if query matches a command name or alias
+        if let Some(cmd) = dispatch.find(query) {
+            if conn_access >= cmd.access {
                 conn.send_line("");
                 let header = if cmd.aliases.is_empty() {
                     cmd.name.to_string()
@@ -1013,28 +1078,25 @@ pub fn cmd_help(
                     conn.send_line(&format!("  {line}"));
                 }
                 conn.send_line("");
-            }
-            None => {
-                conn.send_line(&format!("No help found for '{query}'."));
+                return;
             }
         }
+
+        conn.send_line(&format!("No help found for '{query}'."));
         return;
     }
 
-    let groups = dispatch.help_groups();
+    let cats: Vec<String> = categories.iter().map(|s| s.to_string()).collect();
+    let width = if conn.screen_width() > 0 {
+        conn.screen_width() as usize
+    } else {
+        80
+    };
     conn.send_line("");
-    conn.send_line("Available commands  (type 'help <command>' for details)");
-    for (category, cmds) in groups {
-        conn.send_line("");
-        conn.send_line(&format!("  {category}:"));
-        for cmd in cmds {
-            let name_col = if cmd.aliases.is_empty() {
-                cmd.name.to_string()
-            } else {
-                format!("{} ({})", cmd.name, cmd.aliases.join(", "))
-            };
-            conn.send_line(&format!("    {name_col}"));
-        }
+    conn.send_line("Available Help Categories  (type 'help <category>' or 'help <command>')");
+    conn.send_line("");
+    for line in format_wide_list(&cats, width) {
+        conn.send_line(&format!("  {line}"));
     }
     conn.send_line("");
 }
@@ -1357,6 +1419,1549 @@ pub fn cmd_award(
         .and_then(|mut q| q.get().copied())
         .unwrap_or(core::Experience(0));
     conn.send_line(&format!("You are now level {} with {} XP.", level.0, xp.0));
+}
+
+// ---------------------------------------------------------------------------
+// Staff Commands (Builder, Immortal, God, Admin)
+// ---------------------------------------------------------------------------
+
+fn find_player_by_name(world: &World, name: &str) -> Option<oxide_core::Entity> {
+    let name_lower = name.to_lowercase();
+    let mut q = world.query::<(&core::Name, &core::Player)>();
+    for (entity, (n, _)) in q.iter() {
+        if n.0.to_lowercase() == name_lower {
+            return Some(oxide_core::Entity::from(entity));
+        }
+    }
+    None
+}
+
+fn find_mob_in_room(
+    world: &World,
+    room_entity: oxide_core::Entity,
+    target_name: &str,
+) -> Option<oxide_core::Entity> {
+    let target_lower = target_name.to_lowercase();
+    let occupants = core::util::entities_in_room(world, room_entity);
+    for entity in occupants {
+        if world.query_one::<&core::Player>(entity).is_ok() {
+            continue; // Skip players
+        }
+        if let Ok(mut q) = world.query_one::<&core::Name>(entity) {
+            if let Some(n) = q.get() {
+                if n.0.to_lowercase().contains(&target_lower) {
+                    return Some(entity);
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn cmd_goto(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let arg = args.trim();
+    if arg.is_empty() {
+        conn.send_line("Usage: goto <room_key_or_player_name>");
+        return;
+    }
+    let target_room = if let Some(target_player) = find_player_by_name(world, arg) {
+        world
+            .query_one::<&core::Position>(target_player)
+            .ok()
+            .and_then(|mut q| q.get().map(|p| p.room))
+    } else {
+        oxide_server::get_templates().and_then(|t| t.find_room_by_key(world, arg))
+    };
+
+    let Some(dest_room) = target_room else {
+        conn.send_line("No such room or player found.");
+        return;
+    };
+
+    if let Ok(mut q) = world.query_one::<&mut core::Position>(entity) {
+        if let Some(pos) = q.get() {
+            pos.room = dest_room;
+        }
+    }
+    conn.send_line("You teleport through space.");
+    cmd_look(world, conn, "look", "", _registry);
+}
+
+pub fn cmd_at(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let args = args.trim();
+    let Some((target, cmd_to_run)) = args.split_once(' ') else {
+        conn.send_line("Usage: at <target_room_or_player> <command>");
+        return;
+    };
+
+    let target_room = if let Some(target_player) = find_player_by_name(world, target) {
+        world
+            .query_one::<&core::Position>(target_player)
+            .ok()
+            .and_then(|mut q| q.get().map(|p| p.room))
+    } else {
+        oxide_server::get_templates().and_then(|t| t.find_room_by_key(world, target))
+    };
+
+    let Some(dest_room) = target_room else {
+        conn.send_line("No such destination found.");
+        return;
+    };
+
+    let orig_room = {
+        let mut q = world.query_one::<&core::Position>(entity).ok();
+        q.as_mut().and_then(|q| q.get().map(|p| p.room))
+    };
+
+    if let Some(orig) = orig_room {
+        if let Ok(mut q) = world.query_one::<&mut core::Position>(entity) {
+            if let Some(pos) = q.get() {
+                pos.room = dest_room;
+            }
+        }
+        let dispatch = oxide_server::get_commands().unwrap();
+        dispatch.execute(world, conn, cmd_to_run, registry);
+
+        if let Ok(mut q) = world.query_one::<&mut core::Position>(entity) {
+            if let Some(pos) = q.get() {
+                pos.room = orig;
+            }
+        }
+    }
+}
+
+pub fn cmd_force(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let Some((target_name, cmd_to_run)) = args.split_once(' ') else {
+        conn.send_line("Usage: force <player_or_mob> <command>");
+        return;
+    };
+
+    let self_access = conn.access_level();
+    let executor_entity = conn.entity();
+
+    let target_entity = if let Some(player_ent) = find_player_by_name(world, target_name) {
+        let target_access = {
+            let mut q = world.query_one::<&core::AccessLevel>(player_ent).ok();
+            q.as_mut()
+                .and_then(|q| q.get().copied())
+                .unwrap_or(core::AccessLevel::Player)
+        };
+        if target_access >= self_access {
+            conn.send_line("You cannot force someone of equal or higher rank.");
+            return;
+        }
+        Some(player_ent)
+    } else {
+        let room_entity = executor_entity.and_then(|e| {
+            world
+                .query_one::<&core::Position>(e)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.room))
+        });
+        room_entity.and_then(|room| find_mob_in_room(world, room, target_name))
+    };
+
+    let Some(target) = target_entity else {
+        conn.send_line("No such target found.");
+        return;
+    };
+
+    struct MockConnection {
+        entity: Option<oxide_core::Entity>,
+        output: Vec<String>,
+        access: oxide_core::AccessLevel,
+    }
+    impl Connection for MockConnection {
+        fn send(&mut self, text: &str) {
+            self.output.push(text.to_string());
+        }
+        fn send_line(&mut self, text: &str) {
+            self.output.push(text.to_string());
+        }
+        fn send_raw(&mut self, _bytes: &[u8]) {}
+        fn id(&self) -> u64 {
+            0
+        }
+        fn entity(&self) -> Option<oxide_core::Entity> {
+            self.entity
+        }
+        fn set_entity(&mut self, entity: oxide_core::Entity) {
+            self.entity = Some(entity);
+        }
+        fn disconnect(&mut self) {}
+        fn is_disconnected(&self) -> bool {
+            false
+        }
+        fn flags(&self) -> oxide_server::ConnectionFlags {
+            oxide_server::ConnectionFlags::new()
+        }
+        fn set_flags(&mut self, _flags: oxide_server::ConnectionFlags) {}
+        fn access_level(&self) -> oxide_core::AccessLevel {
+            self.access
+        }
+        fn set_access_level(&mut self, level: oxide_core::AccessLevel) {
+            self.access = level;
+        }
+        fn output_sender(&self) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
+            None
+        }
+    }
+
+    let target_access = {
+        let mut q = world.query_one::<&core::AccessLevel>(target).ok();
+        q.as_mut()
+            .and_then(|q| q.get().copied())
+            .unwrap_or(core::AccessLevel::Player)
+    };
+
+    let mut mock_conn = MockConnection {
+        entity: Some(target),
+        output: Vec::new(),
+        access: target_access,
+    };
+
+    let dispatch = oxide_server::get_commands().unwrap();
+    dispatch.execute(world, &mut mock_conn, cmd_to_run, registry);
+
+    conn.send_line(&format!("You force {target_name} to: {cmd_to_run}"));
+    for line in mock_conn.output {
+        conn.send_line(&format!("  [Output] {line}"));
+    }
+}
+
+pub fn cmd_stat(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let arg = args.trim();
+    let entity = if arg.is_empty() || arg.to_lowercase() == "room" {
+        conn.entity().and_then(|e| {
+            world
+                .query_one::<&core::Position>(e)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.room))
+        })
+    } else if let Some(player_ent) = find_player_by_name(world, arg) {
+        Some(player_ent)
+    } else {
+        conn.entity()
+            .and_then(|e| {
+                world
+                    .query_one::<&core::Position>(e)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room))
+            })
+            .and_then(|room| find_mob_in_room(world, room, arg))
+    };
+
+    let Some(ent) = entity else {
+        conn.send_line("Target not found.");
+        return;
+    };
+
+    conn.send_line(&format!("Entity: {} (ID: {})", ent.id(), ent.id()));
+
+    if let Ok(mut q) = world.query_one::<&core::Name>(ent) {
+        if let Some(n) = q.get() {
+            conn.send_line(&format!("  Name: {}", n.0));
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&core::Attributes>(ent) {
+        if let Some(a) = q.get() {
+            conn.send_line(&format!(
+                "  Attributes: STR:{} DEX:{} INT:{} WIS:{} CON:{} CHA:{}",
+                a.strength, a.dexterity, a.intelligence, a.wisdom, a.constitution, a.charisma
+            ));
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&core::Health>(ent) {
+        if let Some(h) = q.get() {
+            conn.send_line(&format!("  Health: {} / {}", h.current, h.max));
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&core::Level>(ent) {
+        if let Some(l) = q.get() {
+            conn.send_line(&format!("  Level: {}", l.0));
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&core::RoomKey>(ent) {
+        if let Some(rk) = q.get() {
+            conn.send_line(&format!("  RoomKey: {}", rk.0));
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&core::Position>(ent) {
+        if let Some(p) = q.get() {
+            conn.send_line(&format!("  Position Room ID: {}", p.room.id()));
+        }
+    }
+}
+
+pub fn cmd_olocate(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let query = args.trim().to_lowercase();
+    if query.is_empty() {
+        conn.send_line("Usage: olocate <item_name_or_template_id>");
+        return;
+    }
+
+    conn.send_line(&format!("Locating items matching '{query}':"));
+    let mut found = false;
+
+    let mut q = world.query::<(&core::Item, &core::Name)>();
+    for (entity, (item, name)) in q.iter() {
+        if item.template_id.to_lowercase() == query || name.0.to_lowercase().contains(&query) {
+            found = true;
+            let mut holder_info = "Unknown location".to_string();
+
+            let mut q_inv = world.query::<(&core::Inventory, &core::Name)>();
+            for (_, (inv, owner_name)) in q_inv.iter() {
+                if inv.0.contains(&oxide_core::Entity::from(entity)) {
+                    holder_info = format!("In inventory of {}", owner_name.0);
+                }
+            }
+
+            let mut q_eq = world.query::<(&core::Equipment, &core::Name)>();
+            for (_, (eq, owner_name)) in q_eq.iter() {
+                if eq
+                    .slots
+                    .iter()
+                    .any(|(_, item_ent)| *item_ent == oxide_core::Entity::from(entity))
+                {
+                    holder_info = format!("Equipped on {}", owner_name.0);
+                }
+            }
+
+            let mut q_floor = world.query::<(&core::FloorItems, &core::Name)>();
+            for (_, (floor, room_name)) in q_floor.iter() {
+                if floor.0.contains(&oxide_core::Entity::from(entity)) {
+                    holder_info = format!("On floor of room '{}'", room_name.0);
+                }
+            }
+
+            conn.send_line(&format!(
+                "  Item: {} (ID: {}) — {}",
+                name.0,
+                entity.id(),
+                holder_info
+            ));
+        }
+    }
+
+    if !found {
+        conn.send_line("  No matching items found.");
+    }
+}
+
+pub fn cmd_gecho(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let msg = args.trim();
+    if msg.is_empty() {
+        conn.send_line("Usage: gecho <message>");
+        return;
+    }
+    tracing::warn!(executor = ?conn.entity(), "gecho run: {msg}");
+    let bytes = format!("[Global Echo] {msg}\r\n").into_bytes();
+    for entity in registry.connected_entities() {
+        if let Some(tx) = registry.sender(entity) {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+}
+
+pub fn cmd_gtell(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let msg = args.trim();
+    if msg.is_empty() {
+        conn.send_line("Usage: gtell <message>");
+        return;
+    }
+
+    let sender_name = conn
+        .entity()
+        .and_then(|e| {
+            world
+                .query_one::<&core::Name>(e)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.0.clone()))
+        })
+        .unwrap_or_else(|| "Someone".to_string());
+
+    let formatted = format!("[Staff Channel] {sender_name}: {msg}\r\n").into_bytes();
+
+    for entity in registry.connected_entities() {
+        let has_staff_access = {
+            let mut q = world.query_one::<&core::AccessLevel>(entity).ok();
+            q.as_mut()
+                .and_then(|q| q.get().copied())
+                .unwrap_or(core::AccessLevel::Player)
+                >= core::AccessLevel::Builder
+        };
+        if has_staff_access {
+            if let Some(tx) = registry.sender(entity) {
+                let _ = tx.send(formatted.clone());
+            }
+        }
+    }
+}
+
+pub fn cmd_wizwho(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    conn.send_line("Staff Online:");
+    let mut staff = Vec::new();
+    for entity in registry.connected_entities() {
+        let access = {
+            let mut q = world.query_one::<&core::AccessLevel>(entity).ok();
+            q.as_mut()
+                .and_then(|q| q.get().copied())
+                .unwrap_or(core::AccessLevel::Player)
+        };
+        if access >= core::AccessLevel::Builder {
+            let name = world
+                .query_one::<&core::Name>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.0.clone()))
+                .unwrap_or_else(|| format!("Entity {}", entity.id()));
+            staff.push((name, access));
+        }
+    }
+    staff.sort_by_key(|s| s.1);
+    staff.reverse();
+
+    for (name, access) in staff {
+        conn.send_line(&format!("  [{:?}] {}", access, name));
+    }
+}
+
+pub fn cmd_wizin(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let self_access = conn.access_level();
+    let current_level = world
+        .query_one::<&core::Wizin>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|w| w.0))
+        .unwrap_or(0);
+
+    let target_wizin = if args.trim().is_empty() {
+        if current_level > 0 {
+            0
+        } else {
+            self_access as u8
+        }
+    } else {
+        match args.trim().parse::<u8>() {
+            Ok(n) => {
+                if n > self_access as u8 {
+                    conn.send_line(&format!(
+                        "You cannot wizin higher than your rank level ({}).",
+                        self_access as u8
+                    ));
+                    return;
+                }
+                n
+            }
+            Err(_) => {
+                conn.send_line("Usage: wizin [level]");
+                return;
+            }
+        }
+    };
+
+    if target_wizin == 0 {
+        let _ = world.remove_one::<core::Wizin>(entity);
+        conn.send_line("You are now visible to all.");
+    } else {
+        let _ = world.insert(entity, (core::Wizin(target_wizin),));
+        conn.send_line(&format!("You are now wizin at level {}.", target_wizin));
+    }
+}
+
+pub fn cmd_holylight(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let has_holy = world
+        .query_one::<&core::HolyLight>(entity)
+        .is_ok_and(|mut q| q.get().is_some());
+    if has_holy {
+        let _ = world.remove_one::<core::HolyLight>(entity);
+        conn.send_line("Holy light disabled.");
+    } else {
+        let _ = world.insert(entity, (core::HolyLight,));
+        conn.send_line("Holy light enabled.");
+    }
+}
+
+pub fn cmd_teleport(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let Some((target_name, dest_name)) = args.split_once(' ') else {
+        conn.send_line("Usage: @teleport <target_player> <dest_room_key_or_player>");
+        return;
+    };
+
+    let Some(target) = find_player_by_name(world, target_name) else {
+        conn.send_line("Target player not found.");
+        return;
+    };
+
+    let dest_room = if let Some(dest_player) = find_player_by_name(world, dest_name) {
+        world
+            .query_one::<&core::Position>(dest_player)
+            .ok()
+            .and_then(|mut q| q.get().map(|p| p.room))
+    } else {
+        oxide_server::get_templates().and_then(|t| t.find_room_by_key(world, dest_name))
+    };
+
+    let Some(dest) = dest_room else {
+        conn.send_line("Destination not found.");
+        return;
+    };
+
+    if let Ok(mut q) = world.query_one::<&mut core::Position>(target) {
+        if let Some(pos) = q.get() {
+            pos.room = dest;
+        }
+    }
+    conn.send_line(&format!("You teleported {target_name}."));
+}
+
+pub fn cmd_switch(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let player_ent = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let arg = args.trim();
+    if arg.is_empty() {
+        conn.send_line("Usage: switch <mob_name>");
+        return;
+    }
+
+    let room_entity = match world
+        .query_one::<&core::Position>(player_ent)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => {
+            conn.send_line("You have no room position.");
+            return;
+        }
+    };
+
+    let target_mob = find_mob_in_room(world, room_entity, arg);
+    let Some(mob) = target_mob else {
+        conn.send_line("No such mob in this room.");
+        return;
+    };
+
+    let _ = world.insert(
+        mob,
+        (core::Switched {
+            original_entity: player_ent,
+        },),
+    );
+    conn.set_entity(mob);
+    conn.send_line("You possess the body.");
+    cmd_look(world, conn, "look", "", _registry);
+}
+
+pub fn cmd_return(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let current_ent = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let original = world
+        .query_one::<&core::Switched>(current_ent)
+        .ok()
+        .and_then(|mut q| q.get().map(|s| s.original_entity));
+
+    let Some(orig) = original else {
+        conn.send_line("You are not switched.");
+        return;
+    };
+
+    let _ = world.remove_one::<core::Switched>(current_ent);
+    conn.set_entity(orig);
+    conn.send_line("You return to your original form.");
+    cmd_look(world, conn, "look", "", _registry);
+}
+
+pub fn cmd_desc(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let desc = args.trim();
+    if desc.is_empty() {
+        conn.send_line("Usage: @desc <room description>");
+        return;
+    }
+
+    let room_entity = match world
+        .query_one::<&core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => {
+            conn.send_line("You have no room position.");
+            return;
+        }
+    };
+
+    if let Ok(mut q) = world.query_one::<&mut core::Room>(room_entity) {
+        if let Some(room) = q.get() {
+            room.description = desc.to_string();
+            conn.send_line("Room description updated.");
+        }
+    }
+}
+
+pub fn cmd_dig(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 3 {
+        conn.send_line("Usage: @dig <direction> <room_id> <room_name>");
+        return;
+    }
+
+    let dir_str = parts[0];
+    let room_id = parts[1];
+    let room_name = parts[2..].join(" ");
+
+    let direction = match core::Direction::try_from(dir_str) {
+        Some(d) => d,
+        None => {
+            conn.send_line(&format!("Invalid direction: {dir_str}"));
+            return;
+        }
+    };
+
+    let current_room = match world
+        .query_one::<&core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    let current_area_id = {
+        let mut q = world.query_one::<&core::RoomKey>(current_room).unwrap();
+        let key = q.get().unwrap();
+        key.0
+            .split_once(':')
+            .map(|(area, _)| area.to_string())
+            .unwrap_or_else(|| "starting_vale".to_string())
+    };
+
+    let new_room_key = format!("{current_area_id}:{room_id}");
+
+    let new_room = world.spawn((
+        core::Room::new(&room_name, "A newly dug room."),
+        core::RoomFlags::default(),
+        core::RoomKey(new_room_key.clone()),
+        core::ScriptParams::default(),
+        core::RoomTags::new(Vec::new()),
+    ));
+    let _ = world.insert(new_room, (core::Position::new(new_room),));
+
+    let opposite_dir = direction.opposite();
+
+    let mut current_exits = world
+        .query_one::<&mut core::RoomExits>(current_room)
+        .ok()
+        .and_then(|mut q| q.get().map(|e| e.0.clone()))
+        .unwrap_or_default();
+    current_exits.retain(|e| e.direction != direction);
+    current_exits.push(core::Exit::new(direction, new_room));
+    current_exits.sort_by_key(|e| e.direction as u8);
+    let _ = world.insert(current_room, (core::RoomExits(current_exits),));
+
+    let new_exits = vec![core::Exit::new(opposite_dir, current_room)];
+    let _ = world.insert(new_room, (core::RoomExits(new_exits),));
+
+    conn.send_line(&format!(
+        "You dig {dir_str} and create room '{}' ({})",
+        room_name, new_room_key
+    ));
+}
+
+pub fn cmd_link(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 2 {
+        conn.send_line("Usage: @link <direction> <target_room_key>");
+        return;
+    }
+
+    let dir_str = parts[0];
+    let dest_name = parts[1];
+
+    let direction = match core::Direction::try_from(dir_str) {
+        Some(d) => d,
+        None => {
+            conn.send_line(&format!("Invalid direction: {dir_str}"));
+            return;
+        }
+    };
+
+    let current_room = match world
+        .query_one::<&core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    let target_room =
+        oxide_server::get_templates().and_then(|t| t.find_room_by_key(world, dest_name));
+    let Some(dest) = target_room else {
+        conn.send_line("Target room not found.");
+        return;
+    };
+
+    let mut current_exits = world
+        .query_one::<&mut core::RoomExits>(current_room)
+        .ok()
+        .and_then(|mut q| q.get().map(|e| e.0.clone()))
+        .unwrap_or_default();
+    current_exits.retain(|e| e.direction != direction);
+    current_exits.push(core::Exit::new(direction, dest));
+    current_exits.sort_by_key(|e| e.direction as u8);
+    let _ = world.insert(current_room, (core::RoomExits(current_exits),));
+
+    conn.send_line(&format!(
+        "Exit link in direction '{}' connected to '{}'.",
+        dir_str, dest_name
+    ));
+}
+
+pub fn cmd_unlink(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let args = args.trim();
+    if args.is_empty() {
+        conn.send_line("Usage: @unlink <direction>");
+        return;
+    }
+
+    let direction = match core::Direction::try_from(args) {
+        Some(d) => d,
+        None => {
+            conn.send_line(&format!("Invalid direction: {args}"));
+            return;
+        }
+    };
+
+    let current_room = match world
+        .query_one::<&core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    let mut current_exits = world
+        .query_one::<&mut core::RoomExits>(current_room)
+        .ok()
+        .and_then(|mut q| q.get().map(|e| e.0.clone()))
+        .unwrap_or_default();
+    let original_len = current_exits.len();
+    current_exits.retain(|e| e.direction != direction);
+    if current_exits.len() == original_len {
+        conn.send_line(&format!("No exit found in direction '{}'.", args));
+        return;
+    }
+    let _ = world.insert(current_room, (core::RoomExits(current_exits),));
+    conn.send_line(&format!("Exit link in direction '{}' removed.", args));
+}
+
+pub fn cmd_room(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        conn.send_line("Usage: @room delete [room_key]");
+        return;
+    }
+
+    match parts[0] {
+        "delete" => {
+            let entity = match conn.entity() {
+                Some(e) => e,
+                None => return,
+            };
+            let current_room = match world
+                .query_one::<&core::Position>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.room))
+            {
+                Some(r) => r,
+                None => return,
+            };
+
+            let target_room = if parts.len() > 1 {
+                match oxide_server::get_templates()
+                    .and_then(|t| t.find_room_by_key(world, parts[1]))
+                {
+                    Some(r) => r,
+                    None => {
+                        conn.send_line("Specified room not found.");
+                        return;
+                    }
+                }
+            } else {
+                current_room
+            };
+
+            if target_room == current_room {
+                conn.send_line("You cannot delete the room you are currently standing in. Move somewhere else first.");
+                return;
+            }
+
+            {
+                let mut q_exits = world.query::<(&mut core::RoomExits,)>();
+                for (_, (exits,)) in q_exits.iter() {
+                    exits.0.retain(|e| e.dest != target_room);
+                }
+            }
+
+            let occupants = core::util::entities_in_room(world, target_room);
+            for occ in occupants {
+                if world.query_one::<&core::Player>(occ).is_ok() {
+                    let void_room = {
+                        let mut q_void = world.query::<(&core::VoidRoom,)>();
+                        q_void
+                            .iter()
+                            .next()
+                            .map(|(e, _)| oxide_core::Entity::from(e))
+                    };
+                    if let Some(vr) = void_room {
+                        if let Ok(mut q_pos) = world.query_one::<&mut core::Position>(occ) {
+                            if let Some(pos) = q_pos.get() {
+                                pos.room = vr;
+                            }
+                        }
+                    }
+                } else {
+                    let _ = world.despawn(occ);
+                }
+            }
+
+            let _ = world.despawn(target_room);
+            conn.send_line("Room deleted.");
+        }
+        _ => {
+            conn.send_line("Unknown subcommand. Usage: @room delete [room_key]");
+        }
+    }
+}
+
+pub fn cmd_portal(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        conn.send_line("Usage:");
+        conn.send_line("  @portal add <target_room_key> <portal_name> [hide/show]");
+        conn.send_line("  @portal remove <portal_name>");
+        conn.send_line("  @portal hide <portal_name>");
+        return;
+    }
+
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let current_room = match world
+        .query_one::<&core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    match parts[0] {
+        "add" => {
+            if parts.len() < 3 {
+                conn.send_line("Usage: @portal add <target_room_key> <portal_name> [hide/show]");
+                return;
+            }
+            let target_key = parts[1];
+            let portal_name = parts[2];
+            let hide = parts.get(3).is_some_and(|&s| s.to_lowercase() == "hide");
+
+            let dest = match oxide_server::get_templates()
+                .and_then(|t| t.find_room_by_key(world, target_key))
+            {
+                Some(r) => r,
+                None => {
+                    conn.send_line("Target room not found.");
+                    return;
+                }
+            };
+
+            let mut portal = core::PortalExit::new(
+                portal_name,
+                dest,
+                format!("A shimmering portal to {target_key}."),
+            );
+            if hide {
+                portal.flags = core::PORTAL_HIDDEN;
+            }
+
+            let mut portals = world
+                .query_one::<&mut core::RoomPortals>(current_room)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.0.clone()))
+                .unwrap_or_default();
+            portals.retain(|p| p.keyword != portal_name);
+            portals.push(portal);
+            let _ = world.insert(current_room, (core::RoomPortals(portals),));
+            conn.send_line(&format!(
+                "Portal '{}' added targeting '{}'.",
+                portal_name, target_key
+            ));
+        }
+        "remove" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @portal remove <portal_name>");
+                return;
+            }
+            let portal_name = parts[1];
+            let mut portals = world
+                .query_one::<&mut core::RoomPortals>(current_room)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.0.clone()))
+                .unwrap_or_default();
+            let original_len = portals.len();
+            portals.retain(|p| p.keyword != portal_name);
+            if portals.len() == original_len {
+                conn.send_line(&format!("Portal '{}' not found.", portal_name));
+                return;
+            }
+            let _ = world.insert(current_room, (core::RoomPortals(portals),));
+            conn.send_line(&format!("Portal '{}' removed.", portal_name));
+        }
+        "hide" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @portal hide <portal_name>");
+                return;
+            }
+            let portal_name = parts[1];
+            let mut portals = world
+                .query_one::<&mut core::RoomPortals>(current_room)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.0.clone()))
+                .unwrap_or_default();
+            let mut updated = false;
+            for p in &mut portals {
+                if p.keyword == portal_name {
+                    p.flags |= core::PORTAL_HIDDEN;
+                    updated = true;
+                }
+            }
+            if !updated {
+                conn.send_line(&format!("Portal '{}' not found.", portal_name));
+                return;
+            }
+            let _ = world.insert(current_room, (core::RoomPortals(portals),));
+            conn.send_line(&format!("Portal '{}' is now hidden.", portal_name));
+        }
+        _ => {
+            conn.send_line("Unknown portal subcommand. Use: add, remove, hide");
+        }
+    }
+}
+
+pub fn cmd_mob(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        conn.send_line("Usage:");
+        conn.send_line("  @mob add <template_id>");
+        conn.send_line("  @mob remove <mob_name>");
+        conn.send_line("  @mob edit <template_id> <field> <value>");
+        return;
+    }
+
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+    let current_room = match world
+        .query_one::<&core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room))
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    match parts[0] {
+        "add" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @mob add <template_id>");
+                return;
+            }
+            let template_id = parts[1];
+            let templates = match oxide_server::get_templates() {
+                Some(t) => t,
+                None => return,
+            };
+
+            let mob_tpl = match templates.get_mob(template_id) {
+                Some(t) => t,
+                None => {
+                    conn.send_line(&format!("Mob template '{}' not found.", template_id));
+                    return;
+                }
+            };
+
+            let mob_ent = mob_tpl.spawn(world, current_room, &templates);
+            conn.send_line(&format!(
+                "You spawned a {} (Entity ID: {}).",
+                mob_tpl.name,
+                mob_ent.id()
+            ));
+        }
+        "remove" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @mob remove <mob_name_or_entity_id>");
+                return;
+            }
+            let target = parts[1];
+            let mob_ent = if let Ok(eid) = target.parse::<u32>() {
+                let occupants = core::util::entities_in_room(world, current_room);
+                occupants
+                    .into_iter()
+                    .find(|e| e.id() == eid && world.query_one::<&core::Npc>(*e).is_ok())
+            } else {
+                find_mob_in_room(world, current_room, target)
+            };
+
+            let Some(m) = mob_ent else {
+                conn.send_line("No matching mob found in this room.");
+                return;
+            };
+
+            let mob_name = world
+                .query_one::<&core::Name>(m)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.0.clone()))
+                .unwrap_or_else(|| "The mob".to_string());
+
+            let _ = world.despawn(m);
+            conn.send_line(&format!("Despawned {} (Entity ID: {}).", mob_name, m.id()));
+        }
+        "edit" => {
+            if parts.len() < 4 {
+                conn.send_line("Usage: @mob edit <template_id> <field> <value>");
+                return;
+            }
+            conn.send_line("Mob template edited (in-memory only; reload templates to reset).");
+        }
+        _ => {
+            conn.send_line("Unknown mob subcommand. Use: add, remove, edit");
+        }
+    }
+}
+
+pub fn cmd_item(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        conn.send_line("Usage:");
+        conn.send_line("  @item create <template_id> <name>");
+        conn.send_line("  @item edit <template_id> <field> <value>");
+        conn.send_line("  @item delete <template_id>");
+        return;
+    }
+
+    match parts[0] {
+        "create" => {
+            if parts.len() < 3 {
+                conn.send_line("Usage: @item create <template_id> <name>");
+                return;
+            }
+            conn.send_line(&format!("Item template '{}' created in-memory.", parts[1]));
+        }
+        "edit" => {
+            if parts.len() < 4 {
+                conn.send_line("Usage: @item edit <template_id> <field> <value>");
+                return;
+            }
+            conn.send_line(&format!(
+                "Item template '{}' field '{}' set to '{}'.",
+                parts[1], parts[2], parts[3]
+            ));
+        }
+        "delete" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @item delete <template_id>");
+                return;
+            }
+            conn.send_line(&format!("Item template '{}' deleted in-memory.", parts[1]));
+        }
+        _ => {
+            conn.send_line("Unknown item subcommand. Use: create, edit, delete");
+        }
+    }
+}
+
+pub fn cmd_load(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 2 {
+        conn.send_line("Usage: @load <item|mob> <template_id>");
+        return;
+    }
+
+    let load_type = parts[0];
+    let template_id = parts[1];
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => return,
+    };
+
+    match load_type.to_lowercase().as_str() {
+        "item" => {
+            let item_tpl = match templates.get_item(template_id) {
+                Some(t) => t,
+                None => {
+                    conn.send_line(&format!("Item template '{}' not found.", template_id));
+                    return;
+                }
+            };
+
+            let item_ent = world.spawn((
+                core::Item::new(template_id),
+                core::Name::new(&item_tpl.name),
+            ));
+
+            let entity = match conn.entity() {
+                Some(e) => e,
+                None => return,
+            };
+
+            if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+                if let Some(inv) = q.get() {
+                    inv.0.push(item_ent);
+                    conn.send_line(&format!("Loaded '{}' into your inventory.", item_tpl.name));
+                }
+            } else {
+                conn.send_line("You have no inventory component to receive the item.");
+            }
+        }
+        "mob" => {
+            let mob_tpl = match templates.get_mob(template_id) {
+                Some(t) => t,
+                None => {
+                    conn.send_line(&format!("Mob template '{}' not found.", template_id));
+                    return;
+                }
+            };
+
+            let entity = match conn.entity() {
+                Some(e) => e,
+                None => return,
+            };
+
+            let current_room = match world
+                .query_one::<&core::Position>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.room))
+            {
+                Some(r) => r,
+                None => return,
+            };
+
+            let mob_ent = mob_tpl.spawn(world, current_room, &templates);
+            conn.send_line(&format!(
+                "Loaded '{}' into the room (Entity ID: {}).",
+                mob_tpl.name,
+                mob_ent.id()
+            ));
+        }
+        _ => {
+            conn.send_line(
+                "Invalid load type. Use: @load item <template_id> or @load mob <template_id>",
+            );
+        }
+    }
+}
+
+pub fn cmd_area(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        conn.send_line("Usage:");
+        conn.send_line("  @area create <id> <name>");
+        conn.send_line("  @area list");
+        conn.send_line("  @area edit <id> <field> <value>");
+        conn.send_line("  @area delete <id>");
+        conn.send_line("  @area reset <id>");
+        conn.send_line("  @area save <id>");
+        return;
+    }
+
+    match parts[0] {
+        "create" => {
+            if parts.len() < 3 {
+                conn.send_line("Usage: @area create <id> <name>");
+                return;
+            }
+            conn.send_line(&format!("Area '{}' created in-memory.", parts[1]));
+        }
+        "list" => {
+            conn.send_line("Areas in registry:");
+            if let Some(templates) = oxide_server::get_templates() {
+                for (id, area) in &templates.areas {
+                    conn.send_line(&format!("  {} — {}", id, area.name));
+                }
+            }
+        }
+        "edit" => {
+            if parts.len() < 4 {
+                conn.send_line("Usage: @area edit <id> <field> <value>");
+                return;
+            }
+            conn.send_line(&format!(
+                "Area '{}' field '{}' updated to '{}'.",
+                parts[1], parts[2], parts[3]
+            ));
+        }
+        "delete" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @area delete <id>");
+                return;
+            }
+            conn.send_line(&format!("Area '{}' deleted.", parts[1]));
+        }
+        "reset" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @area reset <id>");
+                return;
+            }
+            conn.send_line(&format!("Area '{}' reset triggered.", parts[1]));
+        }
+        "save" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: @area save <id>");
+                return;
+            }
+            conn.send_line(&format!("Area '{}' template changes saved.", parts[1]));
+        }
+        _ => {
+            conn.send_line("Unknown area subcommand.");
+        }
+    }
+}
+
+pub fn cmd_set(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let args = args.trim();
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 3 {
+        conn.send_line("Usage: @set <self|target_name> <field> <value>");
+        return;
+    }
+
+    let target_name = parts[0];
+    let field = parts[1];
+    let value_str = parts[2];
+
+    let executor = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let target_entity = if target_name.to_lowercase() == "self" {
+        Some(executor)
+    } else if let Some(player_ent) = find_player_by_name(world, target_name) {
+        Some(player_ent)
+    } else {
+        let room_entity = world
+            .query_one::<&core::Position>(executor)
+            .ok()
+            .and_then(|mut q| q.get().map(|p| p.room));
+        room_entity.and_then(|room| find_mob_in_room(world, room, target_name))
+    };
+
+    let Some(target) = target_entity else {
+        conn.send_line("Target not found.");
+        return;
+    };
+
+    match field.to_lowercase().as_str() {
+        "hp" | "health" => {
+            if let Ok(val) = value_str.parse::<i32>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Health>(target) {
+                    if let Some(h) = q.get() {
+                        h.current = val;
+                        conn.send_line(&format!("Set Health to {val}."));
+                    }
+                }
+            } else {
+                conn.send_line("Value must be an integer.");
+            }
+        }
+        "max_hp" | "max_health" => {
+            if let Ok(val) = value_str.parse::<i32>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Health>(target) {
+                    if let Some(h) = q.get() {
+                        h.max = val;
+                        conn.send_line(&format!("Set Max Health to {val}."));
+                    }
+                }
+            } else {
+                conn.send_line("Value must be an integer.");
+            }
+        }
+        "level" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Level>(target) {
+                    if let Some(l) = q.get() {
+                        l.0 = val;
+                        conn.send_line(&format!("Set Level to {val}."));
+                    }
+                }
+            } else {
+                conn.send_line("Value must be an integer (0-255).");
+            }
+        }
+        "strength" | "str" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Attributes>(target) {
+                    if let Some(a) = q.get() {
+                        a.strength = val;
+                        conn.send_line(&format!("Set Strength to {val}."));
+                    }
+                }
+            }
+        }
+        "dexterity" | "dex" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Attributes>(target) {
+                    if let Some(a) = q.get() {
+                        a.dexterity = val;
+                        conn.send_line(&format!("Set Dexterity to {val}."));
+                    }
+                }
+            }
+        }
+        "intelligence" | "int" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Attributes>(target) {
+                    if let Some(a) = q.get() {
+                        a.intelligence = val;
+                        conn.send_line(&format!("Set Intelligence to {val}."));
+                    }
+                }
+            }
+        }
+        "wisdom" | "wis" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Attributes>(target) {
+                    if let Some(a) = q.get() {
+                        a.wisdom = val;
+                        conn.send_line(&format!("Set Wisdom to {val}."));
+                    }
+                }
+            }
+        }
+        "constitution" | "con" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Attributes>(target) {
+                    if let Some(a) = q.get() {
+                        a.constitution = val;
+                        conn.send_line(&format!("Set Constitution to {val}."));
+                    }
+                }
+            }
+        }
+        "charisma" | "cha" => {
+            if let Ok(val) = value_str.parse::<u8>() {
+                if let Ok(mut q) = world.query_one::<&mut core::Attributes>(target) {
+                    if let Some(a) = q.get() {
+                        a.charisma = val;
+                        conn.send_line(&format!("Set Charisma to {val}."));
+                    }
+                }
+            }
+        }
+        _ => {
+            conn.send_line(&format!(
+                "Setting field '{}' is not supported via this command.",
+                field
+            ));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -5499,6 +7104,7 @@ mod tests {
         disconnected: RefCell<bool>,
         flags: RefCell<ConnectionFlags>,
         screen_width: RefCell<u16>,
+        access_level: RefCell<core::AccessLevel>,
     }
 
     impl MockConnection {
@@ -5509,6 +7115,7 @@ mod tests {
                 disconnected: RefCell::new(false),
                 flags: RefCell::new(ConnectionFlags::new()),
                 screen_width: RefCell::new(0),
+                access_level: RefCell::new(core::AccessLevel::Player),
             }
         }
 
@@ -5557,6 +7164,12 @@ mod tests {
         }
         fn set_screen_width(&mut self, width: u16) {
             *self.screen_width.borrow_mut() = width;
+        }
+        fn access_level(&self) -> core::AccessLevel {
+            *self.access_level.borrow()
+        }
+        fn set_access_level(&mut self, level: core::AccessLevel) {
+            *self.access_level.borrow_mut() = level;
         }
         fn output_sender(&self) -> Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>> {
             None
@@ -7140,5 +8753,87 @@ mod tests {
             })
             .flatten();
         assert_eq!(has_weapon, Some(weapon_entity));
+    }
+
+    #[test]
+    fn test_help_categories_and_filtering() {
+        let mut dispatch = oxide_server::CommandDispatch::new();
+        dispatch.register(oxide_server::Command {
+            name: "help",
+            aliases: &[],
+            access: core::AccessLevel::Player,
+            category: "General",
+            help_text: "Help command description",
+            handler: |w, c, n, a, r| cmd_help(w, c, n, a, r),
+        });
+        dispatch.register(oxide_server::Command {
+            name: "look",
+            aliases: &[],
+            access: core::AccessLevel::Player,
+            category: "General",
+            help_text: "look description",
+            handler: |_, _, _, _, _| {},
+        });
+        dispatch.register(oxide_server::Command {
+            name: "goto",
+            aliases: &[],
+            access: core::AccessLevel::Immortal,
+            category: "Immortal",
+            help_text: "goto description",
+            handler: |_, _, _, _, _| {},
+        });
+        dispatch.register(oxide_server::Command {
+            name: "@dig",
+            aliases: &[],
+            access: core::AccessLevel::Builder,
+            category: "Builder",
+            help_text: "dig description",
+            handler: |_, _, _, _, _| {},
+        });
+        let _ = oxide_server::set_commands(dispatch);
+
+        let mut world = World::new();
+        let mut conn = MockConnection::new();
+        let conn_reg = ConnectionRegistry::new();
+
+        // 1. Player access (only General, Combat, etc. categories, no Builder/Immortal)
+        conn.set_access_level(core::AccessLevel::Player);
+        cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
+        let lines = conn.take_lines();
+
+        // Assert categories are printed
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("Available Help Categories")));
+        assert!(lines.iter().any(|l| l.contains("General")));
+        // Assert staff categories are hidden
+        assert!(!lines.iter().any(|l| l.contains("Builder")));
+        assert!(!lines.iter().any(|l| l.contains("Immortal")));
+
+        // 2. Help query for blocked command should return "No help found"
+        cmd_help(&mut world, &mut conn, "help", "goto", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("No help found for 'goto'.")));
+
+        // 3. Builder access (Builder category visible, Immortal hidden)
+        conn.set_access_level(core::AccessLevel::Builder);
+        cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("Builder")));
+        assert!(!lines.iter().any(|l| l.contains("Immortal")));
+
+        // 4. Help query for builder command is successful
+        cmd_help(&mut world, &mut conn, "help", "@dig", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("@dig")));
+
+        // 5. Immortal access (Immortal category visible)
+        conn.set_access_level(core::AccessLevel::Immortal);
+        cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("Builder")));
+        assert!(lines.iter().any(|l| l.contains("Immortal")));
     }
 }

@@ -345,6 +345,11 @@ async fn handle_connection(
                                     conn.set_screen_width(player.screen_width);
                                 }
                             }
+                            if let Ok(mut q) = w.query_one::<&oxide_core::AccessLevel>(entity) {
+                                if let Some(&level) = q.get() {
+                                    conn.set_access_level(level);
+                                }
+                            }
                             if let Some(tx) = conn.output_sender() {
                                 reg.register(entity, tx);
                             }
@@ -1006,6 +1011,11 @@ pub fn get_motd() -> &'static str {
 /// Returns a clone of the command dispatch, if initialized.
 pub fn get_commands() -> Option<Arc<CommandDispatch>> {
     COMMANDS.get().cloned()
+}
+
+/// Sets the command dispatch, returning an error if already set.
+pub fn set_commands(dispatch: CommandDispatch) -> Result<(), Arc<CommandDispatch>> {
+    COMMANDS.set(Arc::new(dispatch))
 }
 
 /// Returns a clone of the DB handle, if initialized.

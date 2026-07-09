@@ -1850,6 +1850,20 @@ async fn finalize_character(
         return lines;
     }
 
+    let access_level = oxide_data::get_account_by_id(conn_db, account_id)
+        .ok()
+        .flatten()
+        .map(|a| a.access_level)
+        .unwrap_or_else(|| "player".to_string());
+
+    let level_enum = match access_level.to_lowercase().as_str() {
+        "builder" => oxide_core::AccessLevel::Builder,
+        "immortal" => oxide_core::AccessLevel::Immortal,
+        "god" => oxide_core::AccessLevel::God,
+        "admin" => oxide_core::AccessLevel::Admin,
+        _ => oxide_core::AccessLevel::Player,
+    };
+
     drop(db_guard);
 
     let player = world.spawn((
@@ -1872,7 +1886,12 @@ async fn finalize_character(
         Experience::default(),
         RecallRoom(room_entity),
         PlayerState::default(),
+        level_enum,
     ));
+
+    if level_enum > oxide_core::AccessLevel::Player {
+        let _ = world.insert(player, (oxide_core::Immortal,));
+    }
 
     let appearance = oxide_core::Appearance {
         height: height as u8,
@@ -2247,6 +2266,24 @@ async fn load_character(
         }
     }
 
+    let access_level = if let Some(account_id) = flow.account_id {
+        oxide_data::get_account_by_id(conn_db, account_id)
+            .ok()
+            .flatten()
+            .map(|a| a.access_level)
+            .unwrap_or_else(|| "player".to_string())
+    } else {
+        "player".to_string()
+    };
+
+    let level_enum = match access_level.to_lowercase().as_str() {
+        "builder" => oxide_core::AccessLevel::Builder,
+        "immortal" => oxide_core::AccessLevel::Immortal,
+        "god" => oxide_core::AccessLevel::God,
+        "admin" => oxide_core::AccessLevel::Admin,
+        _ => oxide_core::AccessLevel::Player,
+    };
+
     drop(db_guard);
 
     // Resolve current room: saved room key → spawn_key
@@ -2303,7 +2340,12 @@ async fn load_character(
         xp,
         RecallRoom(recall_room),
         PlayerState::default(),
+        level_enum,
     ));
+
+    if level_enum > oxide_core::AccessLevel::Player {
+        let _ = world.insert(player, (oxide_core::Immortal,));
+    }
 
     let _ = world.insert(
         player,

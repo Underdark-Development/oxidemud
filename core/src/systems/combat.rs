@@ -702,6 +702,14 @@ pub fn apply_damage(
     damage: i32,
     damage_type: DamageType,
 ) -> (i32, bool, bool, u64, Option<Entity>) {
+    // Check if target is Immortal
+    if world
+        .query_one::<&crate::components::Immortal>(target)
+        .is_ok_and(|mut q| q.get().is_some())
+    {
+        return (0, false, false, 0, None);
+    }
+
     // Apply resistance
     let final_damage = if let Ok(mut res) = world.query_one::<&Resistance>(target) {
         if let Some(r) = res.get() {

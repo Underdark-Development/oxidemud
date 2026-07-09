@@ -4,14 +4,7 @@ use oxide_core::World;
 
 pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &str, &ConnectionRegistry);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum AccessLevel {
-    Player,
-    Builder,
-    Immortal,
-    God,
-    Admin,
-}
+pub use oxide_core::AccessLevel;
 
 pub struct Command {
     pub name: &'static str,
@@ -23,7 +16,7 @@ pub struct Command {
 }
 
 pub struct CommandDispatch {
-    commands: Vec<Command>,
+    pub commands: Vec<Command>,
 }
 
 impl CommandDispatch {
@@ -90,6 +83,10 @@ impl CommandDispatch {
         }
 
         if let Some(cmd) = self.find(name) {
+            if conn.access_level() < cmd.access {
+                conn.send_line("Huh? Type 'help' for a list of commands.");
+                return;
+            }
             (cmd.handler)(world, conn, name, args, registry);
         } else {
             conn.send_line("Huh? Type 'help' for a list of commands.");
@@ -277,5 +274,40 @@ mod tests {
         });
         // "t" should match the exact alias on "test", not the prefix of "targeting"
         assert_eq!(d.find("t").map(|c| c.name), Some("test"));
+    }
+
+    #[test]
+    fn test_command_dispatch_permission_denied() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let (mut conn, mut rx) = TelnetConnection::new(1);
+        let registry = empty_registry();
+
+        dispatch.execute(&mut world, &mut conn, "admin", &registry);
+
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(msg.contains("Huh? Type 'help' for a list of commands."));
+        } else {
+            panic!("Expected output but got none");
+        }
+    }
+
+    #[test]
+    fn test_command_dispatch_permission_granted() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let (mut conn, mut rx) = TelnetConnection::new(1);
+        let registry = empty_registry();
+
+        conn.set_access_level(AccessLevel::Admin);
+
+        dispatch.execute(&mut world, &mut conn, "admin", &registry);
+
+        // Should not output "Huh? Type 'help'..."
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(!msg.contains("Huh? Type 'help' for a list of commands."));
+        }
     }
 }

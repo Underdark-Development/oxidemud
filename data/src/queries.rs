@@ -83,6 +83,28 @@ pub fn get_account_by_username(
     }
 }
 
+pub fn get_account_by_id(
+    conn: &Connection,
+    id: i64,
+) -> Result<Option<AccountRow>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, username, password_hash, access_level, created_at, last_login \
+         FROM accounts WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(AccountRow {
+            id: row.get(0)?,
+            username: row.get(1)?,
+            password_hash: row.get(2)?,
+            access_level: row.get(3)?,
+            created_at: row.get(4)?,
+            last_login: row.get(5)?,
+        })),
+        None => Ok(None),
+    }
+}
+
 pub fn create_account(
     conn: &Connection,
     username: &str,

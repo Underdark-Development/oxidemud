@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use oxide_core::Entity;
+use oxide_core::{AccessLevel, Entity};
 
 use crate::telnet::{negotiate_echo, negotiate_no_echo};
 
@@ -73,6 +73,10 @@ pub trait Connection: Send {
     fn is_disconnected(&self) -> bool;
     fn flags(&self) -> ConnectionFlags;
     fn set_flags(&mut self, flags: ConnectionFlags);
+    fn access_level(&self) -> AccessLevel {
+        AccessLevel::Player
+    }
+    fn set_access_level(&mut self, _level: AccessLevel) {}
 
     /// Player's preferred screen width in columns (0 = no wrap).
     fn screen_width(&self) -> u16 {
@@ -109,6 +113,7 @@ pub struct TelnetConnection {
     tx: Option<mpsc::UnboundedSender<Output>>,
     flags: ConnectionFlags,
     screen_width: u16,
+    access_level: AccessLevel,
 }
 
 impl TelnetConnection {
@@ -120,6 +125,7 @@ impl TelnetConnection {
             tx: Some(tx),
             flags: ConnectionFlags::new(),
             screen_width: 80,
+            access_level: AccessLevel::Player,
         };
         (conn, rx)
     }
@@ -131,6 +137,7 @@ impl TelnetConnection {
             tx: Some(tx),
             flags: ConnectionFlags::new(),
             screen_width: 80,
+            access_level: AccessLevel::Player,
         }
     }
 }
@@ -190,6 +197,14 @@ impl Connection for TelnetConnection {
 
     fn set_screen_width(&mut self, width: u16) {
         self.screen_width = width;
+    }
+
+    fn access_level(&self) -> AccessLevel {
+        self.access_level
+    }
+
+    fn set_access_level(&mut self, level: AccessLevel) {
+        self.access_level = level;
     }
 
     fn output_sender(&self) -> Option<mpsc::UnboundedSender<Vec<u8>>> {

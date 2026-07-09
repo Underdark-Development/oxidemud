@@ -748,6 +748,200 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::cmd_weather,
     );
 
+    // Staff Commands (Builder, Immortal, God, Admin)
+    server.register_command(
+        "@area",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Manage, create, save, or edit area templates",
+        commands::cmd_area,
+    );
+    server.register_command(
+        "@dig",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Dig a new room in the current area and link it to this room",
+        commands::cmd_dig,
+    );
+    server.register_command(
+        "@link",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Link an exit direction to a target room key",
+        commands::cmd_link,
+    );
+    server.register_command(
+        "@unlink",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Remove an exit link in a direction",
+        commands::cmd_unlink,
+    );
+    server.register_command(
+        "@set",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Set attributes, HP, level or stats on yourself or a target",
+        commands::cmd_set,
+    );
+    server.register_command(
+        "@desc",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Set the description of the current room",
+        commands::cmd_desc,
+    );
+    server.register_command(
+        "@room",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Perform room management subcommands like delete",
+        commands::cmd_room,
+    );
+    server.register_command(
+        "@portal",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Add, remove or hide portals in the room",
+        commands::cmd_portal,
+    );
+    server.register_command(
+        "@mob",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Spawn, remove or edit mobile templates",
+        commands::cmd_mob,
+    );
+    server.register_command(
+        "@item",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Manage, create, or edit item templates",
+        commands::cmd_item,
+    );
+    server.register_command(
+        "@load",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Load a mobile template into the room or an item template into inventory",
+        commands::cmd_load,
+    );
+    server.register_command(
+        "goto",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Teleport to a target room key or player name",
+        commands::cmd_goto,
+    );
+    server.register_command(
+        "at",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Execute a command temporarily in a different room or player location",
+        commands::cmd_at,
+    );
+    server.register_command(
+        "force",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Force another player or mob to execute a command",
+        commands::cmd_force,
+    );
+    server.register_command(
+        "stat",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Display detailed internal stats and components of a target",
+        commands::cmd_stat,
+    );
+    server.register_command(
+        "olocate",
+        &["owhere"],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Locate items matches template ID or name in the world",
+        commands::cmd_olocate,
+    );
+    server.register_command(
+        "gecho",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Echo a message globally to all online connections",
+        commands::cmd_gecho,
+    );
+    server.register_command(
+        "gtell",
+        &[],
+        AccessLevel::Builder,
+        "Immortal",
+        "Send a message to all online staff members",
+        commands::cmd_gtell,
+    );
+    server.register_command(
+        "wizwho",
+        &[],
+        AccessLevel::Builder,
+        "Immortal",
+        "List all online staff members and their ranks",
+        commands::cmd_wizwho,
+    );
+    server.register_command(
+        "wizin",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Toggle or set wizard invisibility level",
+        commands::cmd_wizin,
+    );
+    server.register_command(
+        "holylight",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Toggle holylight vision to see invisible objects and mobs",
+        commands::cmd_holylight,
+    );
+    server.register_command(
+        "@teleport",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Teleport a player to a destination room or player",
+        commands::cmd_teleport,
+    );
+    server.register_command(
+        "switch",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Possess and switch control to a mob in the same room",
+        commands::cmd_switch,
+    );
+    server.register_command(
+        "return",
+        &[],
+        AccessLevel::Immortal,
+        "Immortal",
+        "Return control from a switched mob to your original character",
+        commands::cmd_return,
+    );
+
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Spawn OS signal handler

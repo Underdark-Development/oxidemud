@@ -495,6 +495,31 @@ impl Experience {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub enum AccessLevel {
+    Player,
+    Builder,
+    Immortal,
+    God,
+    Admin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Immortal;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Wizin(pub u8);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HolyLight;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Switched {
+    pub original_entity: Entity,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
