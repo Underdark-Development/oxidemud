@@ -5,8 +5,26 @@ build:
     cargo build --workspace
 
 # Build with release optimizations
-release:
+build-release:
     cargo build --workspace --release
+
+# ─── Package & Deploy ────────────────────────────────────────────────
+
+# Bump version, generate changelog, tag, and package the release tarball
+release target="":
+    cog bump --auto
+    just package {{ target }}
+
+# Build and package all binaries + templates into a release tarball
+package target="":
+    chmod +x scripts/package.sh scripts/install.sh
+    ./scripts/package.sh {{ if target == "" { "" } else { "-t " + target } }}
+
+# Deploy the packaged release to a remote VPS
+deploy host port="22" *args="":
+    chmod +x scripts/deploy.sh scripts/package.sh scripts/install.sh
+    ./scripts/deploy.sh {{ host }} {{ port }} {{ args }}
+
 
 # ─── Server ─────────────────────────────────────────────────────────
 

@@ -3,6 +3,12 @@ use std::path::PathBuf;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("OxideMUD MCP Server v{}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
+
     let (content_path, url, key) = resolve_connect_config(&args);
 
     eprintln!(

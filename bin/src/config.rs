@@ -12,6 +12,12 @@ pub struct Config {
 impl Config {
     pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
+
+        if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+            println!("OxideMUD Server v{}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
+        }
+
         let mut host = "127.0.0.1".to_string();
         let mut port = 4000u16;
         let mut db_path = PathBuf::from("data/mud.db");
