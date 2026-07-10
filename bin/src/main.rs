@@ -90,6 +90,30 @@ Prayers trigger a deity-specific blessing and incur a cooldown.
 Example:
   pray                  pray to your deity"#;
 
+const HELP_GROUP: &str = r#"Manage your party/group and formations.
+
+Usage:
+  group                        show current group status
+  group invite <player>        invite a player to join
+  group accept                 accept a pending invite
+  group leave                  leave the group
+  group disband                disband the group (leader only)
+  group kick <player>          kick a member (leader only)
+  group loot <mode>            change loot mode (freeforall/roundrobin/master)
+  group formation <type>       change formation (default/line/scattered/column/wedge/shieldwall)
+  group leader <player>        transfer leadership to another member (leader only)"#;
+
+const HELP_FOLLOW: &str = r#"Follow a player in the same room.
+
+Usage:
+  follow <player>              start following a player
+  follow                       stop following"#;
+
+const HELP_UNFOLLOW: &str = r#"Stop following another player.
+
+Usage:
+  unfollow                     stop following"#;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
@@ -476,6 +500,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Character",
         HELP_PRACTICE,
         commands::cmd_practice,
+    );
+    server.register_command(
+        "group",
+        &[],
+        AccessLevel::Player,
+        "Combat",
+        HELP_GROUP,
+        commands::cmd_group,
+    );
+    server.register_command(
+        "follow",
+        &[],
+        AccessLevel::Player,
+        "Movement",
+        HELP_FOLLOW,
+        commands::cmd_follow,
+    );
+    server.register_command(
+        "unfollow",
+        &[],
+        AccessLevel::Player,
+        "Movement",
+        HELP_UNFOLLOW,
+        commands::cmd_unfollow,
     );
 
     // Builder commands
@@ -940,6 +988,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Immortal",
         "Return control from a switched mob to your original character",
         commands::cmd_return,
+    );
+
+    server.register_command(
+        "@advance",
+        &[],
+        AccessLevel::Player,
+        "Progression",
+        "Spend a pending level to advance one of your class levels",
+        commands::cmd_advance,
+    );
+    server.register_command(
+        "@multi_class",
+        &[],
+        AccessLevel::Player,
+        "Progression",
+        "Spend a pending level to adopt a new base class at level 1",
+        commands::cmd_multi_class,
+    );
+    server.register_command(
+        "@prestige",
+        &[],
+        AccessLevel::Player,
+        "Progression",
+        "Spend a pending level to adopt a prestige class at level 1",
+        commands::cmd_prestige,
     );
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);

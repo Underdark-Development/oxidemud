@@ -412,6 +412,20 @@ impl Database {
             )?;
         }
 
+        if current < 24 {
+            // Migration 24: add components_multiclass table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_multiclass (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    multiclass_json TEXT NOT NULL
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (24)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

@@ -82,15 +82,47 @@ pub fn spawn_game_loop(
                                     }
                                 }
 
-                                let msgs = crate::award_xp(&mut w, outcome.attacker);
-                                for msg in &msgs {
-                                    if let Some(tx) = reg.sender(outcome.attacker) {
-                                        let _ = tx.send(format!("{msg}\r\n").into_bytes());
+                                // Determine all players to award XP / level-up check
+                                let mut players_to_award = vec![outcome.attacker];
+
+                                if let Ok(mut q_gm) = w.query_one::<&oxide_core::GroupMember>(outcome.attacker) {
+                                    if let Some(gm) = q_gm.get() {
+                                        let group_entity = gm.group_id;
+                                        if let Ok(mut q_group) = w.query_one::<&oxide_core::Group>(group_entity) {
+                                            if let Some(group) = q_group.get() {
+                                                let attacker_room = w.query_one::<&oxide_core::Position>(outcome.attacker)
+                                                    .ok()
+                                                    .and_then(|mut q| q.get().map(|p| p.room));
+                                                if let Some(room) = attacker_room {
+                                                    for m in &group.members {
+                                                        if let Some(m_ent) = m.entity {
+                                                            if m_ent != outcome.attacker {
+                                                                let m_room = w.query_one::<&oxide_core::Position>(m_ent)
+                                                                    .ok()
+                                                                    .and_then(|mut q| q.get().map(|p| p.room));
+                                                                if m_room == Some(room) {
+                                                                    players_to_award.push(m_ent);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
-                                if let Some(ref db) = db {
-                                    if let Ok(db_guard) = db.try_lock() {
-                                        save_player_progress(&mut w, outcome.attacker, &db_guard);
+
+                                for player in players_to_award {
+                                    let msgs = crate::award_xp(&mut w, player);
+                                    for msg in &msgs {
+                                        if let Some(tx) = reg.sender(player) {
+                                            let _ = tx.send(format!("{msg}\r\n").into_bytes());
+                                        }
+                                    }
+                                    if let Some(ref db) = db {
+                                        if let Ok(db_guard) = db.try_lock() {
+                                            save_player_progress(&mut w, player, &db_guard);
+                                        }
                                     }
                                 }
                             }
@@ -105,6 +137,7 @@ pub fn spawn_game_loop(
 
                     systems::ai::run_ai_pulse(&mut w);
                     systems::stance::run_stance_pulse(&mut w);
+                    oxide_core::run_formation_effects(&mut w);
                     drop(reg);
                     drop(w);
                 }
@@ -157,6 +190,7 @@ pub fn spawn_game_loop(
                         let mut w = world.lock().await;
                         systems::corpse::run_corpse_pulse(&mut w);
                         oxide_core::run_skill_gate_pulse(&mut w);
+                        oxide_core::run_group_cleanup(&mut w, Instant::now());
                         if let Some(ref db) = db {
                             if let Ok(db_guard) = db.try_lock() {
                                 save_online_players(&mut w, &db_guard, false);
@@ -786,6 +820,17 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &oxide
     {
         if let Ok(json) = serde_json::to_string(&learned_recipes) {
             let _ = oxide_data::save_learned_recipes_component(conn, db_id, &json);
+        }
+    }
+
+    // 20. MultiClassInfo
+    if let Some(multiclass_info) = world
+        .query_one::<&oxide_core::MultiClassInfo>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Ok(json) = serde_json::to_string(&multiclass_info) {
+            let _ = oxide_data::save_multiclass_component(conn, db_id, &json);
         }
     }
 }

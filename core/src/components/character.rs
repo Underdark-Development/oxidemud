@@ -520,6 +520,68 @@ pub struct Switched {
     pub original_entity: Entity,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct ClassEntry {
+    pub id: String,
+    pub level: u8,
+    pub is_favored: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default, PartialEq, Eq)]
+pub struct MultiClassInfo {
+    pub classes: Vec<ClassEntry>,
+}
+
+impl MultiClassInfo {
+    pub fn new() -> Self {
+        MultiClassInfo {
+            classes: Vec::new(),
+        }
+    }
+
+    pub fn total_level(&self) -> u8 {
+        self.classes.iter().map(|c| c.level).sum()
+    }
+
+    pub fn has_class(&self, class_id: &str) -> bool {
+        self.classes.iter().any(|c| c.id == class_id)
+    }
+
+    pub fn class_level(&self, class_id: &str) -> u8 {
+        self.classes
+            .iter()
+            .find(|c| c.id == class_id)
+            .map(|c| c.level)
+            .unwrap_or(0)
+    }
+
+    pub fn add_class(&mut self, class_id: String, level: u8, is_favored: bool) {
+        if !self.has_class(&class_id) {
+            self.classes.push(ClassEntry {
+                id: class_id,
+                level,
+                is_favored,
+            });
+        }
+    }
+
+    pub fn advance_class(&mut self, class_id: &str) {
+        if let Some(entry) = self.classes.iter_mut().find(|c| c.id == class_id) {
+            entry.level += 1;
+        }
+    }
+
+    pub fn xp_penalty_multiplier(&self) -> f32 {
+        let non_favored_count = self.classes.iter().filter(|c| !c.is_favored).count();
+        if non_favored_count <= 1 {
+            1.0
+        } else {
+            let penalty = (non_favored_count - 1) as f32 * 0.20;
+            (1.0 - penalty).max(0.20)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

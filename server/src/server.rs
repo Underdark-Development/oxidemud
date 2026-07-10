@@ -340,6 +340,25 @@ async fn handle_connection(
                     if login_flow.take_entity_just_spawned() {
                         if let Some(entity) = login_flow.entity() {
                             conn.set_entity(entity);
+
+                            let player_db_id = w
+                                .query_one::<&DbId>(entity)
+                                .ok()
+                                .and_then(|mut q| q.get().copied())
+                                .map(|d| d.0)
+                                .unwrap_or(0);
+                            let player_name = w
+                                .query_one::<&Name>(entity)
+                                .ok()
+                                .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+                                .unwrap_or_default();
+                            oxide_core::handle_player_login_group(
+                                &mut w,
+                                entity,
+                                player_db_id,
+                                &player_name,
+                            );
+
                             if let Ok(mut q) = w.query_one::<&Player>(entity) {
                                 if let Some(player) = q.get() {
                                     conn.set_screen_width(player.screen_width);
@@ -748,6 +767,7 @@ async fn handle_connection(
             }
 
             reg.unregister(entity);
+            oxide_core::handle_player_disconnect_group(&mut w, entity);
             let _ = w.despawn(entity).inspect_err(|e| {
                 tracing::warn!("Failed to despawn entity {entity:?}: {e}");
             });
@@ -803,6 +823,16 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
     let threshold = oxide_core::Experience::for_level(level + 1);
     if xp < threshold {
         return Vec::new();
+    }
+
+    if world
+        .query_one::<&oxide_core::MultiClassInfo>(entity)
+        .is_ok_and(|mut q| q.get().is_some())
+    {
+        return vec![format!(
+            "\r\n*** You have enough experience to advance to level {}! Use '@advance <class>' to assign this level, or '@multi_class <class>' to adopt a new class.",
+            level + 1
+        )];
     }
 
     let db = DB.get().and_then(|d| d.try_lock().ok());
@@ -1066,6 +1096,131 @@ pub async fn console_broadcast(message: &str) -> usize {
     sent
 }
 
+pub fn advance_player_class(
+    world: &mut World,
+    player: Entity,
+    class_id: &str,
+) -> Result<Vec<String>, String> {
+    let mut mc_info = world
+        .query_one::<&mut oxide_core::MultiClassInfo>(player)
+        .map_err(|_| "You do not have class information.")?
+        .get()
+        .cloned()
+        .ok_or("Failed to load class information.")?;
+
+    if !mc_info.has_class(class_id) {
+        return Err(format!(
+            "You do not have the class '{}'. Use '@multi_class' to adopt a new class.",
+            class_id
+        ));
+    }
+
+    let current_level = get_level(world, player);
+    let next_level = current_level + 1;
+    let xp = get_experience(world, player);
+    let threshold = oxide_core::Experience::for_level(next_level);
+
+    if xp < threshold {
+        return Err(format!(
+            "You need {} XP to advance to level {}, but you only have {}.",
+            threshold, next_level, xp
+        ));
+    }
+
+    let templates = crate::get_templates().ok_or("Template registry not found.")?;
+    let class_template = templates
+        .get_class(class_id)
+        .ok_or(format!("Class template for '{}' not found.", class_id))?;
+
+    mc_info.advance_class(class_id);
+
+    let attrs = get_attributes(world, player);
+    let con_mod = (attrs.constitution as i32 - 10) / 2;
+    let hit_die = class_template.hit_die;
+    let hp_gain = (hit_die as i32 + con_mod).max(1);
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(player) {
+        if let Some(health) = q.get() {
+            health.max += hp_gain;
+            health.current = health.max;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut Level>(player) {
+        if let Some(level) = q.get() {
+            level.0 = next_level;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Mana>(player) {
+        if let Some(mana) = q.get() {
+            let formula_mana = oxide_core::Mana::from_formula(
+                next_level as u16,
+                attrs.intelligence as u16,
+                attrs.wisdom as u16,
+            );
+            mana.max = formula_mana.max;
+            mana.current = mana.max;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Stamina>(player) {
+        if let Some(stamina) = q.get() {
+            let formula_stamina = oxide_core::Stamina::from_formula(
+                next_level as u16,
+                attrs.strength as u16,
+                attrs.dexterity as u16,
+            );
+            stamina.max = formula_stamina.max;
+            stamina.current = stamina.max;
+        }
+    }
+
+    let new_combat_stats = oxide_core::calculate_multiclass_combat_stats(&mc_info, &templates);
+    let _ = world.insert(player, (new_combat_stats,));
+
+    let _ = world.insert(player, (mc_info,));
+
+    let db = DB.get().and_then(|d| d.try_lock().ok());
+    let conn_db = db.as_ref().map(|g| g.conn());
+    if let Some(conn_db) = conn_db {
+        if let Ok(mut q) = world.query_one::<&DbId>(player) {
+            if let Some(db_id) = q.get() {
+                let _ = oxide_data::save_level_component(conn_db, db_id.0, next_level as i64);
+            }
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut Experience>(player) {
+        if let Some(xp_comp) = q.get() {
+            xp_comp.0 = xp.saturating_sub(threshold);
+            if let Some(conn_db) = conn_db {
+                if let Ok(mut q_db) = world.query_one::<&DbId>(player) {
+                    if let Some(db_id) = q_db.get() {
+                        let _ = oxide_data::save_experience_component(
+                            conn_db,
+                            db_id.0,
+                            xp_comp.0 as i64,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = world.insert(player, (oxide_core::Dirty,));
+
+    let msgs = vec![
+        format!(
+            "You successfully advance your class: {}!",
+            class_template.name
+        ),
+        format!("You are now level {}.", next_level),
+        format!("You gained {} max HP.", hp_gain),
+    ];
+    Ok(msgs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1221,6 +1376,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
         registry.classes.insert("warrior".to_string(), warrior);
         let _ = TEMPLATES.set(Arc::new(registry));
@@ -1247,6 +1404,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
 
         // Level 1
@@ -1289,6 +1448,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
 
         // Level 5

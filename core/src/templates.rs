@@ -226,11 +226,28 @@ pub struct WalletAmount {
     pub platinum: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PrestigeGate {
+    #[serde(default)]
+    pub requires_class: std::collections::HashMap<String, u8>,
+    #[serde(default)]
+    pub requires_skills: std::collections::HashMap<String, u16>,
+    pub requires_race: Option<String>,
+    pub requires_alignment: Option<String>,
+    pub requires_quest: Option<String>,
+    pub requires_faction: Option<String>,
+    pub requires_level: Option<u8>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassTemplate {
     pub id: String,
     pub name: String,
     pub description: String,
+    #[serde(default)]
+    pub prestige: bool,
+    #[serde(default)]
+    pub prestige_gate: Option<PrestigeGate>,
     #[serde(default = "default_hit_die")]
     pub hit_die: u8,
     #[serde(default)]
@@ -2180,6 +2197,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         }
     }
 

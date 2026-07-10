@@ -727,6 +727,8 @@ fn generate_default_content(
             starting_items: Vec::new(),
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            prestige: false,
+            prestige_gate: None,
         })?,
         "skills" => toml::to_string_pretty(&oxide_core::SkillDef::new(
             id,

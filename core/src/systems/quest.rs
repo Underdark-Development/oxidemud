@@ -548,10 +548,18 @@ pub fn complete_quest(
 
     // 1. Pay out XP
     if quest_def.rewards.xp > 0 {
+        let mut final_xp = quest_def.rewards.xp;
+        let penalty_mult = world
+            .query_one::<&crate::components::MultiClassInfo>(player)
+            .ok()
+            .and_then(|mut q| q.get().map(|mc| mc.xp_penalty_multiplier()))
+            .unwrap_or(1.0);
+        final_xp = ((final_xp as f32) * penalty_mult).round() as u64;
+
         if let Ok(mut q_xp) = world.query_one::<&mut Experience>(player) {
             if let Some(xp) = q_xp.get() {
-                xp.0 = xp.0.saturating_add(quest_def.rewards.xp);
-                messages.push(format!("You gain {} experience.", quest_def.rewards.xp));
+                xp.0 = xp.0.saturating_add(final_xp);
+                messages.push(format!("You gain {} experience.", final_xp));
             }
         }
     }

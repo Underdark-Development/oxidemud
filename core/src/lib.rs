@@ -25,6 +25,13 @@ pub use systems::ai::AiState;
 pub use systems::combat::HitResult;
 pub use systems::crafting::{can_craft_recipe, craft_recipe};
 pub use systems::faction::{adjust_faction_standing, handle_faction_kill};
+pub use systems::group::{
+    handle_group_accept, handle_group_disband, handle_group_formation, handle_group_invite,
+    handle_group_kick, handle_group_leader, handle_group_leave, handle_group_loot,
+    handle_player_disconnect_group, handle_player_login_group, run_formation_effects,
+    run_group_cleanup,
+};
+pub use systems::multi_class::{calculate_multiclass_combat_stats, satisfies_prestige_gate};
 pub use systems::player_state::run_player_state_decay;
 pub use systems::quest::{
     abandon_quest, accept_quest, complete_quest, handle_explore_event, handle_kill_event,
@@ -37,7 +44,8 @@ pub use systems::skill_use::{
 };
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use templates::{
-    ExitTemplate, FactionDef, FactionRank, RecipeDef, RecipeMaterial, RecipeResult, RecipeSkillReq,
+    ExitTemplate, FactionDef, FactionRank, PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult,
+    RecipeSkillReq,
 };
 pub use util::entities_in_room;
 

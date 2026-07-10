@@ -4033,12 +4033,39 @@ pub fn cmd_loot(
         if let Some(c_comp) = q.get() {
             match c_comp.lootable_by {
                 core::LootRule::Public => {}
-                core::LootRule::OwnerOnly | core::LootRule::GroupOnly | core::LootRule::Faction => {
+                core::LootRule::OwnerOnly | core::LootRule::Faction => {
                     let is_owner = c_comp.owner == Some(entity)
                         || (player_db_id.is_some() && c_comp.owner_db_id == player_db_id);
                     if !is_owner {
                         conn.send_line("This corpse does not belong to you.");
                         return;
+                    }
+                }
+                core::LootRule::GroupOnly => {
+                    let is_owner = c_comp.owner == Some(entity)
+                        || (player_db_id.is_some() && c_comp.owner_db_id == player_db_id);
+                    if !is_owner {
+                        let mut in_same_group = false;
+                        if let Ok(mut q_gm) = world.query_one::<&core::GroupMember>(entity) {
+                            if let Some(gm) = q_gm.get() {
+                                let group_entity = gm.group_id;
+                                if let Ok(mut q_group) =
+                                    world.query_one::<&core::Group>(group_entity)
+                                {
+                                    if let Some(group) = q_group.get() {
+                                        in_same_group = group.members.iter().any(|m| {
+                                            (c_comp.owner.is_some() && m.entity == c_comp.owner)
+                                                || (c_comp.owner_db_id.is_some()
+                                                    && Some(m.db_id) == c_comp.owner_db_id)
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        if !in_same_group {
+                            conn.send_line("This corpse does not belong to you or your group.");
+                            return;
+                        }
                     }
                 }
             }
@@ -7085,6 +7112,944 @@ pub fn cmd_craft(
     match core::craft_recipe(world, entity, recipe_id, &templates) {
         Ok(msg) => conn.send_line(&msg),
         Err(err) => conn.send_line(&format!("Error: {}", err)),
+    }
+}
+
+pub fn cmd_advance(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let player = match conn.entity() {
+        Some(p) => p,
+        None => return,
+    };
+    let class_id = args.trim();
+    if class_id.is_empty() {
+        conn.send_line("Usage: @advance <class_id>");
+        return;
+    }
+    match oxide_server::advance_player_class(world, player, class_id) {
+        Ok(msgs) => {
+            for m in msgs {
+                conn.send_line(&m);
+            }
+        }
+        Err(e) => conn.send_line(&format!("Error: {}", e)),
+    }
+}
+
+pub fn cmd_multi_class(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let player = match conn.entity() {
+        Some(p) => p,
+        None => return,
+    };
+    let class_id = args.trim();
+    if class_id.is_empty() {
+        conn.send_line("Usage: @multi_class <class_id>");
+        return;
+    }
+
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let class_template = match templates.get_class(class_id) {
+        Some(c) => c,
+        None => {
+            conn.send_line(&format!("Error: Class '{}' not found.", class_id));
+            return;
+        }
+    };
+
+    if class_template.prestige {
+        conn.send_line("Error: That is a prestige class. Use '@prestige' instead.");
+        return;
+    }
+
+    let mut mc_info = match world.query_one::<&mut core::MultiClassInfo>(player) {
+        Ok(mut q) => q.get().cloned().unwrap_or_default(),
+        Err(_) => {
+            conn.send_line("Error: You do not have class information.");
+            return;
+        }
+    };
+
+    if mc_info.has_class(class_id) {
+        conn.send_line(&format!(
+            "Error: You already have the class '{}'. Use '@advance' to level it up.",
+            class_id
+        ));
+        return;
+    }
+
+    // Check race constraints
+    if !class_template.allowed_races.is_empty() {
+        let race = world
+            .query_one::<&core::Race>(player)
+            .ok()
+            .and_then(|mut q| q.get().map(|r| r.0.clone()))
+            .unwrap_or_default();
+        if !class_template
+            .allowed_races
+            .iter()
+            .any(|r| r.to_lowercase() == race.to_lowercase())
+        {
+            conn.send_line(&format!(
+                "Error: Your race '{}' is not allowed for this class.",
+                race
+            ));
+            return;
+        }
+    }
+
+    // Check alignment constraints
+    if !class_template.allowed_alignments.is_empty() {
+        let align = world
+            .query_one::<&core::Alignment>(player)
+            .ok()
+            .and_then(|mut q| q.get().map(|a| a.0.clone()))
+            .unwrap_or_default();
+        if !class_template
+            .allowed_alignments
+            .iter()
+            .any(|a| a.to_lowercase() == align.to_lowercase())
+        {
+            conn.send_line(&format!(
+                "Error: Your alignment '{}' is not allowed for this class.",
+                align
+            ));
+            return;
+        }
+    }
+
+    // Must have a pending level up to multi-class
+    let current_level = mc_info.total_level();
+    let next_level = current_level + 1;
+    let xp = world
+        .query_one::<&core::Experience>(player)
+        .ok()
+        .and_then(|mut q| q.get().map(|x| x.0))
+        .unwrap_or(0);
+    let threshold = core::Experience::for_level(next_level);
+
+    if xp < threshold {
+        conn.send_line(&format!(
+            "Error: You need {} XP to level up/multi-class, but you only have {}.",
+            threshold, xp
+        ));
+        return;
+    }
+
+    // Add new class at level 1, non-favored
+    mc_info.add_class(class_id.to_string(), 1, false);
+
+    // HP gain: hit die + CON mod
+    let attrs = world
+        .query_one::<&core::Attributes>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+    let con_mod = (attrs.constitution as i32 - 10) / 2;
+    let hp_gain = (class_template.hit_die as i32 + con_mod).max(1);
+
+    if let Ok(mut q) = world.query_one::<&mut core::Health>(player) {
+        if let Some(health) = q.get() {
+            health.max += hp_gain;
+            health.current = health.max;
+        }
+    }
+
+    // Update level and experience
+    if let Ok(mut q) = world.query_one::<&mut core::Level>(player) {
+        if let Some(level) = q.get() {
+            level.0 = next_level;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Experience>(player) {
+        if let Some(xp_comp) = q.get() {
+            xp_comp.0 = xp.saturating_sub(threshold);
+            let db_arc = oxide_server::get_db();
+            let db = db_arc.as_ref().and_then(|d| d.try_lock().ok());
+            let conn_db = db.as_ref().map(|g| g.conn());
+            if let Some(conn_db) = conn_db {
+                if let Ok(mut q_db) = world.query_one::<&core::DbId>(player) {
+                    if let Some(db_id) = q_db.get() {
+                        let _ =
+                            oxide_data::save_level_component(conn_db, db_id.0, next_level as i64);
+                        let _ = oxide_data::save_experience_component(
+                            conn_db,
+                            db_id.0,
+                            xp_comp.0 as i64,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Recalculate Mana pool
+    if let Ok(mut q) = world.query_one::<&mut core::Mana>(player) {
+        if let Some(mana) = q.get() {
+            let formula_mana = core::Mana::from_formula(
+                next_level as u16,
+                attrs.intelligence as u16,
+                attrs.wisdom as u16,
+            );
+            mana.max = formula_mana.max;
+            mana.current = mana.max;
+        }
+    }
+
+    // Recalculate Stamina pool
+    if let Ok(mut q) = world.query_one::<&mut core::Stamina>(player) {
+        if let Some(stamina) = q.get() {
+            let formula_stamina = core::Stamina::from_formula(
+                next_level as u16,
+                attrs.strength as u16,
+                attrs.dexterity as u16,
+            );
+            stamina.max = formula_stamina.max;
+            stamina.current = stamina.max;
+        }
+    }
+
+    let new_combat_stats = core::calculate_multiclass_combat_stats(&mc_info, &templates);
+    let _ = world.insert(player, (new_combat_stats,));
+
+    let _ = world.insert(player, (mc_info,));
+    let _ = world.insert(player, (core::Dirty,));
+
+    conn.send_line(&format!(
+        "You successfully multi-classed into {}!",
+        class_template.name
+    ));
+    conn.send_line(&format!(
+        "You are now level {} ({} level 1).",
+        next_level, class_template.name
+    ));
+    conn.send_line(&format!("You gained {} max HP.", hp_gain));
+}
+
+pub fn cmd_prestige(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let player = match conn.entity() {
+        Some(p) => p,
+        None => return,
+    };
+    let class_id = args.trim();
+    if class_id.is_empty() {
+        conn.send_line("Usage: @prestige <prestige_class_id>");
+        return;
+    }
+
+    let templates = match oxide_server::get_templates() {
+        Some(t) => t,
+        None => {
+            conn.send_line("Error: Template registry not loaded.");
+            return;
+        }
+    };
+
+    let class_template = match templates.get_class(class_id) {
+        Some(c) => c,
+        None => {
+            conn.send_line(&format!("Error: Prestige Class '{}' not found.", class_id));
+            return;
+        }
+    };
+
+    if !class_template.prestige {
+        conn.send_line("Error: That is not a prestige class. Use '@multi_class' instead.");
+        return;
+    }
+
+    if let Some(ref gate) = class_template.prestige_gate {
+        if let Err(gate_err) = core::satisfies_prestige_gate(world, player, gate, &templates) {
+            conn.send_line(&format!(
+                "Error: You do not satisfy requirements for prestige class '{}': {}",
+                class_template.name, gate_err
+            ));
+            return;
+        }
+    }
+
+    let mut mc_info = match world.query_one::<&mut core::MultiClassInfo>(player) {
+        Ok(mut q) => q.get().cloned().unwrap_or_default(),
+        Err(_) => {
+            conn.send_line("Error: You do not have class information.");
+            return;
+        }
+    };
+
+    if mc_info.has_class(class_id) {
+        conn.send_line(&format!(
+            "Error: You already have prestige class '{}'. Use '@advance' to level it up.",
+            class_id
+        ));
+        return;
+    }
+
+    let current_level = mc_info.total_level();
+    let next_level = current_level + 1;
+    let xp = world
+        .query_one::<&core::Experience>(player)
+        .ok()
+        .and_then(|mut q| q.get().map(|x| x.0))
+        .unwrap_or(0);
+    let threshold = core::Experience::for_level(next_level);
+
+    if xp < threshold {
+        conn.send_line(&format!(
+            "Error: You need {} XP to level up/adopt prestige class, but you only have {}.",
+            threshold, xp
+        ));
+        return;
+    }
+
+    mc_info.add_class(class_id.to_string(), 1, false);
+
+    let attrs = world
+        .query_one::<&core::Attributes>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+    let con_mod = (attrs.constitution as i32 - 10) / 2;
+    let hp_gain = (class_template.hit_die as i32 + con_mod).max(1);
+
+    if let Ok(mut q) = world.query_one::<&mut core::Health>(player) {
+        if let Some(health) = q.get() {
+            health.max += hp_gain;
+            health.current = health.max;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Level>(player) {
+        if let Some(level) = q.get() {
+            level.0 = next_level;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Experience>(player) {
+        if let Some(xp_comp) = q.get() {
+            xp_comp.0 = xp.saturating_sub(threshold);
+            let db_arc = oxide_server::get_db();
+            let db = db_arc.as_ref().and_then(|d| d.try_lock().ok());
+            let conn_db = db.as_ref().map(|g| g.conn());
+            if let Some(conn_db) = conn_db {
+                if let Ok(mut q_db) = world.query_one::<&core::DbId>(player) {
+                    if let Some(db_id) = q_db.get() {
+                        let _ =
+                            oxide_data::save_level_component(conn_db, db_id.0, next_level as i64);
+                        let _ = oxide_data::save_experience_component(
+                            conn_db,
+                            db_id.0,
+                            xp_comp.0 as i64,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Mana>(player) {
+        if let Some(mana) = q.get() {
+            let formula_mana = core::Mana::from_formula(
+                next_level as u16,
+                attrs.intelligence as u16,
+                attrs.wisdom as u16,
+            );
+            mana.max = formula_mana.max;
+            mana.current = mana.max;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::Stamina>(player) {
+        if let Some(stamina) = q.get() {
+            let formula_stamina = core::Stamina::from_formula(
+                next_level as u16,
+                attrs.strength as u16,
+                attrs.dexterity as u16,
+            );
+            stamina.max = formula_stamina.max;
+            stamina.current = stamina.max;
+        }
+    }
+
+    let new_combat_stats = core::calculate_multiclass_combat_stats(&mc_info, &templates);
+    let _ = world.insert(player, (new_combat_stats,));
+
+    let _ = world.insert(player, (mc_info,));
+    let _ = world.insert(player, (core::Dirty,));
+
+    conn.send_line(&format!(
+        "You successfully unlocked prestige class {}!",
+        class_template.name
+    ));
+    conn.send_line(&format!(
+        "You are now level {} ({} level 1).",
+        next_level, class_template.name
+    ));
+    conn.send_line(&format!("You gained {} max HP.", hp_gain));
+}
+
+pub fn cmd_group(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let trimmed = args.trim();
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+
+    if parts.is_empty() || parts[0].eq_ignore_ascii_case("status") {
+        // Show status
+        let gm = match world.query_one::<&core::GroupMember>(entity) {
+            Ok(mut q) => q.get().copied(),
+            Err(_) => None,
+        };
+
+        let group_entity = match gm {
+            Some(m) => m.group_id,
+            None => {
+                conn.send_line("You are not in a group.");
+                return;
+            }
+        };
+
+        if let Ok(mut q_group) = world.query_one::<&core::Group>(group_entity) {
+            if let Some(group) = q_group.get() {
+                conn.send_line("--------------------------------------------------");
+                conn.send_line("Group Status");
+                conn.send_line(&format!("  Loot Mode: {:?}", group.loot_mode));
+                conn.send_line(&format!("  Formation: {:?}", group.formation));
+                conn.send_line("Members:");
+
+                for m in &group.members {
+                    let role_str = match Some(group.leader) == m.entity {
+                        true => " [Leader]",
+                        false => "",
+                    };
+
+                    if let Some(m_ent) = m.entity {
+                        let hp_str = if let Ok(mut q_hp) = world.query_one::<&core::Health>(m_ent) {
+                            q_hp.get()
+                                .map(|h| format!("HP: {}/{}", h.current, h.max))
+                                .unwrap_or_default()
+                        } else {
+                            "".to_string()
+                        };
+
+                        let mn_str = if let Ok(mut q_mn) = world.query_one::<&core::Mana>(m_ent) {
+                            q_mn.get()
+                                .map(|m| format!("Mana: {}/{}", m.current, m.max))
+                                .unwrap_or_default()
+                        } else {
+                            "".to_string()
+                        };
+
+                        let st_str = if let Ok(mut q_st) = world.query_one::<&core::Stamina>(m_ent)
+                        {
+                            q_st.get()
+                                .map(|s| format!("Stamina: {}/{}", s.current, s.max))
+                                .unwrap_or_default()
+                        } else {
+                            "".to_string()
+                        };
+
+                        conn.send_line(&format!(
+                            "  * {}{}{} - {}, {}, {}",
+                            m.name, role_str, role_str, hp_str, mn_str, st_str
+                        ));
+                    } else {
+                        conn.send_line(&format!("  * {} (Offline)", m.name));
+                    }
+                }
+                conn.send_line("--------------------------------------------------");
+            }
+        }
+        return;
+    }
+
+    let subcmd = parts[0].to_lowercase();
+    match subcmd.as_str() {
+        "invite" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: group invite <player>");
+                return;
+            }
+            let target_name = parts[1];
+
+            // Find target player first to invite
+            let mut target_entity = None;
+            for (ent, (n_comp, _player_comp)) in
+                world.query::<(&core::Name, &core::Player)>().iter()
+            {
+                if n_comp.as_str().eq_ignore_ascii_case(target_name) {
+                    target_entity = Some(core::Entity::from(ent));
+                    break;
+                }
+            }
+
+            let target = match target_entity {
+                Some(e) => e,
+                None => {
+                    conn.send_line("No player by that name is online.");
+                    return;
+                }
+            };
+
+            match core::handle_group_invite(world, entity, target_name) {
+                Ok(msg) => {
+                    conn.send_line(&msg);
+
+                    // Notify target
+                    let inviter_name = world
+                        .query_one::<&core::Name>(entity)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+                        .unwrap_or_else(|| "Someone".to_string());
+
+                    if let Some(target_tx) = registry.sender(target) {
+                        let _ = target_tx.send(
+                            format!(
+                            "{} invites you to join their group. Type 'group accept' to join.\r\n",
+                            inviter_name
+                        )
+                            .into_bytes(),
+                        );
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "accept" => {
+            match core::handle_group_accept(world, entity) {
+                Ok((_inviter, group_entity, invitee_name)) => {
+                    conn.send_line("You join the group.");
+
+                    // Notify group
+                    if let Ok(mut q_group) = world.query_one::<&core::Group>(group_entity) {
+                        if let Some(group) = q_group.get() {
+                            for m in &group.members {
+                                if let Some(m_ent) = m.entity {
+                                    if m_ent != entity {
+                                        if let Some(tx) = registry.sender(m_ent) {
+                                            let _ = tx.send(
+                                                format!(
+                                                    "{} has joined the group.\r\n",
+                                                    invitee_name
+                                                )
+                                                .into_bytes(),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "leave" => {
+            let my_name = world
+                .query_one::<&core::Name>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+                .unwrap_or_else(|| "Someone".to_string());
+
+            match core::handle_group_leave(world, entity) {
+                Ok((_group_entity, remaining_active, leave_msg)) => {
+                    conn.send_line(&leave_msg);
+
+                    for member in remaining_active {
+                        if let Some(tx) = registry.sender(member) {
+                            let _ = tx
+                                .send(format!("{} has left the group.\r\n", my_name).into_bytes());
+                        }
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "disband" => match core::handle_group_disband(world, entity) {
+            Ok((active_members, msg)) => {
+                for member in active_members {
+                    if let Some(tx) = registry.sender(member) {
+                        let _ = tx.send(format!("{}\r\n", msg).into_bytes());
+                    }
+                }
+            }
+            Err(err) => {
+                conn.send_line(&err);
+            }
+        },
+        "kick" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: group kick <player>");
+                return;
+            }
+            let target_name = parts[1];
+
+            match core::handle_group_kick(world, entity, target_name) {
+                Ok((group_entity, kicked_entity, msg)) => {
+                    conn.send_line(&msg);
+
+                    if let Some(tx) = registry.sender(kicked_entity) {
+                        let _ = tx.send(b"You have been kicked from the group.\r\n".to_vec());
+                    }
+
+                    if let Ok(mut q_group) = world.query_one::<&core::Group>(group_entity) {
+                        if let Some(group) = q_group.get() {
+                            for m in &group.members {
+                                if let Some(m_ent) = m.entity {
+                                    if let Some(tx) = registry.sender(m_ent) {
+                                        let _ = tx.send(
+                                            format!(
+                                                "{} has been kicked from the group.\r\n",
+                                                target_name
+                                            )
+                                            .into_bytes(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "loot" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: group loot <freeforall|roundrobin|master>");
+                return;
+            }
+            let mode_str = parts[1];
+
+            match core::handle_group_loot(world, entity, mode_str) {
+                Ok(mode) => {
+                    let msg = format!("Loot mode changed to {:?}.\r\n", mode);
+
+                    if let Ok(mut q_gm) = world.query_one::<&core::GroupMember>(entity) {
+                        if let Some(gm) = q_gm.get() {
+                            if let Ok(mut q_group) = world.query_one::<&core::Group>(gm.group_id) {
+                                if let Some(group) = q_group.get() {
+                                    for m in &group.members {
+                                        if let Some(m_ent) = m.entity {
+                                            if let Some(tx) = registry.sender(m_ent) {
+                                                let _ = tx.send(msg.clone().into_bytes());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "formation" => {
+            if parts.len() < 2 {
+                conn.send_line(
+                    "Usage: group formation <default|line|scattered|column|wedge|shieldwall>",
+                );
+                return;
+            }
+            let form_str = parts[1];
+
+            match core::handle_group_formation(world, entity, form_str) {
+                Ok(formation) => {
+                    let msg = format!("Formation changed to {:?}.\r\n", formation);
+
+                    if let Ok(mut q_gm) = world.query_one::<&core::GroupMember>(entity) {
+                        if let Some(gm) = q_gm.get() {
+                            if let Ok(mut q_group) = world.query_one::<&core::Group>(gm.group_id) {
+                                if let Some(group) = q_group.get() {
+                                    for m in &group.members {
+                                        if let Some(m_ent) = m.entity {
+                                            if let Some(tx) = registry.sender(m_ent) {
+                                                let _ = tx.send(msg.clone().into_bytes());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "leader" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: group leader <player>");
+                return;
+            }
+            let target_name = parts[1];
+
+            match core::handle_group_leader(world, entity, target_name) {
+                Ok((new_leader_entity, msg)) => {
+                    conn.send_line(&msg);
+
+                    if let Ok(mut q_gm) = world.query_one::<&core::GroupMember>(new_leader_entity) {
+                        if let Some(gm) = q_gm.get() {
+                            if let Ok(mut q_group) = world.query_one::<&core::Group>(gm.group_id) {
+                                if let Some(group) = q_group.get() {
+                                    for m in &group.members {
+                                        if let Some(m_ent) = m.entity {
+                                            if m_ent != entity {
+                                                if let Some(tx) = registry.sender(m_ent) {
+                                                    let _ = tx.send(
+                                                        format!(
+                                                            "{} is now the group leader.\r\n",
+                                                            target_name
+                                                        )
+                                                        .into_bytes(),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(err) => {
+                    conn.send_line(&err);
+                }
+            }
+        }
+        "say" | "tell" => {
+            if parts.len() < 2 {
+                conn.send_line("Usage: group say <message>");
+                return;
+            }
+            let msg_text = parts[1..].join(" ");
+
+            let gm = match world.query_one::<&core::GroupMember>(entity) {
+                Ok(mut q) => q.get().copied(),
+                Err(_) => None,
+            };
+
+            let group_entity = match gm {
+                Some(m) => m.group_id,
+                None => {
+                    conn.send_line("You are not in a group.");
+                    return;
+                }
+            };
+
+            let my_name = world
+                .query_one::<&core::Name>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+                .unwrap_or_else(|| "Someone".to_string());
+
+            let formatted = format!("[Group] {}: {}\r\n", my_name, msg_text);
+
+            if let Ok(mut q_group) = world.query_one::<&core::Group>(group_entity) {
+                if let Some(group) = q_group.get() {
+                    for m in &group.members {
+                        if let Some(m_ent) = m.entity {
+                            if let Some(tx) = registry.sender(m_ent) {
+                                let _ = tx.send(formatted.clone().into_bytes());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            conn.send_line("Invalid group subcommand. Type 'help group' for help.");
+        }
+    }
+}
+
+pub fn cmd_follow(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let target_name = args.trim();
+    if target_name.is_empty() {
+        cmd_unfollow(world, conn, _name, args, registry);
+        return;
+    }
+
+    let my_room = match world.query_one::<&core::Position>(entity) {
+        Ok(mut q) => q.get().map(|p| p.room),
+        Err(_) => None,
+    };
+
+    let room = match my_room {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let mut found_target = None;
+    for other in core::entities_in_room(world, room) {
+        if other != entity {
+            if let Ok(mut q_name) = world.query_one::<&core::Name>(other) {
+                if let Some(name) = q_name.get() {
+                    if name.as_str().eq_ignore_ascii_case(target_name) {
+                        found_target = Some(other);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let target = match found_target {
+        Some(t) => t,
+        None => {
+            conn.send_line("You don't see them here.");
+            return;
+        }
+    };
+
+    let target_name_str = world
+        .query_one::<&core::Name>(target)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+        .unwrap_or_else(|| "Someone".to_string());
+    let my_name_str = world
+        .query_one::<&core::Name>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+        .unwrap_or_else(|| "Someone".to_string());
+
+    let _ = world.insert(
+        entity,
+        (core::Following {
+            target,
+            autofollow: true,
+        },),
+    );
+    let _ = world.insert(entity, (core::Dirty,));
+
+    conn.send_line(&format!("You start following {}.", target_name_str));
+
+    let room_msg = format!("{} starts following {}.\r\n", my_name_str, target_name_str);
+    for other in core::entities_in_room(world, room) {
+        if other != entity {
+            if let Some(tx) = registry.sender(other) {
+                let _ = tx.send(room_msg.clone().into_bytes());
+            }
+        }
+    }
+}
+
+pub fn cmd_unfollow(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let following = world
+        .query_one::<&core::Following>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied());
+
+    if let Some(f) = following {
+        let target_name_str = world
+            .query_one::<&core::Name>(f.target)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+            .unwrap_or_else(|| "Someone".to_string());
+        let my_name_str = world
+            .query_one::<&core::Name>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|n| n.as_str().to_string()))
+            .unwrap_or_else(|| "Someone".to_string());
+
+        let _ = world.remove_one::<core::Following>(entity);
+        let _ = world.insert(entity, (core::Dirty,));
+
+        conn.send_line(&format!("You stop following {}.", target_name_str));
+
+        let my_room = world
+            .query_one::<&core::Position>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|p| p.room));
+
+        if let Some(room) = my_room {
+            let room_msg = format!("{} stops following {}.\r\n", my_name_str, target_name_str);
+            for other in core::entities_in_room(world, room) {
+                if other != entity {
+                    if let Some(tx) = registry.sender(other) {
+                        let _ = tx.send(room_msg.clone().into_bytes());
+                    }
+                }
+            }
+        }
+    } else {
+        conn.send_line("You are not following anyone.");
     }
 }
 

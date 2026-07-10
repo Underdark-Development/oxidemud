@@ -130,7 +130,20 @@ pub fn calculate_ac(world: &World, entity: Entity) -> i32 {
     }) as i32
         * 2;
 
-    10 + level.0 as i32 + ability_mod(dex) + armor.total() + shield_bonus
+    let mut ac_modifier = 0;
+    if let Ok(mut q) = world.query_one::<&Vec<crate::ActiveEffect>>(entity) {
+        if let Some(effects) = q.get() {
+            for effect in effects {
+                if let (Some(stat), Some(amount)) = (&effect.stat, effect.amount) {
+                    if stat.eq_ignore_ascii_case("ac") || stat.eq_ignore_ascii_case("armor_class") {
+                        ac_modifier += amount;
+                    }
+                }
+            }
+        }
+    }
+
+    10 + level.0 as i32 + ability_mod(dex) + armor.total() + shield_bonus + ac_modifier
 }
 
 /// Calculate to-hit penalty for dual-wielding.
@@ -199,6 +212,20 @@ pub fn calculate_damage(
             final_type = dtype;
         }
     }
+
+    let mut dmg_modifier = 0;
+    if let Ok(mut q) = world.query_one::<&Vec<crate::ActiveEffect>>(attacker) {
+        if let Some(effects) = q.get() {
+            for effect in effects {
+                if let (Some(stat), Some(amount)) = (&effect.stat, effect.amount) {
+                    if stat.eq_ignore_ascii_case("damage") {
+                        dmg_modifier += amount;
+                    }
+                }
+            }
+        }
+    }
+    final_dmg = (final_dmg + dmg_modifier).max(1);
 
     (final_dmg, final_type)
 }
@@ -278,7 +305,6 @@ pub fn calculate_hit(
         0
     };
 
-    // d20 + level + str_mod + dw_penalty + hit_modifier >= AC
     let roll = fastrand::i32(1..=20);
     if roll == 1 {
         return HitResult::Miss; // auto-miss
@@ -287,7 +313,35 @@ pub fn calculate_hit(
         return HitResult::Hit; // auto-crit
     }
 
-    if roll + atk_level + ability_mod(str) + dw_penalty + hit_ctx.hit_modifier >= ac {
+    let mut atk_modifier = 0;
+    if let Ok(mut q) = world.query_one::<&Vec<crate::ActiveEffect>>(attacker) {
+        if let Some(effects) = q.get() {
+            for effect in effects {
+                if let (Some(stat), Some(amount)) = (&effect.stat, effect.amount) {
+                    if stat.eq_ignore_ascii_case("attack") || stat.eq_ignore_ascii_case("hit") {
+                        atk_modifier += amount;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut dodge_modifier = 0;
+    if let Ok(mut q) = world.query_one::<&Vec<crate::ActiveEffect>>(target) {
+        if let Some(effects) = q.get() {
+            for effect in effects {
+                if let (Some(stat), Some(amount)) = (&effect.stat, effect.amount) {
+                    if stat.eq_ignore_ascii_case("dodge") {
+                        dodge_modifier += amount;
+                    }
+                }
+            }
+        }
+    }
+
+    if roll + atk_level + ability_mod(str) + dw_penalty + hit_ctx.hit_modifier + atk_modifier
+        >= ac + dodge_modifier
+    {
         HitResult::Hit
     } else {
         HitResult::Miss
@@ -760,24 +814,94 @@ pub fn apply_damage(
     }
 
     if killed {
-        // Compute XP before death
-        let xp_gained = world
+        // Compute base XP before death
+        let base_xp = world
             .query_one::<&Level>(target)
             .ok()
             .and_then(|mut q| q.get().copied())
             .map(|l| (l.0 as u64).saturating_pow(2) * 50)
             .unwrap_or(0);
 
-        // Grant XP to attacker
-        let mut xp_updated = false;
-        if let Ok(mut q) = world.query_one::<&mut crate::Experience>(attacker) {
-            if let Some(xp) = q.get() {
-                xp.0 = xp.0.saturating_add(xp_gained);
-                xp_updated = true;
+        // Check if attacker is in a group and has members in the same room
+        let mut group_members_in_room = Vec::new();
+        let attacker_room = world
+            .query_one::<&Position>(attacker)
+            .ok()
+            .and_then(|mut q| q.get().map(|p| p.room));
+
+        if let Some(room) = attacker_room {
+            if let Ok(mut q_gm) = world.query_one::<&crate::GroupMember>(attacker) {
+                if let Some(gm) = q_gm.get() {
+                    let group_entity = gm.group_id;
+                    if let Ok(mut q_group) = world.query_one::<&crate::Group>(group_entity) {
+                        if let Some(group) = q_group.get() {
+                            for member_info in &group.members {
+                                if let Some(m_ent) = member_info.entity {
+                                    let m_room = world
+                                        .query_one::<&Position>(m_ent)
+                                        .ok()
+                                        .and_then(|mut q| q.get().map(|p| p.room));
+                                    if m_room == Some(room) {
+                                        group_members_in_room.push(m_ent);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        if xp_updated {
-            let _ = world.insert(attacker, (crate::Dirty,));
+
+        let mut xp_gained = 0;
+
+        if group_members_in_room.len() > 1 {
+            let n = group_members_in_room.len();
+            let group_bonus = 1.0 + 0.1 * (n as f32).min(5.0);
+            let total_xp = ((base_xp as f32) * group_bonus) as u64;
+            let xp_share = total_xp / (n as u64);
+
+            for member in group_members_in_room {
+                let penalty_mult = world
+                    .query_one::<&crate::components::MultiClassInfo>(member)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|mc| mc.xp_penalty_multiplier()))
+                    .unwrap_or(1.0);
+                let member_xp = ((xp_share as f32) * penalty_mult).round() as u64;
+
+                let mut xp_updated = false;
+                if let Ok(mut q) = world.query_one::<&mut crate::Experience>(member) {
+                    if let Some(xp) = q.get() {
+                        xp.0 = xp.0.saturating_add(member_xp);
+                        xp_updated = true;
+                    }
+                }
+                if xp_updated {
+                    let _ = world.insert(member, (crate::Dirty,));
+                }
+
+                if member == attacker {
+                    xp_gained = member_xp;
+                }
+            }
+        } else {
+            // Solo XP
+            let penalty_mult = world
+                .query_one::<&crate::components::MultiClassInfo>(attacker)
+                .ok()
+                .and_then(|mut q| q.get().map(|mc| mc.xp_penalty_multiplier()))
+                .unwrap_or(1.0);
+            xp_gained = ((base_xp as f32) * penalty_mult).round() as u64;
+
+            let mut xp_updated = false;
+            if let Ok(mut q) = world.query_one::<&mut crate::Experience>(attacker) {
+                if let Some(xp) = q.get() {
+                    xp.0 = xp.0.saturating_add(xp_gained);
+                    xp_updated = true;
+                }
+            }
+            if xp_updated {
+                let _ = world.insert(attacker, (crate::Dirty,));
+            }
         }
 
         let corpse = handle_death(world, target);
@@ -1039,7 +1163,14 @@ pub fn grant_xp(world: &mut World, attacker: Entity, victim: Entity) {
         .unwrap_or(Level(1))
         .0 as u64;
 
-    let xp_gain = victim_level.saturating_pow(2) * 50;
+    let mut xp_gain = victim_level.saturating_pow(2) * 50;
+
+    let penalty_mult = world
+        .query_one::<&crate::components::MultiClassInfo>(attacker)
+        .ok()
+        .and_then(|mut q| q.get().map(|mc| mc.xp_penalty_multiplier()))
+        .unwrap_or(1.0);
+    xp_gain = ((xp_gain as f32) * penalty_mult).round() as u64;
 
     if let Ok(mut q) = world.query_one::<&mut crate::Experience>(attacker) {
         if let Some(xp) = q.get() {

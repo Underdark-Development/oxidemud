@@ -1301,6 +1301,31 @@ pub fn load_learned_recipes_component(
     }
 }
 
+pub fn save_multiclass_component(
+    conn: &Connection,
+    entity_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_multiclass (entity_id, multiclass_json) VALUES (?1, ?2)",
+        params![entity_id, json],
+    )?;
+    Ok(())
+}
+
+pub fn load_multiclass_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT multiclass_json FROM components_multiclass WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1883,5 +1908,15 @@ mod tests {
         save_deity_component(&conn, eid, "solaris").unwrap();
         let deity = load_deity_component(&conn, eid).unwrap().unwrap();
         assert_eq!(deity, "solaris");
+    }
+
+    #[test]
+    fn test_save_and_load_multiclass() {
+        let conn = setup();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let test_json = r#"{"classes":[{"id":"warrior","level":5,"is_favored":true}]}"#;
+        save_multiclass_component(&conn, eid, test_json).unwrap();
+        let loaded = load_multiclass_component(&conn, eid).unwrap().unwrap();
+        assert_eq!(loaded, test_json);
     }
 }

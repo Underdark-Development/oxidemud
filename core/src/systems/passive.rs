@@ -212,6 +212,8 @@ mod tests {
                 starting_gold: crate::templates::WalletAmount::default(),
                 deity_policy: DeityPolicy::Any,
                 params: std::collections::HashMap::new(),
+                prestige: false,
+                prestige_gate: None,
             },
         );
         t

@@ -1904,6 +1904,8 @@ async fn finalize_character(
     };
     let age_comp = oxide_core::Age(age as u16);
     let deity_comp = oxide_core::Deity(flow.create_buffer.deity.clone());
+    let mut multiclass_info = oxide_core::MultiClassInfo::default();
+    multiclass_info.add_class(class_id.clone(), 1, true);
 
     let _ = world.insert(
         player,
@@ -1918,6 +1920,7 @@ async fn finalize_character(
             appearance,
             age_comp,
             deity_comp,
+            multiclass_info,
         ),
     );
 
@@ -2154,6 +2157,17 @@ async fn load_character(
         .map(|json| serde_json::from_str::<oxide_core::LearnedRecipes>(&json).unwrap_or_default())
         .unwrap_or_default();
 
+    let multiclass_json = oxide_data::load_multiclass_component(conn_db, entity_id)
+        .ok()
+        .flatten();
+    let multiclass_info = multiclass_json
+        .map(|json| serde_json::from_str::<oxide_core::MultiClassInfo>(&json).unwrap_or_default())
+        .unwrap_or_else(|| {
+            let mut mc = oxide_core::MultiClassInfo::default();
+            mc.add_class(char_row.class.clone(), char_row.level as u8, true);
+            mc
+        });
+
     // Load inventory
     let inv_rows = oxide_data::load_inventory(conn_db, entity_id).unwrap_or_default();
     let mut inventory = oxide_core::Inventory::new();
@@ -2360,11 +2374,18 @@ async fn load_character(
             PracticePoints(practice_points),
             combat_stats,
             appearance,
+        ),
+    );
+
+    let _ = world.insert(
+        player,
+        (
             age,
             deity,
             quest_log,
             faction_standing,
             learned_recipes,
+            multiclass_info,
         ),
     );
 
@@ -2443,6 +2464,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
         registry.classes.insert(warrior.id.clone(), warrior);
 
@@ -2626,6 +2649,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
         registry.classes.insert("warrior".to_string(), warrior);
 

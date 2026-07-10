@@ -1960,6 +1960,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
         registry.races.insert("human".to_string(), race);
         registry.classes.insert("warrior".to_string(), class);
@@ -2023,6 +2025,8 @@ mod tests {
             },
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
         registry.races.insert("human".to_string(), race);
         registry.classes.insert("warrior".to_string(), class);
@@ -2094,6 +2098,8 @@ mod tests {
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
             params: HashMap::new(),
+            prestige: false,
+            prestige_gate: None,
         };
         let item = ItemTemplate {
             id: "sword".to_string(),
@@ -2431,6 +2437,8 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            prestige: false,
+            prestige_gate: None,
         };
         let deity = DeityTemplate {
             id: "sol".to_string(),
@@ -2509,6 +2517,12 @@ mod tests {
             starting_items: vec![],
             starting_gold: WalletAmount::default(),
             deity_policy: DeityPolicy::Any,
+            prestige: true,
+            prestige_gate: Some(oxide_core::templates::PrestigeGate {
+                requires_class: std::collections::HashMap::from([("warrior".to_string(), 5)]),
+                requires_skills: std::collections::HashMap::from([("swordplay".to_string(), 5)]),
+                ..Default::default()
+            }),
         };
         registry.classes.insert("paladin".to_string(), class);
 

@@ -250,9 +250,14 @@ CREATE TABLE IF NOT EXISTS components_learned_recipes (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     recipes_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS components_multiclass (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    multiclass_json TEXT NOT NULL
+);
 ";
 
-pub const VERSION: i64 = 23;
+pub const VERSION: i64 = 24;
 
 #[cfg(test)]
 mod tests {
@@ -300,6 +305,7 @@ mod tests {
             "components_item",
             "components_level",
             "components_learned_recipes",
+            "components_multiclass",
             "components_mana",
             "components_npc",
             "components_player",
