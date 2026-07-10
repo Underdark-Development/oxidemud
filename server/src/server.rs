@@ -28,7 +28,7 @@ use oxide_core::{
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
 static MOTD: OnceLock<String> = OnceLock::new();
 pub(crate) static DB: OnceLock<Arc<Mutex<oxide_data::Database>>> = OnceLock::new();
-pub(crate) static TEMPLATES: OnceLock<Arc<TemplateRegistry>> = OnceLock::new();
+pub(crate) static TEMPLATES: OnceLock<std::sync::RwLock<Arc<TemplateRegistry>>> = OnceLock::new();
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
 pub(crate) static REGISTRY: OnceLock<Arc<Mutex<ConnectionRegistry>>> = OnceLock::new();
 static COMMANDS: OnceLock<Arc<CommandDispatch>> = OnceLock::new();
@@ -80,7 +80,13 @@ impl Server {
 
     pub fn with_templates(mut self, templates: TemplateRegistry) -> Self {
         let templates = Arc::new(templates);
-        let _ = TEMPLATES.set(templates.clone());
+        if let Some(lock) = TEMPLATES.get() {
+            if let Ok(mut guard) = lock.write() {
+                *guard = templates.clone();
+            }
+        } else {
+            let _ = TEMPLATES.set(std::sync::RwLock::new(templates.clone()));
+        }
         self.templates = Some(templates);
         self
     }
@@ -908,7 +914,7 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
             .query_one::<&oxide_core::Class>(entity)
             .ok()
             .and_then(|mut q| q.get().map(|c| c.0.clone()));
-        if let (Some(c_id), Some(t)) = (class_id, TEMPLATES.get()) {
+        if let (Some(c_id), Some(t)) = (class_id, get_templates()) {
             if let Some(class_template) = t.get_class(&c_id) {
                 let new_combat_stats = class_template.calculate_combat_stats(new_level);
                 let _ = world.insert(entity, (new_combat_stats,));
@@ -961,8 +967,8 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
         }
 
         // Re-apply passives on level-up
-        if let Some(templates) = TEMPLATES.get() {
-            oxide_core::systems::passive::apply_all_passives(world, entity, templates);
+        if let Some(templates) = get_templates() {
+            oxide_core::systems::passive::apply_all_passives(world, entity, &templates);
         }
     }
 
@@ -1000,7 +1006,7 @@ fn get_hit_die(world: &World, entity: Entity) -> i32 {
         .and_then(|mut q| q.get().map(|c| c.0.clone()));
 
     if let Some(c_id) = class_id {
-        if let Some(t) = TEMPLATES.get() {
+        if let Some(t) = get_templates() {
             if let Some(class_template) = t.get_class(&c_id) {
                 return class_template.hit_die as i32;
             }
@@ -1055,7 +1061,36 @@ pub fn get_db() -> Option<Arc<Mutex<oxide_data::Database>>> {
 
 /// Returns a clone of the template registry, if initialized.
 pub fn get_templates() -> Option<Arc<TemplateRegistry>> {
-    TEMPLATES.get().cloned()
+    TEMPLATES
+        .get()
+        .and_then(|lock| lock.read().ok().map(|g| g.clone()))
+}
+
+/// Mutates the active template registry in-memory.
+pub fn update_templates<F, R>(f: F) -> Result<R, String>
+where
+    F: FnOnce(&mut TemplateRegistry) -> R,
+{
+    let lock = TEMPLATES
+        .get()
+        .ok_or_else(|| "Template registry not initialized".to_string())?;
+    let mut guard = lock.write().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let mut registry_cloned = (**guard).clone();
+    let result = f(&mut registry_cloned);
+    *guard = Arc::new(registry_cloned);
+    Ok(result)
+}
+
+/// Initializes or replaces the active templates for tests.
+pub fn init_templates_for_test(templates: TemplateRegistry) {
+    let templates = Arc::new(templates);
+    if let Some(lock) = TEMPLATES.get() {
+        if let Ok(mut guard) = lock.write() {
+            *guard = templates;
+        }
+    } else {
+        let _ = TEMPLATES.set(std::sync::RwLock::new(templates));
+    }
 }
 
 /// Returns a clone of the world handle, if initialized.
@@ -1380,7 +1415,14 @@ mod tests {
             prestige_gate: None,
         };
         registry.classes.insert("warrior".to_string(), warrior);
-        let _ = TEMPLATES.set(Arc::new(registry));
+        let registry = Arc::new(registry);
+        if let Some(lock) = TEMPLATES.get() {
+            if let Ok(mut guard) = lock.write() {
+                *guard = registry;
+            }
+        } else {
+            let _ = TEMPLATES.set(std::sync::RwLock::new(registry));
+        }
     }
 
     #[test]

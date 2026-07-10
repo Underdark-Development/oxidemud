@@ -886,6 +886,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         commands::cmd_load,
     );
     server.register_command(
+        "@validate",
+        &[],
+        AccessLevel::Builder,
+        "Builder",
+        "Validate all templates or a specific area",
+        commands::cmd_validate,
+    );
+    server.register_command(
         "goto",
         &[],
         AccessLevel::Immortal,

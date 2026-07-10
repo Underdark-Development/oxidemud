@@ -37,10 +37,20 @@ pub fn spawn_area(
     // First pass: spawn all room entities
     for (room_id, room_tpl) in &area.rooms {
         let key = format!("{}:{room_id}", area.id);
+        let mut f_bits = 0;
+        for f in &room_tpl.flags {
+            match f.as_str() {
+                "portal_in" => f_bits |= oxide_core::ROOM_PORTAL_IN,
+                "portal_out" => f_bits |= oxide_core::ROOM_PORTAL_OUT,
+                "no_teleport_in" => f_bits |= oxide_core::ROOM_NO_TELEPORT_IN,
+                "no_teleport_out" => f_bits |= oxide_core::ROOM_NO_TELEPORT_OUT,
+                _ => {}
+            }
+        }
         let entity = world.spawn((
             Room::new(&room_tpl.name, &room_tpl.description).with_script(room_tpl.script.clone()),
-            oxide_core::RoomFlags::default(),
-            oxide_core::RoomKey(key),
+            oxide_core::RoomFlags(f_bits),
+            oxide_core::RoomKey(key.clone()),
             oxide_core::ScriptParams(room_tpl.params.clone()),
             oxide_core::RoomTags::new(room_tpl.flags.clone()),
         ));

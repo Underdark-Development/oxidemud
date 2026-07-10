@@ -2675,7 +2675,14 @@ mod tests {
         };
         registry.areas.insert("starting_vale".to_string(), area);
 
-        let _ = crate::server::TEMPLATES.set(Arc::new(registry));
+        let registry = Arc::new(registry);
+        if let Some(lock) = crate::server::TEMPLATES.get() {
+            if let Ok(mut guard) = lock.write() {
+                *guard = registry;
+            }
+        } else {
+            let _ = crate::server::TEMPLATES.set(std::sync::RwLock::new(registry));
+        }
 
         let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
         let account_id = {
