@@ -9726,7 +9726,10 @@ mod tests {
         assert!(all.contains("Strength:     18"));
     }
 
-    fn init_test_templates() {
+    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn init_test_templates() -> std::sync::MutexGuard<'static, ()> {
+        let guard = TEST_MUTEX.lock().unwrap();
         oxide_server::config::init(std::path::Path::new(""));
         let mut registry = core::templates::TemplateRegistry::new();
 
@@ -9814,11 +9817,12 @@ mod tests {
 
         let world = World::new();
         let _server = oxide_server::Server::new("127.0.0.1:0", world).with_templates(registry);
+        guard
     }
 
     #[test]
     fn test_pray_command() {
-        init_test_templates();
+        let _guard = init_test_templates();
 
         let (mut world, _void, room_a, _room_b) = test_world();
         let mut hp = core::Health::new(20);
@@ -9984,7 +9988,7 @@ mod tests {
 
     #[test]
     fn test_die_command() {
-        init_test_templates();
+        let _guard = init_test_templates();
         let (mut world, _void, room_a, _room_b) = test_world();
         let player = world.spawn((
             Position::new(room_a),
@@ -10393,7 +10397,7 @@ mod tests {
 
     #[test]
     fn test_two_handed_slot_restrictions() {
-        init_test_templates();
+        let _guard = init_test_templates();
 
         let (mut world, _void, room_a, _room_b) = test_world();
         let (player, mut conn, conn_reg) = test_player(&mut world, room_a);
@@ -10581,6 +10585,7 @@ mod tests {
 
     #[test]
     fn test_olc_commands_integration() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         let mut world = World::new();
         let mut conn = MockConnection::new();
         conn.set_access_level(core::AccessLevel::Builder);
