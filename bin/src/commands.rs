@@ -7585,8 +7585,8 @@ pub fn cmd_group(
                         };
 
                         conn.send_line(&format!(
-                            "  * {}{}{} - {}, {}, {}",
-                            m.name, role_str, role_str, hp_str, mn_str, st_str
+                            "  * {}{} - {}, {}, {}",
+                            m.name, role_str, hp_str, mn_str, st_str
                         ));
                     } else {
                         conn.send_line(&format!("  * {} (Offline)", m.name));
