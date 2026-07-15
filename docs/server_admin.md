@@ -81,11 +81,14 @@ docker exec -it oxide-server /app/bin/oxide-server --version
 
 ### 3. Ansible Automation Deployment
 
-For automated deployments, OxideMUD provides an Ansible playbook ([deploy.yml](file:///Users/therealklanni/Projects/oxidemud/ansible/deploy.yml)).
+For automated remote deployments from a local administrator machine, the distribution package includes an Ansible playbook ([deploy.yml](file:///Users/therealklanni/Projects/oxidemud/ansible/deploy.yml)). This playbook targets the precompiled binaries and assets contained within the unpacked package.
+
+> [!NOTE]
+> **Direct Host Deployments**: The Ansible playbook is designed to push deployment files from a local machine to a remote VPS. If the distribution archive is already uploaded and extracted directly on the target host VPS, you should **not** use the Ansible playbook. Instead, directly invoke `docker-compose up -d --build` (for Docker) or execute `./install.sh` (for host systemd) directly on the host VPS.
 
 #### Setup
 
-1. Copy the example configuration to `.env` in your workspace root or in the `ansible/` directory:
+1. Copy the example configuration to `.env` in the root of the unpacked distribution directory, or in the `ansible/` subdirectory:
    ```bash
    cp ansible/.env.example .env
    ```
@@ -98,15 +101,20 @@ For automated deployments, OxideMUD provides an Ansible playbook ([deploy.yml](f
 
 #### Run Deployment
 
-Execute the deployment using `just` or directly via `ansible-playbook`:
+Execute the deployment directly via `ansible-playbook`:
 
 ```bash
-just deploy-ansible
-# or
 ansible-playbook ansible/deploy.yml
 ```
 
-This playbook dynamically loads your `.env` connection details, packages the release locally, uploads it to the VPS, extracts it, and triggers the installer script remote.
+_(Note: If executing within the development workspace root, you can also run `just deploy-ansible`)._
+
+This playbook:
+
+1. Prompts you to confirm whether you want to deploy containerized via Docker (default: `yes`) or via host systemd services (`no`).
+2. Natively parses your connection settings from the `.env` file.
+3. Automatically copies the local precompiled binaries, templates, scripts, and container definitions to the remote VPS temporary folder `/tmp/oxide_deploy`.
+4. Executes remote installation steps and starts the server based on your selection.
 
 ### 4. CLI Command Options
 

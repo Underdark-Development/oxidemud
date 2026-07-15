@@ -18,23 +18,23 @@
 
     - name: Check if .env file exists in root directory
       ansible.builtin.stat:
-        path: "../.env"
+        path: "{{ playbook_dir }}/../.env"
       register: dotenv_root
 
     - name: Check if .env file exists in ansible directory
       ansible.builtin.stat:
-        path: ".env"
+        path: "{{ playbook_dir }}/.env"
       register: dotenv_ansible
       when: not dotenv_root.stat.exists
 
     - name: Set path to .env file
       ansible.builtin.set_fact:
-        dotenv_path: "{{ '../.env' if dotenv_root.stat.exists else 'env' }}"
-      when: dotenv_root.stat.exists or (dotenv_ansible is defined and dotenv_ansible.stat.exists)
+        dotenv_path: "{{ playbook_dir }}/../.env"
+      when: dotenv_root.stat.exists
 
     - name: Fallback to ansible/.env path if set
       ansible.builtin.set_fact:
-        dotenv_path: ".env"
+        dotenv_path: "{{ playbook_dir }}/.env"
       when: dotenv_path is not defined and dotenv_ansible is defined and dotenv_ansible.stat.exists
 
     - name: Fail if no .env file is found
@@ -87,43 +87,19 @@
   vars:
     use_docker: "{{ hostvars['localhost']['use_docker'] }}"
   tasks:
-    - name: Ensure target build folder exists locally
+    - name: Ensure target precompiled binaries directory exists locally
       delegate_to: localhost
       become: false
-      ansible.builtin.file:
-        path: "../target/release"
-        state: directory
-        mode: '0755'
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../bin"
+      register: local_bin_dir
 
-    - name: Package release tarball locally
-      delegate_to: localhost
-      become: false
-      ansible.builtin.command:
-        cmd: "just package"
-        chdir: "../"
-      register: package_out
-      changed_when: "'Package created successfully' in package_out.stdout"
-
-    - name: Locate package tarballs
-      delegate_to: localhost
-      become: false
-      ansible.builtin.find:
-        paths: "../target/release"
-        patterns: "oxide-v*.tar.gz"
-      register: tarballs
-
-    - name: Fail if no release tarball is found
+    - name: Fail if precompiled binaries are missing
       delegate_to: localhost
       become: false
       ansible.builtin.fail:
-        msg: "No release package found in target/release/ after compiling."
-      when: tarballs.matched == 0
-
-    - name: Identify the latest package tarball
-      delegate_to: localhost
-      become: false
-      ansible.builtin.set_fact:
-        latest_package: "{{ (tarballs.files | sort(attribute='mtime', reverse=true) | first).path }}"
+        msg: "Precompiled binaries directory 'bin/' not found. Please compile the binaries or run this script from the unpacked distribution package folder."
+      when: not local_bin_dir.stat.exists or not local_bin_dir.stat.isdir
 
     - name: Create temporary staging directory remote
       ansible.builtin.file:
@@ -131,17 +107,18 @@
         state: directory
         mode: '0755'
 
-    - name: Copy release package to remote VPS
+    - name: Copy deployment files to remote VPS
       ansible.builtin.copy:
-        src: "{{ latest_package }}"
-        dest: "/tmp/oxide_deploy/release.tar.gz"
-        mode: '0644'
-
-    - name: Unpack remote archive
-      ansible.builtin.unarchive:
-        src: "/tmp/oxide_deploy/release.tar.gz"
-        dest: "/tmp/oxide_deploy"
-        remote_src: true
+        src: "{{ playbook_dir }}/../{{ item.src }}"
+        dest: "/tmp/oxide_deploy/{{ item.dest }}"
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - { src: "bin/", dest: "bin/" }
+        - { src: "content/", dest: "content/" }
+        - { src: "install.sh", dest: "install.sh", mode: "0755" }
+        - { src: "Dockerfile", dest: "Dockerfile" }
+        - { src: "docker-compose.yml", dest: "docker-compose.yml" }
+        - { src: ".dockerignore", dest: ".dockerignore" }
 
     - name: Stop host systemd services if using Docker
       become: true

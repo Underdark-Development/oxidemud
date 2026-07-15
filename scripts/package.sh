@@ -146,6 +146,12 @@ if [ -f ".dockerignore" ]; then
     echo "  Added .dockerignore"
 fi
 
+# Copy Ansible playbooks for distribution
+if [ -d "ansible" ]; then
+    cp -r "ansible" "$STAGE_DIR/ansible"
+    echo "  Added ansible deployment files"
+fi
+
 # 5. Archive package (ZIP for Windows, TAR.GZ for Unix)
 IS_WINDOWS=false
 if [[ "$ARCHIVE_TARGET" == *"windows"* ]]; then
