@@ -198,6 +198,33 @@ impl Server {
     }
 }
 
+fn handle_negotiation(conn: &mut TelnetConnection, neg: crate::telnet::codec::Negotiation) {
+    use crate::telnet::codec::NegotiationAction;
+    use crate::telnet::constants;
+
+    match neg.action {
+        NegotiationAction::Will(constants::TERMINAL_TYPE) => {
+            conn.send_raw(&[
+                constants::IAC,
+                constants::SB,
+                constants::TERMINAL_TYPE,
+                constants::TELQUAL_SEND,
+                constants::IAC,
+                constants::SE,
+            ]);
+        }
+        NegotiationAction::Subneg(constants::TERMINAL_TYPE, params)
+            if !params.is_empty() && params[0] == constants::TELQUAL_IS =>
+        {
+            if let Ok(term) = std::str::from_utf8(&params[1..]) {
+                let term = term.trim().to_lowercase();
+                conn.set_terminal_type(term);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     conn_id: u64,
@@ -287,6 +314,39 @@ async fn handle_connection(
                 break;
             }
             Ok(_) => {
+                let negotiations = buf_reader.get_mut().take_negotiations();
+                if !negotiations.is_empty() {
+                    let mut world_lock = None;
+                    for neg in negotiations {
+                        if let crate::telnet::codec::NegotiationAction::Subneg(opt, ref params) =
+                            neg.action
+                        {
+                            if opt == crate::telnet::constants::NAWS && params.len() >= 4 {
+                                let width = ((params[0] as u16) << 8) | (params[1] as u16);
+                                conn.set_screen_width(width);
+                                if let Some(entity) = conn.entity() {
+                                    if world_lock.is_none() {
+                                        world_lock = Some(world.lock().await);
+                                    }
+                                    if let Some(ref mut w) = world_lock {
+                                        if let Ok(mut q) = w.query_one::<&mut Player>(entity) {
+                                            if let Some(player) = q.get() {
+                                                player.screen_width = width;
+                                            }
+                                        }
+                                        let _ = w.insert(entity, (oxide_core::Dirty,));
+                                    }
+                                }
+                            } else {
+                                handle_negotiation(&mut conn, neg);
+                            }
+                        } else {
+                            handle_negotiation(&mut conn, neg);
+                        }
+                    }
+                    drop(world_lock);
+                }
+
                 let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
                 if is_login_state && trimmed.len() > MAX_LOGIN_LINE_LENGTH {
                     conn.send_line("\r\nInput too long.");

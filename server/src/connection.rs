@@ -85,6 +85,13 @@ pub trait Connection: Send {
 
     fn set_screen_width(&mut self, _width: u16) {}
 
+    /// Player's terminal type if negotiated (e.g. "xterm-256color").
+    fn terminal_type(&self) -> Option<String> {
+        None
+    }
+
+    fn set_terminal_type(&mut self, _term_type: String) {}
+
     /// Enable or disable server-side echo via telnet IAC WILL/WONT ECHO.
     /// WILL ECHO = server echoes (client hides input) — used for passwords.
     /// WONT ECHO = client does local echo — used for normal gameplay.
@@ -114,6 +121,7 @@ pub struct TelnetConnection {
     flags: ConnectionFlags,
     screen_width: u16,
     access_level: AccessLevel,
+    terminal_type: Option<String>,
 }
 
 impl TelnetConnection {
@@ -126,6 +134,7 @@ impl TelnetConnection {
             flags: ConnectionFlags::new(),
             screen_width: 80,
             access_level: AccessLevel::Player,
+            terminal_type: None,
         };
         (conn, rx)
     }
@@ -138,6 +147,7 @@ impl TelnetConnection {
             flags: ConnectionFlags::new(),
             screen_width: 80,
             access_level: AccessLevel::Player,
+            terminal_type: None,
         }
     }
 }
@@ -197,6 +207,14 @@ impl Connection for TelnetConnection {
 
     fn set_screen_width(&mut self, width: u16) {
         self.screen_width = width;
+    }
+
+    fn terminal_type(&self) -> Option<String> {
+        self.terminal_type.clone()
+    }
+
+    fn set_terminal_type(&mut self, term_type: String) {
+        self.terminal_type = Some(term_type);
     }
 
     fn access_level(&self) -> AccessLevel {

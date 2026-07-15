@@ -20,6 +20,10 @@ pub mod constants {
     pub const MCCP1: u8 = 85;
     pub const MCCP2: u8 = 86;
     pub const MCCP3: u8 = 87;
+
+    // Subnegotiation parameter qualifiers
+    pub const TELQUAL_IS: u8 = 0;
+    pub const TELQUAL_SEND: u8 = 1;
 }
 
 pub mod codec;
@@ -57,12 +61,19 @@ pub fn negotiate_suppress_go_ahead() -> [u8; 3] {
 }
 
 /// Sent to every new connection: server won't echo (local echo on),
-/// server will suppress go-ahead (line-at-a-time mode).
-pub const INITIAL_NEGOTIATION: [u8; 6] = [
+/// server will suppress go-ahead (line-at-a-time mode), and asks for
+/// NAWS (window size) and TERMINAL_TYPE.
+pub const INITIAL_NEGOTIATION: [u8; 12] = [
     constants::IAC,
     constants::WONT,
     constants::ECHO,
     constants::IAC,
     constants::WILL,
     constants::SUPPRESS_GO_AHEAD,
+    constants::IAC,
+    constants::DO,
+    constants::NAWS,
+    constants::IAC,
+    constants::DO,
+    constants::TERMINAL_TYPE,
 ];

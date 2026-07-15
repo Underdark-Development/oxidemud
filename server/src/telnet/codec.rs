@@ -27,6 +27,7 @@ pub struct TelnetReader<R> {
     pending_len: usize,
     pending_pos: usize,
     negotiations: VecDeque<Negotiation>,
+    subneg_buf: Vec<u8>,
 }
 
 impl<R: AsyncRead + Unpin> TelnetReader<R> {
@@ -38,6 +39,7 @@ impl<R: AsyncRead + Unpin> TelnetReader<R> {
             pending_len: 0,
             pending_pos: 0,
             negotiations: VecDeque::new(),
+            subneg_buf: Vec::new(),
         }
     }
 
@@ -62,7 +64,10 @@ impl<R: AsyncRead + Unpin> TelnetReader<R> {
                     constants::WONT => self.state = State::GotWont,
                     constants::DO => self.state = State::GotDo,
                     constants::DONT => self.state = State::GotDont,
-                    constants::SB => self.state = State::Subneg,
+                    constants::SB => {
+                        self.subneg_buf.clear();
+                        self.state = State::Subneg;
+                    }
                     constants::IAC => {
                         // Escaped 0xFF
                         self.pending[self.pending_len] = b;
@@ -96,17 +101,28 @@ impl<R: AsyncRead + Unpin> TelnetReader<R> {
             State::Subneg => {
                 if b == constants::IAC {
                     self.state = State::SubnegGotIac;
+                } else {
+                    self.subneg_buf.push(b);
                 }
-                // otherwise ignore subnegotiation bytes
             }
             State::SubnegGotIac => {
                 if b == constants::SE {
                     self.state = State::Normal;
+                    if !self.subneg_buf.is_empty() {
+                        let opt = self.subneg_buf[0];
+                        let params = self.subneg_buf[1..].to_vec();
+                        self.negotiations.push_back(Negotiation {
+                            action: NegotiationAction::Subneg(opt, params),
+                        });
+                    }
                 } else if b == constants::IAC {
                     // Escaped IAC inside subnegotiation, stay in subneg
+                    self.subneg_buf.push(constants::IAC);
                     self.state = State::Subneg;
                 } else {
-                    // Wasn't SE, go back to subneg
+                    // Wasn't SE or escaped IAC, go back to subneg and treat the IAC as data
+                    self.subneg_buf.push(constants::IAC);
+                    self.subneg_buf.push(b);
                     self.state = State::Subneg;
                 }
             }
@@ -158,12 +174,13 @@ impl<R: AsyncRead + Unpin> AsyncRead for TelnetReader<R> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NegotiationAction {
     Will(u8),
     Wont(u8),
     Do(u8),
     Dont(u8),
+    Subneg(u8, Vec<u8>),
 }
 
 /// Represents a single telnet negotiation received from the client.
@@ -174,14 +191,20 @@ pub struct Negotiation {
 }
 
 /// Build raw IAC negotiation bytes to send to the client.
-pub fn build_negotiation(action: NegotiationAction) -> [u8; 3] {
-    let (cmd, option) = match action {
-        NegotiationAction::Will(o) => (constants::WILL, o),
-        NegotiationAction::Wont(o) => (constants::WONT, o),
-        NegotiationAction::Do(o) => (constants::DO, o),
-        NegotiationAction::Dont(o) => (constants::DONT, o),
-    };
-    [constants::IAC, cmd, option]
+pub fn build_negotiation(action: NegotiationAction) -> Vec<u8> {
+    match action {
+        NegotiationAction::Will(o) => vec![constants::IAC, constants::WILL, o],
+        NegotiationAction::Wont(o) => vec![constants::IAC, constants::WONT, o],
+        NegotiationAction::Do(o) => vec![constants::IAC, constants::DO, o],
+        NegotiationAction::Dont(o) => vec![constants::IAC, constants::DONT, o],
+        NegotiationAction::Subneg(o, params) => {
+            let mut v = vec![constants::IAC, constants::SB, o];
+            v.extend_from_slice(&params);
+            v.push(constants::IAC);
+            v.push(constants::SE);
+            v
+        }
+    }
 }
 
 #[cfg(test)]
@@ -287,5 +310,80 @@ mod tests {
         line.clear();
         buf_reader.read_line(&mut line).await.unwrap();
         assert_eq!(line, "third line\n");
+    }
+
+    #[tokio::test]
+    async fn test_naws_subnegotiation_parsing() {
+        // IAC SB NAWS 0 80 0 24 IAC SE followed by text
+        let mut input = Vec::new();
+        input.extend_from_slice(&[255, 250, 31, 0, 80, 0, 24, 255, 240]);
+        input.extend_from_slice(b"hello\n");
+        let mut reader = TelnetReader::new(&input[..]);
+        let mut output = String::new();
+        tokio::io::BufReader::new(&mut reader)
+            .read_line(&mut output)
+            .await
+            .unwrap();
+        assert_eq!(output, "hello\n");
+
+        let negotiations = reader.take_negotiations();
+        assert_eq!(negotiations.len(), 1);
+        match &negotiations[0].action {
+            NegotiationAction::Subneg(31, params) => {
+                assert_eq!(params, &vec![0, 80, 0, 24]);
+            }
+            other => panic!("expected Subneg(31, [0, 80, 0, 24]), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_terminal_type_subnegotiation_parsing() {
+        // IAC SB TERMINAL_TYPE IS xterm-256color IAC SE
+        let mut input = Vec::new();
+        input.extend_from_slice(&[255, 250, 24, 0]);
+        input.extend_from_slice(b"xterm-256color");
+        input.extend_from_slice(&[255, 240]);
+        input.extend_from_slice(b"cmd\n");
+        let mut reader = TelnetReader::new(&input[..]);
+        let mut output = String::new();
+        tokio::io::BufReader::new(&mut reader)
+            .read_line(&mut output)
+            .await
+            .unwrap();
+        assert_eq!(output, "cmd\n");
+
+        let negotiations = reader.take_negotiations();
+        assert_eq!(negotiations.len(), 1);
+        match &negotiations[0].action {
+            NegotiationAction::Subneg(24, params) => {
+                assert_eq!(params[0], 0);
+                assert_eq!(std::str::from_utf8(&params[1..]).unwrap(), "xterm-256color");
+            }
+            other => panic!("expected Subneg(24, ...), got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_subnegotiation_with_escaped_iac() {
+        // IAC SB 99 1 2 255 255 3 IAC SE followed by text
+        let mut input = Vec::new();
+        input.extend_from_slice(&[255, 250, 99, 1, 2, 255, 255, 3, 255, 240]);
+        input.extend_from_slice(b"done\n");
+        let mut reader = TelnetReader::new(&input[..]);
+        let mut output = String::new();
+        tokio::io::BufReader::new(&mut reader)
+            .read_line(&mut output)
+            .await
+            .unwrap();
+        assert_eq!(output, "done\n");
+
+        let negotiations = reader.take_negotiations();
+        assert_eq!(negotiations.len(), 1);
+        match &negotiations[0].action {
+            NegotiationAction::Subneg(99, params) => {
+                assert_eq!(params, &vec![1, 2, 255, 3]);
+            }
+            other => panic!("expected Subneg(99, [1, 2, 255, 3]), got {:?}", other),
+        }
     }
 }
