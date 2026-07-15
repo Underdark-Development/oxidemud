@@ -1,0 +1,154 @@
+---
+# OxideMUD Ansible Deployment Playbook
+# Dynamically parses connection details from .env and deploys precompiled binaries.
+
+- name: Load Connection Details and Configure Inventory
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Check if .env file exists in root directory
+      ansible.builtin.stat:
+        path: "../.env"
+      register: dotenv_root
+
+    - name: Check if .env file exists in ansible directory
+      ansible.builtin.stat:
+        path: ".env"
+      register: dotenv_ansible
+      when: not dotenv_root.stat.exists
+
+    - name: Set path to .env file
+      ansible.builtin.set_fact:
+        dotenv_path: "{{ '../.env' if dotenv_root.stat.exists else 'env' }}"
+      when: dotenv_root.stat.exists or (dotenv_ansible is defined and dotenv_ansible.stat.exists)
+
+    - name: Fallback to ansible/.env path if set
+      ansible.builtin.set_fact:
+        dotenv_path: ".env"
+      when: dotenv_path is not defined and dotenv_ansible is defined and dotenv_ansible.stat.exists
+
+    - name: Fail if no .env file is found
+      ansible.builtin.fail:
+        msg: "No connection configuration file found. Copy ansible/.env.example to .env in root or ansible/."
+      when: dotenv_path is not defined
+
+    - name: Read .env file content
+      ansible.builtin.slurp:
+        src: "{{ dotenv_path }}"
+      register: dotenv_raw
+
+    - name: Parse environment variables
+      ansible.builtin.set_fact:
+        dotenv_vars: "{{ dotenv_vars | default({}) | combine({ item.split('=', 1)[0] | trim: item.split('=', 1)[1] | trim }) }}"
+      loop: "{{ (dotenv_raw['content'] | b64decode).splitlines() }}"
+      when:
+        - item | trim is not none
+        - item | trim != ''
+        - not item.startswith('#')
+        - "'=' in item"
+
+    - name: Validate connection parameters
+      ansible.builtin.fail:
+        msg: "Missing required parameter '{{ item }}' in .env configuration."
+      loop:
+        - VPS_HOST
+        - VPS_USER
+        - VPS_PORT
+        - VPS_KEY_PATH
+      when: dotenv_vars[item] is not defined or dotenv_vars[item] == ''
+
+    - name: Define host in in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ dotenv_vars.VPS_HOST }}"
+        groups: remote_vps
+        ansible_user: "{{ dotenv_vars.VPS_USER }}"
+        ansible_port: "{{ dotenv_vars.VPS_PORT | int }}"
+        ansible_ssh_private_key_file: "{{ dotenv_vars.VPS_KEY_PATH }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+        # Configs passed as host variables
+        install_dir: "{{ dotenv_vars.INSTALL_DIR | default('/opt/oxide') }}"
+        run_as_user: "{{ dotenv_vars.RUN_AS_USER | default('oxide') }}"
+        install_game_service: "{{ dotenv_vars.INSTALL_GAME_SERVICE | default('true') | bool }}"
+        install_mcp_service: "{{ dotenv_vars.INSTALL_MCP_SERVICE | default('true') | bool }}"
+
+- name: Package and Deploy to Remote VPS
+  hosts: remote_vps
+  gather_facts: true
+  tasks:
+    - name: Ensure target build folder exists locally
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: "../target/release"
+        state: directory
+        mode: '0755'
+
+    - name: Package release tarball locally
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command:
+        cmd: "just package"
+        chdir: "../"
+      register: package_out
+      changed_when: "'Package created successfully' in package_out.stdout"
+
+    - name: Locate package tarballs
+      delegate_to: localhost
+      become: false
+      ansible.builtin.find:
+        paths: "../target/release"
+        patterns: "oxide-v*.tar.gz"
+      register: tarballs
+
+    - name: Fail if no release tarball is found
+      delegate_to: localhost
+      become: false
+      ansible.builtin.fail:
+        msg: "No release package found in target/release/ after compiling."
+      when: tarballs.matched == 0
+
+    - name: Identify the latest package tarball
+      delegate_to: localhost
+      become: false
+      ansible.builtin.set_fact:
+        latest_package: "{{ (tarballs.files | sort(attribute='mtime', reverse=true) | first).path }}"
+
+    - name: Create temporary staging directory remote
+      ansible.builtin.file:
+        path: "/tmp/oxide_deploy"
+        state: directory
+        mode: '0755'
+
+    - name: Copy release package to remote VPS
+      ansible.builtin.copy:
+        src: "{{ latest_package }}"
+        dest: "/tmp/oxide_deploy/release.tar.gz"
+        mode: '0644'
+
+    - name: Unpack remote archive
+      ansible.builtin.unarchive:
+        src: "/tmp/oxide_deploy/release.tar.gz"
+        dest: "/tmp/oxide_deploy"
+        remote_src: true
+
+    - name: Run Remote installer
+      become: true
+      ansible.builtin.command:
+        cmd: >
+          ./install.sh
+          --install-dir "{{ install_dir }}"
+          --user "{{ run_as_user }}"
+          --install-game-service "{{ install_game_service | string | lower }}"
+          --install-mcp-service "{{ install_mcp_service | string | lower }}"
+        chdir: "/tmp/oxide_deploy"
+      register: installer_out
+      changed_when: true
+
+    - name: Output installation details
+      ansible.builtin.debug:
+        var: installer_out.stdout_lines
+
+    - name: Remote cleanup
+      ansible.builtin.file:
+        path: "/tmp/oxide_deploy"
+        state: absent

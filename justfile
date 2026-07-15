@@ -25,6 +25,10 @@ deploy host port="22" *args="":
     chmod +x scripts/deploy.sh scripts/package.sh scripts/install.sh
     ./scripts/deploy.sh {{ host }} {{ port }} {{ args }}
 
+# Deploy the packaged release to a remote VPS using Ansible (loads connection details from .env)
+deploy-ansible *args="":
+    ansible-playbook ansible/deploy.yml {{ args }}
+
 
 # ─── Server ─────────────────────────────────────────────────────────
 

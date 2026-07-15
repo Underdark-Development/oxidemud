@@ -79,7 +79,36 @@ To execute temporary commands or inspect the environment of a running container:
 docker exec -it oxide-server /app/bin/oxide-server --version
 ```
 
-### 3. CLI Command Options
+### 3. Ansible Automation Deployment
+
+For automated deployments, OxideMUD provides an Ansible playbook ([deploy.yml](file:///Users/therealklanni/Projects/oxidemud/ansible/deploy.yml)).
+
+#### Setup
+
+1. Copy the example configuration to `.env` in your workspace root or in the `ansible/` directory:
+   ```bash
+   cp ansible/.env.example .env
+   ```
+2. Open `.env` and fill in your VPS connection details:
+   - `VPS_HOST` — Remote host IP or domain.
+   - `VPS_USER` — Remote SSH username (e.g. `root`).
+   - `VPS_PORT` — SSH port (default: `22`).
+   - `VPS_KEY_PATH` — Path to your SSH private key.
+   - `INSTALL_DIR` / `RUN_AS_USER` — Destination directory and service owner.
+
+#### Run Deployment
+
+Execute the deployment using `just` or directly via `ansible-playbook`:
+
+```bash
+just deploy-ansible
+# or
+ansible-playbook ansible/deploy.yml
+```
+
+This playbook dynamically loads your `.env` connection details, packages the release locally, uploads it to the VPS, extracts it, and triggers the installer script remote.
+
+### 4. CLI Command Options
 
 You can customize the server behavior at launch using the following command-line flags:
 
@@ -101,7 +130,7 @@ Startup configuration parameters are applied in the following order of precedenc
 3. **Configuration File** (`content/server.toml`)
 4. **Built-in Defaults**
 
-### 4. Deployment & Host Environment Considerations
+### 5. Deployment & Host Environment Considerations
 
 #### Host Firewall Configuration
 
