@@ -81,7 +81,7 @@
         install_game_service: "{{ dotenv_vars.INSTALL_GAME_SERVICE | default('true') | bool }}"
         install_mcp_service: "{{ dotenv_vars.INSTALL_MCP_SERVICE | default('true') | bool }}"
 
-- name: Deploy Precompiled Release to Remote VPS
+- name: Deploy to Remote VPS
   hosts: remote_vps
   gather_facts: true
   vars:
