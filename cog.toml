@@ -13,3 +13,7 @@ revert = { changelog_title = "Reverts" }
 [changelog]
 path = "CHANGELOG.md"
 template = "default"
+
+pre_bump_hooks = [
+    "bash scripts/pre_bump.sh {{version}}"
+]
