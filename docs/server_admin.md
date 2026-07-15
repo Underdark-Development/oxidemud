@@ -6,13 +6,50 @@ This guide is intended for server administrators, systems engineers, and game ow
 
 ## Starting the Server
 
-The server binary is compile-run via Cargo or executed directly from target release builds:
+The server is distributed as a precompiled executable (`oxide-bin`).
+
+### 1. Direct Execution
+Execute the server binary directly from the installation path:
 
 ```bash
-cargo run --bin oxide-bin [options]
+./bin/oxide-bin [options]
 ```
 
-### CLI Command Options
+### 2. Docker Compose Deployment (Recommended)
+OxideMUD can be run in containerized environments using Docker and Docker Compose. The distribution package includes both a `Dockerfile` and a `docker-compose.yml` preconfigured for this setup.
+
+#### File Layout & Volumes
+The container configuration maps files on the host filesystem directly to the container to ensure persistence of your database and custom configurations:
+*   `./content/` (mapped to `/app/content`) — Game configuration files, example templates, and scripts.
+*   `./data/` (mapped to `/app/data`) — The folder where the SQLite database (`oxide.db`) and backups are saved.
+
+#### Build & Launch
+To build the Docker image and start the server in the background:
+```bash
+docker-compose up -d --build
+```
+This automatically builds the container using the precompiled binary, binds the MUD telnet port `4000` to the host, mounts the host's `./content` and `./data` folders, and configures the container to auto-restart on crashes or VPS reboots.
+
+#### Stopping the Server
+To stop the server:
+```bash
+docker-compose down
+```
+The game engine gracefully handles the `SIGTERM` signal sent by Docker to execute a graceful shutdown, flushing all dirty in-memory database states to the SQLite database, and checkpointing the WAL journal.
+
+#### Viewing Logs
+To check the running server logs:
+```bash
+docker-compose logs -f oxide-server
+```
+
+#### Running Game Commands in Docker
+To execute temporary commands or inspect the environment of a running container:
+```bash
+docker exec -it oxide-server /app/bin/oxide-bin --version
+```
+
+### 3. CLI Command Options
 
 You can customize the server behavior at launch using the following command-line flags:
 

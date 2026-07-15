@@ -1,0 +1,27 @@
+# Ignore local build artifacts
+target/
+
+# Ignore version control files
+.git/
+.gitignore
+
+# Ignore local databases and transaction files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Ignore development configs & environments
+.idea/
+.vscode/
+.env
+*.log
+
+# Ignore documentation & design specs not needed for compilation
+docs/
+ARCHITECTURE.md
+AGENTS.md
+README.md
+CHANGELOG.md

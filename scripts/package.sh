@@ -130,6 +130,22 @@ if [ -f "scripts/install.ps1" ]; then
     echo "  Added install.ps1 script"
 fi
 
+# Copy Docker configurations for distribution
+if [ -f "Dockerfile" ]; then
+    cp "Dockerfile" "$STAGE_DIR/Dockerfile"
+    echo "  Added Dockerfile"
+fi
+
+if [ -f "docker-compose.yml" ]; then
+    cp "docker-compose.yml" "$STAGE_DIR/docker-compose.yml"
+    echo "  Added docker-compose.yml"
+fi
+
+if [ -f ".dockerignore" ]; then
+    cp ".dockerignore" "$STAGE_DIR/.dockerignore"
+    echo "  Added .dockerignore"
+fi
+
 # 5. Archive package (ZIP for Windows, TAR.GZ for Unix)
 IS_WINDOWS=false
 if [[ "$ARCHIVE_TARGET" == *"windows"* ]]; then

@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  oxide-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: oxide-server:latest
+    container_name: oxide-server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./content:/app/content
+      - ./data:/app/data
