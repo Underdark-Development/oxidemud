@@ -1418,6 +1418,7 @@ name = "oxide-data"
 version = "0.2.0"
 dependencies = [
  "argon2",
+ "chrono",
  "oxide-core",
  "rand_core 0.6.4",
  "rusqlite",

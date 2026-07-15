@@ -429,6 +429,111 @@ impl Database {
         Ok(())
     }
 
+    pub fn run_backup(&self, backup_dir: impl AsRef<Path>) -> Result<(), rusqlite::Error> {
+        if let Err(_e) = std::fs::create_dir_all(&backup_dir) {
+            return Err(rusqlite::Error::InvalidPath(
+                backup_dir.as_ref().to_path_buf(),
+            ));
+        }
+
+        let now = chrono::Local::now();
+        let filename = format!("backup_{}.db", now.format("%Y%m%d_%H%M%S"));
+        let backup_path = backup_dir.as_ref().join(filename);
+
+        let mut dest_conn = Connection::open(&backup_path)?;
+        dest_conn.execute_batch("PRAGMA journal_mode = WAL;")?;
+
+        let backup = rusqlite::backup::Backup::new(&self.conn, &mut dest_conn)?;
+        backup.run_to_completion(5, std::time::Duration::from_millis(50), None)?;
+
+        self.prune_backups(&backup_dir)?;
+
+        Ok(())
+    }
+
+    pub fn prune_backups(&self, backup_dir: impl AsRef<Path>) -> Result<(), rusqlite::Error> {
+        use chrono::Datelike;
+
+        let entries = std::fs::read_dir(&backup_dir)
+            .map_err(|_| rusqlite::Error::InvalidPath(backup_dir.as_ref().to_path_buf()))?;
+
+        struct BackupFile {
+            path: std::path::PathBuf,
+            date: chrono::NaiveDate,
+            filename: String,
+        }
+
+        let mut backups = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                let filename = path
+                    .file_name()
+                    .and_then(|f| f.to_str())
+                    .map(|s| s.to_string());
+                if let Some(filename) = filename {
+                    if filename.starts_with("backup_")
+                        && filename.ends_with(".db")
+                        && filename.len() == 25
+                    {
+                        let date_part = &filename[7..15];
+                        if let Ok(date) = chrono::NaiveDate::parse_from_str(date_part, "%Y%m%d") {
+                            backups.push(BackupFile {
+                                path,
+                                date,
+                                filename,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        backups.sort_by_key(|b| b.date);
+
+        let mut daily_groups = std::collections::HashMap::new();
+        for b in &backups {
+            daily_groups.insert(b.date, b.path.clone());
+        }
+
+        let mut daily_dates: Vec<chrono::NaiveDate> = daily_groups.keys().copied().collect();
+        daily_dates.sort();
+        let daily_to_keep: std::collections::HashSet<std::path::PathBuf> = daily_dates
+            .iter()
+            .rev()
+            .take(7)
+            .map(|d| daily_groups.get(d).unwrap().clone())
+            .collect();
+
+        let mut weekly_groups = std::collections::HashMap::new();
+        for b in &backups {
+            let week = b.date.iso_week();
+            let key = (week.year(), week.week());
+            weekly_groups.insert(key, b.path.clone());
+        }
+
+        let mut weekly_keys: Vec<(i32, u32)> = weekly_groups.keys().copied().collect();
+        weekly_keys.sort();
+        let weekly_to_keep: std::collections::HashSet<std::path::PathBuf> = weekly_keys
+            .iter()
+            .rev()
+            .take(4)
+            .map(|k| weekly_groups.get(k).unwrap().clone())
+            .collect();
+
+        for b in &backups {
+            if !daily_to_keep.contains(&b.path) && !weekly_to_keep.contains(&b.path) {
+                if let Err(e) = std::fs::remove_file(&b.path) {
+                    tracing::error!("Failed to delete old backup {}: {}", b.filename, e);
+                } else {
+                    tracing::info!("Pruned old backup: {}", b.filename);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn conn(&self) -> &Connection {
         &self.conn
     }
@@ -536,5 +641,85 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(points, 30);
+    }
+
+    #[test]
+    fn test_run_migrations_new_db() {
+        let db = Database::open_in_memory().unwrap();
+        let version: i64 = db
+            .conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, schema::VERSION);
+    }
+
+    #[test]
+    fn test_database_backup_and_pruning() {
+        // Create a temporary directory in workspace for backups
+        let temp_dir = std::env::current_dir().unwrap().join("temp_backups_test");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).unwrap();
+        }
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let db = Database::open_in_memory().unwrap();
+
+        // 1. Verify hot backup can run to completion
+        db.run_backup(&temp_dir).unwrap();
+
+        // Count files created by run_backup
+        let backup_files_count = std::fs::read_dir(&temp_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_str().unwrap().starts_with("backup_"))
+            .count();
+        assert!(backup_files_count >= 1);
+
+        // Clear the directory to start with a clean slate for pruning test
+        for entry in std::fs::read_dir(&temp_dir).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::remove_file(entry.path()).unwrap();
+        }
+
+        // 2. Generate dummy backup files to verify daily/weekly retention
+        let base_date = chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        for offset in 0..15 {
+            let date = base_date + chrono::Duration::days(offset);
+            let filename = format!("backup_{}_120000.db", date.format("%Y%m%d"));
+            let file_path = temp_dir.join(&filename);
+            std::fs::write(&file_path, b"dummy").unwrap();
+        }
+
+        // Run pruning
+        db.prune_backups(&temp_dir).unwrap();
+
+        let mut remaining: Vec<String> = std::fs::read_dir(&temp_dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        remaining.sort();
+
+        let expected = vec![
+            "backup_20260705_120000.db",
+            "backup_20260709_120000.db",
+            "backup_20260710_120000.db",
+            "backup_20260711_120000.db",
+            "backup_20260712_120000.db",
+            "backup_20260713_120000.db",
+            "backup_20260714_120000.db",
+            "backup_20260715_120000.db",
+        ];
+
+        let test_dummies: Vec<String> = remaining
+            .into_iter()
+            .filter(|f| f.contains("120000"))
+            .collect();
+
+        assert_eq!(test_dummies, expected);
+
+        // Clean up
+        std::fs::remove_dir_all(&temp_dir).unwrap();
     }
 }

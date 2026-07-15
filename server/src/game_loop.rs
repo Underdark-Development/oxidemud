@@ -36,6 +36,7 @@ pub fn spawn_game_loop(
         let mut player_state_tick = interval(Duration::from_millis(250));
         let mut last_player_state_tick = Instant::now();
         let mut skill_decay_tick = interval(Duration::from_secs(1));
+        let mut last_backup = Instant::now();
 
         loop {
             tokio::select! {
@@ -199,6 +200,32 @@ pub fn spawn_game_loop(
                     }
                     let retention = crate::config::get().logging.retention_days;
                     crate::config::prune_old_logs(retention);
+
+                    if last_backup.elapsed() >= Duration::from_secs(3600) {
+                        last_backup = Instant::now();
+                        if let Some(ref db_mutex) = db {
+                            let db_clone = db_mutex.clone();
+                            tokio::spawn(async move {
+                                let backup_dir = "data/backups";
+                                match tokio::task::spawn_blocking(move || {
+                                    let db_guard = db_clone.blocking_lock();
+                                    db_guard.run_backup(backup_dir)
+                                })
+                                .await
+                                {
+                                    Ok(Ok(())) => {
+                                        tracing::info!("Database backup completed successfully.");
+                                    }
+                                    Ok(Err(e)) => {
+                                        tracing::error!("Backup failed: {e}");
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Backup thread panicked: {e}");
+                                    }
+                                }
+                            });
+                        }
+                    }
                 }
                 _ = set_bonus_tick.tick() => {
                     let mut w = world.lock().await;
