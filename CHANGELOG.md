@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.2.0 - 2026-07-15
+#### Features
+- (**meta**) make release compile for macOS, Linux, and Windows using Zig cross-compilation - (e90d125) - Kevin Lanni
+
+- - -
+
 ## 0.1.0 - 2026-07-15
 #### Features
 - (**account**) complete character wizard with deity, appearance, age, and pray command - (ae868cc) - Kevin Lanni
