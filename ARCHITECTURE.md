@@ -228,30 +228,32 @@ Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources disp
 
 ```
 RoomState: Normal, UnderConstruction, Locked, EventActive { event_id }, Destroyed
-## State Machine: CombatState
 ```
 
+## State Machine: CombatState
+
+```
 CombatState:
 NotInCombat → { attacked } → Engaged
 Engaged → { flee } → Fleeing
 Engaged → { target_dead / target_unconscious } → NotInCombat / TargetSwitch
 Fleeing → { success } → NotInCombat
 Fleeing → { failed } → Engaged
-
 ```
+
 `CombatSystem` dispatches on `CombatState` each pulse. `CombatStateChanged { entity, from, to }` emitted on every transition. When an entity falls unconscious or dies, any active combatants targeting them in the same room switch targets immediately to the next conscious entity currently targeting them.
 
 ## State Machine: NPC AI
 
-| From \ To | Idle | Wander | Patrol | Aggro | Combat | Flee | Return |
-|---|---|---|---|---|---|---|---|
-| Idle | — | timer | timer | aggro_check | — | — | — |
-| Wander | timer | — | timer | aggro_check | — | — | — |
-| Patrol | timer | timer | — | aggro_check | — | — | — |
-| Aggro | — | — | — | — | in_range | — | — |
-| Combat | — | — | — | — | — | hp<25% | target_dead |
-| Flee | — | — | — | — | cornered | — | dist>safe |
-| Return | — | reached_home | reached_home | — | — | — | — |
+| From \ To | Idle  | Wander       | Patrol       | Aggro       | Combat   | Flee   | Return      |
+| --------- | ----- | ------------ | ------------ | ----------- | -------- | ------ | ----------- |
+| Idle      | —     | timer        | timer        | aggro_check | —        | —      | —           |
+| Wander    | timer | —            | timer        | aggro_check | —        | —      | —           |
+| Patrol    | timer | timer        | —            | aggro_check | —        | —      | —           |
+| Aggro     | —     | —            | —            | —           | in_range | —      | —           |
+| Combat    | —     | —            | —            | —           | —        | hp<25% | target_dead |
+| Flee      | —     | —            | —            | —           | cornered | —      | dist>safe   |
+| Return    | —     | reached_home | reached_home | —           | —        | —      | —           |
 
 `AISystem` ticks each NPC on Combat phase. Emits `AiStateChanged { entity, from, to }` per transition. Configuration (such as `ai_mode`, `patrol_route`, and wander settings) is loaded from the mob template. Aggro configurations are stored on the `Npc` component. Post-combat transitions are fully implemented: when a combat target is dead, the NPC transitions back to `Return` state (to return home) and then resumes `Patrol`, `Wander`, or `Idle` behavior.
 
@@ -264,6 +266,7 @@ The core combat formulas, including the attack flow, to-hit checks, defense/Armo
 ### Weapon Styles
 
 The following weapon style mechanics are implemented:
+
 - **Two-handed weapon speed**: Two-handed weapons have a 1.2x speed modifier (exposed via `effective_speed()`). Wielding one automatically unequips the shield/off-hand slot, and equipping to the shield slot is blocked.
 - **Ambidexterity skill**: The ambidexterity skill halves the dual-wield hit penalties (halving the primary hand -2 and off-hand -4 penalties to -1 and -2, respectively).
 
@@ -291,13 +294,13 @@ Groups managed by `GroupManager` resource. Each group has a leader, members, loo
 
 ### Formations
 
-| Formation | Effect | Min |
-|---|---|---|
-| `Line` | +1 AC front / −1 AC back | 2 |
-| `Scattered` | −2 AC, +10% dodge | 2 |
-| `Column` | +1 damage first hit | 3 |
-| `Wedge` | +2 attack, −4 AC leader | 3 |
-| `Shield Wall` | +2 AC, −2 attack (shield req) | 2 |
+| Formation     | Effect                        | Min |
+| ------------- | ----------------------------- | --- |
+| `Line`        | +1 AC front / −1 AC back      | 2   |
+| `Scattered`   | −2 AC, +10% dodge             | 2   |
+| `Column`      | +1 damage first hit           | 3   |
+| `Wedge`       | +2 attack, −4 AC leader       | 3   |
+| `Shield Wall` | +2 AC, −2 attack (shield req) | 2   |
 
 Applied by `FormationSystem` as `ActiveEffect` components. Disconnect: leader transfers to longest-standing member; 60s grace; GroupCleanupSystem sweeps stale.
 
@@ -329,6 +332,7 @@ future `use`/`cast`) are resolved against both `SkillDef.id` and
 `SkillDef.name` via `TemplateRegistry::resolve_skill(input, pool)`.
 
 Resolution priority:
+
 1. **Exact match** on id or name — immediate return
 2. **Unique prefix match** on id — return the matching skill
 3. **Unique prefix match** on name — return the matching skill
@@ -349,15 +353,15 @@ Resolution is case-insensitive. If the template registry is unavailable
 
 ### Type-Specific Behavior
 
-| Type | Resource | Extra checks |
-|---|---|---|
-| combat | Stamina | Must be fighting or `use_while_fighting` |
-| magic | Mana | Concentration check, component check |
-| tech | Energy | Hardware focus in inventory/equipped |
-| psionics | Psi | Risk roll (backlash chance) |
-| craft | Stamina | Station in room, materials consumed |
-| social | None | — |
-| general | None/Stamina | — |
+| Type     | Resource     | Extra checks                             |
+| -------- | ------------ | ---------------------------------------- |
+| combat   | Stamina      | Must be fighting or `use_while_fighting` |
+| magic    | Mana         | Concentration check, component check     |
+| tech     | Energy       | Hardware focus in inventory/equipped     |
+| psionics | Psi          | Risk roll (backlash chance)              |
+| craft    | Stamina      | Station in room, materials consumed      |
+| social   | None         | —                                        |
+| general  | None/Stamina | —                                        |
 
 ### Skill Caps & Training
 
@@ -423,28 +427,28 @@ Template with `prestige = true` + `[prestige_gate]`. Gates: requires_class, requ
 
 ### XP Sources
 
-| Source | Formula |
-|---|---|
-| Kill mob | `victim.level² × 50 × xp_multiplier` |
-| Quest reward | Per-quest definition |
-| Explore room | `5 × room.level` (first discovery) |
-| Craft item | `item.level² × 10` |
-| Group bonus | +10%/member (max +50%) |
-| Danger bonus | +25% for aggro mobs |
+| Source       | Formula                              |
+| ------------ | ------------------------------------ |
+| Kill mob     | `victim.level² × 50 × xp_multiplier` |
+| Quest reward | Per-quest definition                 |
+| Explore room | `5 × room.level` (first discovery)   |
+| Craft item   | `item.level² × 10`                   |
+| Group bonus  | +10%/member (max +50%)               |
+| Danger bonus | +25% for aggro mobs                  |
 
 ### Level-Up
 
 When `current_xp >= xp_for_next_level()`: automatic immediate level-up with:
 
-| Effect | Detail |
-|---|---|
-| HP gain | `hit_die + CON_mod` (min 1), max increases |
-| Full heal | HP set to new max |
-| Resource pools | Mana/Stamina recalculated via `from_formula(level, int, wis)` / `(level, str, dex)`. Current clamped to new max. |
-| BAB & saves | Recalculated per class progression: `bab` (full/medium/poor), saves (good/poor) |
-| Practice points | `(2 + WIS_mod + INT_mod).max(1)` added to `PracticePoints` pool |
-| Passives | Re-applied via `apply_all_passives()` |
-| Event | `PlayerLeveled { entity, old_level, new_level }` emitted |
+| Effect          | Detail                                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| HP gain         | `hit_die + CON_mod` (min 1), max increases                                                                       |
+| Full heal       | HP set to new max                                                                                                |
+| Resource pools  | Mana/Stamina recalculated via `from_formula(level, int, wis)` / `(level, str, dex)`. Current clamped to new max. |
+| BAB & saves     | Recalculated per class progression: `bab` (full/medium/poor), saves (good/poor)                                  |
+| Practice points | `(2 + WIS_mod + INT_mod).max(1)` added to `PracticePoints` pool                                                  |
+| Passives        | Re-applied via `apply_all_passives()`                                                                            |
+| Event           | `PlayerLeveled { entity, old_level, new_level }` emitted                                                         |
 
 Multiple levels gained at once if XP far exceeds threshold; the loop processes each increment sequentially. Level-up messages returned to the caller for delivery to the player's connection.
 
@@ -455,6 +459,7 @@ Multiple levels gained at once if XP far exceeds threshold; the loop processes e
 ### Player Death & Ghost Loop
 
 On death (health drops to `-10` or lower), players are not despawned. Instead:
+
 - A player corpse is spawned in the room containing all inventory and equipped items. Player corpses decay in 30 minutes (mobs decay in 5 minutes) and are owned by the player.
 - Player's inventory and equipment are cleared.
 - Player's health is set to `1` HP, and they are teleported to their `RecallRoom`.
@@ -471,11 +476,11 @@ DIKU-style unified practice pool: one resource funds both stat training and skil
 ### Practice Points
 
 `PracticePoints(u32)` is a per-character component. Gained on each level-up:
-```
 
+```
 gain = (2 + WIS_mod + INT_mod).max(1)
-
 ```
+
 Where `WIS_mod = (wisdom - 10) / 2` and `INT_mod = (intelligence - 10) / 2`. Minimum 1 point per level regardless of stats.
 
 ### Trainer NPCs
@@ -491,11 +496,11 @@ Mob templates define `trainer_types` in their TOML; the component is attached at
 
 Increases one of the six core attributes (strength, dexterity, intelligence, wisdom, constitution, charisma).
 
-| Condition | Failure message |
-|---|---|
+| Condition                                 | Failure message                               |
+| ----------------------------------------- | --------------------------------------------- |
 | Trainer with `"attributes"` type in room? | "You can't do that here. Seek out a trainer." |
-| PracticePoints >= cost? | "You don't have enough practice points." |
-| Stat < MAX (50)? | "Your strength is already at its maximum." |
+| PracticePoints >= cost?                   | "You don't have enough practice points."      |
+| Stat < MAX (50)?                          | "Your strength is already at its maximum."    |
 
 **Cost:** 5 points (3 for the class's prime attribute — one with highest class modifier).
 
@@ -505,12 +510,12 @@ Increases one of the six core attributes (strength, dexterity, intelligence, wis
 
 Increases a learned skill's rank by 1.
 
-| Condition | Failure message |
-|---|---|
-| Trainer with matching skill type in room? | "You can't practice that here." |
-| PracticePoints >= 1? | "You don't have enough practice points." |
-| Skill in LearnedSkills? | "You don't know that skill." |
-| Rank < SkillCap.for_level(level)? | "You have mastered that skill for your level." |
+| Condition                                 | Failure message                                |
+| ----------------------------------------- | ---------------------------------------------- |
+| Trainer with matching skill type in room? | "You can't practice that here."                |
+| PracticePoints >= 1?                      | "You don't have enough practice points."       |
+| Skill in LearnedSkills?                   | "You don't know that skill."                   |
+| Rank < SkillCap.for_level(level)?         | "You have mastered that skill for your level." |
 
 **Cost:** 1 point per rank attempt.
 
@@ -519,21 +524,21 @@ Increases a learned skill's rank by 1.
 ### Skill Caps
 
 Skill ranks bounded by character level:
-```
 
+```
 cap = SkillCap.base_cap + SkillCap.per_level × level
-
 ```
+
 Default: `base_cap = 5`, `per_level = 5` → `5 + 5 × level`. Class templates define three categories: `class_skills` (full cap), `cross_class_skills` (half cap), `exclusive_skills` (per-class).
 
 ### Database
 
 `PracticePoints` persisted in `components_practice_points` table. Migration from legacy `unspent_skill_points` computes retroactive points for existing characters:
-```
 
+```
 retro = level × MAX(1, 2 + (wis - 10)/2 + (int - 10)/2) + existing_unspent
-
 ```
+
 ---
 
 ## Item System
@@ -549,6 +554,7 @@ Equip restrictions (such as `allowed_classes`, `allowed_races`, `allowed_alignme
 Weapons lose durability on hitting, and armor on being hit. An item with `current == 0` durability is broken and yields no stat bonuses. Items can be repaired at black-smith NPCs or via a repair skill.
 
 ### Planned Systems
+
 - **Container items**: Items capable of holding other item entities.
 - **Usable commands**: Commands like `use`, `drink`, `eat`, `quaff`, `recite` for potions, scrolls, wands, food, and drink.
 - **Rhai scripting for triggers**: Execution of custom Rhai scripts when item triggers fire.
@@ -569,11 +575,11 @@ NPCs defined in TOML templates under `content/mobs/`. For the full TOML schema a
 
 **Currency:** Three-tier decimal in copper pieces. Wallet: `{ copper, banked_copper }` — both u64.
 
-| Coin | Value |
-|---|---|
-| Copper (cp) | 1 |
-| Silver (sp) | 100 cp |
-| Gold (gp) | 10,000 cp (100 sp) |
+| Coin        | Value              |
+| ----------- | ------------------ |
+| Copper (cp) | 1                  |
+| Silver (sp) | 100 cp             |
+| Gold (gp)   | 10,000 cp (100 sp) |
 
 **NPC Shops:** `Shop { name, buy_rate, sell_rate, inventory, currency, restock_secs }`. Shop templates in `content/shops/*.toml` instantiated on NPC entities at server start.
 
@@ -586,8 +592,8 @@ NPCs defined in TOML templates under `content/mobs/`. For the full TOML schema a
 Deities are template entities defined in `content/deities/*.toml`. A character may adopt a deity during creation or in-game. Deities grant optional effects when prayed to, subject to a cooldown.
 
 ### DeityTemplate
-```
 
+```
 DeityTemplate {
 id: String,
 name: String,
@@ -602,43 +608,44 @@ allowed_classes: Vec<String>, // empty = all classes
 allowed_alignments: Vec<String>, // empty = all alignments
 prayer_effect: Option<PrayerEffect>,
 }
-
 ```
+
 ### PrayerEffect
-```
 
+```
 PrayerEffect {
 buff_id: String, // references a PassiveDef or ActiveEffect template
 duration_secs: u64, // how long the effect lasts
 cooldown_secs: u64, // minimum time between prayers
 description: String, // flavor text on pray
 }
-
 ```
+
 ### Class Deity Policy
 
 Class templates define a `deity_policy` field controlling character creation behavior:
 
-| Policy | Meaning |
-|---|---|
-| `any` | Player may choose any deity or none (default) |
-| `none` | Player may not have a deity |
-| `required` | Player must choose a deity |
-| `subset([ids])` | Player must choose from this explicit list |
+| Policy          | Meaning                                       |
+| --------------- | --------------------------------------------- |
+| `any`           | Player may choose any deity or none (default) |
+| `none`          | Player may not have a deity                   |
+| `required`      | Player must choose a deity                    |
+| `subset([ids])` | Player must choose from this explicit list    |
 
 ### Pray Command
-```
 
+```
 pray — pray to your deity (if you have one)
 pray <deity> — pray to a specific deity (shrine required in room)
 pray <target> — cleric/paladin heal ally via deity channel
-
 ```
+
 Each prayer applies the deity's `prayer_effect` as an `ActiveEffect` component with the specified duration. On cooldown: display remaining time message. Cooldown tracked as a simple `Instant` timestamp on the player entity.
 
 ### Domains
 
 Domains are thematic groupings used for:
+
 - Quest gating (domain-restricted quests)
 - Faction relationships (domain-aligned factions)
 - Class requirements (domain-restricted prestige classes)
@@ -651,11 +658,11 @@ Domains are thematic groupings used for:
 - `PrayState` state machine (future) — Idle, Praying, OnCooldown
 
 ### Content Directory
-```
 
+```
 content/deities/*.toml
-
 ```
+
 ---
 
 Recipes in `content/recipes/*.toml`. `RecipeDef`: id, name, station, skill requirement, difficulty, materials, result, success_chance, quality_scaling, script.
@@ -669,13 +676,13 @@ Stations are room flags (`room_flags = ["station:anvil"]`) or entities with `Sta
 ## Quest System
 
 ### Quest State Machine
-```
 
+```
 Inactive → { accepted } → Active → { all_objectives_complete } → ReadyToTurnIn
 ReadyToTurnIn → { turn_in } → Completed
 Active → { abandon } → Abandoned (repeatable: → Inactive)
-
 ```
+
 Emits `QuestUpdated` on progress, `QuestCompleted` on turn-in.
 
 ### Quest Template
@@ -694,11 +701,11 @@ Factions track numeric standing that gates access, affects prices, triggers aggr
 
 **FactionDef:** id, name, description, starting_standing, min/max, ranks, relationships, aggro. Standing changes propagate to related factions via multiplier.
 
-| Source | Delta |
-|---|---|
-| Kill aggro member | +5 |
-| Kill ally member | −10 |
-| Quest completion | Per quest |
+| Source                | Delta       |
+| --------------------- | ----------- |
+| Kill aggro member     | +5          |
+| Kill ally member      | −10         |
+| Quest completion      | Per quest   |
 | Attack faction member | −50 to −200 |
 
 Rank resolved by highest threshold. Aggro checked on room entry.
@@ -762,13 +769,13 @@ Weather tracked per `weather_zone`. Updated by `WeatherSystem` on Weather phase.
 ### Weather Probability Matrix
 
 | Current \ Next | Clear | Cloudy | Rain | Storm | Fog | Snow |
-|---|---|---|---|---|---|---|
-| Clear | 60% | 30% | 5% | 0% | 5% | 0% |
-| Cloudy | 20% | 40% | 25% | 5% | 10% | 0% |
-| Rain | 10% | 20% | 40% | 20% | 5% | 5% |
-| Storm | 5% | 10% | 30% | 30% | 5% | 20% |
-| Fog | 30% | 30% | 10% | 0% | 30% | 0% |
-| Snow | 10% | 10% | 5% | 5% | 5% | 65% |
+| -------------- | ----- | ------ | ---- | ----- | --- | ---- |
+| Clear          | 60%   | 30%    | 5%   | 0%    | 5%  | 0%   |
+| Cloudy         | 20%   | 40%    | 25%  | 5%    | 10% | 0%   |
+| Rain           | 10%   | 20%    | 40%  | 20%   | 5%  | 5%   |
+| Storm          | 5%    | 10%    | 30%  | 30%   | 5%  | 20%  |
+| Fog            | 30%   | 30%    | 10%  | 0%    | 30% | 0%   |
+| Snow           | 10%   | 10%    | 5%   | 5%    | 5%  | 65%  |
 
 Season modifiers shift probabilities (more rain/storm in spring, more snow in winter).
 
@@ -827,6 +834,7 @@ Areas group rooms into named, managed zones. Each area is a directory under `con
 ### Room Exits & Doors
 
 Exits in `RoomTemplate` are specified as either a destination room ID string or a detailed table:
+
 - Simple: `north = "area_id:room_id"`
 - Detailed: `north = { dest = "area_id:room_id", door = true, closed = true, locked = false, key_id = "key_bronze" }`
 
@@ -877,13 +885,13 @@ Crate-level `Error` enums with `thiserror` + `Result` aliases. Errors composed (
 ## Help System
 
 Help topics in `content/help/*.toml`. `HelpEntry`: id, aliases, title, text. Loaded into TemplateRegistry at startup. Index maps id + all aliases.
-```
 
+```
 help — topic index
 help <topic> — show topic
 help <partial> — keyword search
-
 ```
+
 Builder-created help stored in SQLite `help` table, merged with file-based topics (DB overrides on collision).
 
 ---
@@ -893,12 +901,12 @@ Builder-created help stored in SQLite `help` table, merged with file-based topic
 ### Connection State Machine
 
 Each connection traverses a state machine between telnet negotiation and gameplay:
-```
 
+```
 Connected → Negotiating → Banner → Username → Password → CharacterSelect → Playing
 ↘ CharacterCreate* ↗
-
 ```
+
 `ConnectionState`: Connected, Negotiating, Banner, Username, Password, CharacterSelect, CharacterCreate{Name,Race,Class,Gender,Attributes,Alignment,Deity,Skills,Appearance,Description,Spawn,Confirm}, Playing.
 
 Login state machine lives in `server/src/login/` as a standalone `LoginFlow` struct with separate modules: `state.rs` (enum + transitions), `handlers.rs` (per-state input handling), `prompt.rs` (prompt rendering). Failed input counts toward strike limit (3 → disconnect).
@@ -916,24 +924,25 @@ Login state machine lives in `server/src/login/` as a standalone `LoginFlow` str
 
 ### Character Creation Wizard
 
-| Step | Prompt | Validation |
-|---|---|---|
-| **Name** | "Enter your character's name:" | 3–16 letters, hyphens, apostrophes; unique |
-| **Race** | Pick from `content/races/*.toml` | Valid key |
-| **Class** | Pick from filtered list | Race ∈ class.allowed_races ∩ class ∈ race.allowed_classes |
-| **Gender** | "Choose gender:" (male/female/neutral/other) | Gender ∈ race.allowed_genders; if `other`, prompt for pronouns |
-| **Attributes** | Point-buy (27pts), standard array (15/14/13/12/10/8), or roll 4d6 drop lowest | Clamped [3, 25]; race base + class mod applied final |
-| **Alignment** | Pick from 3×3 lawful–chaotic × good–evil grid | Race/class may restrict |
-| **Deity** | Pick from `content/deities/*.toml` (or none) | Class deity policy: required/optional/prohibited/subset; alignment gate |
-| **Skills** | Pick from class skill pool | Prefix match against id/name |
-| **Appearance** | Height, weight, build, hair, eyes, skin | Bounded by race appearance_bounds |
-| **Description** | Multi-line free text (type `.` to finish) | — |
-| **Spawn** | Choose starting location | Area spawn entries filtered by race/class/alignment |
-| **Confirm** | Full summary → accept? | Save to DB + spawn entity |
+| Step            | Prompt                                                                        | Validation                                                              |
+| --------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Name**        | "Enter your character's name:"                                                | 3–16 letters, hyphens, apostrophes; unique                              |
+| **Race**        | Pick from `content/races/*.toml`                                              | Valid key                                                               |
+| **Class**       | Pick from filtered list                                                       | Race ∈ class.allowed_races ∩ class ∈ race.allowed_classes               |
+| **Gender**      | "Choose gender:" (male/female/neutral/other)                                  | Gender ∈ race.allowed_genders; if `other`, prompt for pronouns          |
+| **Attributes**  | Point-buy (27pts), standard array (15/14/13/12/10/8), or roll 4d6 drop lowest | Clamped [3, 25]; race base + class mod applied final                    |
+| **Alignment**   | Pick from 3×3 lawful–chaotic × good–evil grid                                 | Race/class may restrict                                                 |
+| **Deity**       | Pick from `content/deities/*.toml` (or none)                                  | Class deity policy: required/optional/prohibited/subset; alignment gate |
+| **Skills**      | Pick from class skill pool                                                    | Prefix match against id/name                                            |
+| **Appearance**  | Height, weight, build, hair, eyes, skin                                       | Bounded by race appearance_bounds                                       |
+| **Description** | Multi-line free text (type `.` to finish)                                     | —                                                                       |
+| **Spawn**       | Choose starting location                                                      | Area spawn entries filtered by race/class/alignment                     |
+| **Confirm**     | Full summary → accept?                                                        | Save to DB + spawn entity                                               |
 
 ### Attribute Calculation
 
 `final = race_base + class_mod + bonus_points`. Three methods:
+
 - **Point-buy:** Each stat starts at 8, 27 points, progressive costs (8→0, 18→19)
 - **Standard array:** 15, 14, 13, 12, 10, 8 — assign freely
 - **Roll:** 4d6 drop lowest × 6, assign freely, up to 3 rerolls
@@ -970,6 +979,7 @@ Sandboxed `rhai::Engine` per execution. Limits: 8 modules, 32 call levels, 50k o
 ### Script Lifecycle & Bridges
 
 To maintain modular boundaries and respect the dependency DAG, scripting uses dependency injection:
+
 - `core` defines the `ScriptingBridge` and `MessageOutputBridge` traits.
 - `scripting` implements `ScriptingBridge`, running the sandboxed Rhai engine and caching compiled ASTs.
 - `server` implements `MessageOutputBridge` (handling physical connection packet I/O).
@@ -986,13 +996,13 @@ Rhai scripts run synchronously under the World lock. Scripts receive a `ScriptWo
 
 ### Security Model
 
-| Concern | Protection |
-|---|---|
-| Infinite loops | max_operations = 50k, max_call_levels = 32 |
-| Memory | max_string_size = 10k, max_arrays = 100, max_map = 50 |
-| File access | Resolver reads only `<content_dir>/scripts/` |
-| Network | No socket bindings |
-| CPU | Inline but ~1ms at 50k ops |
+| Concern        | Protection                                            |
+| -------------- | ----------------------------------------------------- |
+| Infinite loops | max_operations = 50k, max_call_levels = 32            |
+| Memory         | max_string_size = 10k, max_arrays = 100, max_map = 50 |
+| File access    | Resolver reads only `<content_dir>/scripts/`          |
+| Network        | No socket bindings                                    |
+| CPU            | Inline but ~1ms at 50k ops                            |
 
 ### Hot-Reload
 
@@ -1009,6 +1019,7 @@ All OLC edits are transactional — modify in-memory `TemplateRegistry` immediat
 Below is the concrete implementation plan for the Rhai scripting integration:
 
 #### oxide-core changes
+
 - **`core/src/scripting.rs`**: Define scripting interface traits and registration cells:
   - `HitContext` struct representing granular combat swing details: `attacker: Entity`, `target: Entity`, `is_offhand: bool`, `is_aborted: bool`, `abort_reason: Option<String>`, `hit_modifier: i32`, `override_hit: Option<bool>`.
   - `ScriptingBridge` trait with methods: `execute_trigger`, `execute_combat_hit_hook`, `execute_combat_damage_hook`, `execute_mob_ai`, `execute_say_hook`, and `execute_use_skill`.
@@ -1027,15 +1038,18 @@ Below is the concrete implementation plan for the Rhai scripting integration:
 - **`core/src/systems/ai.rs`**: Modify `tick_ai` to use `execute_mob_ai` if an NPC has an attached AI script.
 
 #### oxide-scripting changes
+
 - **`scripting/src/lib.rs`**: Implement `ScriptingBridge` and register Rhai wrappers.
   - Implement a thread-safe cache (`RwLock` or `Mutex` around `HashMap<String, rhai::AST>`) of compiled scripts in `content/scripts/`.
   - Implement a safe wrapper `ScriptWorld` wrapping `*mut World` with Send/Sync implementations.
   - Register `ScriptWorld`, `Entity`, and `HitContext` with the `rhai::Engine`, exposing properties and helper methods for entity querying, combat damage, room exits/flags, and follower control.
 
 #### oxide-server changes
+
 - **`server/src/lib.rs`**: Export the `MessageOutputBridge` implementation.
 
 #### oxide-bin changes
+
 - **`bin/src/main.rs`**: Instantiate `ScriptEngine`, load scripts, and register bridges. Register new commands `use` and `cast` mapped to `commands::cmd_use`.
 - **`bin/src/init.rs`**: Refactor `spawn_area` to use `MobTemplate::spawn`.
 - **`bin/src/commands.rs`**:
@@ -1044,6 +1058,7 @@ Below is the concrete implementation plan for the Rhai scripting integration:
   - `cmd_use`: new command to parse and execute skill/spell scripts.
 
 #### content/scripts templates
+
 - **`content/scripts/skills/parry.rhai`**: Checks parry skill rank, verifies weapon, and calls `hit_ctx.abort(...)` on success.
 - **`content/scripts/mobs/goblin.rhai`**: Shouts warning and runs away if health drops below 20%.
 - **`content/scripts/rooms/open_sesame.rhai`**: Unlocks and opens the door to the north when keyword is spoken.
@@ -1074,18 +1089,18 @@ Lightweight endpoints: GET `/api/who`, `/api/characters`, `/api/characters/:id`,
 
 ### Protocol Feature Matrix
 
-| Feature | Phase | Requires |
-|---|---|---|
-| ANSI 16-color | 0 | — |
-| NAWS | 1 | Telnet |
-| UTF-8 | 1 | Telnet |
-| 256-color | 2 | MTTS |
-| GMCP (Room, Char) | 6 | Telnet |
-| MCCP | 6 | Telnet |
-| MXP | 6 | Telnet + lock |
-| WebSocket | 6 | HTTP server |
-| REST API | 6 | HTTP server |
-| MSSP | 6 | Telnet |
+| Feature           | Phase | Requires      |
+| ----------------- | ----- | ------------- |
+| ANSI 16-color     | 0     | —             |
+| NAWS              | 1     | Telnet        |
+| UTF-8             | 1     | Telnet        |
+| 256-color         | 2     | MTTS          |
+| GMCP (Room, Char) | 6     | Telnet        |
+| MCCP              | 6     | Telnet        |
+| MXP               | 6     | Telnet + lock |
+| WebSocket         | 6     | HTTP server   |
+| REST API          | 6     | HTTP server   |
+| MSSP              | 6     | Telnet        |
 
 ---
 
@@ -1102,23 +1117,23 @@ Lightweight endpoints: GET `/api/who`, `/api/characters`, `/api/characters/:id`,
 
 ### Modes
 
-| Mode | Invocation | Description |
-|---|---|---|
-| Builder (offline) | `spade` or `spade --mode offline` | TOML editor, world tree, validator, file browser |
-| MUD client (online) | `spade --mode online` | Full client with scrollable output, ANSI, clickable names |
-| Split | `spade --mode split` (F9) | Builder 50% | MUD client 50% |
-| Connection profile | `spade connect <host> <port>` | Quick-connect with saved profile |
+| Mode                | Invocation                        | Description                                               |
+| ------------------- | --------------------------------- | --------------------------------------------------------- |
+| Builder (offline)   | `spade` or `spade --mode offline` | TOML editor, world tree, validator, file browser          |
+| MUD client (online) | `spade --mode online`             | Full client with scrollable output, ANSI, clickable names |
+| Split               | `spade --mode split` (F9)         | Builder 50%                                               |
+| Connection profile  | `spade connect <host> <port>`     | Quick-connect with saved profile                          |
 
 ### Screens & Panels (Builder Mode)
 
-| Key | Screen | Description |
-|---|---|---|
-| F1 | Entities Editor | World Tree, Template Editor, and Entity Inspector integrated panel |
-| F2 | Room Grid | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
-| F3 | Validation Panel | Error/warning list with jump-to-source |
-| F4 | File Browser | Content directory tree + raw syntax-highlighted TOML/Rhai preview |
-| F5 | Script Console | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks) |
-| F6 | Live Dashboard | Performance gauges + real-time system log tail with toggle sidebar |
+| Key | Screen           | Description                                                                        |
+| --- | ---------------- | ---------------------------------------------------------------------------------- |
+| F1  | Entities Editor  | World Tree, Template Editor, and Entity Inspector integrated panel                 |
+| F2  | Room Grid        | ASCII room map (dynamic BFS centered on selected room) + command bar exits/digging |
+| F3  | Validation Panel | Error/warning list with jump-to-source                                             |
+| F4  | File Browser     | Content directory tree + raw syntax-highlighted TOML/Rhai preview                  |
+| F5  | Script Console   | Multi-line Rhai editor + test runner (running `//#test`/`//#end` blocks)           |
+| F6  | Live Dashboard   | Performance gauges + real-time system log tail with toggle sidebar                 |
 
 Command Palette is a global modal overlay summoned by `Ctrl+P`.
 Layout: Entities Editor (left tree, center form), Room Grid (center map, right exits/commands), File Browser (left tree, right raw view). Status bar (bottom): mode, active screen, current file, mouse state.
@@ -1162,41 +1177,41 @@ Modal overlay (Ctrl+H / ?), center 70% of terminal. Data-driven sections. Dismis
 
 ### Keybinding Summary
 
-| Key | Action | Scope |
-|---|---|---|
-| Tab / Shift+Tab | Cycle pane focus | All |
-| Enter | Open / confirm | All |
-| Escape / Ctrl+Q | Go back / close modal | All |
-| Ctrl+H / ? | Toggle help screen | All |
-| Ctrl+D | Quit spade | All |
-| / | Search / filter | All |
-| F5 | Validate / refresh | All |
-| F10 | Toggle rich TOML preview | Builder |
-| Ctrl+1-6 | Switch screen | Builder |
-| Ctrl+P | Toggle command palette | All |
-| Ctrl+S | Save (offline) / Send (online) | Builder |
-| Ctrl+Z | Undo | Editor |
-| Ctrl+C/V | Copy / paste | All |
-| Ctrl+M | Toggle mouse mode | All |
-| Ctrl+B | Toggle sidebar | MUD |
-| Ctrl+K | Clear output buffer | MUD |
-| Ctrl+L | Toggle line numbers | MUD |
-| Ctrl+T | Toggle timestamps | MUD |
-| Ctrl+R | Reverse search history | MUD Input |
-| Ctrl+U | Clear input line | MUD Input |
-| Ctrl+A/E | Beginning / end of line | MUD Input |
-| Tab | Autocomplete | MUD Input |
-| F9 | Toggle split view | All |
-| F12 | Toggle MUD / builder mode | All |
-| ↑↓ | Navigate / scroll | All |
-| PgUp/PgDn | Page scroll | All |
-| Home/End | Jump to top / bottom | All |
-| Left click | Select | All |
-| Double left click | Open | All |
-| Right click | Context menu | All |
-| Scroll wheel | Scroll | All |
-| Shift+click | Select range | Lists |
-| Ctrl+click | Toggle selection | Lists |
+| Key               | Action                         | Scope     |
+| ----------------- | ------------------------------ | --------- |
+| Tab / Shift+Tab   | Cycle pane focus               | All       |
+| Enter             | Open / confirm                 | All       |
+| Escape / Ctrl+Q   | Go back / close modal          | All       |
+| Ctrl+H / ?        | Toggle help screen             | All       |
+| Ctrl+D            | Quit spade                     | All       |
+| /                 | Search / filter                | All       |
+| F5                | Validate / refresh             | All       |
+| F10               | Toggle rich TOML preview       | Builder   |
+| Ctrl+1-6          | Switch screen                  | Builder   |
+| Ctrl+P            | Toggle command palette         | All       |
+| Ctrl+S            | Save (offline) / Send (online) | Builder   |
+| Ctrl+Z            | Undo                           | Editor    |
+| Ctrl+C/V          | Copy / paste                   | All       |
+| Ctrl+M            | Toggle mouse mode              | All       |
+| Ctrl+B            | Toggle sidebar                 | MUD       |
+| Ctrl+K            | Clear output buffer            | MUD       |
+| Ctrl+L            | Toggle line numbers            | MUD       |
+| Ctrl+T            | Toggle timestamps              | MUD       |
+| Ctrl+R            | Reverse search history         | MUD Input |
+| Ctrl+U            | Clear input line               | MUD Input |
+| Ctrl+A/E          | Beginning / end of line        | MUD Input |
+| Tab               | Autocomplete                   | MUD Input |
+| F9                | Toggle split view              | All       |
+| F12               | Toggle MUD / builder mode      | All       |
+| ↑↓                | Navigate / scroll              | All       |
+| PgUp/PgDn         | Page scroll                    | All       |
+| Home/End          | Jump to top / bottom           | All       |
+| Left click        | Select                         | All       |
+| Double left click | Open                           | All       |
+| Right click       | Context menu                   | All       |
+| Scroll wheel      | Scroll                         | All       |
+| Shift+click       | Select range                   | Lists     |
+| Ctrl+click        | Toggle selection               | Lists     |
 
 ---
 
@@ -1206,10 +1221,10 @@ MCP server exposing the full content toolset to AI agents (Claude, etc.). Agents
 
 ### Modes
 
-| Mode | Trigger | Data Source | Write |
-|---|---|---|---|
-| Offline | `mcp` (default) | TOML files | Atomic write (temp + rename) |
-| Online | `mcp --db <path>` | SQLite DB | REST bridge to game server |
+| Mode    | Trigger           | Data Source | Write                        |
+| ------- | ----------------- | ----------- | ---------------------------- |
+| Offline | `mcp` (default)   | TOML files  | Atomic write (temp + rename) |
+| Online  | `mcp --db <path>` | SQLite DB   | REST bridge to game server   |
 
 Offline mode is primary — AI agents edit TOML files, validation runs locally, human reviews before game loads.
 
@@ -1219,30 +1234,30 @@ Primary: stdio (MCP standard). Future: SSE (HTTP) for remote connections.
 
 ### Tools
 
-| Tool | Write | Description |
-|---|---|---|
-| `list_areas` / `get_area` | No | List areas / get details |
-| `create_area` / `update_area` / `delete_area` | Yes | Area CRUD |
-| `list_rooms` / `get_room` | No | Room listing / detail |
-| `create_room` / `update_room` / `delete_room` | Yes | Room CRUD |
-| `link_rooms` / `add_portal` / `remove_portal` | Yes | Room connections |
-| `list_mobs` / `get_mob` | No | Mob listing / detail |
-| `create_mob` / `update_mob` / `delete_mob` | Yes | Mob template CRUD |
-| `list_items` / `get_item` | No | Item listing / detail |
-| `create_item` / `update_item` / `delete_item` | Yes | Item template CRUD |
-| `list_quests` / `get_quest` | No | Quest listing / detail |
-| `create_quest` / `update_quest` / `delete_quest` | Yes | Quest CRUD |
-| `list_recipes` / `get_recipe` | No | Recipe listing / detail |
-| `create_recipe` | Yes | Recipe creation |
-| `list_factions` / `get_faction` | No | Faction listing / detail |
-| `create_faction` | Yes | Faction creation |
-| `list_shops` / `get_shop` | No | Shop listing / detail |
-| `create_shop` | Yes | Shop creation |
-| `list_skills` / `get_skill` | No | Skill listing / detail |
-| `get_race` / `get_class` | No | Race/class templates |
-| `validate` | No | Content validation (scope: all/area/type) |
-| `search` | No | Fuzzy search all content |
-| `get_stats` | No | Content summary statistics |
+| Tool                                             | Write | Description                               |
+| ------------------------------------------------ | ----- | ----------------------------------------- |
+| `list_areas` / `get_area`                        | No    | List areas / get details                  |
+| `create_area` / `update_area` / `delete_area`    | Yes   | Area CRUD                                 |
+| `list_rooms` / `get_room`                        | No    | Room listing / detail                     |
+| `create_room` / `update_room` / `delete_room`    | Yes   | Room CRUD                                 |
+| `link_rooms` / `add_portal` / `remove_portal`    | Yes   | Room connections                          |
+| `list_mobs` / `get_mob`                          | No    | Mob listing / detail                      |
+| `create_mob` / `update_mob` / `delete_mob`       | Yes   | Mob template CRUD                         |
+| `list_items` / `get_item`                        | No    | Item listing / detail                     |
+| `create_item` / `update_item` / `delete_item`    | Yes   | Item template CRUD                        |
+| `list_quests` / `get_quest`                      | No    | Quest listing / detail                    |
+| `create_quest` / `update_quest` / `delete_quest` | Yes   | Quest CRUD                                |
+| `list_recipes` / `get_recipe`                    | No    | Recipe listing / detail                   |
+| `create_recipe`                                  | Yes   | Recipe creation                           |
+| `list_factions` / `get_faction`                  | No    | Faction listing / detail                  |
+| `create_faction`                                 | Yes   | Faction creation                          |
+| `list_shops` / `get_shop`                        | No    | Shop listing / detail                     |
+| `create_shop`                                    | Yes   | Shop creation                             |
+| `list_skills` / `get_skill`                      | No    | Skill listing / detail                    |
+| `get_race` / `get_class`                         | No    | Race/class templates                      |
+| `validate`                                       | No    | Content validation (scope: all/area/type) |
+| `search`                                         | No    | Fuzzy search all content                  |
+| `get_stats`                                      | No    | Content summary statistics                |
 
 Each tool follows MCP schema (name, description, input JSON Schema). Uses `rmcp` (Rust MCP SDK v1.7) with `#[tool]` macros for declarative definition.
 
@@ -1255,8 +1270,8 @@ MCP content URIs: `content://areas/`, `content://areas/{key}`, `content://areas/
 `create_area_flow` (guided area creation), `review_content` (validation + suggestions), `balance_encounter` (mob vs area tier analysis), `design_quest_chain` (prerequisites, objectives, branching, rewards).
 
 ### Crate Layout
-```
 
+```
 mcp/
 ├── Cargo.toml
 └── src/
@@ -1265,8 +1280,8 @@ mcp/
 ├── tools/ # Tool implementations by content type
 ├── resources/ # Resource providers (templates, validation, stats)
 └── prompts/ # Prompt templates (builder, reviewer)
-
 ```
+
 ### DAG
 
 `mcp` depends on `core` (types) only. Loads TOML files directly for offline mode, HTTP for online. No dependency on server/data/scripting/bin.
@@ -1276,6 +1291,7 @@ mcp/
 ## Development Phases
 
 ### Phase 0 — Foundation
+
 - [x] Cargo workspace & crate skeleton (5 crates)
 - [x] Core types (Room, Exit, Direction, entity management)
 - [x] Tokio TCP listener with telnet negotiation
@@ -1290,6 +1306,7 @@ mcp/
 - [x] Player spawn — connects into void room with Position
 
 ### Phase 1 — World & Movement
+
 - [x] ConnectionRegistry — HashMap<Entity, Sender> for room broadcasts
 - [x] say — room broadcast
 - [x] look — rooms, occupants, visible exits
@@ -1303,6 +1320,7 @@ mcp/
 - [x] Unit tests — movement, void blocking, room broadcast, ANSI
 
 ### Phase 2 — Character System
+
 - [x] Connection state machine (LoginFlow in server/src/login/)
 - [x] Account creation (username + password, argon2 hashing)
 - [x] Login flow (banner/MOTD → username → password)
@@ -1326,6 +1344,7 @@ mcp/
 - [x] Class deity_policy enforcement in creation
 
 ### Phase 3 — Combat & Equipment
+
 - [x] Health, Damage components
 - [x] Combat system (attack/damage rolls)
 - [x] Damage type system (resistance/vulnerability)
@@ -1343,6 +1362,7 @@ mcp/
 - [ ] Random loot quality/affix rolling
 
 ### Phase 4 — Advanced Gameplay
+
 - [ ] Crafting system
 - [ ] Quest system
 - [ ] Faction system
@@ -1355,6 +1375,7 @@ mcp/
 - [ ] Optional PvP flagging
 
 ### Phase 5 — OLC & Tooling
+
 - [ ] Online creation commands (@dig, @link, @set, @mob, @area, @item)
 - [ ] Zone/area management, area reset system
 - [ ] Telnet negotiation (IAC state machine, NAWS, terminal type)
@@ -1377,6 +1398,7 @@ mcp/
 - [ ] **MCP validate tool** — run validator, return diagnostics
 
 ### Phase 6 — spade MUD Client & Protocol Expansion
+
 - [ ] WebSocket bridge (JSON MMCC frames, ANSI→HTML)
 - [ ] MCCP, GMCP (Room, Char, Comm, MGK), MXP, MSSP
 - [ ] REST API endpoints
@@ -1396,4 +1418,3 @@ mcp/
 - [ ] **MCP online mode** — REST bridge to game server
 - [ ] **MCP prompts** — guided workflows
 - [ ] Performance profiling & optimization
-```
