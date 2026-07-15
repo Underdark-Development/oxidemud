@@ -1,0 +1,194 @@
+# Changelog
+All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
+
+- - -
+## 0.1.0 - 2026-07-15
+#### Features
+- (**account**) complete character wizard with deity, appearance, age, and pray command - (ae868cc) - Kevin Lanni
+- (**account**) implement level-up resource pool recalculation and PlayerLeveled event - (e3dd5b5) - Kevin Lanni
+- (**account**) implement class progression combat stats and hit die scaling - (204581d) - Kevin Lanni
+- (**account**) implement practice and train commands, enhance score - (f8fae1d) - Kevin Lanni
+- (**account**) implement connection state machine and login flow - (106e314) - Kevin Lanni
+- (**ai**) integrate custom scripting hook in NPC AI systems - (b283990) - Kevin Lanni
+- (**ai**) implement patrol routes and wander bounds - (4819e87) - Kevin Lanni
+- (**bin**) instantiate and register scripting and message bridges at startup - (5d2a883) - Kevin Lanni
+- (**bin**) add width command, skill loading, wire formatted room descriptions - (273e9f5) - Kevin Lanni
+- (**characters**) complete phase 2 — score, level-up, award, motd, and full ECS-DB sync - (5f88031) - Kevin Lanni
+- (**characters**) implement character creation wizard, template loading, and entity persistence - (416b83d) - Kevin Lanni
+- (**combat**) implement player state timer decay and no-resurrect enforcement - (3c9f5ec) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**combat**) harden gameplay mechanics, two-handed speed, slot restrictions, and loot rules - (b8fbf67) - Kevin Lanni
+- (**combat**) implement scripting hooks for hit and damage calculations - (799026b) - Kevin Lanni
+- (**combat**) implement die command and fix ghost combat target and recall issues - (e47d6f1) - Kevin Lanni
+- (**combat**) implement player death, rest states, direct communications, and doors - (9708fcc) - Kevin Lanni
+- (**combat**) auto-engage non-friendly NPCs on damage and log combat state changes - (24f49c4) - Kevin Lanni
+- (**combat**) implement mechanical restoration effects for astra, kronos, vulgath, and karrgath deities - (6c8af35) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**combat**) replace CombatTarget with CombatState machine, implement flee - (a0ca5d0) - Kevin Lanni
+- (**combat**) implement phase 3 — combat, equipment, NPC AI, items, stances - (77d5321) - Kevin Lanni
+- (**commands**) dynamic help, player position persistence, fix query_one component checks - (380d93d) - Kevin Lanni
+- (**commands**) wire trie-based object matching into target commands - (e0c5a82) - Kevin Lanni
+- (**commands**) add movement commands with void check and broadcasts - (01487b0) - Kevin Lanni
+- (**commands**) move handlers to commands.rs, update say and look - (5744645) - Kevin Lanni
+- (**content**) update descriptions - (df5289b) - Kevin Lanni
+- (**content**) add watchtower quest area, guard captain NPC, and quest items - (30de798) - Kevin Lanni
+- (**content**) add astra, kronos, vulgath, and karrgath deity templates and validation tests - (a8d407a) - Kevin Lanni
+- (**content**) spawn trainer mob and attach Trainer component - (208f9e2) - Kevin Lanni
+- (**content**) update mob templates with friendly and short_desc fields - (a22eb75) - Kevin Lanni
+- (**content**) centralize template loading in core - (16b8308) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**content**) restructure areas into per-room files with nested sub-area support - (036a1f5) - Kevin Lanni
+- (**content**) add orc race, 8 skill templates, update mage/warrior classes - (3eaa538) - Kevin Lanni
+- (**content**) add race/class template types, TOML loader, and LearnedSkills component - (be4e791) - Kevin Lanni
+- (**content,look**) extract NPC descriptions into entities, add mob listing to look - (8a7696a) - Kevin Lanni
+- (**core**) add PracticePoints component - (219a8e0) - Kevin Lanni
+- (**core**) add ShortDesc/Friendly components and aggro_mobs AI flag - (2f415c4) - Kevin Lanni
+- (**core**) add word-wrap support to RichText (render_wrapped) - (a1cc5b2) - Kevin Lanni
+- (**core**) extend template system with skill resolution, SkillResolveError, WalletAmount - (291019f) - Kevin Lanni
+- (**core**) add Alignment, Wallet components and screen_width to Player - (38452ad) - Kevin Lanni
+- (**core**) add Name component - (fc14b25) - Kevin Lanni
+- (**core**) add format module with ANSI color support - (e2f2c9b) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**crafting**) implement Phase 4 crafting system, recipe templates, and persistence - (d27ad41) - Kevin Lanni
+- (**creation**) implement gender selection in character creation - (e8605e2) - Kevin Lanni
+- (**data**) extend schema with skills, alignment, description, golds, screen_width - (b782434) - Kevin Lanni
+- (**equipment**) implement skill gates with equip-time check and continuous pulse - (fc524df) - Kevin Lanni
+- (**experience**) implement DIKU-style practice points system - (ea943a0) - Kevin Lanni
+- (**format**) simplify mob and item look preview output - (bab1654) - Kevin Lanni
+- (**format**) add 256-color fallback, blink gating, and spec tag syntax - (f3adb39) - Kevin Lanni
+- (**items**) implement random loot drops, affix stat modifiers, and examine display - (5dd90df) - Kevin Lanni
+- (**items**) wire item trigger processing for wear/remove/combat events - (9730212) - Kevin Lanni
+- (**items**) wire item set membership spawning and set bonus change feedback - (d436a96) - Kevin Lanni
+- (**login**) extract standalone LoginFlow, add admin console CLI - (22cb74d) - Kevin Lanni
+- (**mcp**) support database character state overrides in simulation tools - (5172f79) - Kevin Lanni
+- (**mcp**) implement new game mechanics simulation tools - (6106725) - Kevin Lanni
+- (**mcp**) implement REST API, apikey management, and online/offline MCP character creation simulation - (a463c38) - Kevin Lanni
+- (**mcp**) add offline simulation tools and fix quality/affix rolling - (94912c5) - Kevin Lanni
+- (**mcp**) simulate common scenarios - (c35e42f) - Kevin Lanni
+- (**mcp**) add MCP server crate with content CRUD tools - (1e60200) - Kevin Lanni
+- (**meta**) add bash pre-bump hook to synchronize Cargo.toml version - (16b73a1) - Kevin Lanni
+- (**meta**) update Ansible play description to reflect precompiled deployment - (cb82bfa) - Kevin Lanni
+- (**meta**) package Ansible playbook and update playbook source paths - (d061e77) - Kevin Lanni
+- (**meta**) add Docker choice prompt to Ansible deployment playbook - (92b90ae) - Kevin Lanni
+- (**meta**) add pure Ansible playbook for VPS deployment - (d27d0a3) - Kevin Lanni
+- (**meta**) add pre-upgrade DB backups and deployment host warnings - (abb468e) - Kevin Lanni
+- (**meta**) mount log volume and document Docker console attachment - (54e05db) - Kevin Lanni
+- (**meta**) add Docker Compose support and packaging - (fe7fd4d) - Kevin Lanni
+- (**meta**) add release packaging, versioning, and deployment pipeline - (3e8c2bc) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**meta**) implement multiclassing, groups, factions, quests, crafting, and staff commands - (47296c6) - Kevin Lanni
+- (**meta**) migrate to modern module layout, add engine systems and spawn-based login - (04150e0) - Kevin Lanni
+- (**movement**) implement entities_in_room utility - (080d24f) - Kevin Lanni
+- (**olc**) implement in-memory CRUD for area, mob, and item templates with template validation - (a80d8f3) - Kevin Lanni
+- (**olc**) implement help categories refactor and staff commands - (b0374b2) - Kevin Lanni
+- (**persistence**) migrate characters table to support recall_room_id persistence - (9cd4d06) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**persistence**) dedicated practice points table and migration - (4f9d8ec) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**persistence**) full player state persistence with dirty tracking - (06690e9) - Kevin Lanni
+- (**prompt**) newline on broadcast - (ffc2711) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**scripting**) implement dynamic TOML parameter mapping for scripts across all templates - (ec21a35) - Kevin Lanni
+- (**scripting**) register exit controls, rand helper, and write content scripts - (f9bb515) - Kevin Lanni
+- (**scripting**) implement say hooks, follower movement, use command, and room script attribute - (dec3c97) - Kevin Lanni
+- (**scripting**) implement ScriptingBridge and register Rhai wrappers in ScriptEngine - (ff5eb55) - Kevin Lanni
+- (**scripting**) define scripting bridges and core scripting models - (7d59cdc) - Kevin Lanni
+- (**server**) implement and export ServerMessageBridge for core messaging triggers - (fc38f05) - Kevin Lanni
+- (**server**) combat messages, partial command matching, help details, fix quit and password echo - (1644a09) - Kevin Lanni
+- (**server**) refactor login handlers into modules, expand character creation - (63cb631) - Kevin Lanni
+- (**server**) add screen_width to Connection trait and TelnetConnection - (a23f282) - Kevin Lanni
+- (**server**) show banner and login prompt immediately, add stats and command prompt - (d993d57) - Kevin Lanni
+- (**server**) clean up player on disconnect - (679061b) - Kevin Lanni
+- (**server**) add ConnectionRegistry for room broadcasts - (eb00685) - Kevin Lanni
+- (**server**) add connection feature flags - (c79f241) - Kevin Lanni
+- (**spade**) support editing fields and arrays in entity inspector screens - (afb35ff) - Kevin Lanni
+- (**spade**) realign scripting tests and server logging - (e0a2c2d) - Kevin Lanni
+- (**spade**) migrate screen switching to F1..F6 and script running to F9 - (0d46211) - Kevin Lanni
+- (**spade**) rename room graph to room grid and make boxes taller - (d82c37c) - Kevin Lanni
+- (**spade**) widen room graph boxes and migrate screen switching to alt hotkeys - (4d49a4a) - Kevin Lanni
+- (**spade**) redesign room graph to neighbor room grid with double-click to dig - (6325da3) - Kevin Lanni
+- (**spade**) implement command palette overlay - (ccb4879) - Kevin Lanni
+- (**spade**) implement live dashboard screen - (0d19994) - Kevin Lanni
+- (**spade**) implement script console and testing screen - (778607c) - Kevin Lanni
+- (**spade**) implement file browser screen - (182b03c) - Kevin Lanni
+- (**spade**) implement room graph screen and building tools - (550581b) - Kevin Lanni
+- (**spade**) shared dropdown component, hover bleed-through fix, mode label style - (09620be) - Kevin Lanni
+- (**spade**) dialog widget, flat actions section, unsaved tracking, hover cleanup - (26b5585) - Kevin Lanni
+- (**spade**) menu bar, command sidebar, entities screen, entity inspector - (3097e28) - Kevin Lanni
+- (**spade**) add search/filter to WorldTreeScreen - (2c736f2) - Kevin Lanni
+- (**spade**) add create/delete entity workflows - (c5a6d5f) - Kevin Lanni
+- (**spade**) persist inline edits to disk via save_to_disk - (4b2327f) - Kevin Lanni
+- (**spade**) implement inline editing in EntityInspectorScreen - (83e6043) - Kevin Lanni
+- (**spade**) wire entity inspector into world tree navigation - (ee0c88f) - Kevin Lanni
+- (**spade**) scaffold TUI crate with screen framework and content tree - (30c8e82) - Kevin Lanni
+- (**spawn**) spawn mobs from room content templates - (f76fbe4) - Kevin Lanni
+- (**templates**) add shops, cross-area exit validation, and new mob fields - (8cba0b4) - Kevin Lanni
+- (**trie**) generic prefix/word/index object matching - (a625f88) - Kevin Lanni
+- (**tui**) add entity inspector screen - (03b68f3) - Kevin Lanni
+- (**tui**) add mouse support, split layout, and keyboard shortcuts - (b2bff52) - Kevin Lanni
+- (**tui**) add ValidationPanelScreen with template validation - (019c0b2) - Kevin Lanni
+- channge town guard to idle - (fbf46e3) - Kevin Lanni
+- adjust mobs - (8f3e0b6) - Kevin Lanni
+- prompt system with mana/stamina persistence - (7153451) - Kevin Lanni
+- add character schemas and persistence queries - (33011c5) - Kevin Lanni
+- motd, content path config - (d1f58d4) - Kevin Lanni
+- update initial scaffold - (aa33ecc) - Kevin Lanni
+- phase 0 implementation - (ed4e2d7) - Kevin Lanni
+#### Bug Fixes
+- (**account**) resolve character creation loop bugs, UX issues, and safety fallbacks - (91d6d8b) - Kevin Lanni
+- (**account**) check trainer existence via get() and add tests - (aa1cea1) - Kevin Lanni
+- (**combat**) fix double role indicator in group status command - (f29fd78) - Kevin Lanni
+- (**combat**) rebalance mob HP, XP, and merchant level - (888a9d6) - Kevin Lanni
+- (**combat**) stop equipped items from dropping on NPC death - (efd2141) - Kevin Lanni
+- (**combat**) resolve unused variable warning in AI test - (d951ed6) - Kevin Lanni
+- (**combat**) broadcast player unconsciousness and deaths to room occupants - (1265be4) - Kevin Lanni
+- (**combat**) player recall upon death, ghost restrictions, and death messages - (d57d314) - Kevin Lanni
+- (**combat**) send incapacitated and mortally wounded messages to players - (76a9408) - Kevin Lanni
+- (**combat**) fix npc death at zero health by correctly checking player component - (40dc6d4) - Kevin Lanni
+- (**combat**) remove verbose NPC AI state transition logging - (fb34cb8) - Kevin Lanni
+- (**content**) use cyan for exit directions - (61e5665) - Kevin Lanni
+- (**format**) align color conventions with architecture spec - (c984ea6) - Kevin Lanni
+- (**items**) fix set condition piece_type counting and add mapping warning - (8065d38) - Kevin Lanni
+- (**login**) remove redundant character score on spawn, fix who alias - (1aeb1a9) - Kevin Lanni
+- (**mcp**) merge duplicate impl blocks to register all tools under tool_router - (3d9d5d9) - Kevin Lanni
+- (**mcp**) round-trip CRUD operations through struct types for valid TOML output - (a49c002) - Kevin Lanni
+- (**mcp**) load areas from subdirectories and convert content to flat format - (9a7c345) - Kevin Lanni
+- (**movement**) block player movement commands while in combat - (e378266) - Kevin Lanni
+- (**movement**) block active commands when player is unconscious - (e842109) - Kevin Lanni
+- (**persistence**) validate spawn_key on character load to heal legacy corrupted recall points - (9c3cbbf) - Kevin Lanni
+- (**server**) tighten read timeout to pre-auth only via is_pre_auth() - (2d5292a) - Kevin Lanni
+- (**telnet**) prepend newline to new output when prompt was last sent - (6aa2aa9) - Kevin Lanni
+- (**telnet**) fix prompt formatting and delivery frequency - (527cc0b) - Kevin Lanni
+- (**telnet**) send WONT ECHO initially, toggle WILL/WONT on password state - (203000a) - Kevin Lanni
+#### Documentation
+- (**agents**) update agent guidelines - (825a273) - Kevin Lanni
+- (**spade**) update screen ordering and keybindings in ARCHITECTURE.md - (9627654) - Kevin Lanni
+- update - (ef43e9d) - Kevin Lanni
+- update docs - (b079e20) - Kevin Lanni
+- update scripting architecture plan - (66f615b) - Kevin Lanni
+- update documentation - (ad2817c) - Kevin Lanni
+- add administrator and builder manuals - (d0689ba) - Kevin Lanni
+- compact completed character and training phases in ARCHITECTURE.md - (59318da) - Kevin Lanni
+- mark phase 4 tasks as complete in ARCHITECTURE.md - (35aecd6) - Kevin Lanni
+- mark phase 2 and phase 3 tasks as complete in ARCHITECTURE.md - (71ce7be) - Kevin Lanni
+- add note to keep spade/MCP in sync with core changes - (68af3b8) - Kevin Lanni
+- update ARCHITECTURE.md with prompt, skills, and character creation details - (d74fbe5) - Kevin Lanni
+- simplify arch plan - remove code - (2486276) - Kevin Lanni
+- fix commit example - (6bb08b3) - Kevin Lanni
+- reconcile format spec with implementation and tick Phase 1 checklist - (5a68db2) - Kevin Lanni
+- add commit type rules and decision flowchart - (03e9620) - Kevin Lanni
+- update architecture plan - (6078b4a) - Kevin Lanni
+#### Refactoring
+- (**ai**) formalize NPC AI state machine with enum transitions - (3ddaf01) - Kevin Lanni
+- (**bin**) delegate mob spawning in init.rs to MobTemplate::spawn - (04842f3) - Kevin Lanni
+- (**combat**) remove combat state transition logging - (50e21e5) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**content**) extract rooms into per-file structure with spawn data and example fields - (28f7ed5) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**format**) rename RichText/Segment and split module per spec - (49d8495) - Kevin Lanni
+- (**look**) strip headers from mob/player listings - (98f8f7e) - Kevin Lanni
+- (**meta**) rename compiled server binary from oxide-bin to oxide-server - (30361a1) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**meta**) rename engine crates and code imports to oxide - (6be84eb) - Kevin Lanni
+- (**meta**) rename tinytin.tin to mud.tin and add reconnect alias - (0de9a47) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**olc**) replace temple name-substring check with allow_revive flag - (19d06f3) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**persistence**) migrate character room persistence to RoomKey and fix starting item spawning - (04972ed) - Kevin Lanni
+- (**persistence**) remove save_player_component debug logging - (1e39436) - Kevin Lanni
+- (**spade**) modularize entity inspector and entities screen tree builder - (c3e6a01) - Kevin Lanni
+- (**spade**) fix table constraint solver and standardize CLI with clap - (0882974) - Kevin Lanni
+#### Style
+- (**meta**) simplify deploy playbook play name - (8ff7130) - Kevin Lanni
+- (**meta**) format all markdown files and integrate dprint - (487f36d) - Kevin Lanni
+
+- - -
+
+Changelog generated by [cocogitto](https://github.com/cocogitto/cocogitto).
