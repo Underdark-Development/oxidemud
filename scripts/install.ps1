@@ -81,6 +81,18 @@ if (Test-Path "$InstallDir\content") {
     # Upgrade scenario
     Write-Host "Upgrade detected. Preserving existing content folder." -ForegroundColor Yellow
     
+    # Backup active SQLite database before upgrade schema migrations trigger
+    $DbFile = "$InstallDir\data\oxide.db"
+    if (Test-Path $DbFile) {
+        $BackupTime = (Get-Date).ToString("yyyyMMdd_HHmmss")
+        $BackupDir = "$InstallDir\data\backups"
+        if (-not (Test-Path $BackupDir)) {
+            New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
+        }
+        Copy-Item -Force -Path $DbFile -Destination "$BackupDir\oxide.db.pre-upgrade-$BackupTime"
+        Write-Host "  Backed up active database to: $BackupDir\oxide.db.pre-upgrade-$BackupTime" -ForegroundColor Green
+    }
+    
     # Store old version if readable
     $OLD_VERSION = "unknown"
     if (Test-Path "$InstallDir\.version") {

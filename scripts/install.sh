@@ -194,6 +194,15 @@ if [ -d "$INSTALL_DIR/content" ]; then
     # Upgrade scenario
     echo -e "Upgrade detected. Preserving existing content folder."
     
+    # Backup active SQLite database before upgrade schema migrations trigger
+    if [ -f "$INSTALL_DIR/data/oxide.db" ]; then
+        BACKUP_TIME=$(date +%Y%m%d_%H%M%S)
+        BACKUP_DIR="$INSTALL_DIR/data/backups"
+        mkdir -p "$BACKUP_DIR"
+        cp "$INSTALL_DIR/data/oxide.db" "$BACKUP_DIR/oxide.db.pre-upgrade-$BACKUP_TIME"
+        echo -e "  Backed up active database to: ${GREEN}$BACKUP_DIR/oxide.db.pre-upgrade-$BACKUP_TIME${NC}"
+    fi
+    
     # Store old version if readable
     OLD_VERSION="unknown"
     if [ -f "$INSTALL_DIR/.version" ]; then

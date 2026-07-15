@@ -101,6 +101,38 @@ Startup configuration parameters are applied in the following order of precedenc
 3. **Configuration File** (`content/server.toml`)
 4. **Built-in Defaults**
 
+### 4. Deployment & Host Environment Considerations
+
+#### Host Firewall Configuration
+
+By default, the server listens on TCP port `4000`. You must configure your host VPS or server firewall to accept incoming connections on this port:
+
+- **Ubuntu/Debian (UFW)**:
+  ```bash
+  sudo ufw allow 4000/tcp
+  ```
+- **RHEL/CentOS (Firewalld)**:
+  ```bash
+  sudo firewall-cmd --add-port=4000/tcp --permanent
+  sudo firewall-cmd --reload
+  ```
+
+#### SQLite WAL Storage Restrictions (Docker & VPS)
+
+The persistence layer operates in SQLite **Write-Ahead Logging (WAL)** mode. WAL requires robust support for shared memory (`mmap`) and file locking (`fcntl`).
+
+- [!WARNING]
+  > **Do NOT use Network Volumes**: Do not place the database file or bind-mount the `./data` directory over network-mounted filesystems (e.g., NFS, AWS EFS, Samba/CIFS, or VM shared folders like VirtualBox/Vagrant folders). Doing so will prevent locking and lead to database corruption or engine crashes.
+- **Local Storage only**: Ensure the host `./data` folder is mounted on standard local filesystems (e.g., ext4, xfs, APFS, or NTFS).
+
+#### Windows PowerShell Installation Policy
+
+When deploying on Windows hosts, execution security policies will block the execution of the unsigned installer script by default. Run the installer by explicitly bypassing the execution policy for that session:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
 ---
 
 ## Server Configuration (`content/server.toml`)
