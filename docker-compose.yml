@@ -8,8 +8,11 @@ services:
     image: oxide-server:latest
     container_name: oxide-server
     restart: unless-stopped
+    stdin_open: true
+    tty: true
     ports:
       - "4000:4000"
     volumes:
       - ./content:/app/content
       - ./data:/app/data
+      - ./logs:/app/logs

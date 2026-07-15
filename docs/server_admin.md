@@ -19,16 +19,17 @@ Execute the server binary directly from the installation path:
 OxideMUD can be run in containerized environments using Docker and Docker Compose. The distribution package includes both a `Dockerfile` and a `docker-compose.yml` preconfigured for this setup.
 
 #### File Layout & Volumes
-The container configuration maps files on the host filesystem directly to the container to ensure persistence of your database and custom configurations:
+The container configuration maps files on the host filesystem directly to the container to ensure persistence of your database, logs, and custom configurations:
 *   `./content/` (mapped to `/app/content`) — Game configuration files, example templates, and scripts.
 *   `./data/` (mapped to `/app/data`) — The folder where the SQLite database (`oxide.db`) and backups are saved.
+*   `./logs/` (mapped to `/app/logs`) — Exposes rotating log files (e.g. `oxide_server_log_*.log`) directly onto the host for easy monitoring and backup.
 
 #### Build & Launch
 To build the Docker image and start the server in the background:
 ```bash
 docker-compose up -d --build
 ```
-This automatically builds the container using the precompiled binary, binds the MUD telnet port `4000` to the host, mounts the host's `./content` and `./data` folders, and configures the container to auto-restart on crashes or VPS reboots.
+This automatically builds the container using the precompiled binary, binds the MUD telnet port `4000` to the host, mounts the host's `./content`, `./data`, and `./logs` folders, and configures the container to auto-restart on crashes or VPS reboots.
 
 #### Stopping the Server
 To stop the server:
@@ -38,12 +39,26 @@ docker-compose down
 The game engine gracefully handles the `SIGTERM` signal sent by Docker to execute a graceful shutdown, flushing all dirty in-memory database states to the SQLite database, and checkpointing the WAL journal.
 
 #### Viewing Logs
-To check the running server logs:
+You can view the logs in two ways:
+1. **Directly on Host**: Access the rotating log files locally under the `./logs/` directory.
+2. **Via Docker**: To stream the stdout logs of the running container:
+    ```bash
+    docker-compose logs -f oxide-server
+    ```
+
+#### Connecting to the Server Console
+Since the container is configured to keep stdin open with a TTY (`stdin_open: true` and `tty: true` in `docker-compose.yml`), you can attach directly to the server's live interactive console (to run console commands like `broadcast` or `save`):
+
 ```bash
-docker-compose logs -f oxide-server
+docker attach oxide-server
 ```
 
-#### Running Game Commands in Docker
+> [!CAUTION]
+> **Detaching Safely**: To disconnect from the attached console without shutting down the server, press the escape sequence:
+> `Ctrl + P` followed by `Ctrl + Q`.
+> If you press `Ctrl + C` while attached, it sends a `SIGINT` and will terminate the game server.
+
+#### Running Temporary Commands in Docker
 To execute temporary commands or inspect the environment of a running container:
 ```bash
 docker exec -it oxide-server /app/bin/oxide-bin --version
