@@ -1,7 +1,10 @@
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 use tokio::signal::unix;
 
+#[cfg(unix)]
 pub async fn shutdown_signal() {
     let mut sigint = unix::signal(unix::SignalKind::interrupt())
         .unwrap_or_else(|_| panic!("failed to install SIGINT handler"));
@@ -30,5 +33,13 @@ pub async fn shutdown_signal() {
                 }
             }
         }
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn shutdown_signal() {
+    // Non-Unix fallback (e.g. Windows) uses the standard Ctrl+C signal.
+    if let Err(e) = tokio::signal::ctrl_c().await {
+        eprintln!("Failed to install Ctrl+C handler: {}", e);
     }
 }

@@ -10,10 +10,12 @@ build-release:
 
 # ─── Package & Deploy ────────────────────────────────────────────────
 
-# Bump version, generate changelog, tag, and package the release tarball
-release target="":
+# Bump version, generate changelog, tag, and package the release for macOS, Linux, and Windows
+release:
     cog bump --auto
-    just package {{ target }}
+    just package
+    just package x86_64-unknown-linux-musl
+    just package x86_64-pc-windows-gnu
 
 # Build and package all binaries + templates into a release tarball
 package target="":
