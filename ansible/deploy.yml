@@ -5,7 +5,17 @@
 - name: Load Connection Details and Configure Inventory
   hosts: localhost
   gather_facts: false
+  vars_prompt:
+    - name: use_docker_prompt
+      prompt: "Do you want to deploy using Docker?"
+      default: "yes"
+      private: false
+
   tasks:
+    - name: Parse Docker deploy decision
+      ansible.builtin.set_fact:
+        use_docker: "{{ use_docker_prompt | lower in ['yes', 'y', 'true', '1'] }}"
+
     - name: Check if .env file exists in root directory
       ansible.builtin.stat:
         path: "../.env"
@@ -74,6 +84,8 @@
 - name: Package and Deploy to Remote VPS
   hosts: remote_vps
   gather_facts: true
+  vars:
+    use_docker: "{{ hostvars['localhost']['use_docker'] }}"
   tasks:
     - name: Ensure target build folder exists locally
       delegate_to: localhost
@@ -131,7 +143,19 @@
         dest: "/tmp/oxide_deploy"
         remote_src: true
 
-    - name: Run Remote installer
+    - name: Stop host systemd services if using Docker
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - oxide-server
+        - oxide-mcp
+      failed_when: false
+      when: use_docker
+
+    - name: Run Remote installer (non-Docker setup)
       become: true
       ansible.builtin.command:
         cmd: >
@@ -143,10 +167,59 @@
         chdir: "/tmp/oxide_deploy"
       register: installer_out
       changed_when: true
+      when: not use_docker
 
-    - name: Output installation details
+    - name: Run Remote installer (Docker setup directory structures)
+      become: true
+      ansible.builtin.command:
+        cmd: >
+          ./install.sh
+          --install-dir "{{ install_dir }}"
+          --user "{{ run_as_user }}"
+          --install-game-service "false"
+          --install-mcp-service "false"
+        chdir: "/tmp/oxide_deploy"
+      register: installer_docker_out
+      changed_when: true
+      when: use_docker
+
+    - name: Copy Docker deployment files to installation directory
+      become: true
+      ansible.builtin.copy:
+        src: "/tmp/oxide_deploy/{{ item }}"
+        dest: "{{ install_dir }}/{{ item }}"
+        remote_src: true
+        mode: '0644'
+        owner: "{{ run_as_user }}"
+      loop:
+        - Dockerfile
+        - docker-compose.yml
+        - .dockerignore
+      when: use_docker
+
+    - name: Start server services via Docker Compose
+      become: true
+      ansible.builtin.command:
+        cmd: "docker-compose up -d --build"
+        chdir: "{{ install_dir }}"
+      register: docker_compose_out
+      changed_when: true
+      when: use_docker
+
+    - name: Output non-Docker installation details
       ansible.builtin.debug:
         var: installer_out.stdout_lines
+      when: not use_docker
+
+    - name: Output Docker setup details
+      ansible.builtin.debug:
+        var: installer_docker_out.stdout_lines
+      when: use_docker
+
+    - name: Output Docker Compose start details
+      ansible.builtin.debug:
+        var: docker_compose_out.stdout_lines
+      when: use_docker and docker_compose_out is defined
 
     - name: Remote cleanup
       ansible.builtin.file:
