@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "oxide-server"
+path = "src/main.rs"
+
 [dependencies]
 oxide-core = { path = "../core" }
 oxide-server = { path = "../server" }

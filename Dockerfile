@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the precompiled binary from the package bin directory
-COPY bin/oxide-bin /app/bin/
+COPY bin/oxide-server /app/bin/
 
 # Copy example game content templates and configs
 COPY content/ /app/content/
@@ -27,4 +27,4 @@ ENV OXIDE_CONTENT=/app/content
 ENV TMPDIR=/app/logs
 
 # Start the game server binding to 0.0.0.0 so Docker port forwarding works
-CMD ["/app/bin/oxide-bin", "--host", "0.0.0.0", "--port", "4000", "--config-path", "/app/content/server.toml", "--db-path", "/app/data/oxide.db"]
+CMD ["/app/bin/oxide-server", "--host", "0.0.0.0", "--port", "4000", "--config-path", "/app/content/server.toml", "--db-path", "/app/data/oxide.db"]

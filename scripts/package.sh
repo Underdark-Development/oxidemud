@@ -90,7 +90,7 @@ mkdir -p "$STAGE_DIR/bin"
 mkdir -p "$STAGE_DIR/data"
 
 # Copy compiled binaries
-BINS=("oxide-bin" "oxide-mcp" "spade")
+BINS=("oxide-server" "oxide-mcp" "spade")
 for bin in "${BINS[@]}"; do
     SRC_BIN="$TARGET_DIR/$bin"
     if [ ! -f "$SRC_BIN" ]; then

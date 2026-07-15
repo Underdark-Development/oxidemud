@@ -99,7 +99,7 @@ if [ "$NATIVE_BUILD" = "true" ]; then
         
         # Structure the release folder manually on VPS
         mkdir -p release-pkg/bin
-        cp target/release/oxide-bin release-pkg/bin/
+        cp target/release/oxide-server release-pkg/bin/
         cp target/release/oxide-mcp release-pkg/bin/
         cp target/release/spade release-pkg/bin/
         cp -r content release-pkg/

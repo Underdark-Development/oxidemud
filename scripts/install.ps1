@@ -57,7 +57,7 @@ New-Item -ItemType Directory -Force -Path "$InstallDir\data" | Out-Null
 
 # 3. Copy Binaries
 Write-Host "Installing binaries..." -ForegroundColor Green
-Copy-Item -Force -Path "bin\oxide-bin.exe" -Destination "$InstallDir\bin\"
+Copy-Item -Force -Path "bin\oxide-server.exe" -Destination "$InstallDir\bin\"
 Copy-Item -Force -Path "bin\oxide-mcp.exe" -Destination "$InstallDir\bin\"
 
 if ($NoSpade -eq $false) {
@@ -109,7 +109,7 @@ if ($InstallService -eq $true) {
     Write-Host "`nSetting up background Scheduled Task for the MUD server..." -ForegroundColor Green
 
     $TaskName = "OxideMUDServer"
-    $Action = New-ScheduledTaskAction -Execute "$InstallDir\bin\oxide-bin.exe" -Argument "--config-path $InstallDir\content\server.toml --db-path $InstallDir\data\oxide.db" -WorkingDirectory "$InstallDir"
+    $Action = New-ScheduledTaskAction -Execute "$InstallDir\bin\oxide-server.exe" -Argument "--config-path $InstallDir\content\server.toml --db-path $InstallDir\data\oxide.db" -WorkingDirectory "$InstallDir"
     $Trigger = New-ScheduledTaskTrigger -AtStartup
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
@@ -131,12 +131,12 @@ if ($InstallService -eq $true) {
         Write-Host "  To stop the server, run:       Stop-ScheduledTask -TaskName $TaskName" -ForegroundColor Green
     } catch {
         Write-Host "  Could not register scheduled task: $_" -ForegroundColor Red
-        Write-Host "  You can still start the server manually using: $InstallDir\bin\oxide-bin.exe" -ForegroundColor Yellow
+        Write-Host "  You can still start the server manually using: $InstallDir\bin\oxide-server.exe" -ForegroundColor Yellow
     }
 } else {
     Write-Host "`nManual Launch Commands (startup task not installed):" -ForegroundColor Yellow
     Write-Host "  To start the game server manually, run:" -ForegroundColor Green
-    Write-Host "    $InstallDir\bin\oxide-bin.exe --config-path $InstallDir\content\server.toml --db-path $InstallDir\data\oxide.db" -ForegroundColor Yellow
+    Write-Host "    $InstallDir\bin\oxide-server.exe --config-path $InstallDir\content\server.toml --db-path $InstallDir\data\oxide.db" -ForegroundColor Yellow
 }
 
 Write-Host "`nInstallation Complete!" -ForegroundColor Green

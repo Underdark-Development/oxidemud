@@ -6,14 +6,14 @@ This guide is intended for server administrators, systems engineers, and game ow
 
 ## Starting the Server
 
-The server is distributed as a precompiled executable (`oxide-bin`).
+The server is distributed as a precompiled executable (`oxide-server`).
 
 ### 1. Direct Execution
 
 Execute the server binary directly from the installation path:
 
 ```bash
-./bin/oxide-bin [options]
+./bin/oxide-server [options]
 ```
 
 ### 2. Docker Compose Deployment (Recommended)
@@ -76,7 +76,7 @@ docker attach oxide-server
 To execute temporary commands or inspect the environment of a running container:
 
 ```bash
-docker exec -it oxide-server /app/bin/oxide-bin --version
+docker exec -it oxide-server /app/bin/oxide-server --version
 ```
 
 ### 3. CLI Command Options
