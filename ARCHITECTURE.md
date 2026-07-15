@@ -63,13 +63,13 @@ Branches: `shutdown_signal` (flush + exit), `scheduler.next` (run system phase),
 
 Singleton resource maintaining named intervals, each producing a `Pulse` on an mpsc channel:
 
-| Phase | Interval | Description |
-|---|---|---|
-| `Movement` | 100ms | Direction commands |
-| `Combat` | 2s | Attack/damage round |
-| `Regeneration` | 6s | HP/mana/stamina regen, effect expiry |
-| `Weather` | 5m | Zone weather updates |
-| `DirtyFlush` | 5s | Persist dirty entities |
+| Phase          | Interval | Description                          |
+| -------------- | -------- | ------------------------------------ |
+| `Movement`     | 100ms    | Direction commands                   |
+| `Combat`       | 2s       | Attack/damage round                  |
+| `Regeneration` | 6s       | HP/mana/stamina regen, effect expiry |
+| `Weather`      | 5m       | Zone weather updates                 |
+| `DirtyFlush`   | 5s       | Persist dirty entities               |
 
 Phases are independent and fire concurrently. Each iterates registered systems sorted by priority (lower runs first).
 
@@ -81,30 +81,30 @@ Game logic is organized into systems implementing the `System` trait (run on pul
 
 ### Built-in Systems
 
-| System | Phase(s) | Pri | Responsibility |
-|---|---|---|---|
-| `MovementSystem` | Movement | 10 | Direction commands, update `Position`, emit `PlayerMoved` |
-| `FollowSystem` | Movement | 20 | Move followers behind leader |
-| `EchoSystem` | — (event) | 10 | Broadcast messages to room occupants |
-| `CombatSystem` | Combat | 20 | Hit/damage/death rolls |
-| `StanceSystem` | Combat | 15 | Apply stance modifiers |
-| `AISystem` | Combat | 30 | NPC state machine tick |
-| `FormationSystem` | Combat | 25 | Group formation bonuses |
-| `RegenSystem` | Regeneration | 10 | Regen HP/mana/resource pools |
-| `EffectExpirySystem` | Regeneration | 20 | Tick effect durations |
-| `PassiveApplicationSystem` | Regeneration | 30 | Apply/remove passives on login/level-up |
-| `WeatherSystem` | Weather | 10 | Zone weather state machine |
-| `DirtyFlushSystem` | DirtyFlush | 50 | Persist dirty entities to SQLite |
-| `SkillRequirementSystem` | DirtyFlush | 40 | Check skill gates on equipment |
-| `GroupCleanupSystem` | DirtyFlush | 45 | Sweep stale group members |
-| `CorpseSystem` | DirtyFlush | 60 | Decay corpses, transfer contents |
-| `AreaResetSystem` | DirtyFlush | 70 | Area resets past interval |
-| `SetBonusSystem` | — (event) | 10 | Evaluate item sets on equip/unequip |
-| `QuestProgressSystem` | — (event) | 20 | Update quest objectives |
-| `CraftingSystem` | — (event) | 20 | Execute crafting flow |
-| `ScriptTriggerSystem` | — (event) | 100 | Run attached Rhai scripts |
-| `KeepaliveSystem` | Regeneration | 5 | Detect stale connections |
-| `BackupSystem` | DirtyFlush | 80 | Hot-backup SQLite |
+| System                     | Phase(s)     | Pri | Responsibility                                            |
+| -------------------------- | ------------ | --- | --------------------------------------------------------- |
+| `MovementSystem`           | Movement     | 10  | Direction commands, update `Position`, emit `PlayerMoved` |
+| `FollowSystem`             | Movement     | 20  | Move followers behind leader                              |
+| `EchoSystem`               | — (event)    | 10  | Broadcast messages to room occupants                      |
+| `CombatSystem`             | Combat       | 20  | Hit/damage/death rolls                                    |
+| `StanceSystem`             | Combat       | 15  | Apply stance modifiers                                    |
+| `AISystem`                 | Combat       | 30  | NPC state machine tick                                    |
+| `FormationSystem`          | Combat       | 25  | Group formation bonuses                                   |
+| `RegenSystem`              | Regeneration | 10  | Regen HP/mana/resource pools                              |
+| `EffectExpirySystem`       | Regeneration | 20  | Tick effect durations                                     |
+| `PassiveApplicationSystem` | Regeneration | 30  | Apply/remove passives on login/level-up                   |
+| `WeatherSystem`            | Weather      | 10  | Zone weather state machine                                |
+| `DirtyFlushSystem`         | DirtyFlush   | 50  | Persist dirty entities to SQLite                          |
+| `SkillRequirementSystem`   | DirtyFlush   | 40  | Check skill gates on equipment                            |
+| `GroupCleanupSystem`       | DirtyFlush   | 45  | Sweep stale group members                                 |
+| `CorpseSystem`             | DirtyFlush   | 60  | Decay corpses, transfer contents                          |
+| `AreaResetSystem`          | DirtyFlush   | 70  | Area resets past interval                                 |
+| `SetBonusSystem`           | — (event)    | 10  | Evaluate item sets on equip/unequip                       |
+| `QuestProgressSystem`      | — (event)    | 20  | Update quest objectives                                   |
+| `CraftingSystem`           | — (event)    | 20  | Execute crafting flow                                     |
+| `ScriptTriggerSystem`      | — (event)    | 100 | Run attached Rhai scripts                                 |
+| `KeepaliveSystem`          | Regeneration | 5   | Detect stale connections                                  |
+| `BackupSystem`             | DirtyFlush   | 80  | Hot-backup SQLite                                         |
 
 Systems stored `PhaseMap<Vec<Box<dyn System>>>`, priority-sorted at registration.
 
@@ -123,6 +123,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 ## ECS Component Design
 
 ### Spatial
+
 - `Position { room: Entity }` — references a room entity
 - `Room { name, description }` — room metadata
 - `Exit { direction, dest, flags, key_id: Option<String> }` — direction-based exits with optional key template ID
@@ -136,6 +137,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 - `Direction`: North, South, East, West, Up, Down, NE, NW, SE, SW
 
 ### Character
+
 - `Player { account_id, prompt, no_resurrect: bool }` — player entity, configurable prompt template, resurrection toggle flag
 - `Npc { template_id }` — NPC entity
 - `Attributes { str, dex, int, wis, con, cha }` — 6 core stats (u8)
@@ -159,16 +161,16 @@ The game prompt is a configurable template string stored in `Player.prompt`. Def
 
 Sent after every command output, before the next `read_line()`. Also sent on room entry, death, level-up, and combat state changes.
 
-| Variable | Source | Example |
-|---|---|---|
-| `%h` / `%H` | `Health.current` / `Health.max` | `450` / `500` |
-| `%m` / `%M` | `Mana.current` / `Mana.max` | `120` / `200` |
-| `%s` / `%S` | `Stamina.current` / `Stamina.max` | `80` / `100` |
-| `%e` / `%E` | `Energy.current` / `Energy.max` | `50` / `100` |
-| `%p` / `%P` | `Psi.current` / `Psi.max` | `30` / `60` |
-| `%x` / `%X` | `Experience` / XP to next level | `5200` / `8000` |
-| `%r` | `PlayerState.rest` | `Stand` / `Sit` / `Rest` / `Sleep` / `Dead` |
-| `%%` | literal `%` | `%` |
+| Variable    | Source                            | Example                                     |
+| ----------- | --------------------------------- | ------------------------------------------- |
+| `%h` / `%H` | `Health.current` / `Health.max`   | `450` / `500`                               |
+| `%m` / `%M` | `Mana.current` / `Mana.max`       | `120` / `200`                               |
+| `%s` / `%S` | `Stamina.current` / `Stamina.max` | `80` / `100`                                |
+| `%e` / `%E` | `Energy.current` / `Energy.max`   | `50` / `100`                                |
+| `%p` / `%P` | `Psi.current` / `Psi.max`         | `30` / `60`                                 |
+| `%x` / `%X` | `Experience` / XP to next level   | `5200` / `8000`                             |
+| `%r`        | `PlayerState.rest`                | `Stand` / `Sit` / `Rest` / `Sleep` / `Dead` |
+| `%%`        | literal `%`                       | `%`                                         |
 
 Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources display `?` (e.g. `%m` when player has no mana pool).
 
@@ -177,21 +179,25 @@ Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources disp
 **Customization** — `config prompt <template>` writes to `Player.prompt`, persisted to SQLite via dirty tracking. Validates template on set (syntax only, no live values).
 
 ### Combat
+
 - `CombatState` — NotInCombat, Engaged { target, round_started, stance }, Fleeing { target, attempts }
 - `Damage(i32)` + `DamageType`: Slash, Pierce, Bludgeon, Fire, Cold, Lightning, Acid, Poison, Magic, True
 - `Armor { base, bonus }`
 
 ### Resource Pools (in `core/src/resources/`)
+
 - `Stamina { current, max }`, `Mana { current, max }`, `Energy { current, max }`, `PsiPool { current, max }` — all u16
 - Characters have pools depending on class/race (warrior=stamina, mage=mana, psion=psi)
 
 ### Items & Equipment
+
 - `Item { template_id, flags }`, `Inventory(Vec<Entity>)`, `EquipmentSlot`: Head, Neck, Torso, Arms, Hands, Finger, Legs, Feet, Weapon, Shield
 - `Weapon { damage (DamageDice), speed, range }`, `Armor { ac_bonus, slot, material, skill_penalty }`
 - `Container { capacity_weight, capacity_items, lock_id, is_locked }`
 - `Durability { current, max, decay_rate }` — break/repair system
 
 ### Character & Progression
+
 - `Name(String)`, `Description(String)`, `Alignment(String)`, `Wallet(u64)`
 - `CombatStats { base_attack_bonus, fort_save, ref_save, will_save }`
 - `ActiveStance(Option<String>)` — name of active stance
@@ -203,14 +209,17 @@ Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources disp
 - `LearnedRecipes { recipes: Vec<String> }`
 
 ### Item Progression
+
 - `SetTracker { active_sets }` — map of active item set bonuses
 - `ItemTriggers { on_hit, on_wear, on_remove, on_use }` — trigger skill executions per event
 - `TriggerEffect { chance, skill_id, target }`, `TriggerTarget`: Self, Attacker, Room, Random
 
 ### Flexible / OLC
+
 - `Attributes(HashMap<String, String>)` — KV store for builder data
 
 ### Persistence
+
 - `Dirty` — marker needs DB write, `DbId(i64)` — maps entity to SQLite row
 
 ---
@@ -220,16 +229,16 @@ Unrecognized variables render as-is (e.g. `%q` → `%q`). Unknown resources disp
 ```
 RoomState: Normal, UnderConstruction, Locked, EventActive { event_id }, Destroyed
 ## State Machine: CombatState
-
 ```
+
 CombatState:
-  NotInCombat → { attacked } → Engaged
-  Engaged     → { flee }     → Fleeing
-  Engaged     → { target_dead / target_unconscious } → NotInCombat / TargetSwitch
-  Fleeing     → { success }  → NotInCombat
-  Fleeing     → { failed }   → Engaged
-```
+NotInCombat → { attacked } → Engaged
+Engaged → { flee } → Fleeing
+Engaged → { target_dead / target_unconscious } → NotInCombat / TargetSwitch
+Fleeing → { success } → NotInCombat
+Fleeing → { failed } → Engaged
 
+```
 `CombatSystem` dispatches on `CombatState` each pulse. `CombatStateChanged { entity, from, to }` emitted on every transition. When an entity falls unconscious or dies, any active combatants targeting them in the same room switch targets immediately to the next conscious entity currently targeting them.
 
 ## State Machine: NPC AI
@@ -462,11 +471,11 @@ DIKU-style unified practice pool: one resource funds both stat training and skil
 ### Practice Points
 
 `PracticePoints(u32)` is a per-character component. Gained on each level-up:
-
 ```
+
 gain = (2 + WIS_mod + INT_mod).max(1)
-```
 
+```
 Where `WIS_mod = (wisdom - 10) / 2` and `INT_mod = (intelligence - 10) / 2`. Minimum 1 point per level regardless of stats.
 
 ### Trainer NPCs
@@ -510,21 +519,21 @@ Increases a learned skill's rank by 1.
 ### Skill Caps
 
 Skill ranks bounded by character level:
-
 ```
+
 cap = SkillCap.base_cap + SkillCap.per_level × level
-```
 
+```
 Default: `base_cap = 5`, `per_level = 5` → `5 + 5 × level`. Class templates define three categories: `class_skills` (full cap), `cross_class_skills` (half cap), `exclusive_skills` (per-class).
 
 ### Database
 
 `PracticePoints` persisted in `components_practice_points` table. Migration from legacy `unspent_skill_points` computes retroactive points for existing characters:
-
 ```
+
 retro = level × MAX(1, 2 + (wis - 10)/2 + (int - 10)/2) + existing_unspent
-```
 
+```
 ---
 
 ## Item System
@@ -577,35 +586,35 @@ NPCs defined in TOML templates under `content/mobs/`. For the full TOML schema a
 Deities are template entities defined in `content/deities/*.toml`. A character may adopt a deity during creation or in-game. Deities grant optional effects when prayed to, subject to a cooldown.
 
 ### DeityTemplate
-
 ```
+
 DeityTemplate {
-    id: String,
-    name: String,
-    description: String,
-    alignment: Option<String>,       // deity's own alignment
-    symbol: String,
-    favored_weapon: Option<String>,
-    tenets: Vec<String>,
-    domains: Vec<String>,            // War, Nature, Trickery, Knowledge, Life, etc.
-    allowed_races: Vec<String>,      // empty = all races
-    allowed_classes: Vec<String>,    // empty = all classes
-    allowed_alignments: Vec<String>, // empty = all alignments
-    prayer_effect: Option<PrayerEffect>,
+id: String,
+name: String,
+description: String,
+alignment: Option<String>, // deity's own alignment
+symbol: String,
+favored_weapon: Option<String>,
+tenets: Vec<String>,
+domains: Vec<String>, // War, Nature, Trickery, Knowledge, Life, etc.
+allowed_races: Vec<String>, // empty = all races
+allowed_classes: Vec<String>, // empty = all classes
+allowed_alignments: Vec<String>, // empty = all alignments
+prayer_effect: Option<PrayerEffect>,
 }
-```
 
+```
 ### PrayerEffect
-
 ```
+
 PrayerEffect {
-    buff_id: String,        // references a PassiveDef or ActiveEffect template
-    duration_secs: u64,     // how long the effect lasts
-    cooldown_secs: u64,     // minimum time between prayers
-    description: String,    // flavor text on pray
+buff_id: String, // references a PassiveDef or ActiveEffect template
+duration_secs: u64, // how long the effect lasts
+cooldown_secs: u64, // minimum time between prayers
+description: String, // flavor text on pray
 }
-```
 
+```
 ### Class Deity Policy
 
 Class templates define a `deity_policy` field controlling character creation behavior:
@@ -618,13 +627,13 @@ Class templates define a `deity_policy` field controlling character creation beh
 | `subset([ids])` | Player must choose from this explicit list |
 
 ### Pray Command
-
-```
-pray              — pray to your deity (if you have one)
-pray <deity>      — pray to a specific deity (shrine required in room)
-pray <target>     — cleric/paladin heal ally via deity channel
 ```
 
+pray — pray to your deity (if you have one)
+pray <deity> — pray to a specific deity (shrine required in room)
+pray <target> — cleric/paladin heal ally via deity channel
+
+```
 Each prayer applies the deity's `prayer_effect` as an `ActiveEffect` component with the specified duration. On cooldown: display remaining time message. Cooldown tracked as a simple `Instant` timestamp on the player entity.
 
 ### Domains
@@ -642,11 +651,11 @@ Domains are thematic groupings used for:
 - `PrayState` state machine (future) — Idle, Praying, OnCooldown
 
 ### Content Directory
-
 ```
+
 content/deities/*.toml
-```
 
+```
 ---
 
 Recipes in `content/recipes/*.toml`. `RecipeDef`: id, name, station, skill requirement, difficulty, materials, result, success_chance, quality_scaling, script.
@@ -660,13 +669,13 @@ Stations are room flags (`room_flags = ["station:anvil"]`) or entities with `Sta
 ## Quest System
 
 ### Quest State Machine
-
 ```
+
 Inactive → { accepted } → Active → { all_objectives_complete } → ReadyToTurnIn
 ReadyToTurnIn → { turn_in } → Completed
 Active → { abandon } → Abandoned (repeatable: → Inactive)
-```
 
+```
 Emits `QuestUpdated` on progress, `QuestCompleted` on turn-in.
 
 ### Quest Template
@@ -868,13 +877,13 @@ Crate-level `Error` enums with `thiserror` + `Result` aliases. Errors composed (
 ## Help System
 
 Help topics in `content/help/*.toml`. `HelpEntry`: id, aliases, title, text. Loaded into TemplateRegistry at startup. Index maps id + all aliases.
-
-```
-help            — topic index
-help <topic>    — show topic
-help <partial>  — keyword search
 ```
 
+help — topic index
+help <topic> — show topic
+help <partial> — keyword search
+
+```
 Builder-created help stored in SQLite `help` table, merged with file-based topics (DB overrides on collision).
 
 ---
@@ -884,12 +893,12 @@ Builder-created help stored in SQLite `help` table, merged with file-based topic
 ### Connection State Machine
 
 Each connection traverses a state machine between telnet negotiation and gameplay:
-
 ```
+
 Connected → Negotiating → Banner → Username → Password → CharacterSelect → Playing
-                                                                 ↘ CharacterCreate* ↗
-```
+↘ CharacterCreate* ↗
 
+```
 `ConnectionState`: Connected, Negotiating, Banner, Username, Password, CharacterSelect, CharacterCreate{Name,Race,Class,Gender,Attributes,Alignment,Deity,Skills,Appearance,Description,Spawn,Confirm}, Playing.
 
 Login state machine lives in `server/src/login/` as a standalone `LoginFlow` struct with separate modules: `state.rs` (enum + transitions), `handlers.rs` (per-state input handling), `prompt.rs` (prompt rendering). Failed input counts toward strike limit (3 → disconnect).
@@ -1246,18 +1255,18 @@ MCP content URIs: `content://areas/`, `content://areas/{key}`, `content://areas/
 `create_area_flow` (guided area creation), `review_content` (validation + suggestions), `balance_encounter` (mob vs area tier analysis), `design_quest_chain` (prerequisites, objectives, branching, rewards).
 
 ### Crate Layout
-
 ```
+
 mcp/
 ├── Cargo.toml
 └── src/
-    ├── main.rs         # Entry: --mode, --port, --content-path
-    ├── server.rs       # McpServer: stdio transport, dispatch
-    ├── tools/          # Tool implementations by content type
-    ├── resources/      # Resource providers (templates, validation, stats)
-    └── prompts/        # Prompt templates (builder, reviewer)
-```
+├── main.rs # Entry: --mode, --port, --content-path
+├── server.rs # McpServer: stdio transport, dispatch
+├── tools/ # Tool implementations by content type
+├── resources/ # Resource providers (templates, validation, stats)
+└── prompts/ # Prompt templates (builder, reviewer)
 
+```
 ### DAG
 
 `mcp` depends on `core` (types) only. Loads TOML files directly for offline mode, HTTP for online. No dependency on server/data/scripting/bin.
@@ -1387,3 +1396,4 @@ mcp/
 - [ ] **MCP online mode** — REST bridge to game server
 - [ ] **MCP prompts** — guided workflows
 - [ ] Performance profiling & optimization
+```

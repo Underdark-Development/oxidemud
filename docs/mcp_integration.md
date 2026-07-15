@@ -27,10 +27,10 @@ cargo run --bin oxide-mcp [options] [content_path]
 
 The MCP server supports two runtime modes:
 
-| Mode | Trigger | Data Source | Write Operation |
-| :--- | :--- | :--- | :--- |
-| **Offline Mode** | Default | Local TOML files under `content/` | Direct atomic write: writes content to a temporary file, validates, and then renames to target. |
-| **Online Mode** | `mcp --db <path>` | Game SQLite Database | Executes commands using a REST HTTP/JSON bridge to the running game server. |
+| Mode             | Trigger           | Data Source                       | Write Operation                                                                                 |
+| :--------------- | :---------------- | :-------------------------------- | :---------------------------------------------------------------------------------------------- |
+| **Offline Mode** | Default           | Local TOML files under `content/` | Direct atomic write: writes content to a temporary file, validates, and then renames to target. |
+| **Online Mode**  | `mcp --db <path>` | Game SQLite Database              | Executes commands using a REST HTTP/JSON bridge to the running game server.                     |
 
 ---
 
@@ -39,6 +39,7 @@ The MCP server supports two runtime modes:
 AI agents can execute the following tools via JSON-RPC calls:
 
 ### World Editing (CRUD)
+
 - `list_areas` / `get_area` — Lists all registered areas or retrieves metadata for a single area.
 - `create_area` / `update_area` / `delete_area` — Creates, updates, or deletes area configurations.
 - `list_rooms` / `get_room` — Retrieves room structures.
@@ -50,6 +51,7 @@ AI agents can execute the following tools via JSON-RPC calls:
 - `list_shops` / `get_shop` — Lists shops or retrieves a single shop definition.
 
 ### Template Lists & Inspect
+
 - `list_classes` — Lists all class templates in the registry.
 - `list_races` — Lists all race templates.
 - `list_skills` — Lists all skill templates.
@@ -64,11 +66,13 @@ AI agents can execute the following tools via JSON-RPC calls:
 - `get_stats` — Returns count summaries of races, classes, mobs, items, rooms, and areas.
 
 ### Validation
+
 - `validate` — Runs full cross-reference validation on all templates, checking broken links, missing templates, attribute bounds, skill gates, and deity policies.
 - `validate_area <area_id>` — Validates a single area file for structural integrity.
 - `validate_content_dag` — Validates skill prerequisite trees for circular dependency loops.
 
 ### Simulation Tools
+
 - `simulate_combat` — Simulates `N` combat rounds between two mob templates (or a mob and a player-level character). Returns round-by-round hit/miss/damage results and aggregate stats.
 - `simulate_loot <mob_id> <iterations>` — Rolls loot drops from a mob template across multiple iterations and returns drop rate percentages.
 - `simulate_ai_wander <mob_id> <start_room> <ticks>` — Simulates an NPC's AI wander path across a given number of ticks, reporting room visit frequency.

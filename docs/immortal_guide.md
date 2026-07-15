@@ -8,13 +8,13 @@ This manual is for the game's immortal staff (Builders, Immortals, Gods, and Adm
 
 The engine organizes staff into five hierarchical access levels. Commands are gated, and each tier inherits all commands of the levels below it.
 
-| Access Level | Role | Scope & Authority |
-| :--- | :--- | :--- |
-| `Player` | Player | Standard gameplay commands. |
-| `Builder` | Builder | World-building, area maintenance, and template adjustments. |
-| `Immortal` | Moderator | Player moderation, teleportation, diagnostic inspection, and chat channels. |
-| `God` | Administrator | Character manipulation, item loading, purging, banning, and freezing. |
-| `Admin` | System Owner | Server control, configuration overrides, shutdowns, and system diagnostics. |
+| Access Level | Role          | Scope & Authority                                                           |
+| :----------- | :------------ | :-------------------------------------------------------------------------- |
+| `Player`     | Player        | Standard gameplay commands.                                                 |
+| `Builder`    | Builder       | World-building, area maintenance, and template adjustments.                 |
+| `Immortal`   | Moderator     | Player moderation, teleportation, diagnostic inspection, and chat channels. |
+| `God`        | Administrator | Character manipulation, item loading, purging, banning, and freezing.       |
+| `Admin`      | System Owner  | Server control, configuration overrides, shutdowns, and system diagnostics. |
 
 > [!IMPORTANT]
 > Command execution checks permission levels dynamically: `connection.access_level() >= command.access`. If a staff member attempts to run a command above their access level, the system rejects it.
@@ -26,10 +26,12 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 > **Status note:** Most staff-specific OLC and moderation commands are planned. Currently only `@award` is implemented (builder level). See the [Builder Manual](builder_manual.md) for planned OLC command reference.
 
 ### Builder Commands
+
 - `@award <xp>` — Grants XP to yourself (for testing). Currently the only implemented staff command.
 - (Planned: `@area`, `@dig`, `@link`, `@set`, `@desc`, `@portal`, `@mob`, `@item`, `@load`, `@validate` — see [Builder Manual](builder_manual.md))
 
 ### Immortal Commands (planned)
+
 - `goto <room_id / player>` — Teleports the immortal instantly to the specified room or player.
 - `at <room_id / player> <command>` — Executes a command at the location of the specified target without moving the immortal.
 - `force <player> <command>` — Forces a player to execute a command.
@@ -45,6 +47,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 - `return` — Releases control of a possessed NPC, returning to the immortal character.
 
 ### God Commands (planned)
+
 - `@purge [target]` — Deletes transient entities (e.g. mobs, items, corpses) from the current room.
 - `@slay <player / mob>` — Instantly reduces a target's health to 0, killing them.
 - `@restore <player>` — Fully restores a player's health, mana, stamina, and resource pools.
@@ -54,6 +57,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 - `load <item_id / mob_id>` — Loads a new instance of an item or mobile into the current room.
 
 ### Admin Commands (planned)
+
 - `shutdown` — Initiates a graceful shutdown of the server.
 - `restart` — Gracefully restarts the server.
 - `wizlock` — Locks the server, permitting only staff with `Builder` access or higher to connect.
@@ -63,13 +67,17 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 ## Core Staff Mechanics
 
 ### Incognito Mode (`wizin`)
+
 When an immortal toggles `wizin`, they are hidden from standard gameplay systems:
+
 - They are omitted from the public `who` list.
 - Normal players looking at a room containing an incognito immortal will only see `"You sense a presence here."` rather than the immortal's name and description.
 - Staff members with `God` access or higher who have `holylight` enabled can see through incognito mode.
 
 ### Holy Light (`holylight`)
+
 Holy Light allows staff members to bypass standard visibility checks:
+
 - See hidden exits and invisible characters.
 - Detect incognito staff.
 - Bypass zone darkness restrictions.
@@ -90,6 +98,7 @@ To prevent accidental disruption of gameplay or abuse of staff commands, the com
 ## Auditing and Tracing
 
 All administrative and destructive actions are logged for security and auditing purposes:
+
 - Destructive commands (e.g., `slay`, `purge`, `ban`, `freeze`) emit high-priority trace logs via the `tracing::warn!` macro with a `"audit"` target.
 - Logs include the administrator's account ID, the target name/ID, and the exact command executed.
 - These events are written to the server's rotating log files and can be queried using the console's `audit` command.

@@ -68,13 +68,15 @@ install-tintin:
 lint:
     cargo clippy --workspace -- -D warnings
 
-# Format all Rust source files
+# Format all Rust source and Markdown files
 fmt:
     cargo fmt --all
+    dprint fmt
 
 # Check formatting without modifying files
 fmt-check:
     cargo fmt --all --check
+    dprint check
 
 # ─── Test ───────────────────────────────────────────────────────────
 
@@ -96,10 +98,10 @@ clean:
 
 # ─── Tools ──────────────────────────────────────────────────────────
 
-# Install development tooling (cargo-watch, lefthook, cocogitto)
+# Install development tooling (cargo-watch, lefthook, cocogitto, dprint)
 install-tools:
     cargo install cargo-watch
-    brew install lefthook cocogitto
+    brew install lefthook cocogitto dprint
     lefthook install
 
 # ─── Watch ──────────────────────────────────────────────────────────

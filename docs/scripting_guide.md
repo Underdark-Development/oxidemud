@@ -14,16 +14,17 @@ Rhai scripts will drive NPC AI, item spells/procs, quest triggers, room behavior
 
 Since scripts can be loaded dynamically or created by builders, the Rhai engine will run inside a sandboxed execution environment with strict resource limits:
 
-| Metric | Bounded Limit | Prevention |
-| :--- | :--- | :--- |
-| **Max Operations** | 50,000 operations | Prevents infinite loops and CPU hogging. |
-| **Max Call Stack** | 32 call levels | Prevents stack overflow crashes from deep recursion. |
-| **Loaded Modules** | 8 modules | Limits file imports. |
-| **Max String Size**| 10,000 characters | Prevents out-of-memory errors from buffer bloat. |
-| **Max Arrays** | 100 dynamic arrays | Prevents heap-allocation exhaustion. |
-| **Max Maps** | 50 key-value maps | Prevents heap-allocation exhaustion. |
+| Metric              | Bounded Limit      | Prevention                                           |
+| :------------------ | :----------------- | :--------------------------------------------------- |
+| **Max Operations**  | 50,000 operations  | Prevents infinite loops and CPU hogging.             |
+| **Max Call Stack**  | 32 call levels     | Prevents stack overflow crashes from deep recursion. |
+| **Loaded Modules**  | 8 modules          | Limits file imports.                                 |
+| **Max String Size** | 10,000 characters  | Prevents out-of-memory errors from buffer bloat.     |
+| **Max Arrays**      | 100 dynamic arrays | Prevents heap-allocation exhaustion.                 |
+| **Max Maps**        | 50 key-value maps  | Prevents heap-allocation exhaustion.                 |
 
 Additionally, the scripting sandbox:
+
 - Restricts file access: The Rhai script resolver only reads files inside `content/scripts/`.
 - Disables network I/O: Socket, HTTP, and database bindings are unavailable.
 
@@ -51,6 +52,7 @@ When a script is triggered, the engine injects three global handles into the scr
 ## Scripting API Reference (Planned)
 
 ### `EntityHandle`
+
 Represents an active player, NPC, or item in the game world.
 
 ```rust
@@ -71,6 +73,7 @@ let room = actor.room();
 ```
 
 ### `RoomHandle`
+
 Represents a room in the game world.
 
 ```rust
@@ -85,6 +88,7 @@ let dest = self.exit_destination("north");
 ```
 
 ### `WorldHandle`
+
 Provides system-level control to spawn or manipulate world state.
 
 ```rust

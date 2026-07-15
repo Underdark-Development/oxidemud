@@ -58,6 +58,7 @@ content/
 ## Core Template Schemas
 
 ### Areas (`AreaTemplate`)
+
 Stored at `content/areas/<area_id>/area.toml`. Defines a geographic zone of rooms.
 
 ```toml
@@ -72,6 +73,7 @@ flags = ["city", "peaceful"]
 ```
 
 ### Rooms (`RoomTemplate`)
+
 Stored at `content/areas/<area_id>/rooms/<room_id>.toml`.
 
 ```toml
@@ -123,16 +125,16 @@ description = "The sanctuary spawns holy acolytes."
 
 Exits support optional door state fields. When `is_door = true`, the exit behaves as a door that can be opened, closed, locked, and unlocked.
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `direction` | String | — | Direction name (`north`, `south`, `east`, `west`, `up`, `down`, `northeast`, `northwest`, `southeast`, `southwest`). |
-| `dest` | String | — | Destination room in `area_id.room_id` format. |
-| `is_door` | Bool | `false` | Whether this exit has a door. |
-| `is_closed` | Bool | `false` | Whether the door starts closed (blocks movement). |
-| `is_locked` | Bool | `false` | Whether the door starts locked. |
-| `key_id` | String | — | Item template ID of the key that locks/unlocks this door. |
-| `flags` | Array | `[]` | Exit flags: `hidden` (not shown in exit list). |
-| `description` | String | — | Extra description seen when looking in this direction. |
+| Field         | Type   | Default | Description                                                                                                          |
+| ------------- | ------ | ------- | -------------------------------------------------------------------------------------------------------------------- |
+| `direction`   | String | —       | Direction name (`north`, `south`, `east`, `west`, `up`, `down`, `northeast`, `northwest`, `southeast`, `southwest`). |
+| `dest`        | String | —       | Destination room in `area_id.room_id` format.                                                                        |
+| `is_door`     | Bool   | `false` | Whether this exit has a door.                                                                                        |
+| `is_closed`   | Bool   | `false` | Whether the door starts closed (blocks movement).                                                                    |
+| `is_locked`   | Bool   | `false` | Whether the door starts locked.                                                                                      |
+| `key_id`      | String | —       | Item template ID of the key that locks/unlocks this door.                                                            |
+| `flags`       | Array  | `[]`    | Exit flags: `hidden` (not shown in exit list).                                                                       |
+| `description` | String | —       | Extra description seen when looking in this direction.                                                               |
 
 The `open`, `close`, `lock`, and `unlock` commands operate on door exits. Locking/unlocking requires the matching key item in the player's inventory.
 
@@ -148,6 +150,7 @@ sets = [{ mob = "city_guard", items = ["steel_shortsword"] }]  # Equipment sets 
 ```
 
 ### Mobs (`MobTemplate`)
+
 Stored under `content/mobs/`.
 
 ```toml
@@ -243,43 +246,44 @@ chance = 15
 
 #### Mob Schema Fields
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `id` | String | — | Unique identifier for the mob template. |
-| `name` | String | — | Display name seen in room descriptions. |
-| `description` | String | — | Full description on `look` (supports color codes). |
-| `short_desc` | String | — | Brief description shown in room entity list. Falls back to `name`. |
-| `level` | Integer | `1` | NPC level; affects hit/damage and XP calculations. |
-| `race` | String | — | Race template ID; grants racial traits and size defaults. |
-| `size` | String | `"medium"` | Size category: `tiny`, `small`, `medium`, `large`, `huge`. |
-| `armor` | Integer | `0` | Base armor class value. |
-| `damage` | String | — | Natural weapon damage in dice notation (e.g. `1d6`, `2d4+3`). |
-| `damage_type` | String | — | Natural weapon damage type: `slash`, `pierce`, `bludgeon`, etc. |
-| `xp_value` | Integer | `0` | XP awarded when killed. |
-| `shop` | String | — | Shop template ID if this NPC is a vendor. |
-| `faction` | String | — | Faction template ID this NPC belongs to. |
-| `faction_standing` | Integer | `0` | Starting faction standing (–100 to 100). |
-| `friendly` | Bool | `false` | If true, never aggroes players. |
-| `ai_mode` | String | `"idle"` | AI behavior: `idle`, `wander`, `patrol`, `aggro`. |
-| `patrol_route` | Array | `[]` | Room IDs for patrol waypoints (`area.room` format). |
-| `wander_rooms` | Array | `[]` | Specific rooms to wander (empty = any in area). |
-| `wander_area` | Bool | `false` | If true, wanders anywhere in the current area. |
-| `aggro_range` | Integer | `0` | Room-distance to detect targets. `0` = room only. |
-| `aggro_players` | Bool | `false` | If true, aggroes on player characters. |
-| `aggro_mobs` | Bool | `false` | If true, aggroes on other NPCs. |
-| `aggro_race` | Array | `[]` | Only aggro specific races (empty = all races). |
-| `trainer_types` | Array | `[]` | Training categories this NPC teaches: `attributes`, `combat`, `weapon`, `magic`, `crafting`. |
-| `languages` | Array | `[]` | Languages the NPC speaks/knows. |
-| `scripts` | Array | `[]` | Script hooks that fire on game events. |
-| `health` | Section | — | `{ current, max }` — starting hit points. |
-| `attributes` | Section | — | `{ str, dex, int, wis, con, cha }` — base attributes. |
-| `equipment` | Array | `[]` | Equipment entries: `{ template_id, slot }`. |
-| `loot` | Section | — | Loot table: `{ entries: [{ item, chance, count?, treasure_class? }] }`. |
-| `skills` | Array | `[]` | Known skills: `{ id, level }`. |
+| Field              | Type    | Default    | Description                                                                                  |
+| ------------------ | ------- | ---------- | -------------------------------------------------------------------------------------------- |
+| `id`               | String  | —          | Unique identifier for the mob template.                                                      |
+| `name`             | String  | —          | Display name seen in room descriptions.                                                      |
+| `description`      | String  | —          | Full description on `look` (supports color codes).                                           |
+| `short_desc`       | String  | —          | Brief description shown in room entity list. Falls back to `name`.                           |
+| `level`            | Integer | `1`        | NPC level; affects hit/damage and XP calculations.                                           |
+| `race`             | String  | —          | Race template ID; grants racial traits and size defaults.                                    |
+| `size`             | String  | `"medium"` | Size category: `tiny`, `small`, `medium`, `large`, `huge`.                                   |
+| `armor`            | Integer | `0`        | Base armor class value.                                                                      |
+| `damage`           | String  | —          | Natural weapon damage in dice notation (e.g. `1d6`, `2d4+3`).                                |
+| `damage_type`      | String  | —          | Natural weapon damage type: `slash`, `pierce`, `bludgeon`, etc.                              |
+| `xp_value`         | Integer | `0`        | XP awarded when killed.                                                                      |
+| `shop`             | String  | —          | Shop template ID if this NPC is a vendor.                                                    |
+| `faction`          | String  | —          | Faction template ID this NPC belongs to.                                                     |
+| `faction_standing` | Integer | `0`        | Starting faction standing (–100 to 100).                                                     |
+| `friendly`         | Bool    | `false`    | If true, never aggroes players.                                                              |
+| `ai_mode`          | String  | `"idle"`   | AI behavior: `idle`, `wander`, `patrol`, `aggro`.                                            |
+| `patrol_route`     | Array   | `[]`       | Room IDs for patrol waypoints (`area.room` format).                                          |
+| `wander_rooms`     | Array   | `[]`       | Specific rooms to wander (empty = any in area).                                              |
+| `wander_area`      | Bool    | `false`    | If true, wanders anywhere in the current area.                                               |
+| `aggro_range`      | Integer | `0`        | Room-distance to detect targets. `0` = room only.                                            |
+| `aggro_players`    | Bool    | `false`    | If true, aggroes on player characters.                                                       |
+| `aggro_mobs`       | Bool    | `false`    | If true, aggroes on other NPCs.                                                              |
+| `aggro_race`       | Array   | `[]`       | Only aggro specific races (empty = all races).                                               |
+| `trainer_types`    | Array   | `[]`       | Training categories this NPC teaches: `attributes`, `combat`, `weapon`, `magic`, `crafting`. |
+| `languages`        | Array   | `[]`       | Languages the NPC speaks/knows.                                                              |
+| `scripts`          | Array   | `[]`       | Script hooks that fire on game events.                                                       |
+| `health`           | Section | —          | `{ current, max }` — starting hit points.                                                    |
+| `attributes`       | Section | —          | `{ str, dex, int, wis, con, cha }` — base attributes.                                        |
+| `equipment`        | Array   | `[]`       | Equipment entries: `{ template_id, slot }`.                                                  |
+| `loot`             | Section | —          | Loot table: `{ entries: [{ item, chance, count?, treasure_class? }] }`.                      |
+| `skills`           | Array   | `[]`       | Known skills: `{ id, level }`.                                                               |
 
 ---
 
 ### Items (`ItemTemplate`)
+
 Stored under `content/items/`. Items represent weapon, armor, and utility game objects.
 
 ```toml
@@ -328,26 +332,26 @@ piece_type = "gloves"
 
 #### Core Schema Fields
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | String | Unique identifier of the item template. |
-| `name` | String | Short display name. |
-| `description` | String | Description seen when looking at the item. Supports formatting/color codes. |
-| `item_type` | String | Broad item category: `weapon`, `armor`, `container`, `potion`, `scroll`, `wand`, `food`, `drink`, `key`, `quest`, `treasure`, `light`, `furniture`. |
-| `subtype` | String | Sub-category details (e.g., `sword`, `shield`, `vest`). |
-| `quality` | String | Base quality tier: `poor`, `common`, `magic`, `rare`, `epic`, `legendary`. |
-| `level_requirement`| Integer| Minimum level required to equip/use. |
-| `weight` | Float | Weight of the item in pounds. |
-| `value` | Integer | Vendor value in copper pieces (10,000 cp = 1 gp). |
-| `flags` | Array | Tags identifying special traits (e.g., `["unique", "quest"]`). |
-| `allowed_classes` | Array | Classes permitted to equip/use (empty = all). |
-| `allowed_races` | Array | Races permitted to equip/use (empty = all). |
-| `allowed_alignments`| Array | Alignments permitted to equip/use (empty = all). |
-| `requires_skill` | Inline Table | `{ id = "skill_id", level = N }` — Skill gate checked continuously. |
-| `weapon` | Section | Defines weapon performance stats (see below). |
-| `equipment` | Section | Defines wear slot/equipment info (see below). |
-| `set` | Section | Associates the item with an item set (see below). |
-| `triggers` | Array | Triggers that fire spell-like effects on events. |
+| Field                | Type         | Description                                                                                                                                         |
+| -------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                 | String       | Unique identifier of the item template.                                                                                                             |
+| `name`               | String       | Short display name.                                                                                                                                 |
+| `description`        | String       | Description seen when looking at the item. Supports formatting/color codes.                                                                         |
+| `item_type`          | String       | Broad item category: `weapon`, `armor`, `container`, `potion`, `scroll`, `wand`, `food`, `drink`, `key`, `quest`, `treasure`, `light`, `furniture`. |
+| `subtype`            | String       | Sub-category details (e.g., `sword`, `shield`, `vest`).                                                                                             |
+| `quality`            | String       | Base quality tier: `poor`, `common`, `magic`, `rare`, `epic`, `legendary`.                                                                          |
+| `level_requirement`  | Integer      | Minimum level required to equip/use.                                                                                                                |
+| `weight`             | Float        | Weight of the item in pounds.                                                                                                                       |
+| `value`              | Integer      | Vendor value in copper pieces (10,000 cp = 1 gp).                                                                                                   |
+| `flags`              | Array        | Tags identifying special traits (e.g., `["unique", "quest"]`).                                                                                      |
+| `allowed_classes`    | Array        | Classes permitted to equip/use (empty = all).                                                                                                       |
+| `allowed_races`      | Array        | Races permitted to equip/use (empty = all).                                                                                                         |
+| `allowed_alignments` | Array        | Alignments permitted to equip/use (empty = all).                                                                                                    |
+| `requires_skill`     | Inline Table | `{ id = "skill_id", level = N }` — Skill gate checked continuously.                                                                                 |
+| `weapon`             | Section      | Defines weapon performance stats (see below).                                                                                                       |
+| `equipment`          | Section      | Defines wear slot/equipment info (see below).                                                                                                       |
+| `set`                | Section      | Associates the item with an item set (see below).                                                                                                   |
+| `triggers`           | Array        | Triggers that fire spell-like effects on events.                                                                                                    |
 
 #### Weapon & Equipment Sections
 
@@ -373,14 +377,14 @@ cast = "weaken"        # Skill/template to execute
 target = "target"      # Target: "self", "attacker", "room", "target"
 ```
 
-| Event | Fires When |
-|---|---|
-| `on_wear` | Item is worn or wielded |
-| `on_remove` | Item is removed or unwielded |
-| `on_hit` | Attacker lands a hit in combat |
-| `on_use` | Item is used (not yet wired) |
-| `on_kill` | Attacker kills a target (not yet wired) |
-| `on_damage_taken` | Wearer takes damage (not yet wired) |
+| Event             | Fires When                              |
+| ----------------- | --------------------------------------- |
+| `on_wear`         | Item is worn or wielded                 |
+| `on_remove`       | Item is removed or unwielded            |
+| `on_hit`          | Attacker lands a hit in combat          |
+| `on_use`          | Item is used (not yet wired)            |
+| `on_kill`         | Attacker kills a target (not yet wired) |
+| `on_damage_taken` | Wearer takes damage (not yet wired)     |
 
 The trigger system scans the wielder's equipment and inventory for matching events when the event occurs. Multiple triggers on the same item all roll independently.
 
@@ -458,16 +462,16 @@ skill_modifiers = { "two_handed" = 10 }
 combat_bonus = { hit = -5, damage = 25 }
 ```
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | String | Unique stance identifier. |
-| `name` | String | Display name shown to the player. |
-| `description` | String | Description seen when examining the stance. |
-| `stat_bonuses` | Table | Attribute modifications: `{ damage, armor, stun_resist, etc. }`. |
-| `allowed_weapons` | Array | Weapon subtypes allowed (empty = all). |
-| `allowed_armor` | Array | Armor subtypes allowed (empty = all). |
-| `skill_modifiers` | Table | Skill rank bonuses: `{ skill_id = bonus_pct }`. |
-| `combat_bonus` | Table | Combat roll modifiers: `{ hit, damage, armor }` as percentages. |
+| Field             | Type   | Description                                                      |
+| ----------------- | ------ | ---------------------------------------------------------------- |
+| `id`              | String | Unique stance identifier.                                        |
+| `name`            | String | Display name shown to the player.                                |
+| `description`     | String | Description seen when examining the stance.                      |
+| `stat_bonuses`    | Table  | Attribute modifications: `{ damage, armor, stun_resist, etc. }`. |
+| `allowed_weapons` | Array  | Weapon subtypes allowed (empty = all).                           |
+| `allowed_armor`   | Array  | Armor subtypes allowed (empty = all).                            |
+| `skill_modifiers` | Table  | Skill rank bonuses: `{ skill_id = bonus_pct }`.                  |
+| `combat_bonus`    | Table  | Combat roll modifiers: `{ hit, damage, armor }` as percentages.  |
 
 ---
 
@@ -496,18 +500,18 @@ duration = 30
 cooldown = 60
 ```
 
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `id` | String | — | Unique passive identifier. |
-| `name` | String | — | Display name. |
-| `description` | String | — | Description of the passive effect. |
-| `effect_type` | String | — | `stat_bonus`, `grant_skill`, or `trigger`. |
-| `stat` | String | — | Attribute/skill name to modify (for `stat_bonus`). |
-| `amount` | Integer | `0` | Modifier value. |
-| `grant_skill` | String | — | Skill ID granted by this passive. |
-| `trigger_chance` | Integer | `0` | Percentage chance to fire (for `trigger` type). |
-| `duration` | Integer | `0` | Effect duration in seconds (0 = permanent). |
-| `cooldown` | Integer | `0` | Cooldown between triggers in seconds. |
+| Field            | Type    | Default | Description                                        |
+| ---------------- | ------- | ------- | -------------------------------------------------- |
+| `id`             | String  | —       | Unique passive identifier.                         |
+| `name`           | String  | —       | Display name.                                      |
+| `description`    | String  | —       | Description of the passive effect.                 |
+| `effect_type`    | String  | —       | `stat_bonus`, `grant_skill`, or `trigger`.         |
+| `stat`           | String  | —       | Attribute/skill name to modify (for `stat_bonus`). |
+| `amount`         | Integer | `0`     | Modifier value.                                    |
+| `grant_skill`    | String  | —       | Skill ID granted by this passive.                  |
+| `trigger_chance` | Integer | `0`     | Percentage chance to fire (for `trigger` type).    |
+| `duration`       | Integer | `0`     | Effect duration in seconds (0 = permanent).        |
+| `cooldown`       | Integer | `0`     | Cooldown between triggers in seconds.              |
 
 ---
 
@@ -517,15 +521,16 @@ Items have a quality tier that determines how many affixes they can roll when sp
 
 #### Quality Tiers & Affix Counts
 
-| Tier | Max Affixes | Color |
-|---|---|---|
-| Common | 0 | White |
-| Uncommon | 1 | Green |
-| Rare | 2 | Blue |
-| Epic | 3 | Purple |
-| Legendary | 4 | Orange |
+| Tier      | Max Affixes | Color  |
+| --------- | ----------- | ------ |
+| Common    | 0           | White  |
+| Uncommon  | 1           | Green  |
+| Rare      | 2           | Blue   |
+| Epic      | 3           | Purple |
+| Legendary | 4           | Orange |
 
 #### Affix Templates (`AffixDef`)
+
 Stored in `content/affixes/<affix_id>.toml`.
 
 ```toml
@@ -569,6 +574,7 @@ Builders can modify the world dynamically using in-game OLC commands.
 To prevent crashes and gameplay glitches, the engine runs a **Cross-Reference Validation Pipeline** during startup via the `validate_all` MCP tool, and per-area via `validate_area`.
 
 Validation checks verify:
+
 1. **Broken Links**: Exits and portals must point to valid rooms (`area_id.room_id`).
 2. **Missing Templates**: Mobs and items must reference valid race, class, and set definitions.
 3. **Attribute Bounds**: Attributes, ages, heights, and weights must lie within constraints set by the target race template.
