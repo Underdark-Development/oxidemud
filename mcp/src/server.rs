@@ -3,9 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use oxide_core::templates::{
-    AffixDef, AreaTemplate, ClassTemplate, ExitTemplate, FactionDef, HealthBounds, ItemTemplate,
-    LootTable, MobTemplate, PassiveDef, QuestDef, QuestRewards, RaceAttributes, RaceTemplate,
-    RecipeDef, RoomContent, RoomTemplate, SetDef, StanceDef,
+    AffixDef, AreaTemplate, ClassTemplate, DeityTemplate, ExitTemplate, FactionDef, HealthBounds,
+    ItemTemplate, LootTable, MobTemplate, PassiveDef, QuestDef, QuestRewards, RaceAttributes,
+    RaceTemplate, RecipeDef, RoomContent, RoomTemplate, SetDef, ShopTemplate, StanceDef,
 };
 use oxide_core::SkillDef;
 use rmcp::{
@@ -886,6 +886,64 @@ impl OxideMcpServer {
                     Err(e) => return format!("Error: failed to serialize passive: {e}"),
                 }
             }
+            "shops" => {
+                let t: ShopTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => return format!("Error: failed to deserialize shop after patch: {e}"),
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize shop: {e}"),
+                }
+            }
+            "deities" => {
+                let t: DeityTemplate = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize deity after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize deity: {e}"),
+                }
+            }
+            "quests" => {
+                let t: QuestDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize quest after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize quest: {e}"),
+                }
+            }
+            "factions" => {
+                let t: FactionDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize faction after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize faction: {e}"),
+                }
+            }
+            "recipes" => {
+                let t: RecipeDef = match serde_json::from_value(json_val) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        return format!("Error: failed to deserialize recipe after patch: {e}")
+                    }
+                };
+                match toml::to_string_pretty(&t) {
+                    Ok(s) => s,
+                    Err(e) => return format!("Error: failed to serialize recipe: {e}"),
+                }
+            }
             "areas" => {
                 let t: AreaTemplate = match serde_json::from_value(json_val) {
                     Ok(t) => t,
@@ -1150,98 +1208,45 @@ impl OxideMcpServer {
         )
     }
 
-    #[tool(description = "List all faction templates")]
-    fn list_factions(&self) -> String {
-        let (registry, _) = self.load();
-        Self::entity_list(
-            &registry
-                .factions
-                .iter()
-                .map(|(k, v)| (k.clone(), v.name.as_str()))
-                .collect(),
-            "Factions",
-        )
-    }
-
-    #[tool(description = "Create a new faction template")]
-    fn create_faction(&self, params: Parameters<CreateEntityParams>) -> String {
+    #[tool(description = "Get quest template details")]
+    fn get_quest(&self, params: Parameters<IdParam>) -> String {
         let p = params.0;
-        let name = p.name.unwrap_or_else(|| p.id.clone());
-        let path = self
-            .content_path
-            .join("factions")
-            .join(format!("{}.toml", p.id));
-        let faction = FactionDef {
-            id: p.id.clone(),
-            name,
-            description: String::new(),
-            starting_standing: 0,
-            min_standing: -10000,
-            max_standing: 10000,
-            ranks: Vec::new(),
-            relationships: HashMap::new(),
-            aggro_below: -500,
-        };
-        match toml::to_string_pretty(&faction) {
-            Ok(content) => {
-                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
-                    .and_then(|_| fs::write(&path, &content))
-                {
-                    return format!("Error: failed to write faction: {e}");
-                }
-                format!("Created faction '{}'", p.id)
+        let (registry, _file_map) = self.load();
+        match registry.quests.get(&p.id) {
+            Some(q) => {
+                let objectives: Vec<String> =
+                    q.objectives.iter().map(|o| format!("{:?}", o)).collect();
+                let rewards_items: Vec<String> = q
+                    .rewards
+                    .items
+                    .iter()
+                    .map(|r| format!("{} x{}", r.item_template_id, r.count))
+                    .collect();
+                let rewards_faction: Vec<String> = q
+                    .rewards
+                    .faction
+                    .iter()
+                    .map(|r| format!("{} {:+}", r.faction_id, r.amount))
+                    .collect();
+                format!(
+                    "id: {}\nname: {}\ndescription: {}\nlevel_requirement: {}\nrepeatable: {}\nauto_complete: {}\ngiver_npc: {}\nturn_in_npc: {}\nprerequisites: {:?}\nobjectives: [{}]\nrewards: xp={}, gold={}, items=[{}], faction=[{}]",
+                    p.id,
+                    q.name,
+                    q.description,
+                    q.level_requirement,
+                    q.repeatable,
+                    q.auto_complete,
+                    q.giver_npc.as_deref().unwrap_or("none"),
+                    q.turn_in_npc.as_deref().unwrap_or("none"),
+                    q.prerequisites,
+                    objectives.join(", "),
+                    q.rewards.xp,
+                    q.rewards.gold,
+                    rewards_items.join(", "),
+                    rewards_faction.join(", "),
+                )
             }
-            Err(e) => format!("Error: failed to serialize faction: {e}"),
-        }
-    }
-
-    #[tool(description = "List all recipe templates")]
-    fn list_recipes(&self) -> String {
-        let (registry, _) = self.load();
-        Self::entity_list(
-            &registry
-                .recipes
-                .iter()
-                .map(|(k, v)| (k.clone(), v.name.as_str()))
-                .collect(),
-            "Recipes",
-        )
-    }
-
-    #[tool(description = "Create a new recipe template")]
-    fn create_recipe(&self, params: Parameters<CreateEntityParams>) -> String {
-        let p = params.0;
-        let name = p.name.unwrap_or_else(|| p.id.clone());
-        let path = self
-            .content_path
-            .join("recipes")
-            .join(format!("{}.toml", p.id));
-        let recipe = RecipeDef {
-            id: p.id.clone(),
-            name,
-            description: String::new(),
-            station: None,
-            skill_requirement: None,
-            difficulty: 1,
-            materials: Vec::new(),
-            result: oxide_core::templates::RecipeResult {
-                template_id: String::new(),
-                quantity: 1,
-            },
-            success_chance: 95,
-            quality_scaling: false,
-            script: None,
-        };
-        match toml::to_string_pretty(&recipe) {
-            Ok(content) => {
-                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
-                    .and_then(|_| fs::write(&path, &content))
-                {
-                    return format!("Error: failed to write recipe: {e}");
-                }
-                format!("Created recipe '{}'", p.id)
-            }
-            Err(e) => format!("Error: failed to serialize recipe: {e}"),
+            None => format!("Error: quest '{}' not found", p.id),
         }
     }
 
@@ -1296,6 +1301,642 @@ impl OxideMcpServer {
         }
     }
 
+    #[tool(description = "List all faction templates")]
+    fn list_factions(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .factions
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Factions",
+        )
+    }
+
+    #[tool(description = "Get faction template details")]
+    fn get_faction(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.factions.get(&p.id) {
+            Some(f) => {
+                let ranks: Vec<String> = f
+                    .ranks
+                    .iter()
+                    .map(|r| format!("{} (threshold: {})", r.name, r.threshold))
+                    .collect();
+                format!(
+                    "id: {}\nname: {}\ndescription: {}\nstarting_standing: {}\nmin_standing: {}\nmax_standing: {}\naggro_below: {}\nranks: [{}]\nrelationships: {:?}",
+                    p.id, f.name, f.description, f.starting_standing,
+                    f.min_standing, f.max_standing, f.aggro_below,
+                    ranks.join(", "), f.relationships,
+                )
+            }
+            None => format!("Error: faction '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new faction template")]
+    fn create_faction(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("factions")
+            .join(format!("{}.toml", p.id));
+        let faction = FactionDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            starting_standing: 0,
+            min_standing: -10000,
+            max_standing: 10000,
+            ranks: Vec::new(),
+            relationships: HashMap::new(),
+            aggro_below: -500,
+        };
+        match toml::to_string_pretty(&faction) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write faction: {e}");
+                }
+                format!("Created faction '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize faction: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a faction template")]
+    fn delete_faction(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "factions", &p.id) {
+            Ok(()) => format!("Deleted faction '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all recipe templates")]
+    fn list_recipes(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .recipes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Recipes",
+        )
+    }
+
+    #[tool(description = "Get recipe template details")]
+    fn get_recipe(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.recipes.get(&p.id) {
+            Some(r) => {
+                let materials: Vec<String> = r
+                    .materials
+                    .iter()
+                    .map(|m| format!("{} x{}", m.template_id, m.quantity))
+                    .collect();
+                let skill_req = r
+                    .skill_requirement
+                    .as_ref()
+                    .map(|s| format!("{} rank {}", s.id, s.rank))
+                    .unwrap_or_else(|| "none".to_string());
+                format!(
+                    "id: {}\nname: {}\ndescription: {}\nstation: {}\nskill_requirement: {}\ndifficulty: {}\nmaterials: [{}]\nresult: {} x{}\nsuccess_chance: {}\nquality_scaling: {}",
+                    p.id, r.name, r.description,
+                    r.station.as_deref().unwrap_or("none"),
+                    skill_req, r.difficulty,
+                    materials.join(", "),
+                    r.result.template_id, r.result.quantity,
+                    r.success_chance, r.quality_scaling,
+                )
+            }
+            None => format!("Error: recipe '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new recipe template")]
+    fn create_recipe(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("recipes")
+            .join(format!("{}.toml", p.id));
+        let recipe = RecipeDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            station: None,
+            skill_requirement: None,
+            difficulty: 1,
+            materials: Vec::new(),
+            result: oxide_core::templates::RecipeResult {
+                template_id: String::new(),
+                quantity: 1,
+            },
+            success_chance: 95,
+            quality_scaling: false,
+            script: None,
+        };
+        match toml::to_string_pretty(&recipe) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write recipe: {e}");
+                }
+                format!("Created recipe '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize recipe: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a recipe template")]
+    fn delete_recipe(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "recipes", &p.id) {
+            Ok(()) => format!("Deleted recipe '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all shop templates")]
+    fn list_shops(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .shops
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Shops",
+        )
+    }
+
+    #[tool(description = "Get shop template details")]
+    fn get_shop(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.shops.get(&p.id) {
+            Some(s) => {
+                let inv: Vec<String> = s
+                    .inventory
+                    .iter()
+                    .map(|e| {
+                        format!(
+                            "{} ({}-{}, price: {})",
+                            e.item, e.count.min, e.count.max, e.price
+                        )
+                    })
+                    .collect();
+                format!(
+                    "id: {}\nname: {}\nbuy_rate: {}\nsell_rate: {}\nrestock_secs: {}\ninventory: [{}]",
+                    p.id, s.name, s.buy_rate, s.sell_rate, s.restock_secs,
+                    inv.join(", "),
+                )
+            }
+            None => format!("Error: shop '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new shop template")]
+    fn create_shop(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("shops")
+            .join(format!("{}.toml", p.id));
+        let shop = oxide_core::templates::ShopTemplate {
+            id: p.id.clone(),
+            name,
+            buy_rate: 0.5,
+            sell_rate: 1.0,
+            restock_secs: 3600,
+            inventory: Vec::new(),
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&shop) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write shop: {e}");
+                }
+                format!("Created shop '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize shop: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a shop template")]
+    fn delete_shop(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "shops", &p.id) {
+            Ok(()) => format!("Deleted shop '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all deity templates")]
+    fn list_deities(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .deities
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Deities",
+        )
+    }
+
+    #[tool(description = "Get deity template details")]
+    fn get_deity(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.deities.get(&p.id) {
+            Some(d) => {
+                let prayer = d
+                    .prayer_effect
+                    .as_ref()
+                    .map(|pe| {
+                        format!(
+                            "buff={}, duration={}s, cooldown={}s, {}",
+                            pe.buff_id, pe.duration_secs, pe.cooldown_secs, pe.description
+                        )
+                    })
+                    .unwrap_or_else(|| "none".to_string());
+                format!(
+                    "id: {}\nname: {}\ndescription: {}\nalignment: {}\nsymbol: {}\nfavored_weapon: {}\ntenets: {:?}\ndomains: {:?}\nallowed_races: {:?}\nallowed_classes: {:?}\nallowed_alignments: {:?}\nprayer_effect: {}",
+                    p.id, d.name, d.description,
+                    d.alignment.as_deref().unwrap_or("any"),
+                    d.symbol,
+                    d.favored_weapon.as_deref().unwrap_or("none"),
+                    d.tenets, d.domains, d.allowed_races, d.allowed_classes,
+                    d.allowed_alignments, prayer,
+                )
+            }
+            None => format!("Error: deity '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new deity template")]
+    fn create_deity(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("deities")
+            .join(format!("{}.toml", p.id));
+        let deity = oxide_core::templates::DeityTemplate {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            alignment: None,
+            symbol: String::new(),
+            favored_weapon: None,
+            tenets: Vec::new(),
+            domains: Vec::new(),
+            allowed_races: Vec::new(),
+            allowed_classes: Vec::new(),
+            allowed_alignments: Vec::new(),
+            prayer_effect: None,
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&deity) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write deity: {e}");
+                }
+                format!("Created deity '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize deity: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a deity template")]
+    fn delete_deity(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "deities", &p.id) {
+            Ok(()) => format!("Deleted deity '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all stance templates")]
+    fn list_stances(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .stances
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Stances",
+        )
+    }
+
+    #[tool(description = "Get stance template details")]
+    fn get_stance(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.stances.get(&p.id) {
+            Some(s) => format!(
+                "id: {}\nname: {}\nac_bonus: {}\nattack_penalty: {}\ndamage_bonus: {}\nac_penalty: {}\nmin_level: {}",
+                p.id, s.name, s.ac_bonus, s.attack_penalty, s.damage_bonus, s.ac_penalty, s.min_level,
+            ),
+            None => format!("Error: stance '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new stance template")]
+    fn create_stance(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("stances")
+            .join(format!("{}.toml", p.id));
+        let stance = StanceDef {
+            id: p.id.clone(),
+            name,
+            ac_bonus: 0,
+            attack_penalty: 0,
+            damage_bonus: 0,
+            ac_penalty: 0,
+            min_level: 1,
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&stance) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write stance: {e}");
+                }
+                format!("Created stance '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize stance: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a stance template")]
+    fn delete_stance(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "stances", &p.id) {
+            Ok(()) => format!("Deleted stance '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all item set templates")]
+    fn list_sets(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .sets
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Sets",
+        )
+    }
+
+    #[tool(description = "Get item set template details")]
+    fn get_set(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.sets.get(&p.id) {
+            Some(s) => {
+                let bonuses: Vec<String> = s
+                    .bonuses
+                    .iter()
+                    .map(|b| {
+                        let effects: Vec<String> = b
+                            .effects
+                            .iter()
+                            .map(|e| {
+                                format!(
+                                    "{} {} {:?}",
+                                    e.effect_type,
+                                    e.stat.as_deref().unwrap_or(""),
+                                    e.amount
+                                )
+                            })
+                            .collect();
+                        format!("min_pieces={}: [{}]", b.min_pieces, effects.join(", "))
+                    })
+                    .collect();
+                format!(
+                    "id: {}\nname: {}\nbonuses: [{}]",
+                    p.id,
+                    s.name,
+                    bonuses.join("; "),
+                )
+            }
+            None => format!("Error: set '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new item set template")]
+    fn create_set(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("sets")
+            .join(format!("{}.toml", p.id));
+        let set = SetDef {
+            id: p.id.clone(),
+            name,
+            bonuses: Vec::new(),
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&set) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write set: {e}");
+                }
+                format!("Created set '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize set: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete an item set template")]
+    fn delete_set(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "sets", &p.id) {
+            Ok(()) => format!("Deleted set '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all affix templates")]
+    fn list_affixes(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .affixes
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Affixes",
+        )
+    }
+
+    #[tool(description = "Get affix template details")]
+    fn get_affix(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.affixes.get(&p.id) {
+            Some(a) => format!(
+                "id: {}\nname: {}\ndescription: {}\ntype: {}\nelement: {}\namount: {}\nstat: {}\nquality_min: {}\nslot: {:?}\nweight: {}",
+                p.id, a.name, a.description, a.affix_type,
+                a.element.as_deref().unwrap_or("none"),
+                a.amount.as_deref().unwrap_or("none"),
+                a.stat.as_deref().unwrap_or("none"),
+                a.quality_min, a.slot, a.weight,
+            ),
+            None => format!("Error: affix '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new affix template")]
+    fn create_affix(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("affixes")
+            .join(format!("{}.toml", p.id));
+        let affix = AffixDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            affix_type: "prefix".to_string(),
+            element: None,
+            amount: None,
+            stat: None,
+            quality_min: "common".to_string(),
+            slot: Vec::new(),
+            weight: 1,
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&affix) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write affix: {e}");
+                }
+                format!("Created affix '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize affix: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete an affix template")]
+    fn delete_affix(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "affixes", &p.id) {
+            Ok(()) => format!("Deleted affix '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
+    #[tool(description = "List all passive templates")]
+    fn list_passives(&self) -> String {
+        let (registry, _) = self.load();
+        Self::entity_list(
+            &registry
+                .passives
+                .iter()
+                .map(|(k, v)| (k.clone(), v.name.as_str()))
+                .collect(),
+            "Passives",
+        )
+    }
+
+    #[tool(description = "Get passive template details")]
+    fn get_passive(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.passives.get(&p.id) {
+            Some(pas) => {
+                let effects: Vec<String> = pas
+                    .effects
+                    .iter()
+                    .map(|e| format!("{} {} {:?}", e.effect_type, e.target, e.amount))
+                    .collect();
+                format!(
+                    "id: {}\nname: {}\ndescription: {}\neffects: [{}]",
+                    p.id,
+                    pas.name,
+                    pas.description,
+                    effects.join(", "),
+                )
+            }
+            None => format!("Error: passive '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new passive template")]
+    fn create_passive(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("passives")
+            .join(format!("{}.toml", p.id));
+        let passive = PassiveDef {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            effects: Vec::new(),
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&passive) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write passive: {e}");
+                }
+                format!("Created passive '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize passive: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a passive template")]
+    fn delete_passive(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "passives", &p.id) {
+            Ok(()) => format!("Deleted passive '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
     #[tool(description = "List all skill templates")]
     fn list_skills(&self) -> String {
         let (registry, _) = self.load();
@@ -1307,6 +1948,59 @@ impl OxideMcpServer {
                 .collect(),
             "Skills",
         )
+    }
+
+    #[tool(description = "Get skill template details")]
+    fn get_skill(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.skills.get(&p.id) {
+            Some(s) => format!(
+                "id: {}\nname: {}\ndescription: {}\nskill_type: {:?}\nmax_rank: {}\nlevel_requirement: {}\ncooldown_secs: {}\ntargeting: {:?}\ncost: {:?}\nallowed_classes: {:?}\nallowed_races: {:?}\nrequires_skill: {}\nmust_train: {}",
+                p.id, s.name, s.description, s.skill_type, s.max_rank,
+                s.level_requirement, s.cooldown_secs, s.targeting, s.cost,
+                s.allowed_classes, s.allowed_races,
+                s.requires_skill.as_deref().unwrap_or("none"), s.must_train,
+            ),
+            None => format!("Error: skill '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new skill template")]
+    fn create_skill(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("skills")
+            .join(format!("{}.toml", p.id));
+        let skill = oxide_core::SkillDef::new(
+            p.id.clone(),
+            name,
+            String::new(),
+            oxide_core::SkillType::Combat,
+        );
+        match toml::to_string_pretty(&skill) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write skill: {e}");
+                }
+                format!("Created skill '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize skill: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a skill template")]
+    fn delete_skill(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "skills", &p.id) {
+            Ok(()) => format!("Deleted skill '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
     }
 
     #[tool(description = "List all race templates")]
@@ -1322,6 +2016,68 @@ impl OxideMcpServer {
         )
     }
 
+    #[tool(description = "Get race template details")]
+    fn get_race(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.races.get(&p.id) {
+            Some(r) => format!(
+                "id: {}\nname: {}\ndescription: {}\nattributes: STR={} DEX={} INT={} WIS={} CON={} CHA={}\nallowed_classes: {:?}\nallowed_alignments: {:?}\nracial_abilities: {:?}\nage_default: {}\nage_max: {}",
+                p.id, r.name, r.description,
+                r.attributes.strength, r.attributes.dexterity, r.attributes.intelligence,
+                r.attributes.wisdom, r.attributes.constitution, r.attributes.charisma,
+                r.allowed_classes, r.allowed_alignments, r.racial_abilities,
+                r.age_default, r.age_max,
+            ),
+            None => format!("Error: race '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new race template")]
+    fn create_race(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("races")
+            .join(format!("{}.toml", p.id));
+        let race = RaceTemplate {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            attributes: RaceAttributes::default(),
+            allowed_classes: Vec::new(),
+            allowed_alignments: Vec::new(),
+            racial_abilities: Vec::new(),
+            allowed_genders: HashMap::new(),
+            appearance_bounds: oxide_core::templates::AppearanceBounds::default(),
+            age_default: 20,
+            age_max: 100,
+            params: HashMap::new(),
+        };
+        match toml::to_string_pretty(&race) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write race: {e}");
+                }
+                format!("Created race '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize race: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a race template")]
+    fn delete_race(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "races", &p.id) {
+            Ok(()) => format!("Deleted race '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+
     #[tool(description = "List all class templates")]
     fn list_classes(&self) -> String {
         let (registry, _) = self.load();
@@ -1333,6 +2089,75 @@ impl OxideMcpServer {
                 .collect(),
             "Classes",
         )
+    }
+
+    #[tool(description = "Get class template details")]
+    fn get_class(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (registry, _file_map) = self.load();
+        match registry.classes.get(&p.id) {
+            Some(c) => format!(
+                "id: {}\nname: {}\ndescription: {}\nprestige: {}\nhit_die: {}\nbab: {}\nfort_save: {}\nref_save: {}\nwill_save: {}\nallowed_races: {:?}\nallowed_alignments: {:?}\nauto_skills: {:?}\nstarting_skill_slots: {}\ndeity_policy: {:?}",
+                p.id, c.name, c.description, c.prestige, c.hit_die,
+                c.bab, c.fort_save, c.ref_save, c.will_save,
+                c.allowed_races, c.allowed_alignments, c.auto_skills,
+                c.starting_skill_slots, c.deity_policy,
+            ),
+            None => format!("Error: class '{}' not found", p.id),
+        }
+    }
+
+    #[tool(description = "Create a new class template")]
+    fn create_class(&self, params: Parameters<CreateEntityParams>) -> String {
+        let p = params.0;
+        let name = p.name.unwrap_or_else(|| p.id.clone());
+        let path = self
+            .content_path
+            .join("classes")
+            .join(format!("{}.toml", p.id));
+        let class = ClassTemplate {
+            id: p.id.clone(),
+            name,
+            description: String::new(),
+            prestige: false,
+            prestige_gate: None,
+            hit_die: 8,
+            attribute_mods: oxide_core::templates::ClassAttributeMods::default(),
+            bab: "poor".to_string(),
+            fort_save: "poor".to_string(),
+            ref_save: "poor".to_string(),
+            will_save: "poor".to_string(),
+            allowed_races: Vec::new(),
+            allowed_alignments: Vec::new(),
+            auto_skills: Vec::new(),
+            params: HashMap::new(),
+            skill_pool: Vec::new(),
+            starting_skill_slots: 3,
+            starting_items: Vec::new(),
+            starting_gold: oxide_core::templates::WalletAmount::default(),
+            deity_policy: oxide_core::templates::DeityPolicy::Any,
+        };
+        match toml::to_string_pretty(&class) {
+            Ok(content) => {
+                if let Err(e) = fs::create_dir_all(path.parent().unwrap())
+                    .and_then(|_| fs::write(&path, &content))
+                {
+                    return format!("Error: failed to write class: {e}");
+                }
+                format!("Created class '{}'", p.id)
+            }
+            Err(e) => format!("Error: failed to serialize class: {e}"),
+        }
+    }
+
+    #[tool(description = "Delete a class template")]
+    fn delete_class(&self, params: Parameters<IdParam>) -> String {
+        let p = params.0;
+        let (_, file_map) = self.load();
+        match content::delete_file(&file_map, "classes", &p.id) {
+            Ok(()) => format!("Deleted class '{}'", p.id),
+            Err(e) => format!("Error: {e}"),
+        }
     }
 
     #[tool(description = "Get template content as TOML for any type")]
@@ -1373,7 +2198,7 @@ impl OxideMcpServer {
         let r = &registry;
         let room_count: usize = r.areas.values().map(|a| a.rooms.len()).sum();
         format!(
-            "Areas: {}\nRooms: {}\nItems: {}\nMobs: {}\nRaces: {}\nClasses: {}\nSkills: {}\nStances: {}\nSets: {}\nAffixes: {}\nPassives: {}",
+            "Areas: {}\nRooms: {}\nItems: {}\nMobs: {}\nRaces: {}\nClasses: {}\nSkills: {}\nQuests: {}\nFactions: {}\nRecipes: {}\nShops: {}\nDeities: {}\nStances: {}\nSets: {}\nAffixes: {}\nPassives: {}",
             r.areas.len(),
             room_count,
             r.items.len(),
@@ -1381,6 +2206,11 @@ impl OxideMcpServer {
             r.races.len(),
             r.classes.len(),
             r.skills.len(),
+            r.quests.len(),
+            r.factions.len(),
+            r.recipes.len(),
+            r.shops.len(),
+            r.deities.len(),
             r.stances.len(),
             r.sets.len(),
             r.affixes.len(),
@@ -1436,6 +2266,63 @@ impl OxideMcpServer {
                 || skill.description.to_lowercase().contains(&q)
             {
                 results.push(format!("skill:{id} - {name}", name = skill.name));
+            }
+        }
+        for (id, quest) in &r.quests {
+            if quest.name.to_lowercase().contains(&q)
+                || quest.description.to_lowercase().contains(&q)
+            {
+                results.push(format!("quest:{id} - {name}", name = quest.name));
+            }
+        }
+        for (id, faction) in &r.factions {
+            if faction.name.to_lowercase().contains(&q)
+                || faction.description.to_lowercase().contains(&q)
+            {
+                results.push(format!("faction:{id} - {name}", name = faction.name));
+            }
+        }
+        for (id, recipe) in &r.recipes {
+            if recipe.name.to_lowercase().contains(&q)
+                || recipe.description.to_lowercase().contains(&q)
+            {
+                results.push(format!("recipe:{id} - {name}", name = recipe.name));
+            }
+        }
+        for (id, shop) in &r.shops {
+            if shop.name.to_lowercase().contains(&q) {
+                results.push(format!("shop:{id} - {name}", name = shop.name));
+            }
+        }
+        for (id, deity) in &r.deities {
+            if deity.name.to_lowercase().contains(&q)
+                || deity.description.to_lowercase().contains(&q)
+            {
+                results.push(format!("deity:{id} - {name}", name = deity.name));
+            }
+        }
+        for (id, stance) in &r.stances {
+            if stance.name.to_lowercase().contains(&q) {
+                results.push(format!("stance:{id} - {name}", name = stance.name));
+            }
+        }
+        for (id, set) in &r.sets {
+            if set.name.to_lowercase().contains(&q) {
+                results.push(format!("set:{id} - {name}", name = set.name));
+            }
+        }
+        for (id, affix) in &r.affixes {
+            if affix.name.to_lowercase().contains(&q)
+                || affix.description.to_lowercase().contains(&q)
+            {
+                results.push(format!("affix:{id} - {name}", name = affix.name));
+            }
+        }
+        for (id, passive) in &r.passives {
+            if passive.name.to_lowercase().contains(&q)
+                || passive.description.to_lowercase().contains(&q)
+            {
+                results.push(format!("passive:{id} - {name}", name = passive.name));
             }
         }
 

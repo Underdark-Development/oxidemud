@@ -609,7 +609,9 @@ Emits `QuestUpdated` on progress, `QuestCompleted` on turn-in.
 
 Factions track numeric standing that gates access, affects prices, triggers aggro, and gates quests/prestige.
 
-**FactionDef:** id, name, description, starting_standing, min/max, ranks, relationships, aggro. Standing changes propagate to related factions via multiplier.
+**FactionDef:** id, name, description, starting_standing, min/max, ranks, relationships, aggro.
+
+Standing changes propagate to related factions via multiplier.
 
 | Source                | Delta       |
 | --------------------- | ----------- |
@@ -989,10 +991,10 @@ MCP server exposing the full content toolset to AI agents (Claude, etc.). Agents
 
 ### Modes
 
-| Mode    | Trigger           | Data Source | Write                        |
-| ------- | ----------------- | ----------- | ---------------------------- |
-| Offline | `mcp` (default)   | TOML files  | Atomic write (temp + rename) |
-| Online  | `mcp --db <path>` | SQLite DB   | REST bridge to game server   |
+| Mode    | Trigger                       | Data Source        | Write                        |
+| ------- | ----------------------------- | ------------------ | ---------------------------- |
+| Offline | `mcp` (default)               | TOML files         | Atomic write (temp + rename) |
+| Online  | `mcp --url <url> --key <key>` | SQLite DB via REST | REST bridge to game server   |
 
 Offline mode is primary — AI agents edit TOML files, validation runs locally, human reviews before game loads.
 
@@ -1002,11 +1004,104 @@ Primary: stdio (MCP standard). Future: SSE (HTTP) for remote connections.
 
 ### Tools
 
-Full CRUD for areas, rooms, mobs, items, quests, recipes, factions, shops, skills; read-only for races/classes. Plus `link_rooms`/`add_portal`/`remove_portal` for room connections, `validate` (scope: all/area/type), `search` (fuzzy), and `get_stats` (content summary). Each tool follows MCP schema via `rmcp` (Rust MCP SDK v1.7) with `#[tool]` macros.
+#### Template CRUD (offline)
+
+Full CRUD for all 15 content categories. Each category gets `list_*`, `get_*`, `create_*`, `delete_*` tools. The `update_template` and `update_room` tools handle field-level patches for all types via JSON round-trip (parse TOML → patch JSON → validate via typed struct → serialize back).
+
+| Category | list | get | create | delete | update          |
+| -------- | ---- | --- | ------ | ------ | --------------- |
+| areas    | ✓    | ✓   | ✓      | ✓      | update_room     |
+| rooms    | ✓    | ✓   | ✓      | ✓      | update_room     |
+| mobs     | ✓    | ✓   | ✓      | ✓      | update_template |
+| items    | ✓    | ✓   | ✓      | ✓      | update_template |
+| races    | ✓    | ✓   | ✓      | ✓      | update_template |
+| classes  | ✓    | ✓   | ✓      | ✓      | update_template |
+| skills   | ✓    | ✓   | ✓      | ✓      | update_template |
+| quests   | ✓    | ✓   | ✓      | ✓      | update_template |
+| factions | ✓    | ✓   | ✓      | ✓      | update_template |
+| recipes  | ✓    | ✓   | ✓      | ✓      | update_template |
+| shops    | ✓    | ✓   | ✓      | ✓      | update_template |
+| deities  | ✓    | ✓   | ✓      | ✓      | update_template |
+| stances  | ✓    | ✓   | ✓      | ✓      | update_template |
+| sets     | ✓    | ✓   | ✓      | ✓      | update_template |
+| affixes  | ✓    | ✓   | ✓      | ✓      | update_template |
+| passives | ✓    | ✓   | ✓      | ✓      | update_template |
+
+Plus room-specific tools: `link_rooms`, `add_portal`, `remove_portal`.
+
+#### Validation & Search
+
+- `validate` — cross-reference validation across all templates
+- `get_stats` — aggregate content counts
+- `search` — fuzzy case-insensitive search across names/descriptions
+- `validate_content_dag` — circular dependency detection in skill prerequisites
+
+#### Simulators (offline + online)
+
+Simulation tools that hook into core game systems for balance analysis:
+
+| Tool                            | Core Hook                                | Description                          |
+| ------------------------------- | ---------------------------------------- | ------------------------------------ |
+| `simulate_loot`                 | `systems::loot::roll_loot`               | N corpse loot rolls with drop rates  |
+| `simulate_combat`               | `systems::combat` damage formulas        | Hit/miss/crit rates, average damage  |
+| `simulate_progression`          | `Experience::for_level`, class tables    | Level-by-level stat progression      |
+| `simulate_gear_loadout`         | `systems::passive`, `systems::set_bonus` | Final stats with sets + passives     |
+| `simulate_ai_wander`            | `systems::ai` movement                   | Random walk path + room frequency    |
+| `simulate_shop_transaction`     | `ShopTemplate` buy/sell rates            | Pricing across reputation levels     |
+| `simulate_crafting`             | `systems::crafting`                      | Recipe success/failure/quality rolls |
+| `simulate_skill_use`            | `systems::skill_use`                     | Spell/ability effect resolution      |
+| `simulate_prayer`               | Deity adoption + prayer buffs            | Eligibility + buff effects           |
+| `simulate_prestige_eligibility` | `systems::multi_class`                   | Prestige class gate check            |
+| `simulate_group_formation`      | `systems::group` formation               | Party layout stat modifiers          |
+| `simulate_death_penalty`        | XP loss, corpse decay, ghost             | Death event calculations             |
+| `simulate_character_creation`   | `login::compute_final_attributes`        | Full char creation simulation        |
+
+#### Imm / Online Tools (require `--url` + `--key`)
+
+REST bridge to running game server. Imm tools require immortal+ API key.
+
+| Tool                     | REST Endpoint                 | Description                     |
+| ------------------------ | ----------------------------- | ------------------------------- |
+| `list_connected_players` | `GET /api/players`            | List online players             |
+| `imm_put_item`           | `POST /api/imm/put_item`      | Add item to player inventory    |
+| `imm_teleport`           | `POST /api/imm/teleport`      | Teleport player to room         |
+| `imm_force_command`      | `POST /api/imm/force_command` | Force player to execute command |
+
+#### Planned Imm Tools (Phase 6)
+
+| Tool                | REST Endpoint                 | Description                                                           |
+| ------------------- | ----------------------------- | --------------------------------------------------------------------- |
+| `imm_set_stat`      | `POST /api/imm/set_stat`      | Modify attributes/HP/mana/stamina/level/XP (explicit params per stat) |
+| `imm_load_mob`      | `POST /api/imm/load_mob`      | Spawn mob from template into room                                     |
+| `imm_load_item`     | `POST /api/imm/load_item`     | Spawn item into room                                                  |
+| `imm_gecho`         | `POST /api/imm/gecho`         | Global echo to all players                                            |
+| `imm_advance`       | `POST /api/imm/advance`       | Level up a player                                                     |
+| `imm_stat`          | `POST /api/imm/stat`          | Inspect ECS components on target                                      |
+| `imm_heal`          | `POST /api/imm/heal`          | Full heal (HP/mana/stamina)                                           |
+| `imm_damage`        | `POST /api/imm/damage`        | Deal damage to target                                                 |
+| `imm_kill`          | `POST /api/imm/kill`          | Instantly kill target (requires confirmation)                         |
+| `imm_revive`        | `POST /api/imm/revive`        | Revive dead/ghost player                                              |
+| `imm_set_alignment` | `POST /api/imm/set_alignment` | Change alignment                                                      |
+| `imm_set_faction`   | `POST /api/imm/set_faction`   | Adjust faction standing                                               |
+| `imm_purge_room`    | `POST /api/imm/purge_room`    | Remove all NPCs/items from room (requires confirmation)               |
+| `imm_reboot`        | `POST /api/imm/reboot`        | Graceful server reboot (requires confirmation)                        |
+
+Destructive tools (`imm_kill`, `imm_purge_room`, `imm_reboot`) require a `confirm: true` parameter.
+
+#### Planned Simulators (Phase 6)
+
+| Tool                      | Core Hook                               | Description                                                             |
+| ------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| `simulate_regen`          | `systems::regen`                        | HP/mana/stamina regen per tick across rest states                       |
+| `simulate_level_up`       | `award_xp` logic                        | Detailed level-up breakdown (HP die, skill points, mana/stamina recalc) |
+| `simulate_faction_change` | `systems::faction::handle_faction_kill` | Faction standing changes from killing a mob                             |
+| `simulate_quest_rewards`  | `QuestDef.rewards`                      | Quest reward breakdown                                                  |
+| `simulate_practice`       | `cmd_train`/`cmd_practice`              | Skill training costs and practice point allocation                      |
+| `simulate_xp_curve`       | `Experience::for_level`                 | XP thresholds across all levels                                         |
 
 ### Resources
 
-MCP content URIs: `content://areas/`, `content://areas/{key}`, `content://areas/{key}/rooms/{room_key}`, `content://mobs/{key}`, `content://items/{key}`, `content://skills/{key}`, `content://races/{key}`, `content://classes/{key}`, `content://quests/{key}`, `content://recipes/{key}`, `content://factions/{key}`, `content://shops/{key}`, `content://validation/`, `content://stats/`.
+MCP content URIs: `content://areas/`, `content://areas/{key}`, `content://areas/{key}/rooms/{room_key}`, `content://mobs/{key}`, `content://items/{key}`, `content://skills/{key}`, `content://races/{key}`, `content://classes/{key}`, `content://quests/{key}`, `content://recipes/{key}`, `content://factions/{key}`, `content://shops/{key}`, `content://deities/{key}`, `content://stances/{key}`, `content://sets/{key}`, `content://affixes/{key}`, `content://passives/{key}`, `content://validation/`, `content://stats/`.
 
 ### Prompts (Guided Workflows)
 
@@ -1018,11 +1113,11 @@ MCP content URIs: `content://areas/`, `content://areas/{key}`, `content://areas/
 mcp/
 ├── Cargo.toml
 └── src/
-├── main.rs # Entry: --mode, --port, --content-path
-├── server.rs # McpServer: stdio transport, dispatch
-├── tools/ # Tool implementations by content type
-├── resources/ # Resource providers (templates, validation, stats)
-└── prompts/ # Prompt templates (builder, reviewer)
+    ├── main.rs          # Entry: --content-path, --url, --key
+    ├── lib.rs           # Re-exports OxideMcpServer
+    ├── server.rs        # All tool definitions (#[tool] macros)
+    ├── content.rs       # Re-exports from oxide_core::content
+    └── simulator.rs     # Simulation logic + unit tests
 ```
 
 ### DAG
@@ -1055,8 +1150,8 @@ Crafting, quests, factions, prestige classes, multi-classing, spells, shop & eco
 
 ### Phase 5 — OLC & Tooling
 
-Online creation commands (@dig/@link/@set/@mob/@area/@item), zone/area management + area reset, telnet negotiation ✓, schema migration ✓, hot-backup ✓, Rhai scripting + triggers + hot-reload ✓, builder help files, **spade**: offline builder (world tree, TOML editor, file browser, mouse/scroll, validator, room grid) ✓, **MCP**: offline mode (area/room/mob/item CRUD, validation) ✓.
+Online creation commands (@dig/@link/@set/@mob/@area/@item), zone/area management + area reset, telnet negotiation ✓, schema migration ✓, hot-backup ✓, Rhai scripting + triggers + hot-reload ✓, builder help files, **spade**: offline builder (world tree, TOML editor, file browser, mouse/scroll, validator, room grid) ✓, **MCP**: full CRUD for all 15 content categories, simulators (12 tools), validation, search, imm tools (4 online tools) ✓.
 
 ### Phase 6 — spade MUD Client & Protocol Expansion
 
-WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API, **spade MUD client mode** (output window, ANSI, scroll, input bar, sidebar, clickable names, connection profiles, session management, split mode, dashboard, script console, TOML preview), **MCP**: quest/recipe/faction/shop CRUD, search, resources, online mode, prompts, performance profiling.
+WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints), **spade MUD client mode** (output window, ANSI, scroll, input bar, sidebar, clickable names, connection profiles, session management, split mode, dashboard, script console, TOML preview), **MCP**: imm tools (set_stat, load, gecho, advance, stat, heal, damage, kill, revive, set_alignment, set_faction, purge_room, reboot), advanced simulators (regen, level-up, faction change, quest rewards, practice, XP curve), prompts/guided workflows, MCP resources.
