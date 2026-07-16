@@ -23,7 +23,7 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
         tokio::select! {
             biased;
             _ = shutdown_rx.changed() => {
-                tracing::info!("Console: shutdown signal received, exiting");
+                tracing::info!("Console: shutdown signal received, exited");
                 break;
             }
             result = reader.read_line(&mut line) => {

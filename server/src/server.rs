@@ -1,6 +1,5 @@
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
@@ -37,12 +36,60 @@ static COMMANDS: OnceLock<Arc<CommandDispatch>> = OnceLock::new();
 pub type EntitySpawnedCb =
     dyn Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync;
 
+fn encode_connection_id(ip: std::net::IpAddr, index: u8) -> String {
+    let ip_u32 = match ip {
+        std::net::IpAddr::V4(v4) => u32::from(v4),
+        std::net::IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                u32::from(v4)
+            } else {
+                let octets = v6.octets();
+                let w0 = u32::from_be_bytes([octets[0], octets[1], octets[2], octets[3]]);
+                let w1 = u32::from_be_bytes([octets[4], octets[5], octets[6], octets[7]]);
+                let w2 = u32::from_be_bytes([octets[8], octets[9], octets[10], octets[11]]);
+                let w3 = u32::from_be_bytes([octets[12], octets[13], octets[14], octets[15]]);
+                w0 ^ w1 ^ w2 ^ w3
+            }
+        }
+    };
+    let val = ((index as u64) << 32) | (ip_u32 as u64);
+
+    // Base62 encoding
+    const CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let mut s = String::with_capacity(7);
+    let mut temp = val;
+    for _ in 0..7 {
+        let rem = (temp % 62) as usize;
+        s.push(CHARS[rem] as char);
+        temp /= 62;
+    }
+    s.chars().rev().collect()
+}
+
+#[cfg(test)]
+fn decode_connection_id(s: &str) -> Option<(std::net::IpAddr, u8)> {
+    if s.len() != 7 {
+        return None;
+    }
+    const CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let mut val = 0u64;
+    for c in s.chars() {
+        let digit = CHARS.iter().position(|&x| x == c as u8)? as u64;
+        val = val.checked_mul(62)?.checked_add(digit)?;
+    }
+    let index = (val >> 32) as u8;
+    let ip_u32 = (val & 0xFFFF_FFFF) as u32;
+    Some((
+        std::net::IpAddr::V4(std::net::Ipv4Addr::from(ip_u32)),
+        index,
+    ))
+}
+
 pub struct Server {
     bind_addr: String,
     world: Arc<Mutex<World>>,
     registry: Arc<Mutex<ConnectionRegistry>>,
     commands: CommandDispatch,
-    next_conn_id: AtomicU64,
     db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
     content_path: Option<std::path::PathBuf>,
@@ -57,7 +104,6 @@ impl Server {
             world: Arc::new(Mutex::new(world)),
             registry: Arc::new(Mutex::new(ConnectionRegistry::new())),
             commands: CommandDispatch::new(),
-            next_conn_id: AtomicU64::new(1),
             db: None,
             templates: None,
             content_path: None,
@@ -211,17 +257,16 @@ impl Server {
                     }
 
                     if let Some(path) = motd_changed_path {
-                        tracing::info!("Hot-reloading MOTD...");
                         crate::server::load_motd(Some(&path));
+                        tracing::info!("Hot-reloaded MOTD");
                     }
 
                     if let Some(path) = banner_changed_path {
-                        tracing::info!("Hot-reloading welcome banner...");
                         crate::server::load_banner(Some(&path));
+                        tracing::info!("Hot-reloaded welcome banner");
                     }
 
                     if has_templates_change {
-                        tracing::info!("Hot-reloading content templates...");
                         let (new_registry, _) =
                             oxide_core::content::load_registry(&watcher_content_path);
                         let errors = new_registry.validate();
@@ -243,7 +288,7 @@ impl Server {
                             });
                             match swap_res {
                                 Ok(_) => {
-                                    tracing::info!("Content templates hot-reloaded successfully.");
+                                    tracing::info!("Hot-reloaded content templates");
                                     let _event = oxide_core::GameEvent::ContentReloaded;
                                 }
                                 Err(e) => {
@@ -303,6 +348,9 @@ impl Server {
             }
         });
 
+        let mut ip_counts: std::collections::HashMap<std::net::IpAddr, u8> =
+            std::collections::HashMap::new();
+
         loop {
             tokio::select! {
                 biased;
@@ -312,9 +360,14 @@ impl Server {
                 }
                 accept = listener.accept() => {
                     let (stream, addr) = accept?;
-                    tracing::info!("New connection from {addr}");
+                    let ip = addr.ip();
+                    let count_ref = ip_counts.entry(ip).or_insert(0);
+                    let index = *count_ref;
+                    *count_ref = count_ref.wrapping_add(1);
 
-                    let conn_id = self.next_conn_id.fetch_add(1, Ordering::SeqCst);
+                    let conn_id = encode_connection_id(ip, index);
+                    tracing::info!("new connection ({conn_id}) from {addr}");
+
                     let world = world.clone();
                     let registry = registry.clone();
                     let commands = commands.clone();
@@ -381,7 +434,7 @@ fn handle_negotiation(conn: &mut TelnetConnection, neg: crate::telnet::codec::Ne
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_connection(
-    conn_id: u64,
+    conn_id: String,
     stream: tokio::net::TcpStream,
     world: Arc<Mutex<World>>,
     registry: Arc<Mutex<ConnectionRegistry>>,
@@ -393,12 +446,14 @@ async fn handle_connection(
     let (reader_half, mut writer_half) = stream.into_split();
 
     let (tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut conn = TelnetConnection::new_with_tx(conn_id, tx);
+    let mut conn = TelnetConnection::new_with_tx(conn_id.clone(), tx);
     let mut login_flow = LoginFlow::new();
 
+    let conn_id_clone = conn_id.clone();
     let output_handle = tokio::spawn(async move {
+        let conn_id = conn_id_clone;
         if let Err(e) = writer_half.write_all(&INITIAL_NEGOTIATION).await {
-            tracing::debug!("Connection {conn_id} write error: {e}");
+            tracing::debug!("Connection ({conn_id}) write error: {e}");
             return;
         }
         let mut last_was_prompt = false;
@@ -406,13 +461,13 @@ async fn handle_connection(
             if bytes.starts_with(b"\x00\xFFPROMPT\x00") {
                 if last_was_prompt {
                     if let Err(e) = writer_half.write_all(b"\r\n").await {
-                        tracing::debug!("Connection {conn_id} write error: {e}");
+                        tracing::debug!("Connection ({conn_id}) write error: {e}");
                         break;
                     }
                 }
                 let prompt = bytes.split_off(8);
                 if let Err(e) = writer_half.write_all(&prompt).await {
-                    tracing::debug!("Connection {conn_id} write error: {e}");
+                    tracing::debug!("Connection ({conn_id}) write error: {e}");
                     break;
                 }
                 last_was_prompt = true;
@@ -421,13 +476,13 @@ async fn handle_connection(
             } else {
                 if last_was_prompt {
                     if let Err(e) = writer_half.write_all(b"\r\n").await {
-                        tracing::debug!("Connection {conn_id} write error: {e}");
+                        tracing::debug!("Connection ({conn_id}) write error: {e}");
                         break;
                     }
                     last_was_prompt = false;
                 }
                 if let Err(e) = writer_half.write_all(&bytes).await {
-                    tracing::debug!("Connection {conn_id} write error: {e}");
+                    tracing::debug!("Connection ({conn_id}) write error: {e}");
                     break;
                 }
             }
@@ -456,6 +511,7 @@ async fn handle_connection(
                 Ok(result) => result,
                 Err(_elapsed) => {
                     conn.send_line("\r\nTimed out waiting for input.");
+                    tracing::info!("Connection ({conn_id}) dropped: timed out waiting for input");
                     conn.disconnect();
                     break;
                 }
@@ -465,7 +521,7 @@ async fn handle_connection(
         };
         match read_result {
             Ok(0) => {
-                tracing::info!("Connection {conn_id} closed");
+                tracing::info!("Connection ({conn_id}) closed");
                 break;
             }
             Ok(_) => {
@@ -508,6 +564,7 @@ async fn handle_connection(
                     login_flow.strikes += 1;
                     if login_flow.strikes >= 3 {
                         conn.send_line("Too many failed attempts. Disconnecting.");
+                        tracing::info!("Connection ({conn_id}) dropped: too many failed attempts (input too long)");
                         conn.disconnect();
                         break;
                     }
@@ -523,6 +580,9 @@ async fn handle_connection(
                     commands.execute(&mut world_lock, &mut conn, trimmed, &reg);
                     drop(reg);
                     if conn.is_disconnected() {
+                        tracing::info!(
+                            "Connection ({conn_id}) closed: command requested disconnect"
+                        );
                         drop(world_lock);
                         break;
                     }
@@ -603,6 +663,9 @@ async fn handle_connection(
                     }
 
                     if login_flow.take_disconnect() {
+                        tracing::info!(
+                            "Connection ({conn_id}) dropped: login flow requested disconnect"
+                        );
                         conn.disconnect();
                         drop(reg);
                         drop(w);
@@ -621,7 +684,7 @@ async fn handle_connection(
                 }
             }
             Err(e) => {
-                tracing::debug!("Connection {conn_id} read error: {e}");
+                tracing::debug!("Connection ({conn_id}) read error: {e}");
                 break;
             }
         }
@@ -829,7 +892,11 @@ async fn handle_connection(
                 // Save LearnedSkills
                 if let Some(skills) = skills {
                     if let Err(e) = oxide_data::save_skills(conn_db, db_id.0, &skills.skills) {
-                        tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save skills");
+                        tracing::error!(
+                            "Connection ({conn_id}) disconnect: failed to save skills for entity {}: {}",
+                            db_id.0,
+                            e
+                        );
                     }
                 }
 
@@ -847,26 +914,32 @@ async fn handle_connection(
                         player_comp.prompt.as_deref(),
                         player_comp.screen_width,
                     ) {
-                        tracing::error!(entity_id = db_id.0, error = %e, "disconnect: failed to save player component");
+                        tracing::error!(
+                            "Connection ({conn_id}) disconnect: failed to save player component for entity {}: {}",
+                            db_id.0,
+                            e
+                        );
                     } else {
                         // Readback verify
                         match oxide_data::load_player_component(conn_db, db_id.0) {
-                            Ok(Some((_, loaded_prompt, _))) => {
+                            Ok(Some((_, _, _))) => {
                                 tracing::debug!(
-                                    entity_id = db_id.0,
-                                    saved_prompt = ?player_comp.prompt,
-                                    loaded_prompt = ?loaded_prompt,
-                                    "disconnect: player component readback verified"
+                                    "Connection ({conn_id}) disconnect: player component readback verified for entity {}",
+                                    db_id.0
                                 );
                             }
                             Ok(None) => {
                                 tracing::error!(
-                                    entity_id = db_id.0,
-                                    "disconnect: player component not found after save"
+                                    "Connection ({conn_id}) disconnect: player component not found after save for entity {}",
+                                    db_id.0
                                 );
                             }
                             Err(e) => {
-                                tracing::error!(entity_id = db_id.0, error = %e, "disconnect: readback failed");
+                                tracing::error!(
+                                    "Connection ({conn_id}) disconnect: readback failed for entity {}: {}",
+                                    db_id.0,
+                                    e
+                                );
                             }
                         }
                     }
@@ -990,7 +1063,7 @@ async fn handle_connection(
             reg.unregister(entity);
             oxide_core::handle_player_disconnect_group(&mut w, entity);
             let _ = w.despawn(entity).inspect_err(|e| {
-                tracing::warn!("Failed to despawn entity {entity:?}: {e}");
+                tracing::warn!("Connection ({conn_id}) failed to despawn entity {entity:?}: {e}");
             });
         }
     }
@@ -1998,5 +2071,28 @@ description = "Default spawn point"
         let _ = shutdown_tx.send(true);
         let _ = server_task.await;
         std::fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_connection_id_reversibility() {
+        use std::net::IpAddr;
+        let ips = vec![
+            IpAddr::V4("127.0.0.1".parse().unwrap()),
+            IpAddr::V4("192.168.1.1".parse().unwrap()),
+            IpAddr::V4("8.8.8.8".parse().unwrap()),
+            IpAddr::V4("0.0.0.0".parse().unwrap()),
+            IpAddr::V4("255.255.255.255".parse().unwrap()),
+        ];
+
+        for ip in ips {
+            for index in [0, 1, 10, 127, 255] {
+                let encoded = encode_connection_id(ip, index);
+                assert_eq!(encoded.len(), 7, "Encoded ID length must be 7");
+
+                let decoded = decode_connection_id(&encoded).expect("Should decode successfully");
+                assert_eq!(decoded.0, ip, "IP must match after roundtrip");
+                assert_eq!(decoded.1, index, "Index must match after roundtrip");
+            }
+        }
     }
 }

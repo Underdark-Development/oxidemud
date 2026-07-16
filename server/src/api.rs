@@ -146,7 +146,12 @@ async fn auth_middleware(
     // Log the request with username (masking key)
     let method = request.method().clone();
     let path = request.uri().path().to_string();
-    tracing::info!("REST API call: {} {} (user: {})", method, path, username);
+    tracing::info!(
+        "Received REST API call: {} {} (user: {})",
+        method,
+        path,
+        username
+    );
 
     // RBAC: Check access level for IMM routes
     if path.starts_with("/api/imm/") {
@@ -763,8 +768,8 @@ async fn execute_forced_command(
                 let _ = tx.send(bytes.to_vec());
             }
         }
-        fn id(&self) -> u64 {
-            999999
+        fn id(&self) -> &str {
+            "api"
         }
         fn entity(&self) -> Option<oxide_core::Entity> {
             Some(self.entity)

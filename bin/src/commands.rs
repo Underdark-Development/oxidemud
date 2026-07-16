@@ -925,8 +925,8 @@ fn trigger_follow(
                 fn send_raw(&mut self, bytes: &[u8]) {
                     let _ = self.tx.send(bytes.to_vec());
                 }
-                fn id(&self) -> u64 {
-                    0
+                fn id(&self) -> &str {
+                    "0"
                 }
                 fn entity(&self) -> Option<core::Entity> {
                     Some(self.entity)
@@ -1611,8 +1611,8 @@ pub fn cmd_force(
             self.output.push(text.to_string());
         }
         fn send_raw(&mut self, _bytes: &[u8]) {}
-        fn id(&self) -> u64 {
-            0
+        fn id(&self) -> &str {
+            "0"
         }
         fn entity(&self) -> Option<oxide_core::Entity> {
             self.entity
@@ -5454,11 +5454,11 @@ pub fn cmd_prompt(
             match q.get() {
                 Some(player) => {
                     if trimmed == "reset" {
-                        tracing::debug!(entity = ?entity, old_prompt = ?player.prompt, "cmd_prompt: resetting to None");
+                        tracing::debug!(entity = ?entity, old_prompt = ?player.prompt, "cmd_prompt: reset to None");
                         player.prompt = None;
                         true
                     } else {
-                        tracing::debug!(entity = ?entity, new_prompt = %trimmed, "cmd_prompt: setting custom prompt");
+                        tracing::debug!(entity = ?entity, new_prompt = %trimmed, "cmd_prompt: set custom prompt");
                         player.prompt = Some(trimmed.to_string());
                         true
                     }
@@ -8885,8 +8885,8 @@ mod tests {
                 .push_back(format!("[inline] {text}"));
         }
         fn send_raw(&mut self, _bytes: &[u8]) {}
-        fn id(&self) -> u64 {
-            0
+        fn id(&self) -> &str {
+            "0"
         }
         fn entity(&self) -> Option<core::Entity> {
             *self.entity.borrow()

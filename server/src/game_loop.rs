@@ -42,7 +42,7 @@ pub fn spawn_game_loop(
             tokio::select! {
                 biased;
                 _ = shutdown.changed() => {
-                    tracing::info!("Game loop shutting down");
+                    tracing::info!("Game loop preparing for shutdown");
                     break;
                 }
                 _ = combat_tick.tick() => {

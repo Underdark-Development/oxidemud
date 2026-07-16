@@ -114,6 +114,14 @@ const HELP_UNFOLLOW: &str = r#"Stop following another player.
 Usage:
   unfollow                     stop following"#;
 
+fn pluralize(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("{} {}", count, singular)
+    } else {
+        format!("{} {}", count, plural)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
@@ -170,25 +178,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| Path::new("content"));
 
     let templates = templates::load_templates(content_path);
-    tracing::info!("Loaded {} race(s)", templates.races.len());
-    tracing::info!("Loaded {} class(es)", templates.classes.len());
-    tracing::info!("Loaded {} item(s)", templates.items.len());
-    tracing::info!("Loaded {} mob(s)", templates.mobs.len());
-    tracing::info!("Loaded {} area(s)", templates.areas.len());
     tracing::info!(
-        "Loaded {} room(s)",
-        templates
-            .areas
-            .values()
-            .map(|a| a.rooms.len())
-            .sum::<usize>()
+        "Loaded {}",
+        pluralize(templates.races.len(), "race", "races")
     );
-    tracing::info!("Loaded {} shop(s)", templates.shops.len());
-    tracing::info!("Loaded {} skill(s)", templates.skills.len());
-    tracing::info!("Loaded {} stance(s)", templates.stances.len());
-    tracing::info!("Loaded {} set(s)", templates.sets.len());
-    tracing::info!("Loaded {} affix(es)", templates.affixes.len());
-    tracing::info!("Loaded {} passive(s)", templates.passives.len());
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.classes.len(), "class", "classes")
+    );
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.items.len(), "item", "items")
+    );
+    tracing::info!("Loaded {}", pluralize(templates.mobs.len(), "mob", "mobs"));
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.areas.len(), "area", "areas")
+    );
+    tracing::info!(
+        "Loaded {}",
+        pluralize(
+            templates
+                .areas
+                .values()
+                .map(|a| a.rooms.len())
+                .sum::<usize>(),
+            "room",
+            "rooms"
+        )
+    );
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.shops.len(), "shop", "shops")
+    );
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.skills.len(), "skill", "skills")
+    );
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.stances.len(), "stance", "stances")
+    );
+    tracing::info!("Loaded {}", pluralize(templates.sets.len(), "set", "sets"));
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.affixes.len(), "affix", "affixes")
+    );
+    tracing::info!(
+        "Loaded {}",
+        pluralize(templates.passives.len(), "passive", "passives")
+    );
 
     // Validate templates before spawning
     let errors = templates.validate();
@@ -212,18 +251,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .keys()
             .filter(|id| id.starts_with(&format!("{}.", area.id)))
             .count();
+        let room_plural = if area.rooms.len() == 1 {
+            "room"
+        } else {
+            "rooms"
+        };
         if sub_count > 0 {
+            let sub_plural = if sub_count == 1 {
+                "sub-area"
+            } else {
+                "sub-areas"
+            };
             tracing::info!(
-                "Spawned area '{}' with {} room(s), {} sub-area(s)",
+                "Spawned area '{}' with {} {}, {} {}",
                 area.name,
                 area.rooms.len(),
+                room_plural,
                 sub_count,
+                sub_plural,
             );
         } else {
             tracing::info!(
-                "Spawned area '{}' with {} room(s)",
+                "Spawned area '{}' with {} {}",
                 area.name,
                 area.rooms.len(),
+                room_plural,
             );
         }
     }
@@ -1042,6 +1094,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let _ = server.run(shutdown_rx).await;
+    tracing::info!("Shutdown complete");
 
     // Exit explicitly to kill residual blocking threads (e.g. stdin reader in
     // the console task). All graceful cleanup (connections, DB flush) already

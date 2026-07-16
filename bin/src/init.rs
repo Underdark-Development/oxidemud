@@ -115,7 +115,7 @@ pub fn spawn_area(
         for spawn in &room_tpl.content.mobs {
             let Some(mob_tpl) = registry.mobs.get(&spawn.template_id) else {
                 tracing::warn!(
-                    "Mob template '{}' not found, skipping spawn in {}/{}",
+                    "Mob template '{}' not found, skipped spawn in {}/{}",
                     spawn.template_id,
                     area.id,
                     room_id

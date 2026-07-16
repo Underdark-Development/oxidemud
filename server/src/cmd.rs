@@ -187,7 +187,7 @@ mod tests {
     fn test_command_dispatch_empty_input() {
         let dispatch = make_dispatch();
         let mut world = World::new();
-        let (mut conn, _) = TelnetConnection::new(1);
+        let (mut conn, _) = TelnetConnection::new("1".to_string());
         let registry = empty_registry();
         dispatch.execute(&mut world, &mut conn, "", &registry);
         // No crash = pass
@@ -197,7 +197,7 @@ mod tests {
     fn test_command_dispatch_unknown() {
         let dispatch = make_dispatch();
         let mut world = World::new();
-        let (mut conn, _rx) = TelnetConnection::new(1);
+        let (mut conn, _rx) = TelnetConnection::new("1".to_string());
         let registry = empty_registry();
         dispatch.execute(&mut world, &mut conn, "bogus", &registry);
         // No crash = pass
@@ -221,7 +221,7 @@ mod tests {
     fn test_command_dispatch_parse_args() {
         let dispatch = make_dispatch();
         let mut world = World::new();
-        let (mut conn, _rx) = TelnetConnection::new(1);
+        let (mut conn, _rx) = TelnetConnection::new("1".to_string());
         let registry = empty_registry();
         dispatch.execute(&mut world, &mut conn, "test hello world", &registry);
         // "test hello world" -> name="test", args="hello world"
@@ -231,7 +231,7 @@ mod tests {
     fn test_command_dispatch_no_args() {
         let dispatch = make_dispatch();
         let mut world = World::new();
-        let (mut conn, _rx) = TelnetConnection::new(1);
+        let (mut conn, _rx) = TelnetConnection::new("1".to_string());
         let registry = empty_registry();
         dispatch.execute(&mut world, &mut conn, "test", &registry);
     }
@@ -280,7 +280,7 @@ mod tests {
     fn test_command_dispatch_permission_denied() {
         let dispatch = make_dispatch();
         let mut world = World::new();
-        let (mut conn, mut rx) = TelnetConnection::new(1);
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
         let registry = empty_registry();
 
         dispatch.execute(&mut world, &mut conn, "admin", &registry);
@@ -297,7 +297,7 @@ mod tests {
     fn test_command_dispatch_permission_granted() {
         let dispatch = make_dispatch();
         let mut world = World::new();
-        let (mut conn, mut rx) = TelnetConnection::new(1);
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
         let registry = empty_registry();
 
         conn.set_access_level(AccessLevel::Admin);

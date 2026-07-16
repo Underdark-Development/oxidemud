@@ -66,7 +66,7 @@ pub trait Connection: Send {
     fn send(&mut self, text: &str);
     fn send_line(&mut self, text: &str);
     fn send_raw(&mut self, bytes: &[u8]);
-    fn id(&self) -> u64;
+    fn id(&self) -> &str;
     fn entity(&self) -> Option<Entity>;
     fn set_entity(&mut self, entity: Entity);
     fn disconnect(&mut self);
@@ -115,7 +115,7 @@ pub trait Connection: Send {
 type Output = Vec<u8>;
 
 pub struct TelnetConnection {
-    id: u64,
+    id: String,
     entity: Option<Entity>,
     tx: Option<mpsc::UnboundedSender<Output>>,
     flags: ConnectionFlags,
@@ -125,7 +125,7 @@ pub struct TelnetConnection {
 }
 
 impl TelnetConnection {
-    pub fn new(id: u64) -> (Self, mpsc::UnboundedReceiver<Output>) {
+    pub fn new(id: String) -> (Self, mpsc::UnboundedReceiver<Output>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let conn = TelnetConnection {
             id,
@@ -139,7 +139,7 @@ impl TelnetConnection {
         (conn, rx)
     }
 
-    pub fn new_with_tx(id: u64, tx: mpsc::UnboundedSender<Output>) -> Self {
+    pub fn new_with_tx(id: String, tx: mpsc::UnboundedSender<Output>) -> Self {
         TelnetConnection {
             id,
             entity: None,
@@ -173,8 +173,8 @@ impl Connection for TelnetConnection {
         }
     }
 
-    fn id(&self) -> u64 {
-        self.id
+    fn id(&self) -> &str {
+        &self.id
     }
 
     fn entity(&self) -> Option<Entity> {
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn test_connection_entity_default() {
-        let (conn, _) = TelnetConnection::new(1);
+        let (conn, _) = TelnetConnection::new("1".to_string());
         assert!(conn.entity().is_none());
     }
 
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_telnet_connection_flags() {
-        let (mut conn, _) = TelnetConnection::new(1);
+        let (mut conn, _) = TelnetConnection::new("1".to_string());
         assert!(conn.flags().has(ConnectionFlag::Ansi));
         let mut flags = conn.flags();
         flags.set(ConnectionFlag::ExtendedColor, true);
