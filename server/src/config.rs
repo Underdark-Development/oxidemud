@@ -58,6 +58,10 @@ fn default_api_bind_addr() -> String {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub server_name: String,
+    #[serde(default)]
+    pub server_url: Option<String>,
+    #[serde(default)]
+    pub server_version: Option<String>,
     pub max_clients: u16,
     #[serde(default = "default_prompt")]
     pub default_prompt: String,
@@ -86,6 +90,8 @@ pub fn init(path: &Path) {
     let config: ServerConfig = if content.is_empty() {
         ServerConfig {
             server_name: "Oxide MUD".to_string(),
+            server_url: None,
+            server_version: None,
             max_clients: 256,
             default_prompt: default_prompt(),
             logging: LoggingConfig::default(),
@@ -99,6 +105,8 @@ pub fn init(path: &Path) {
             );
             ServerConfig {
                 server_name: "Oxide MUD".to_string(),
+                server_url: None,
+                server_version: None,
                 max_clients: 256,
                 default_prompt: default_prompt(),
                 logging: LoggingConfig::default(),

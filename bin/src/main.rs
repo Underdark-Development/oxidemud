@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(Path::new("content/server.toml")),
     );
     oxide_server::load_motd(config.motd_path.as_deref());
+    oxide_server::load_banner(config.banner_path.as_deref());
 
     // Initialize custom rolling file logging + stdout
     let rolling_writer = std::sync::Arc::new(std::sync::Mutex::new(RollingFileWriter::new()?));
@@ -238,6 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut server = Server::new(config.bind_addr(), world)
         .with_database(db)
+        .with_content_path(content_path)
         .with_templates(templates)
         .with_on_entity_spawned(move |world, conn, registry| {
             commands_cmd_look(world, conn, "", "", registry);

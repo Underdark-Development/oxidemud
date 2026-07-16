@@ -6,6 +6,7 @@ pub struct Config {
     pub port: u16,
     pub db_path: PathBuf,
     pub motd_path: Option<PathBuf>,
+    pub banner_path: Option<PathBuf>,
     pub config_path: Option<PathBuf>,
 }
 
@@ -22,6 +23,7 @@ impl Config {
         let mut port = 4000u16;
         let mut db_path = PathBuf::from("data/mud.db");
         let mut motd_path = Some(PathBuf::from("content/motd.txt"));
+        let mut banner_path = Some(PathBuf::from("content/banner.txt"));
 
         let mut config_path: Option<PathBuf> = None;
 
@@ -52,6 +54,12 @@ impl Config {
                         motd_path = Some(PathBuf::from(val));
                     }
                 }
+                "--banner-path" | "-b" => {
+                    i += 1;
+                    if let Some(val) = args.get(i) {
+                        banner_path = Some(PathBuf::from(val));
+                    }
+                }
                 "--config-path" | "-c" => {
                     i += 1;
                     if let Some(val) = args.get(i) {
@@ -68,6 +76,7 @@ impl Config {
             port,
             db_path,
             motd_path,
+            banner_path,
             config_path,
         }
     }

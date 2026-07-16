@@ -26,7 +26,8 @@ use oxide_core::{
 };
 
 static SERVER_START: OnceLock<Instant> = OnceLock::new();
-static MOTD: OnceLock<String> = OnceLock::new();
+static MOTD: OnceLock<std::sync::RwLock<Option<String>>> = OnceLock::new();
+static BANNER: OnceLock<std::sync::RwLock<Option<String>>> = OnceLock::new();
 pub(crate) static DB: OnceLock<Arc<Mutex<oxide_data::Database>>> = OnceLock::new();
 pub(crate) static TEMPLATES: OnceLock<std::sync::RwLock<Arc<TemplateRegistry>>> = OnceLock::new();
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
@@ -44,6 +45,7 @@ pub struct Server {
     next_conn_id: AtomicU64,
     db: Option<Arc<Mutex<oxide_data::Database>>>,
     templates: Option<Arc<TemplateRegistry>>,
+    content_path: Option<std::path::PathBuf>,
     shutdown_complete: Arc<Notify>,
     on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
 }
@@ -58,6 +60,7 @@ impl Server {
             next_conn_id: AtomicU64::new(1),
             db: None,
             templates: None,
+            content_path: None,
             shutdown_complete: Arc::new(Notify::new()),
             on_entity_spawned: None,
         }
@@ -78,12 +81,16 @@ impl Server {
         self
     }
 
+    pub fn with_content_path(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.content_path = Some(path.into());
+        self
+    }
+
     pub fn with_templates(mut self, templates: TemplateRegistry) -> Self {
         let templates = Arc::new(templates);
         if let Some(lock) = TEMPLATES.get() {
-            if let Ok(mut guard) = lock.write() {
-                *guard = templates.clone();
-            }
+            let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
+            *guard = templates.clone();
         } else {
             let _ = TEMPLATES.set(std::sync::RwLock::new(templates.clone()));
         }
@@ -137,6 +144,153 @@ impl Server {
             registry.clone(),
             server_shutdown_rx,
         );
+
+        // Start the hot-reload file watcher if content_path is set
+        if let Some(content_path) = self.content_path {
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<std::path::PathBuf>(100);
+
+            // Spawn the debouncing & processing task
+            let watcher_content_path = content_path.clone();
+            tokio::spawn(async move {
+                loop {
+                    // Wait for an event
+                    let first_path = match rx.recv().await {
+                        Some(p) => p,
+                        None => break,
+                    };
+                    // Wait 100ms for more events to bundle/debounce
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    // Drain the channel
+                    let mut has_scripts_change = false;
+                    let mut has_templates_change = false;
+                    let mut motd_changed_path: Option<std::path::PathBuf> = None;
+                    let mut banner_changed_path: Option<std::path::PathBuf> = None;
+                    let mut scripts_changed_files: std::collections::HashSet<String> =
+                        std::collections::HashSet::new();
+
+                    let mut process_path = |path: std::path::PathBuf| {
+                        if let Some(path_str) = path.to_str() {
+                            if path_str.contains("/scripts/") {
+                                has_scripts_change = true;
+                                if let Ok(rel) =
+                                    path.strip_prefix(watcher_content_path.join("scripts"))
+                                {
+                                    if let Some(rel_str) = rel.to_str() {
+                                        scripts_changed_files.insert(rel_str.to_string());
+                                    }
+                                }
+                            } else if path.file_name().is_some_and(|name| name == "motd.txt") {
+                                motd_changed_path = Some(path);
+                            } else if path.file_name().is_some_and(|name| name == "banner.txt") {
+                                banner_changed_path = Some(path);
+                            } else {
+                                has_templates_change = true;
+                            }
+                        }
+                    };
+
+                    process_path(first_path);
+
+                    while let Ok(path) = rx.try_recv() {
+                        process_path(path);
+                    }
+
+                    if has_scripts_change {
+                        if let Some(bridge) = oxide_core::scripting::get_scripting_bridge() {
+                            for rel_file in scripts_changed_files {
+                                if let Err(e) = bridge.reload_script(&rel_file) {
+                                    tracing::error!("Failed to reload script {}: {}", rel_file, e);
+                                } else {
+                                    tracing::info!(
+                                        "Script hot-reloaded successfully: {}",
+                                        rel_file
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(path) = motd_changed_path {
+                        tracing::info!("Hot-reloading MOTD...");
+                        crate::server::load_motd(Some(&path));
+                    }
+
+                    if let Some(path) = banner_changed_path {
+                        tracing::info!("Hot-reloading welcome banner...");
+                        crate::server::load_banner(Some(&path));
+                    }
+
+                    if has_templates_change {
+                        tracing::info!("Hot-reloading content templates...");
+                        let (new_registry, _) =
+                            oxide_core::content::load_registry(&watcher_content_path);
+                        let errors = new_registry.validate();
+                        if !errors.is_empty() {
+                            for err in &errors {
+                                tracing::error!(
+                                    "Validation error in {} '{}' during hot-reload: {}",
+                                    err.template_type,
+                                    err.template_id,
+                                    err.message
+                                );
+                            }
+                            tracing::error!(
+                                "Template validation failed — keeping previous templates"
+                            );
+                        } else {
+                            let swap_res = crate::server::update_templates(|registry| {
+                                *registry = new_registry;
+                            });
+                            match swap_res {
+                                Ok(_) => {
+                                    tracing::info!("Content templates hot-reloaded successfully.");
+                                    let _event = oxide_core::GameEvent::ContentReloaded;
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to update template registry during hot-reload: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Start the notify watcher
+            let watcher_path = content_path.clone();
+            std::thread::spawn(move || {
+                use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+
+                let event_handler = move |res: Result<notify::Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        for path in event.paths {
+                            if path
+                                .extension()
+                                .is_some_and(|ext| ext == "toml" || ext == "rhai" || ext == "txt")
+                            {
+                                let _ = tx.blocking_send(path);
+                            }
+                        }
+                    }
+                };
+
+                if let Ok(mut watcher) = RecommendedWatcher::new(event_handler, Config::default()) {
+                    if let Err(e) = watcher.watch(&watcher_path, RecursiveMode::Recursive) {
+                        tracing::error!(
+                            "Failed to start RecommendedWatcher on {:?}: {}",
+                            watcher_path,
+                            e
+                        );
+                    } else {
+                        loop {
+                            std::thread::sleep(Duration::from_secs(3600));
+                        }
+                    }
+                }
+            });
+        }
 
         // Spawn the REST API server if enabled
         let api_config = crate::config::get().api.clone();
@@ -283,7 +437,8 @@ async fn handle_connection(
     // Show server banner + MOTD + stats, then prompt for login — all before read loop
     {
         let reg = registry.lock().await;
-        send_server_greeting(&mut conn, &reg);
+        let w = world.lock().await;
+        send_server_greeting(&mut conn, &reg, &w);
     }
     conn.send_line("Enter your username:");
     login_flow.state = LoginState::Username;
@@ -857,23 +1012,56 @@ fn format_uptime() -> String {
     format!("Uptime: {days}d {hours}h {minutes}m {seconds}s")
 }
 
-fn send_server_greeting(conn: &mut dyn Connection, registry: &ConnectionRegistry) {
-    conn.send_line("");
-    conn.send_line(" __  __ _   _ ____");
-    conn.send_line("|  \\/  | | | |  _ \\");
-    conn.send_line("| |\\/| | | | | | | |");
-    conn.send_line("| |  | | |_| | |_| |");
-    conn.send_line("|_|  |_|\\___/|____/");
-    conn.send_line("");
-    let motd = MOTD.get_or_init(|| "Welcome to the MUD. A world awaits.".to_string());
-    conn.send_line(motd);
-    conn.send_line("");
+fn send_server_greeting(conn: &mut dyn Connection, registry: &ConnectionRegistry, world: &World) {
+    let ansi = conn.flags().has(crate::connection::ConnectionFlag::Ansi);
+    let allow_blink = conn.flags().has(crate::connection::ConnectionFlag::Blink);
+
+    if let Some(banner) = get_banner() {
+        conn.send_line("");
+        let rich = oxide_core::format::parse_tags(&banner);
+        for line in rich.render(ansi, allow_blink).lines() {
+            conn.send_line(line);
+        }
+        conn.send_line("");
+    }
+
+    let config = crate::config::get();
+    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let mut server_id = config.server_name.clone();
+
+    if let Some(ref ver) = config.server_version {
+        let clean_ver = if ver.starts_with('v') || ver.starts_with('V') {
+            ver.clone()
+        } else {
+            format!("v{}", ver)
+        };
+        server_id.push_str(&format!(" {}", clean_ver));
+    }
+
+    if let Some(ref url) = config.server_url {
+        server_id.push_str(&format!(" ({})", url));
+    }
+
+    conn.send_line(&format!("{} - powered by OxideMUD {}", server_id, version));
+
+    let uptime = format_uptime();
+    let current_conns = registry.player_count();
+    let max_conns = config.max_clients;
+    let room_count = world.query::<&oxide_core::RoomKey>().iter().count();
+    let mob_count = world.query::<&oxide_core::Npc>().iter().count();
+    let item_count = world.query::<&oxide_core::Item>().iter().count();
+
     conn.send_line(&format!(
-        "{}  |  Players connected: {}",
-        format_uptime(),
-        registry.player_count()
+        "{} | Players Online: {}/{} | Rooms: {} | Mobs: {} | Items: {}",
+        uptime, current_conns, max_conns, room_count, mob_count, item_count
     ));
     conn.send_line("");
+
+    if let Some(motd) = get_motd() {
+        let rich = oxide_core::format::parse_tags(&motd);
+        conn.send_line(&rich.render(ansi, allow_blink));
+        conn.send_line("");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1079,25 +1267,57 @@ fn get_hit_die(world: &World, entity: Entity) -> i32 {
 // MOTD loading
 // ---------------------------------------------------------------------------
 
-/// Load the message-of-the-day from a file, or fall back to the built-in
-/// default. Safe to call multiple times — only the first call takes effect.
+/// Load the message-of-the-day from a file.
 pub fn load_motd(path: Option<&Path>) {
-    let _ = MOTD.get_or_init(|| {
+    let lock = MOTD.get_or_init(|| std::sync::RwLock::new(None));
+    if let Ok(mut writer) = lock.write() {
         if let Some(path) = path {
             if let Ok(text) = fs::read_to_string(path) {
                 let trimmed = text.trim().to_string();
                 if !trimmed.is_empty() {
-                    return trimmed;
+                    *writer = Some(trimmed);
+                    return;
                 }
             }
         }
-        "Welcome to the MUD. A world awaits.".to_string()
-    });
+        *writer = None;
+    }
 }
 
 /// Returns the message of the day text.
-pub fn get_motd() -> &'static str {
-    MOTD.get_or_init(|| "Welcome to the MUD. A world awaits.".to_string())
+pub fn get_motd() -> Option<String> {
+    MOTD.get()
+        .and_then(|lock| lock.read().ok())
+        .and_then(|guard| guard.clone())
+}
+
+// ---------------------------------------------------------------------------
+// Banner loading
+// ---------------------------------------------------------------------------
+
+/// Load the server banner from a file.
+pub fn load_banner(path: Option<&Path>) {
+    let lock = BANNER.get_or_init(|| std::sync::RwLock::new(None));
+    if let Ok(mut writer) = lock.write() {
+        if let Some(path) = path {
+            if let Ok(text) = fs::read_to_string(path) {
+                let trimmed = text.trim_end().to_string();
+                if !trimmed.is_empty() {
+                    *writer = Some(trimmed);
+                    return;
+                }
+            }
+        }
+        *writer = None;
+    }
+}
+
+/// Returns the server banner text.
+pub fn get_banner() -> Option<String> {
+    BANNER
+        .get()
+        .and_then(|lock| lock.read().ok())
+        .and_then(|guard| guard.clone())
 }
 
 // ---------------------------------------------------------------------------
@@ -1121,9 +1341,10 @@ pub fn get_db() -> Option<Arc<Mutex<oxide_data::Database>>> {
 
 /// Returns a clone of the template registry, if initialized.
 pub fn get_templates() -> Option<Arc<TemplateRegistry>> {
-    TEMPLATES
-        .get()
-        .and_then(|lock| lock.read().ok().map(|g| g.clone()))
+    TEMPLATES.get().map(|lock| {
+        let guard = lock.read().unwrap_or_else(|e| e.into_inner());
+        (*guard).clone()
+    })
 }
 
 /// Mutates the active template registry in-memory.
@@ -1134,7 +1355,7 @@ where
     let lock = TEMPLATES
         .get()
         .ok_or_else(|| "Template registry not initialized".to_string())?;
-    let mut guard = lock.write().map_err(|e| format!("Lock poisoned: {e}"))?;
+    let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
     let mut registry_cloned = (**guard).clone();
     let result = f(&mut registry_cloned);
     *guard = Arc::new(registry_cloned);
@@ -1145,9 +1366,8 @@ where
 pub fn init_templates_for_test(templates: TemplateRegistry) {
     let templates = Arc::new(templates);
     if let Some(lock) = TEMPLATES.get() {
-        if let Ok(mut guard) = lock.write() {
-            *guard = templates;
-        }
+        let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
+        *guard = templates;
     } else {
         let _ = TEMPLATES.set(std::sync::RwLock::new(templates));
     }
@@ -1477,9 +1697,8 @@ mod tests {
         registry.classes.insert("warrior".to_string(), warrior);
         let registry = Arc::new(registry);
         if let Some(lock) = TEMPLATES.get() {
-            if let Ok(mut guard) = lock.write() {
-                *guard = registry;
-            }
+            let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
+            *guard = registry;
         } else {
             let _ = TEMPLATES.set(std::sync::RwLock::new(registry));
         }
@@ -1689,5 +1908,95 @@ mod tests {
         let stamina = q_stamina.get().unwrap();
         assert_eq!(stamina.max, 76);
         assert_eq!(stamina.current, 76); // Clamped to max
+    }
+
+    #[tokio::test]
+    async fn test_template_hot_reloading() {
+        crate::config::init(std::path::Path::new("nonexistent.toml"));
+        let temp_dir = std::env::current_dir()
+            .unwrap()
+            .join(format!("temp_templates_test_{}", fastrand::u32(..)));
+        std::fs::create_dir_all(temp_dir.join("areas/midgaard/rooms")).unwrap();
+
+        // 1. Write initial area.toml
+        let area_toml = r#"
+id = "midgaard"
+name = "Midgaard"
+description = "Midgaard City"
+
+[[spawns]]
+room = "1"
+label = "Temple Square"
+description = "Default spawn point"
+"#;
+        std::fs::write(temp_dir.join("areas/midgaard/area.toml"), area_toml).unwrap();
+
+        // Write a basic room to satisfy validation
+        let room_toml = r#"
+id = "1"
+area = "midgaard"
+name = "Temple Square"
+description = "Center of Midgaard"
+"#;
+        std::fs::write(temp_dir.join("areas/midgaard/rooms/1.toml"), room_toml).unwrap();
+
+        // Give macOS filesystem a moment to register/index directory creation
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let (initial_registry, _) = oxide_core::content::load_registry(&temp_dir);
+        let server = Server::new("127.0.0.1:0", World::new())
+            .with_templates(initial_registry)
+            .with_content_path(&temp_dir);
+
+        // Verify loaded template
+        {
+            let templates = get_templates().unwrap();
+            let area = templates.areas.get("midgaard").unwrap();
+            assert_eq!(area.name, "Midgaard");
+        }
+
+        // Spawn Server run watcher task
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let server_task = tokio::spawn(async move {
+            let _ = server.run(shutdown_rx).await;
+        });
+
+        // 2. Modify area.toml to trigger hot-reload
+        let updated_area_toml = r#"
+id = "midgaard"
+name = "Midgaard Plaza"
+description = "Midgaard City"
+
+[[spawns]]
+room = "1"
+label = "Temple Square"
+description = "Default spawn point"
+"#;
+        // Wait a short moment to ensure watcher is bound
+        tokio::time::sleep(Duration::from_millis(3000)).await;
+
+        std::fs::write(temp_dir.join("areas/midgaard/area.toml"), updated_area_toml).unwrap();
+
+        // Wait for reload (which is debounced by 100ms)
+        let start = Instant::now();
+        let mut reloaded = false;
+        while start.elapsed() < Duration::from_secs(10) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            if let Some(templates) = get_templates() {
+                if let Some(area) = templates.areas.get("midgaard") {
+                    if area.name == "Midgaard Plaza" {
+                        reloaded = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        assert!(reloaded, "Template was not hot-reloaded within timeout");
+
+        // Clean up server task and files
+        let _ = shutdown_tx.send(true);
+        let _ = server_task.await;
+        std::fs::remove_dir_all(&temp_dir).unwrap();
     }
 }

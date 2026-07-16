@@ -69,6 +69,11 @@ pub trait ScriptingBridge: Send + Sync {
         target: Option<Entity>,
         world: &mut World,
     ) -> Result<(), String>;
+
+    /// Reload a script AST cache, compiling or removing it.
+    fn reload_script(&self, _rel_path: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// Interface for sending messages from the scripting layer to players/rooms.

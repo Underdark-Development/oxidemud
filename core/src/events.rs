@@ -84,6 +84,7 @@ pub enum GameEvent {
         from: PlayerState,
         to: PlayerState,
     },
+    ContentReloaded,
 
     ScriptTrigger {
         entity: Entity,

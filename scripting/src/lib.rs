@@ -685,6 +685,28 @@ impl ScriptingBridge for ScriptEngine {
             .call_fn::<()>(&mut scope, &ast, "on_use", ())
             .map_err(|e| e.to_string())
     }
+
+    fn reload_script(&self, rel_path: &str) -> Result<(), String> {
+        let full_path = self.script_dir.join(rel_path);
+        if !full_path.exists() {
+            let mut cache = self.ast_cache.write().unwrap();
+            cache.remove(rel_path);
+            return Ok(());
+        }
+
+        let content = std::fs::read_to_string(&full_path)
+            .map_err(|e| format!("Failed to read script {}: {}", rel_path, e))?;
+
+        let processed = strip_tests(&content);
+        let ast = self
+            .engine
+            .compile(&processed)
+            .map_err(|e| format!("Compile error in {}: {}", rel_path, e))?;
+
+        let mut cache = self.ast_cache.write().unwrap();
+        cache.insert(rel_path.to_string(), ast);
+        Ok(())
+    }
 }
 
 impl Default for ScriptEngine {
@@ -1036,5 +1058,41 @@ fn test_fail() {
             .0[0]
             .is_closed();
         assert!(!is_closed);
+    }
+
+    #[test]
+    fn test_reload_script() {
+        let temp_dir = std::env::current_dir().unwrap().join("temp_scripts_test");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).unwrap();
+        }
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let script_file = temp_dir.join("test_script.rhai");
+        std::fs::write(&script_file, b"fn on_trigger() { true }").unwrap();
+
+        let engine = ScriptEngine::new(&temp_dir);
+
+        let _ast = engine.get_ast("test_script.rhai").unwrap();
+
+        std::fs::write(&script_file, b"fn on_trigger() { false }").unwrap();
+        engine.reload_script("test_script.rhai").unwrap();
+
+        let mut world = World::new();
+        let entity = world.spawn(());
+        let res = engine
+            .execute_trigger("test_script.rhai", entity, None, None, &mut world)
+            .unwrap();
+        assert!(!res);
+
+        std::fs::remove_file(&script_file).unwrap();
+        engine.reload_script("test_script.rhai").unwrap();
+
+        {
+            let cache = engine.ast_cache.read().unwrap();
+            assert!(!cache.contains_key("test_script.rhai"));
+        }
+
+        std::fs::remove_dir_all(&temp_dir).unwrap();
     }
 }

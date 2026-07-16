@@ -126,6 +126,7 @@ You can customize the server behavior at launch using the following command-line
 | `--port <port>`        | `-p`  | `4000`                | The bind TCP port.                         |
 | `--db-path <path>`     | `-d`  | `data/oxide.db`       | Path to the SQLite persistence database.   |
 | `--motd-path <path>`   | `-m`  | `content/motd.txt`    | Path to the Message of the Day file.       |
+| `--banner-path <path>` | `-b`  | `content/banner.txt`  | Path to the welcome ASCII banner file.     |
 | `--config-path <path>` | `-c`  | `content/server.toml` | Path to the server configuration file.     |
 
 #### Precedence Order
@@ -276,6 +277,51 @@ The server will:
 4. Mark all loaded entities as `Dirty` and perform a final full flush.
 5. Checkpoint the WAL journal and close the SQLite database.
 6. Disconnect all players and terminate.
+
+---
+
+## Welcome Banner and MOTD
+
+The server displays an optional welcome ASCII banner and a Message of the Day (MOTD) to connections upon connecting.
+
+### Banner File (`content/banner.txt`)
+
+- Displayed first during the connection handshake.
+- If the file is missing, empty, or fails to load, nothing is displayed.
+- Defaults to `content/banner.txt`, but can be customized with `--banner-path <path>`.
+
+### MOTD File (`content/motd.txt`)
+
+- Displayed right after the server name, uptime, and game stats line.
+- Available to players in-game via the `motd` command.
+- If the file is missing, empty, or fails to load, nothing is displayed (and the `motd` command remains silent).
+- Defaults to `content/motd.txt`, but can be customized with `--motd-path <path>`.
+
+### Styling and Markup Format
+
+Both the banner and the MOTD support OxideMUD's rich text markup tags for inline colors and styling. The parser formats text dynamically for ANSI-capable terminals and strips tags for plain-text connections.
+
+#### Colors
+
+- Colors: `{red}`, `{green}`, `{yellow}`, `{blue}`, `{magenta}`, `{cyan}`, `{white}`, `{black}`
+- Bright/Vibrant colors: `{brightRed}`, `{brightGreen}`, `{brightYellow}`, `{brightBlue}`, `{brightMagenta}`, `{brightCyan}`, `{brightWhite}`, `{brightBlack}`
+- Background colors: `{bg:red}`, `{bg:green}`, `{bg:blue}`, etc.
+
+#### Modifiers
+
+- Text modifiers: `{bold}`, `{italic}`, `{underline}`, `{blink}`, `{reverse}`
+
+#### Tag Usage
+
+- Close active styles with `{/}` or a specific closing tag (e.g. `{/bold}`).
+- Escape braces by doubling them: `{{` renders as `{`, `}}` renders as `}`.
+
+**Example MOTD:**
+
+```text
+{brightYellow bold}Welcome to OxideMUD!{/}
+Type {cyan}help{/} to get started.
+```
 
 ---
 

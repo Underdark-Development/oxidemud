@@ -1289,9 +1289,14 @@ pub fn cmd_motd(
     _args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    conn.send_line("");
-    conn.send_line(oxide_server::get_motd());
-    conn.send_line("");
+    if let Some(motd) = oxide_server::get_motd() {
+        let ansi = conn.flags().has(oxide_server::ConnectionFlag::Ansi);
+        let allow_blink = conn.flags().has(oxide_server::ConnectionFlag::Blink);
+        let rich = oxide_core::format::parse_tags(&motd);
+        conn.send_line("");
+        conn.send_line(&rich.render(ansi, allow_blink));
+        conn.send_line("");
+    }
 }
 
 pub fn cmd_who(
