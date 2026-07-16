@@ -366,7 +366,7 @@ impl Server {
                     *count_ref = count_ref.wrapping_add(1);
 
                     let conn_id = encode_connection_id(ip, index);
-                    tracing::info!("new connection ({conn_id}) from {addr}");
+                    tracing::info!("New connection ({conn_id}) from {addr}");
 
                     let world = world.clone();
                     let registry = registry.clone();
