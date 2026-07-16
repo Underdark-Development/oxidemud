@@ -1469,16 +1469,16 @@ pub async fn console_broadcast(message: &str) -> usize {
     let entities: Vec<Entity> = reg.connected_entities();
     tracing::debug!(
         count = entities.len(),
-        "console_broadcast: connected entities"
+        "Console broadcast: connected entities"
     );
     let mut sent = 0;
     for entity in entities {
         match reg.sender(entity) {
             Some(tx) => match tx.send(bytes.clone()) {
                 Ok(()) => sent += 1,
-                Err(e) => tracing::warn!(?entity, error = %e, "console_broadcast: send failed"),
+                Err(e) => tracing::warn!(?entity, error = %e, "Console broadcast: send failed"),
             },
-            None => tracing::warn!(?entity, "console_broadcast: entity has no sender"),
+            None => tracing::warn!(?entity, "Console broadcast: entity has no sender"),
         }
     }
     sent

@@ -608,7 +608,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &oxide
         .and_then(|mut q| q.get().cloned())
     {
         if let Err(e) = oxide_data::save_skills(conn, db_id, &skills.skills) {
-            tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save skills");
+            tracing::error!(entity_id = db_id, error = %e, "Save player progress: failed to save skills");
         }
     }
 
@@ -650,7 +650,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &oxide
             player_comp.prompt.as_deref(),
             player_comp.screen_width,
         ) {
-            tracing::error!(entity_id = db_id, error = %e, "save_player_progress: failed to save player component");
+            tracing::error!(entity_id = db_id, error = %e, "Save player progress: failed to save player component");
         }
     }
 
