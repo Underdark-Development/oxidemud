@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.3.0 - 2026-07-17
+#### Features
+- (**core**) implement state transitions, update combat/AI systems, and refine documentation - (1587d21) - Kevin Lanni
+- (**mcp**) complete template CRUD for all 15 content categories - (9a86b0d) - Kevin Lanni
+- (**persistence**) implement online database backup system with daily/weekly retention - (b93c131) - Kevin Lanni
+- (**server**) update logging pluralization, connection IDs, and past-tense logs - (c8cffe7) - Kevin Lanni
+- (**telnet**) banner, MOTD, welcome stats, versioning, and hot-reloading - (14bacf6) - Kevin Lanni
+- (**telnet**) implement NAWS window size negotiation and terminal type tracking - (fd25b62) - Kevin Lanni
+#### Documentation
+- (**meta**) fix code fences and table formatting in ARCHITECTURE.md - (8dfec82) - Kevin Lanni
+- fix mcp example - (3a93f2e) - Kevin Lanni
+- compactify ARCHITECTURE.md (1420 → 1063 lines) - (6cd6691) - Kevin Lanni
+#### Style
+- (**server**) capitalize additional console and save progress log messages - (5f1a91d) - Kevin Lanni
+- (**server**) capitalize connection logging to sentence-case - (6fffb56) - Kevin Lanni
+- format markdown documentation with dprint - (bb09d96) - Kevin Lanni
+
+- - -
+
 ## 0.2.0 - 2026-07-15
 #### Features
 - (**meta**) make release compile for macOS, Linux, and Windows using Zig cross-compilation - (e90d125) - Kevin Lanni
