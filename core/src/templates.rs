@@ -4,6 +4,26 @@ use crate::Entity;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::OnceLock;
+
+static GLOBAL_TEMPLATES: OnceLock<std::sync::RwLock<Arc<TemplateRegistry>>> = OnceLock::new();
+
+pub fn register_global_templates(templates: Arc<TemplateRegistry>) {
+    if let Some(lock) = GLOBAL_TEMPLATES.get() {
+        if let Ok(mut writer) = lock.write() {
+            *writer = templates;
+        }
+    } else {
+        let _ = GLOBAL_TEMPLATES.set(std::sync::RwLock::new(templates));
+    }
+}
+
+pub fn get_global_templates() -> Option<Arc<TemplateRegistry>> {
+    GLOBAL_TEMPLATES
+        .get()
+        .and_then(|lock| lock.read().ok().map(|r| r.clone()))
+}
 
 // ---------------------------------------------------------------------------
 // Dice roll helper for TOML — stored as string, parsed at use time
@@ -914,6 +934,7 @@ impl MobTemplate {
             crate::components::Equipment::new(),
             ai_state,
             crate::components::ScriptParams(self.params.clone()),
+            crate::components::PlayerState::Resting(crate::components::RestState::Standing),
         ));
 
         if let Some(ref race_id) = self.race {

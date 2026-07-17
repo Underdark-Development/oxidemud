@@ -286,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let script_engine = Box::new(oxide_scripting::ScriptEngine::new(
         content_path.join("scripts"),
     ));
+    oxide_scripting::register_award_xp_callback(oxide_server::award_xp);
     oxide_core::scripting::register_scripting_bridge(script_engine);
     oxide_core::scripting::register_message_bridge(Box::new(oxide_server::ServerMessageBridge));
 

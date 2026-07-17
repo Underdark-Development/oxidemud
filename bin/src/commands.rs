@@ -5792,53 +5792,35 @@ pub fn cmd_sit(
         Some(e) => e,
         None => return,
     };
-    let current_state = world
-        .query_one::<&core::PlayerState>(entity)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default();
 
-    match current_state {
-        core::PlayerState::Dead => {
-            conn.send_line("You are a ghost! Ghosts do not sit down.");
-        }
-        core::PlayerState::Resting(rest) => match rest {
-            core::RestState::Sitting => {
-                conn.send_line("You are already sitting.");
-            }
-            core::RestState::Standing | core::RestState::Resting => {
-                let next_state = core::PlayerState::Resting(core::RestState::Sitting);
-                let _ = world.insert(entity, (next_state, core::Dirty));
-                conn.send_line("You sit down.");
-                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
-                    if let Some(name) = name_q.get() {
-                        if let Some(room) = get_pos_room(world, entity) {
-                            broadcast_to_room_except(
-                                world,
-                                registry,
-                                room,
-                                entity,
-                                &format!("{} sits down.", name.0),
-                            );
-                        }
+    match core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Sit) {
+        Ok(_) => {
+            conn.send_line("You sit down.");
+            if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                if let Some(name) = name_q.get() {
+                    if let Some(room) = get_pos_room(world, entity) {
+                        broadcast_to_room_except(
+                            world,
+                            registry,
+                            room,
+                            entity,
+                            &format!("{} sits down.", name.0),
+                        );
                     }
                 }
             }
-            core::RestState::Sleeping => {
-                conn.send_line("You must wake up first.");
-            }
-            core::RestState::Unconscious => {
-                conn.send_line("You are unconscious.");
-            }
-            core::RestState::Dead => {
-                conn.send_line("You are a ghost! Ghosts do not sit down.");
-            }
-        },
-        core::PlayerState::Stunned { .. } => {
-            conn.send_line("You are stunned and cannot move.");
         }
-        core::PlayerState::Casting { .. } => {
-            conn.send_line("You are too busy casting to sit down.");
+        Err(err) => {
+            let msg = match err {
+                "You are stunned and cannot move." => "You are stunned and cannot move.",
+                "You are too busy casting to do that." => "You are too busy casting to sit down.",
+                "You must wake up first." => "You must wake up first.",
+                "You are unconscious." => "You are unconscious.",
+                "You are already sitting." => "You are already sitting.",
+                "You are a ghost and cannot do that." => "You are a ghost! Ghosts do not sit down.",
+                _ => err,
+            };
+            conn.send_line(msg);
         }
     }
 }
@@ -5854,50 +5836,35 @@ pub fn cmd_rest(
         Some(e) => e,
         None => return,
     };
-    let current_state = world
-        .query_one::<&core::PlayerState>(entity)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default();
 
-    match current_state {
-        core::PlayerState::Dead => {
-            conn.send_line("You are a ghost! Ghosts do not rest.");
-        }
-        core::PlayerState::Resting(rest) => match rest {
-            core::RestState::Resting => {
-                conn.send_line("You are already resting.");
-            }
-            core::RestState::Standing | core::RestState::Sitting | core::RestState::Sleeping => {
-                let next_state = core::PlayerState::Resting(core::RestState::Resting);
-                let _ = world.insert(entity, (next_state, core::Dirty));
-                conn.send_line("You lean back and rest.");
-                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
-                    if let Some(name) = name_q.get() {
-                        if let Some(room) = get_pos_room(world, entity) {
-                            broadcast_to_room_except(
-                                world,
-                                registry,
-                                room,
-                                entity,
-                                &format!("{} rests.", name.0),
-                            );
-                        }
+    match core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Rest) {
+        Ok(_) => {
+            conn.send_line("You lean back and rest.");
+            if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                if let Some(name) = name_q.get() {
+                    if let Some(room) = get_pos_room(world, entity) {
+                        broadcast_to_room_except(
+                            world,
+                            registry,
+                            room,
+                            entity,
+                            &format!("{} rests.", name.0),
+                        );
                     }
                 }
             }
-            core::RestState::Unconscious => {
-                conn.send_line("You are unconscious.");
-            }
-            core::RestState::Dead => {
-                conn.send_line("You are a ghost! Ghosts do not rest.");
-            }
-        },
-        core::PlayerState::Stunned { .. } => {
-            conn.send_line("You are stunned and cannot rest.");
         }
-        core::PlayerState::Casting { .. } => {
-            conn.send_line("You are too busy casting to rest.");
+        Err(err) => {
+            let msg = match err {
+                "You are stunned and cannot move." => "You are stunned and cannot rest.",
+                "You are too busy casting to do that." => "You are too busy casting to rest.",
+                "You must wake up first." => "You must wake up first.",
+                "You are unconscious." => "You are unconscious.",
+                "You are already resting." => "You are already resting.",
+                "You are a ghost and cannot do that." => "You are a ghost! Ghosts do not rest.",
+                _ => err,
+            };
+            conn.send_line(msg);
         }
     }
 }
@@ -5913,50 +5880,35 @@ pub fn cmd_sleep(
         Some(e) => e,
         None => return,
     };
-    let current_state = world
-        .query_one::<&core::PlayerState>(entity)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default();
 
-    match current_state {
-        core::PlayerState::Dead => {
-            conn.send_line("You are a ghost! Ghosts do not sleep.");
-        }
-        core::PlayerState::Resting(rest) => match rest {
-            core::RestState::Sleeping => {
-                conn.send_line("You are already sleeping.");
-            }
-            core::RestState::Standing | core::RestState::Sitting | core::RestState::Resting => {
-                let next_state = core::PlayerState::Resting(core::RestState::Sleeping);
-                let _ = world.insert(entity, (next_state, core::Dirty));
-                conn.send_line("You lie down and go to sleep.");
-                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
-                    if let Some(name) = name_q.get() {
-                        if let Some(room) = get_pos_room(world, entity) {
-                            broadcast_to_room_except(
-                                world,
-                                registry,
-                                room,
-                                entity,
-                                &format!("{} goes to sleep.", name.0),
-                            );
-                        }
+    match core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Sleep) {
+        Ok(_) => {
+            conn.send_line("You lie down and go to sleep.");
+            if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                if let Some(name) = name_q.get() {
+                    if let Some(room) = get_pos_room(world, entity) {
+                        broadcast_to_room_except(
+                            world,
+                            registry,
+                            room,
+                            entity,
+                            &format!("{} goes to sleep.", name.0),
+                        );
                     }
                 }
             }
-            core::RestState::Unconscious => {
-                conn.send_line("You are unconscious.");
-            }
-            core::RestState::Dead => {
-                conn.send_line("You are a ghost! Ghosts do not sleep.");
-            }
-        },
-        core::PlayerState::Stunned { .. } => {
-            conn.send_line("You are stunned and cannot sleep.");
         }
-        core::PlayerState::Casting { .. } => {
-            conn.send_line("You are too busy casting to sleep.");
+        Err(err) => {
+            let msg = match err {
+                "You are stunned and cannot move." => "You are stunned and cannot sleep.",
+                "You are too busy casting to do that." => "You are too busy casting to sleep.",
+                "You must wake up first." => "You must wake up first.",
+                "You are unconscious." => "You are unconscious.",
+                "You are already sleeping." => "You are already sleeping.",
+                "You are a ghost and cannot do that." => "You are a ghost! Ghosts do not sleep.",
+                _ => err,
+            };
+            conn.send_line(msg);
         }
     }
 }
@@ -5972,50 +5924,33 @@ pub fn cmd_wake(
         Some(e) => e,
         None => return,
     };
-    let current_state = world
-        .query_one::<&core::PlayerState>(entity)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default();
 
-    match current_state {
-        core::PlayerState::Dead => {
-            conn.send_line("You are a ghost! You cannot wake up.");
-        }
-        core::PlayerState::Resting(rest) => match rest {
-            core::RestState::Sleeping => {
-                let next_state = core::PlayerState::Resting(core::RestState::Resting);
-                let _ = world.insert(entity, (next_state, core::Dirty));
-                conn.send_line("You wake up.");
-                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
-                    if let Some(name) = name_q.get() {
-                        if let Some(room) = get_pos_room(world, entity) {
-                            broadcast_to_room_except(
-                                world,
-                                registry,
-                                room,
-                                entity,
-                                &format!("{} wakes up.", name.0),
-                            );
-                        }
+    match core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Wake) {
+        Ok(_) => {
+            conn.send_line("You wake up.");
+            if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                if let Some(name) = name_q.get() {
+                    if let Some(room) = get_pos_room(world, entity) {
+                        broadcast_to_room_except(
+                            world,
+                            registry,
+                            room,
+                            entity,
+                            &format!("{} wakes up.", name.0),
+                        );
                     }
                 }
             }
-            core::RestState::Standing | core::RestState::Sitting | core::RestState::Resting => {
-                conn.send_line("You are already awake.");
-            }
-            core::RestState::Unconscious => {
-                conn.send_line("You are unconscious.");
-            }
-            core::RestState::Dead => {
-                conn.send_line("You are a ghost! You cannot wake up.");
-            }
-        },
-        core::PlayerState::Stunned { .. } => {
-            conn.send_line("You are stunned and cannot wake up.");
         }
-        core::PlayerState::Casting { .. } => {
-            conn.send_line("You are already awake.");
+        Err(err) => {
+            let msg = match err {
+                "You are stunned and cannot move." => "You are stunned and cannot wake up.",
+                "You are unconscious." => "You are unconscious.",
+                "You are already awake." => "You are already awake.",
+                "You are a ghost and cannot do that." => "You are a ghost! You cannot wake up.",
+                _ => err,
+            };
+            conn.send_line(msg);
         }
     }
 }
@@ -6031,50 +5966,36 @@ pub fn cmd_stand(
         Some(e) => e,
         None => return,
     };
-    let current_state = world
-        .query_one::<&core::PlayerState>(entity)
-        .ok()
-        .and_then(|mut q| q.get().cloned())
-        .unwrap_or_default();
 
-    match current_state {
-        core::PlayerState::Dead => {
-            conn.send_line("You are a ghost! Ghosts stand in ethereal form.");
-        }
-        core::PlayerState::Resting(rest) => match rest {
-            core::RestState::Standing => {
-                conn.send_line("You are already standing.");
-            }
-            core::RestState::Sitting | core::RestState::Resting | core::RestState::Sleeping => {
-                let next_state = core::PlayerState::Resting(core::RestState::Standing);
-                let _ = world.insert(entity, (next_state, core::Dirty));
-                conn.send_line("You stand up.");
-                if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
-                    if let Some(name) = name_q.get() {
-                        if let Some(room) = get_pos_room(world, entity) {
-                            broadcast_to_room_except(
-                                world,
-                                registry,
-                                room,
-                                entity,
-                                &format!("{} stands up.", name.0),
-                            );
-                        }
+    match core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Stand) {
+        Ok(_) => {
+            conn.send_line("You stand up.");
+            if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {
+                if let Some(name) = name_q.get() {
+                    if let Some(room) = get_pos_room(world, entity) {
+                        broadcast_to_room_except(
+                            world,
+                            registry,
+                            room,
+                            entity,
+                            &format!("{} stands up.", name.0),
+                        );
                     }
                 }
             }
-            core::RestState::Unconscious => {
-                conn.send_line("You are unconscious.");
-            }
-            core::RestState::Dead => {
-                conn.send_line("You are a ghost! Ghosts stand in ethereal form.");
-            }
-        },
-        core::PlayerState::Stunned { .. } => {
-            conn.send_line("You are stunned and cannot stand up.");
         }
-        core::PlayerState::Casting { .. } => {
-            conn.send_line("You stand up (you were already awake).");
+        Err(err) => {
+            let msg = match err {
+                "You are stunned and cannot move." => "You are stunned and cannot stand up.",
+                "You are unconscious." => "You are unconscious.",
+                "You are already standing." => "You are already standing.",
+                "You are too busy casting to do that." => "You stand up (you were already awake).",
+                "You are a ghost and cannot do that." => {
+                    "You are a ghost! Ghosts stand in ethereal form."
+                }
+                _ => err,
+            };
+            conn.send_line(msg);
         }
     }
 }
@@ -6962,13 +6883,7 @@ pub fn cmd_reclaim(
         }
     }
 
-    let _ = world.insert(
-        entity,
-        (
-            core::PlayerState::Resting(core::RestState::Standing),
-            core::Dirty,
-        ),
-    );
+    let _ = core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Revive);
 
     let _ = world.despawn(corpse_entity);
 
@@ -7058,13 +6973,7 @@ pub fn cmd_revive(
         }
     }
 
-    let _ = world.insert(
-        entity,
-        (
-            core::PlayerState::Resting(core::RestState::Standing),
-            core::Dirty,
-        ),
-    );
+    let _ = core::try_transition_player_state(world, entity, core::PlayerStateTrigger::Revive);
 
     conn.send_line("You pray at the altar and are restored to life! (Your equipment remains with your corpse.)");
     if let Ok(mut name_q) = world.query_one::<&core::Name>(entity) {

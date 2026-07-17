@@ -3,7 +3,7 @@ use crate::systems::trigger::process_triggers;
 use crate::{
     Armor, CombatState, Corpse, DamageType, Entity, Equipment, EquipmentSlot, Friendly, Health,
     Inventory, LastMessenger, Level, LootRule, Name, Npc, Player, PlayerState, Position,
-    RecallRoom, Resistance, RestState, RoomExits, Weapon, WeaponHands, World,
+    RecallRoom, Resistance, RoomExits, Weapon, WeaponHands, World,
 };
 
 // ---------------------------------------------------------------------------
@@ -393,6 +393,38 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
             continue;
         }
 
+        // Verify attacker is active and stand them up if sitting/resting
+        let mut attacker_active = true;
+        let mut attacker_should_stand = false;
+        if let Ok(mut q_state) = world.query_one::<&PlayerState>(attacker) {
+            if let Some(state) = q_state.get() {
+                match state {
+                    PlayerState::Dead
+                    | PlayerState::Stunned { .. }
+                    | PlayerState::Resting(crate::RestState::Sleeping)
+                    | PlayerState::Resting(crate::RestState::Unconscious)
+                    | PlayerState::Resting(crate::RestState::Dead) => {
+                        attacker_active = false;
+                    }
+                    PlayerState::Resting(crate::RestState::Sitting)
+                    | PlayerState::Resting(crate::RestState::Resting) => {
+                        attacker_should_stand = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !attacker_active {
+            continue;
+        }
+        if attacker_should_stand {
+            let _ = crate::systems::player_state::try_transition_player_state(
+                world,
+                attacker,
+                crate::systems::player_state::PlayerStateTrigger::Stand,
+            );
+        }
+
         match state {
             CombatState::NotInCombat => continue,
             CombatState::Engaged {
@@ -435,6 +467,26 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
                 if !target_conscious {
                     transition_combat_state(world, attacker, CombatState::NotInCombat);
                     continue;
+                }
+
+                // Auto stand up the target if they are sitting/resting
+                let mut target_should_stand = false;
+                if let Ok(mut q_state) = world.query_one::<&PlayerState>(target) {
+                    if let Some(PlayerState::Resting(
+                        crate::RestState::Sitting
+                        | crate::RestState::Resting
+                        | crate::RestState::Sleeping,
+                    )) = q_state.get()
+                    {
+                        target_should_stand = true;
+                    }
+                }
+                if target_should_stand {
+                    let _ = crate::systems::player_state::try_transition_player_state(
+                        world,
+                        target,
+                        crate::systems::player_state::PlayerStateTrigger::Stand,
+                    );
                 }
 
                 // Pre-fetch names before any potential despawn
@@ -914,9 +966,10 @@ pub fn apply_damage(
             .query_one::<&crate::Player>(target)
             .is_ok_and(|mut q| q.get().is_some())
         {
-            let _ = world.insert(
+            let _ = crate::systems::player_state::try_transition_player_state(
+                world,
                 target,
-                (PlayerState::Resting(RestState::Unconscious), crate::Dirty),
+                crate::systems::player_state::PlayerStateTrigger::Knockout,
             );
         }
         (final_damage, false, true, 0, None)
@@ -1059,7 +1112,11 @@ pub fn handle_death(world: &mut World, victim: Entity) -> Entity {
             }
         }
 
-        let _ = world.insert(victim, (PlayerState::Dead, crate::Dirty));
+        let _ = crate::systems::player_state::try_transition_player_state(
+            world,
+            victim,
+            crate::systems::player_state::PlayerStateTrigger::Die,
+        );
         let _ = world.remove_one::<LastMessenger>(victim);
 
         let dest = world
@@ -1182,7 +1239,7 @@ pub fn grant_xp(world: &mut World, attacker: Entity, victim: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Attributes, Experience, Name};
+    use crate::{Attributes, Experience, Name, PlayerState};
 
     fn setup_world() -> (World, Entity, Entity) {
         let mut world = World::new();
@@ -1668,5 +1725,56 @@ mod tests {
         };
         assert_eq!(penalty_with_off, -2);
         assert_eq!(penalty_without_off, -4);
+    }
+
+    #[test]
+    fn test_combat_gated_by_player_state() {
+        let (mut world, attacker, target) = setup_world();
+
+        // Spawn both with default standing states
+        world
+            .insert(
+                attacker,
+                (PlayerState::Resting(crate::RestState::Standing),),
+            )
+            .unwrap();
+        world
+            .insert(target, (PlayerState::Resting(crate::RestState::Standing),))
+            .unwrap();
+
+        // 1. Stun the attacker
+        world
+            .insert(attacker, (PlayerState::Stunned { remaining_ms: 1000 },))
+            .unwrap();
+
+        // Run combat pulse — should skip attack because attacker is stunned
+        let outcomes = run_combat_pulse(&mut world);
+        assert!(outcomes.is_empty());
+
+        // 2. Remove stun and put target to sleep
+        world
+            .insert(
+                attacker,
+                (PlayerState::Resting(crate::RestState::Standing),),
+            )
+            .unwrap();
+        world
+            .insert(target, (PlayerState::Resting(crate::RestState::Sleeping),))
+            .unwrap();
+
+        // Run combat pulse — attacker attacks target. Target should automatically stand up
+        let outcomes = run_combat_pulse(&mut world);
+        assert!(!outcomes.is_empty());
+
+        let target_state = world
+            .query_one::<&PlayerState>(target)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            target_state,
+            PlayerState::Resting(crate::RestState::Standing)
+        );
     }
 }

@@ -24,30 +24,32 @@ Each state machine has a `tick()` function that takes current state + context an
 
 ## Cargo Workspace
 
-Five crates under root workspace (tui/spade and mcp planned for Phase 5):
+Seven crates under root workspace:
 
 ```
-mud/
+oxidemud/
 ├── Cargo.toml              # workspace root (resolver = "2")
 ├── core/                   # ECS components, systems, events, resources
 │   ├── components/         # hecs Component types
 │   ├── systems/            # Game systems (movement, combat, regen, ai)
-│   ├── resources/          # Singleton resources + resource pools (Stamina, Mana, Energy, Psi)
+│   ├── resources/          # Singleton resources + resource pools (Stamina, Mana)
 │   ├── format/             # Color, RichText, tag parser
 │   ├── templates/          # TOML deserialization + TemplateRegistry
 │   ├── dice.rs             # DiceRoll XdY+Z parser/roller
 │   └── lib.rs
 ├── server/                 # Network layer + command dispatch
 │   ├── telnet/             # IAC parser, NAWS, terminal type
-│   ├── cmd/                # Linear Vec<Command> dispatch (trie planned)
+│   ├── cmd/                # Linear Vec<Command> dispatch (trie resolved)
 │   ├── login/              # LoginFlow state machine (state.rs, handlers.rs, prompt.rs)
 │   └── lib.rs
 ├── data/                   # Persistence layer (SQLite schema, queries, migrations)
 ├── scripting/              # Rhai engine setup + bindings + sandbox
-└── bin/                    # Game server binary (main.rs, commands.rs, init.rs)
+├── bin/                    # Game server binary (main.rs, commands.rs, init.rs)
+├── tui/                    # Spade visual terminal world builder
+└── mcp/                    # Model Context Protocol server bridge
 ```
 
-**Dependency DAG:** `core` depends on nothing. `server` depends on core + data. `data` depends on core. `scripting` depends on core. `bin` depends on core + server + data + scripting.
+**Dependency DAG:** `core` depends on nothing. `server` depends on core + data. `data` depends on core. `scripting` depends on core. `bin` depends on core + server + data + scripting. `tui` depends on core + scripting. `mcp` depends on core.
 
 Content templates (TOML) live at a configurable `content/` path on disk, not in a crate.
 
@@ -55,58 +57,42 @@ Content templates (TOML) live at a configurable `content/` path on disk, not in 
 
 ## Game Loop & Scheduler
 
-Event-driven loop using `tokio::select!` — no fixed tick. The server acquires a write lock on `World` for each branch.
+The server architecture splits concurrent execution into two main loop layers using Tokio tasks:
 
-Branches: `shutdown_signal` (flush + exit), `scheduler.next` (run system phase), `event_bus.recv` (dispatch event), `player_input` (execute command).
+1. **Connection Loop (`server.rs`):** A main listener loop that listens for incoming connection events via `tokio::select!`. On accept, it spawns a separate worker task to handle that client connection's inputs.
+2. **Game loop (`game_loop.rs`):** A dedicated background system runner spawned on startup. It uses asynchronous tokio intervals and sleep timers to execute combat, AI, regeneration, and persistence pulses.
 
-### Scheduler
+### Game Loop Ticks
 
-Singleton resource maintaining named intervals, each producing a `Pulse` on an mpsc channel:
+The background loop fires independent system intervals within a central `tokio::select!` block:
 
-| Phase          | Interval | Description                          |
-| -------------- | -------- | ------------------------------------ |
-| `Movement`     | 100ms    | Direction commands                   |
-| `Combat`       | 2s       | Attack/damage round                  |
-| `Regeneration` | 6s       | HP/mana/stamina regen, effect expiry |
-| `Weather`      | 5m       | Zone weather updates                 |
-| `DirtyFlush`   | 5s       | Persist dirty entities               |
-
-Phases are independent and fire concurrently. Each iterates registered systems sorted by priority (lower runs first).
+| Tick          | Interval        | Phase/Function       | Description                                      |
+| ------------- | --------------- | -------------------- | ------------------------------------------------ |
+| Player State  | 250ms           | `player_state_tick`  | Decrements player casting and stun timers        |
+| Skill Decay   | 1s              | `skill_decay_tick`   | Decrements cooldowns and temporary buff durations|
+| Combat Pulse  | 2s              | `combat_tick`        | Runs combat rounds, stance systems, and AI ticks |
+| Maintenance   | 5s              | `maintenance_tick`   | Flushes dirty stats, saves positions, cleans groups |
+| Set Bonus     | 10s             | `set_bonus_tick`     | Re-evaluates equipment set bonus thresholds      |
+| Big Tick      | 30–90s (random) | `big_tick`           | Restores HP/MP/SP, broadcasts prompts to players |
 
 ---
 
 ## Systems Architecture
 
-Game logic is organized into systems implementing the `System` trait (run on pulse, handle_event on subscribed events, priority-sorted within phases).
+Game logic is organized into isolated, concurrent modules executed inside the background game loop or triggered by player events.
 
-### Built-in Systems
+### Built-in Pulse Systems
 
-| System                     | Phase(s)     | Pri | Responsibility                                            |
-| -------------------------- | ------------ | --- | --------------------------------------------------------- |
-| `MovementSystem`           | Movement     | 10  | Direction commands, update `Position`, emit `PlayerMoved` |
-| `FollowSystem`             | Movement     | 20  | Move followers behind leader                              |
-| `EchoSystem`               | — (event)    | 10  | Broadcast messages to room occupants                      |
-| `CombatSystem`             | Combat       | 20  | Hit/damage/death rolls                                    |
-| `StanceSystem`             | Combat       | 15  | Apply stance modifiers                                    |
-| `AISystem`                 | Combat       | 30  | NPC state machine tick                                    |
-| `FormationSystem`          | Combat       | 25  | Group formation bonuses                                   |
-| `RegenSystem`              | Regeneration | 10  | Regen HP/mana/resource pools                              |
-| `EffectExpirySystem`       | Regeneration | 20  | Tick effect durations                                     |
-| `PassiveApplicationSystem` | Regeneration | 30  | Apply/remove passives on login/level-up                   |
-| `WeatherSystem`            | Weather      | 10  | Zone weather state machine                                |
-| `DirtyFlushSystem`         | DirtyFlush   | 50  | Persist dirty entities to SQLite                          |
-| `SkillRequirementSystem`   | DirtyFlush   | 40  | Check skill gates on equipment                            |
-| `GroupCleanupSystem`       | DirtyFlush   | 45  | Sweep stale group members                                 |
-| `CorpseSystem`             | DirtyFlush   | 60  | Decay corpses, transfer contents                          |
-| `AreaResetSystem`          | DirtyFlush   | 70  | Area resets past interval                                 |
-| `SetBonusSystem`           | — (event)    | 10  | Evaluate item sets on equip/unequip                       |
-| `QuestProgressSystem`      | — (event)    | 20  | Update quest objectives                                   |
-| `CraftingSystem`           | — (event)    | 20  | Execute crafting flow                                     |
-| `ScriptTriggerSystem`      | — (event)    | 100 | Run attached Rhai scripts                                 |
-| `KeepaliveSystem`          | Regeneration | 5   | Detect stale connections                                  |
-| `BackupSystem`             | DirtyFlush   | 80  | Hot-backup SQLite                                         |
-
-Systems stored `PhaseMap<Vec<Box<dyn System>>>`, priority-sorted at registration.
+*   **Combat System:** Checks hits, rolls damage, handles deaths, and awards XP.
+*   **Stance System:** Applies dynamic attribute modifiers based on active fighting stances.
+*   **AI System:** Moves NPCs through their AI state machine (Idle, Wander, Patrol, Combat, Flee).
+*   **Formation System:** Evaluates group spacing to apply shield wall or column combat bonuses.
+*   **Regeneration System:** Restores HP, Mana, and Stamina on the big tick based on the player's RestState.
+*   **Effect Expiry System:** Cleans up active temporary buffs and debuffs when their timer ends.
+*   **Corpse Decay System:** Decrements corpse duration timers and spills items to rooms when decayed.
+*   **Skill Gate System:** Continually re-evaluates gear skill requirements to auto-remove items.
+*   **Group Cleanup System:** Automatically removes offline or disconnected players from groups.
+*   **Database Backup System:** Spawns a background thread to run hot backups of the SQLite database.
 
 ---
 
@@ -157,7 +143,7 @@ Systems declare interest via `subscribed_events()`. Dispatched in priority order
 
 ### In-Game Prompt
 
-Configurable template in `Player.prompt` (default: `"<%hhp %hm %ss> "`). Variables: `%h/%H` (HP), `%m/%M` (Mana), `%s/%S` (Stamina), `%e/%E` (Energy), `%p/%P` (Psi), `%x/%X` (XP/XP-to-next), `%r` (rest state), `%%` (literal). Rendered after every command output and on room entry, death, level-up, and combat changes. Customized via `config prompt <template>`.
+Configurable template in `Player.prompt`. Variables: `%h/%H` (HP), `%m/%M` (Mana), `%v/%V` (Stamina), `%l` (Level), `%x/%X` (XP/XP-to-next), `%n` (Name), `%g` (Gold), `%a` (Alignment), `%r` (Room name), `%e` (Exits), `%R` (Rest state), `%C` (Combat state), `%c` (Newline), `%%` (literal). Rendered after every command output and on room entry, death, level-up, and combat changes. Customized via `prompt <template>`.
 
 ### Combat
 

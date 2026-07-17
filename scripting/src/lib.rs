@@ -2,7 +2,18 @@ use oxide_core::{DamageType, Entity, HitContext, ItemTriggers, Npc, Room, Script
 use rhai::{Engine, Scope, AST};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::sync::RwLock;
+
+type AwardXpCallback = Box<dyn Fn(&mut World, Entity) -> Vec<String> + Send + Sync + 'static>;
+
+static AWARD_XP_CALLBACK: OnceLock<AwardXpCallback> = OnceLock::new();
+
+pub fn register_award_xp_callback(
+    cb: impl Fn(&mut World, Entity) -> Vec<String> + Send + Sync + 'static,
+) {
+    let _ = AWARD_XP_CALLBACK.set(Box::new(cb));
+}
 
 #[derive(Debug, Clone)]
 pub struct TestResult {
@@ -348,8 +359,97 @@ impl ScriptEngine {
         // Mob spawning & Template spawn
         engine.register_fn(
             "spawn_mob",
-            |_world: ScriptWorld, _template_id: String, _room_entity: Entity| -> Entity {
-                Entity::from(hecs::Entity::from_bits(0).unwrap()) // Fallback if not hooked.
+            |world: ScriptWorld, template_id: String, room_entity: Entity| -> Entity {
+                unsafe {
+                    let w = world.as_mut();
+                    let templates = match oxide_core::templates::get_global_templates() {
+                        Some(t) => t,
+                        None => return Entity::from(hecs::Entity::from_bits(0).unwrap()),
+                    };
+                    if let Some(mob_tpl) = templates.mobs.get(&template_id) {
+                        mob_tpl.spawn(w, room_entity, &templates)
+                    } else {
+                        Entity::from(hecs::Entity::from_bits(0).unwrap())
+                    }
+                }
+            },
+        );
+
+        engine.register_fn(
+            "accept_quest",
+            |world: ScriptWorld, player: Entity, quest_id: String| -> bool {
+                unsafe {
+                    let w = world.as_mut();
+                    let templates = match oxide_core::templates::get_global_templates() {
+                        Some(t) => t,
+                        None => return false,
+                    };
+                    let res = oxide_core::accept_quest(w, player, &quest_id, &templates);
+                    if let Ok(msgs) = res {
+                        if let Some(msg_bridge) = oxide_core::scripting::get_message_bridge() {
+                            for msg in msgs {
+                                msg_bridge.send_to_entity(player, &msg);
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+            },
+        );
+
+        engine.register_fn(
+            "complete_quest",
+            |world: ScriptWorld, player: Entity, quest_id: String| -> bool {
+                unsafe {
+                    let w = world.as_mut();
+                    let templates = match oxide_core::templates::get_global_templates() {
+                        Some(t) => t,
+                        None => return false,
+                    };
+                    let res = oxide_core::complete_quest(w, player, &quest_id, &templates);
+                    if let Ok(msgs) = res {
+                        if let Some(msg_bridge) = oxide_core::scripting::get_message_bridge() {
+                            for msg in msgs {
+                                msg_bridge.send_to_entity(player, &msg);
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+            },
+        );
+
+        engine.register_fn(
+            "is_on_quest",
+            |world: ScriptWorld, player: Entity, quest_id: String| -> bool {
+                unsafe {
+                    let w = world.as_mut();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::QuestLog>(player) {
+                        if let Some(log) = q.get() {
+                            return log.active.contains_key(&quest_id);
+                        }
+                    }
+                    false
+                }
+            },
+        );
+
+        engine.register_fn(
+            "has_completed_quest",
+            |world: ScriptWorld, player: Entity, quest_id: String| -> bool {
+                unsafe {
+                    let w = world.as_mut();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::QuestLog>(player) {
+                        if let Some(log) = q.get() {
+                            return log.completed.contains(&quest_id);
+                        }
+                    }
+                    false
+                }
             },
         );
 
@@ -683,6 +783,54 @@ impl ScriptingBridge for ScriptEngine {
 
         self.engine
             .call_fn::<()>(&mut scope, &ast, "on_use", ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn execute_quest_hook(
+        &self,
+        script: &str,
+        player: Entity,
+        quest_id: &str,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("player", player);
+        scope.push("world", ScriptWorld::new(world));
+        scope.push("quest_id", quest_id.to_string());
+
+        let mut rewards_map = rhai::Map::new();
+        if let Some(templates) = oxide_core::templates::get_global_templates() {
+            if let Some(quest_def) = templates.quests.get(quest_id) {
+                rewards_map.insert("xp".into(), (quest_def.rewards.xp as i64).into());
+                rewards_map.insert("gold".into(), (quest_def.rewards.gold as i64).into());
+
+                let mut items_arr = rhai::Array::new();
+                for item in &quest_def.rewards.items {
+                    let mut item_map = rhai::Map::new();
+                    item_map.insert(
+                        "item_template_id".into(),
+                        item.item_template_id.clone().into(),
+                    );
+                    item_map.insert("count".into(), (item.count as i64).into());
+                    items_arr.push(item_map.into());
+                }
+                rewards_map.insert("items".into(), items_arr.into());
+
+                let mut faction_arr = rhai::Array::new();
+                for fac in &quest_def.rewards.faction {
+                    let mut fac_map = rhai::Map::new();
+                    fac_map.insert("faction_id".into(), fac.faction_id.clone().into());
+                    fac_map.insert("amount".into(), (fac.amount as i64).into());
+                    faction_arr.push(fac_map.into());
+                }
+                rewards_map.insert("faction".into(), faction_arr.into());
+            }
+        }
+        scope.push("rewards", rewards_map);
+
+        self.engine
+            .run_ast_with_scope(&mut scope, &ast)
             .map_err(|e| e.to_string())
     }
 
@@ -1094,5 +1242,106 @@ fn test_fail() {
         }
 
         std::fs::remove_dir_all(&temp_dir).unwrap();
+    }
+
+    #[test]
+    fn test_quest_chaining_and_rewards_scripting() {
+        use oxide_core::templates::{QuestDef, QuestRewards, TemplateRegistry};
+        use oxide_core::{Equipment, Experience, Inventory, Level, QuestLog, Wallet};
+
+        let engine = ScriptEngine::default();
+        let mut world = World::new();
+
+        // 1. Setup templates
+        let mut templates = TemplateRegistry::new();
+
+        let quest_a = QuestDef {
+            id: "quest_a".to_string(),
+            name: "Quest A".to_string(),
+            description: "First quest".to_string(),
+            level_requirement: 0,
+            repeatable: false,
+            auto_complete: false,
+            giver_npc: None,
+            turn_in_npc: None,
+            prerequisites: Vec::new(),
+            objectives: Vec::new(),
+            rewards: QuestRewards {
+                xp: 100,
+                gold: 50,
+                items: Vec::new(),
+                faction: Vec::new(),
+            },
+            scripts: None,
+            params: HashMap::new(),
+        };
+
+        let quest_b = QuestDef {
+            id: "quest_b".to_string(),
+            name: "Quest B".to_string(),
+            description: "Second quest".to_string(),
+            level_requirement: 0,
+            repeatable: false,
+            auto_complete: false,
+            giver_npc: None,
+            turn_in_npc: None,
+            prerequisites: vec!["quest_a".to_string()],
+            objectives: Vec::new(),
+            rewards: QuestRewards::default(),
+            scripts: None,
+            params: HashMap::new(),
+        };
+
+        templates.quests.insert("quest_a".to_string(), quest_a);
+        templates.quests.insert("quest_b".to_string(), quest_b);
+
+        // Register templates globally
+        oxide_core::templates::register_global_templates(std::sync::Arc::new(templates));
+
+        // 2. Setup player
+        let player = world.spawn((
+            QuestLog::new(),
+            Level(1),
+            Experience(0),
+            Wallet::new(0, 0, 0, 0),
+            Inventory(Vec::new()),
+            Equipment::new(),
+        ));
+
+        // 3. Accept Quest A and complete it
+        let global_templates = oxide_core::templates::get_global_templates().unwrap();
+        oxide_core::accept_quest(&mut world, player, "quest_a", &global_templates).unwrap();
+        {
+            let mut q_log = world.query_one::<&mut QuestLog>(player).unwrap();
+            let log = q_log.get().unwrap();
+            log.completed.insert("quest_a".to_string());
+        }
+
+        // 4. Compile a test script that validates rewards scope and chains Quest B
+        let script = r#"
+            // Verify rewards in scope
+            assert(rewards.xp == 100);
+            assert(rewards.gold == 50);
+
+            // Accept the next quest in chain
+            accept_quest(world, player, "quest_b");
+        "#;
+        let ast = engine.engine().compile(script).unwrap();
+
+        // 5. Mock the AST cache for quest_a_complete.rhai
+        {
+            let mut cache = engine.ast_cache.write().unwrap();
+            cache.insert("quest_a_complete.rhai".to_string(), ast);
+        }
+
+        // Now run the hook using the cached AST path
+        engine
+            .execute_quest_hook("quest_a_complete.rhai", player, "quest_a", &mut world)
+            .unwrap();
+
+        // 6. Verify that Quest B has been successfully accepted!
+        let mut q_log = world.query_one::<&QuestLog>(player).unwrap();
+        let log = q_log.get().unwrap();
+        assert!(log.active.contains_key("quest_b"));
     }
 }

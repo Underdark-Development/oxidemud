@@ -1,7 +1,9 @@
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
     fmt:
+      run: just fmt
+    fmt-check:
       run: just fmt-check
     clippy:
       run: just lint

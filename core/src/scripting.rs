@@ -70,6 +70,21 @@ pub trait ScriptingBridge: Send + Sync {
         world: &mut World,
     ) -> Result<(), String>;
 
+    /// Execute a quest event hook (e.g. on_accept, on_complete, on_update).
+    fn execute_quest_hook(
+        &self,
+        script: &str,
+        player: Entity,
+        quest_id: &str,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let _ = script;
+        let _ = player;
+        let _ = quest_id;
+        let _ = world;
+        Ok(())
+    }
+
     /// Reload a script AST cache, compiling or removing it.
     fn reload_script(&self, _rel_path: &str) -> Result<(), String> {
         Ok(())

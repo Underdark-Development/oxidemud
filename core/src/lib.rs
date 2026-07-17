@@ -32,7 +32,10 @@ pub use systems::group::{
     run_group_cleanup,
 };
 pub use systems::multi_class::{calculate_multiclass_combat_stats, satisfies_prestige_gate};
-pub use systems::player_state::run_player_state_decay;
+pub use systems::player_state::{
+    run_player_state_decay, transition_player_state, try_transition_player_state,
+    PlayerStateTrigger,
+};
 pub use systems::quest::{
     abandon_quest, accept_quest, complete_quest, handle_explore_event, handle_kill_event,
     handle_talk_event, reconcile_gather_objectives,

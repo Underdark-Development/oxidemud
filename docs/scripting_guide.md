@@ -1,18 +1,18 @@
-# Scripting Guide (Planned)
+# Scripting Guide
 
-> **Status: Scaffold only.** The Rhai engine (`EngineWrapper`) and Rust↔Rhai bindings are defined but **not wired into the game loop**. No script files are loaded, cached, or executed at runtime. The trigger system (`process_triggers`) is wired for item events only and uses hardcoded spell-like effects, not Rhai scripts. This document describes the **target design**.
+> **Status: Active.** The Rhai engine and Rust↔Rhai bindings are fully integrated and wired into the game loop. Script files inside `content/scripts/` are compiled, cached, and hot-reloaded at runtime.
 
 ---
 
-The game engine separates the driver (core engine features) from the game content. While TOML templates cover static data structures, all dynamic gameplay logic will be written in **Rhai** scripts located in the `content/scripts/` directory.
+The game engine separates the driver (core engine features) from the game content. While TOML templates cover static data structures, all dynamic gameplay logic is written in **Rhai** scripts located in the `content/scripts/` directory.
 
-Rhai scripts will drive NPC AI, item spells/procs, quest triggers, room behaviors, and custom player commands.
+Rhai scripts drive NPC AI, item spells/procs, quest triggers, room behaviors, and custom player interactions.
 
 ---
 
 ## The Security Sandbox
 
-Since scripts can be loaded dynamically or created by builders, the Rhai engine will run inside a sandboxed execution environment with strict resource limits:
+Since scripts can be loaded dynamically or created by builders, the Rhai engine runs inside a sandboxed execution environment with strict resource limits:
 
 | Metric              | Bounded Limit      | Prevention                                           |
 | :------------------ | :----------------- | :--------------------------------------------------- |
@@ -30,7 +30,7 @@ Additionally, the scripting sandbox:
 
 ---
 
-## Script Lifecycle (Planned)
+## Script Lifecycle
 
 1. **Caching**: During startup, the engine scans the `content/scripts/` directory, compiles all `.rhai` files into Abstract Syntax Trees (ASTs), and caches them in memory.
 2. **Event Binding**: Script triggers are linked via TOML template definitions (e.g. attaching a trigger to an item's `on_use` event).
@@ -39,17 +39,18 @@ Additionally, the scripting sandbox:
 
 ---
 
-## Script Execution Context (`ScriptCtx`) (Planned)
+## Script Execution Context (`ScriptCtx`)
 
-When a script is triggered, the engine injects three global handles into the script's scope:
+When a script is triggered, the engine injects global handles into the script's scope:
 
 - `self` — The entity the script is running on (e.g., the item, room, or mob).
 - `actor` — The entity that triggered the event (usually a player).
 - `target` — The recipient of the action (if applicable).
+- `world` — Access to the game world.
 
 ---
 
-## Scripting API Reference (Planned)
+## Scripting API Reference
 
 ### `EntityHandle`
 
@@ -98,8 +99,14 @@ let mob = world.spawn_mob("goblin_scout", actor.room());
 // Despawn an entity
 world.remove_entity(target);
 
-// Grant experience points
-world.grant_xp(actor, 500);
+// Grant experience points and check for level ups
+world.award_xp(actor);
+
+// Quest Management
+world.accept_quest(actor, "save_the_sheep");
+world.complete_quest(actor, "save_the_sheep");
+let active = world.is_on_quest(actor, "save_the_sheep");
+let completed = world.has_completed_quest(actor, "save_the_sheep");
 
 // Learn a crafting recipe
 world.grant_recipe(actor, "iron_shortsword");
@@ -107,7 +114,23 @@ world.grant_recipe(actor, "iron_shortsword");
 
 ---
 
-## Example Script Trigger (Planned)
+## Example Script Trigger (on_say / Dialogue Trigger)
+
+Here is an example say hook script for a lost sheep guard (`content/scripts/mobs/sheep_guard.rhai`):
+
+```rust
+// Attached to the town guard's on_say trigger
+if message.contains("help") || message.contains("sheep") {
+    if !world.is_on_quest(speaker, "save_the_sheep") && !world.has_completed_quest(speaker, "save_the_sheep") {
+        world.accept_quest(speaker, "save_the_sheep");
+        send_to(speaker, "The Guard says: 'Thank you! Please find my lost sheep.'");
+    }
+}
+```
+
+---
+
+## Example Script Trigger (on_pickup / Item Trigger)
 
 Here is an example script for a scroll of teleportation (`content/scripts/scroll_teleport.rhai`):
 
@@ -137,3 +160,28 @@ if actor.is_player() {
     world.remove_entity(self);
 }
 ```
+
+---
+
+## Quest Scripts (on_accept, on_complete, on_update)
+
+Quest script hooks are executed inside a specialized environment where they automatically receive variables related to the quest state:
+- `quest_id`: The ID of the quest triggering the script.
+- `rewards`: A map containing the rewards defined in the quest template:
+  - `rewards.xp`: (integer) Experience rewarded.
+  - `rewards.gold`: (integer) Gold rewarded.
+  - `rewards.items`: (array of maps) Items rewarded, e.g. `[{ "item_template_id": "iron_ring", "count": 1 }]`.
+  - `rewards.faction`: (array of maps) Faction standing modifications, e.g. `[{ "faction_id": "town_guard", "amount": 15 }]`.
+
+### Example Quest Chain script (`content/scripts/quests/chain_quest.rhai`)
+You can use `rewards` to custom-log or modify details, and automatically accept the next quest in a chain when the current quest is completed:
+
+```rust
+// Runs inside quest_a's on_complete hook script
+send_to(player, "You completed " + quest_id + "! You earned " + rewards.xp + " XP and " + rewards.gold + " copper.");
+
+// Accept Quest B automatically to form a quest chain
+accept_quest(world, player, "quest_b");
+send_to(player, "A new quest has started: Quest B!");
+```
+

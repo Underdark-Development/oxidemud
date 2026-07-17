@@ -142,6 +142,7 @@ pub fn handle_kill_event(
     };
 
     let mut dirty = false;
+    let mut updated_quests = Vec::new();
 
     for (quest_id, progress) in &mut quest_log.active {
         let Some(quest_def) = templates.quests.get(quest_id) else {
@@ -183,6 +184,7 @@ pub fn handle_kill_event(
         }
 
         if quest_updated {
+            updated_quests.push((quest_id.to_string(), quest_def.auto_complete));
             let all_done = progress.objectives.iter().all(|o| o.completed);
             if all_done && !quest_def.auto_complete {
                 messages.push(format!(
@@ -199,10 +201,12 @@ pub fn handle_kill_event(
         }
     }
 
+    drop(q_log);
     if dirty {
-        drop(q_log);
         let _ = world.insert(player, (Dirty,));
     }
+
+    process_quest_updates(world, player, updated_quests, templates, &mut messages);
 
     messages
 }
@@ -225,6 +229,7 @@ pub fn handle_explore_event(
     };
 
     let mut dirty = false;
+    let mut updated_quests = Vec::new();
 
     for (quest_id, progress) in &mut quest_log.active {
         let Some(quest_def) = templates.quests.get(quest_id) else {
@@ -253,6 +258,7 @@ pub fn handle_explore_event(
         }
 
         if quest_updated {
+            updated_quests.push((quest_id.to_string(), quest_def.auto_complete));
             let all_done = progress.objectives.iter().all(|o| o.completed);
             if all_done && !quest_def.auto_complete {
                 messages.push(format!(
@@ -269,10 +275,12 @@ pub fn handle_explore_event(
         }
     }
 
+    drop(q_log);
     if dirty {
-        drop(q_log);
         let _ = world.insert(player, (Dirty,));
     }
+
+    process_quest_updates(world, player, updated_quests, templates, &mut messages);
 
     messages
 }
@@ -310,6 +318,7 @@ pub fn handle_talk_event(
     };
 
     let mut dirty = false;
+    let mut updated_quests = Vec::new();
 
     for (quest_id, progress) in &mut quest_log.active {
         let Some(quest_def) = templates.quests.get(quest_id) else {
@@ -366,6 +375,7 @@ pub fn handle_talk_event(
         }
 
         if quest_updated {
+            updated_quests.push((quest_id.to_string(), quest_def.auto_complete));
             let all_done = progress.objectives.iter().all(|o| o.completed);
             if all_done && !quest_def.auto_complete {
                 messages.push(format!(
@@ -382,10 +392,12 @@ pub fn handle_talk_event(
         }
     }
 
+    drop(q_log);
     if dirty {
-        drop(q_log);
         let _ = world.insert(player, (Dirty,));
     }
+
+    process_quest_updates(world, player, updated_quests, templates, &mut messages);
 
     messages
 }
@@ -478,6 +490,10 @@ pub fn accept_quest(
         if let Ok(complete_msgs) = complete_quest(world, player, quest_id, templates) {
             messages.extend(complete_msgs);
         }
+    }
+
+    if let Some(scripts) = &quest_def.scripts {
+        run_quest_script(world, player, quest_id, scripts.on_accept.as_ref());
     }
 
     Ok(messages)
@@ -593,6 +609,27 @@ pub fn complete_quest(
                 }
             }
         }
+    }
+
+    // 4. Pay out Faction Standing rewards
+    for faction_reward in &quest_def.rewards.faction {
+        let faction_msgs = crate::systems::faction::adjust_faction_standing(
+            world,
+            player,
+            &faction_reward.faction_id,
+            faction_reward.amount,
+            templates,
+        );
+        messages.extend(faction_msgs);
+    }
+
+    let _event = crate::GameEvent::QuestCompleted {
+        player,
+        quest_id: quest_id.to_string(),
+    };
+
+    if let Some(scripts) = &quest_def.scripts {
+        run_quest_script(world, player, quest_id, scripts.on_complete.as_ref());
     }
 
     let _ = world.insert(player, (Dirty,));
@@ -725,12 +762,75 @@ fn spawn_item_by_id(
     Some(item_entity)
 }
 
+fn process_quest_updates(
+    world: &mut World,
+    player: Entity,
+    updated_quests: Vec<(String, bool)>,
+    templates: &TemplateRegistry,
+    messages: &mut Vec<String>,
+) {
+    for (quest_id, auto_complete) in updated_quests {
+        // Emit QuestUpdated event
+        let _event = crate::GameEvent::QuestUpdated {
+            player,
+            quest_id: quest_id.clone(),
+        };
+
+        // Run scripting hook
+        if let Some(quest_def) = templates.quests.get(&quest_id) {
+            if let Some(scripts) = &quest_def.scripts {
+                run_quest_script(world, player, &quest_id, scripts.on_update.as_ref());
+            }
+        }
+
+        // Auto complete if appropriate
+        if auto_complete {
+            let should_auto_complete = {
+                if let Ok(mut q_log) = world.query_one::<&QuestLog>(player) {
+                    if let Some(log) = q_log.get() {
+                        log.active
+                            .get(&quest_id)
+                            .map(|p| p.objectives.iter().all(|o| o.completed))
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if should_auto_complete {
+                if let Ok(complete_msgs) = complete_quest(world, player, &quest_id, templates) {
+                    messages.extend(complete_msgs);
+                }
+            }
+        }
+    }
+}
+
+fn run_quest_script(
+    world: &mut World,
+    player: Entity,
+    quest_id: &str,
+    script_path: Option<&String>,
+) {
+    if let Some(path) = script_path {
+        if let Some(bridge) = crate::scripting::get_scripting_bridge() {
+            if let Err(e) = bridge.execute_quest_hook(path, player, quest_id, world) {
+                tracing::error!("Error executing quest script '{}': {}", path, e);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::components::{Experience, Level, Wallet};
     use crate::templates::{
-        ItemTemplate, MobTemplate, QuestDef, QuestObjective, QuestRewardItem, QuestRewards,
+        ItemTemplate, MobTemplate, QuestDef, QuestObjective, QuestRewardFaction, QuestRewardItem,
+        QuestRewards,
     };
 
     fn make_templates() -> TemplateRegistry {
@@ -848,6 +948,57 @@ mod tests {
                 },
                 scripts: None,
                 params: HashMap::new(),
+            },
+        );
+
+        t.quests.insert(
+            "faction_quest".to_string(),
+            QuestDef {
+                id: "faction_quest".to_string(),
+                name: "Faction Quest".to_string(),
+                description: "Increase standing with guards.".to_string(),
+                level_requirement: 1,
+                repeatable: false,
+                auto_complete: false,
+                giver_npc: None,
+                turn_in_npc: None,
+                prerequisites: Vec::new(),
+                objectives: Vec::new(),
+                rewards: QuestRewards {
+                    xp: 0,
+                    gold: 0,
+                    items: Vec::new(),
+                    faction: vec![QuestRewardFaction {
+                        faction_id: "town_guard".to_string(),
+                        amount: 15,
+                    }],
+                },
+                scripts: None,
+                params: HashMap::new(),
+            },
+        );
+
+        t.factions.insert(
+            "town_guard".to_string(),
+            crate::templates::FactionDef {
+                id: "town_guard".to_string(),
+                name: "Town Guard".to_string(),
+                description: "The protectors of the town.".to_string(),
+                starting_standing: 0,
+                min_standing: -1000,
+                max_standing: 1000,
+                ranks: vec![
+                    crate::templates::FactionRank {
+                        name: "Neutral".to_string(),
+                        threshold: -100,
+                    },
+                    crate::templates::FactionRank {
+                        name: "Friendly".to_string(),
+                        threshold: 100,
+                    },
+                ],
+                relationships: HashMap::new(),
+                aggro_below: -500,
             },
         );
 
@@ -1047,5 +1198,101 @@ mod tests {
         let log = q_log.get().unwrap();
         assert!(log.completed.contains("wolf_hunt"));
         assert!(!log.active.contains_key("wolf_hunt"));
+    }
+
+    #[test]
+    fn test_quest_faction_standing_rewards() {
+        let mut world = World::new();
+        let templates = make_templates();
+
+        let player = world.spawn((
+            QuestLog::new(),
+            Level(1),
+            Experience(0),
+            Wallet::new(0, 0, 0, 0),
+            Inventory(Vec::new()),
+            crate::Equipment::new(),
+        ));
+
+        // Create player faction standing component
+        let mut standings = crate::components::FactionStanding::default();
+        standings.set_standing("town_guard", 10);
+        world.insert(player, (standings,)).unwrap();
+
+        accept_quest(&mut world, player, "faction_quest", &templates).unwrap();
+
+        // Turn in quest
+        let msgs = complete_quest(&mut world, player, "faction_quest", &templates).unwrap();
+        assert!(msgs
+            .iter()
+            .any(|m| m.contains("completed the quest: Faction Quest")));
+        assert!(msgs
+            .iter()
+            .any(|m| m.contains("standing with Town Guard has increased by 15")));
+
+        // Verify faction standing increased to 25 (10 + 15)
+        let mut q_standings = world
+            .query_one::<&crate::components::FactionStanding>(player)
+            .unwrap();
+        let st = q_standings.get().unwrap();
+        assert_eq!(st.standing("town_guard"), 25);
+    }
+
+    #[test]
+    fn test_quest_auto_complete() {
+        let mut world = World::new();
+        let mut templates = make_templates();
+
+        // Create an auto-complete quest definition
+        templates.quests.insert(
+            "auto_complete_quest".to_string(),
+            QuestDef {
+                id: "auto_complete_quest".to_string(),
+                name: "Auto Complete Quest".to_string(),
+                description: "Auto completes when target killed.".to_string(),
+                level_requirement: 1,
+                repeatable: false,
+                auto_complete: true,
+                giver_npc: None,
+                turn_in_npc: None,
+                prerequisites: Vec::new(),
+                objectives: vec![QuestObjective::Kill {
+                    mob: "wolf".to_string(),
+                    count: 1,
+                }],
+                rewards: QuestRewards {
+                    xp: 50,
+                    gold: 10,
+                    items: Vec::new(),
+                    faction: Vec::new(),
+                },
+                scripts: None,
+                params: HashMap::new(),
+            },
+        );
+
+        let player = world.spawn((
+            QuestLog::new(),
+            Level(1),
+            Experience(0),
+            Wallet::new(0, 0, 0, 0),
+            Inventory(Vec::new()),
+            crate::Equipment::new(),
+        ));
+
+        accept_quest(&mut world, player, "auto_complete_quest", &templates).unwrap();
+
+        // Kill the wolf target - should trigger progress and immediately auto-complete the quest
+        let msgs = handle_kill_event(&mut world, player, "wolf", &templates);
+        assert!(msgs
+            .iter()
+            .any(|m| m.contains("completed the quest: Auto Complete Quest")));
+        assert!(msgs.iter().any(|m| m.contains("gain 50 experience")));
+
+        // Verify quest completed in quest log
+        let mut q_log = world.query_one::<&QuestLog>(player).unwrap();
+        let log = q_log.get().unwrap();
+        assert!(log.completed.contains("auto_complete_quest"));
+        assert!(!log.active.contains_key("auto_complete_quest"));
     }
 }

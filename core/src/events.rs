@@ -84,6 +84,20 @@ pub enum GameEvent {
         from: PlayerState,
         to: PlayerState,
     },
+    QuestUpdated {
+        player: Entity,
+        quest_id: String,
+    },
+    QuestCompleted {
+        player: Entity,
+        quest_id: String,
+    },
+    FactionChanged {
+        entity: Entity,
+        faction_id: String,
+        old_standing: i32,
+        new_standing: i32,
+    },
     ContentReloaded,
 
     ScriptTrigger {

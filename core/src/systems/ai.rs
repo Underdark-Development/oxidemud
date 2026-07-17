@@ -1,6 +1,6 @@
 use crate::{
-    CombatState, Entity, Friendly, Health, Level, Npc, PatrolRoute, Position, RoomExits,
-    WanderBounds, World,
+    CombatState, Entity, Friendly, Health, Level, Npc, PatrolRoute, PlayerState, Position,
+    RoomExits, WanderBounds, World,
 };
 
 const WANDER_PULSE_THRESHOLD: u8 = 15;
@@ -37,6 +37,52 @@ pub fn run_ai_pulse(world: &mut World) {
     };
 
     for entity in entities {
+        // Gating NPC actions based on active PlayerState (resting, sleeping, stunned, casting)
+        let mut should_stand = false;
+        let mut skip_pulse = false;
+        if let Ok(mut q_state) = world.query_one::<&PlayerState>(entity) {
+            if let Some(state) = q_state.get() {
+                match state {
+                    PlayerState::Dead
+                    | PlayerState::Stunned { .. }
+                    | PlayerState::Resting(crate::RestState::Sleeping)
+                    | PlayerState::Resting(crate::RestState::Unconscious)
+                    | PlayerState::Resting(crate::RestState::Dead) => {
+                        skip_pulse = true;
+                    }
+                    PlayerState::Casting { .. } => {
+                        skip_pulse = true;
+                    }
+                    PlayerState::Resting(crate::RestState::Sitting)
+                    | PlayerState::Resting(crate::RestState::Resting) => {
+                        let in_combat = world
+                            .query_one::<&crate::CombatState>(entity)
+                            .ok()
+                            .and_then(|mut q| q.get().cloned())
+                            .is_some_and(|cs| cs.is_in_combat());
+                        if in_combat {
+                            should_stand = true;
+                        } else {
+                            skip_pulse = true;
+                        }
+                    }
+                    PlayerState::Resting(crate::RestState::Standing) => {}
+                }
+            }
+        }
+
+        if skip_pulse {
+            continue;
+        }
+
+        if should_stand {
+            let _ = crate::systems::player_state::try_transition_player_state(
+                world,
+                entity,
+                crate::systems::player_state::PlayerStateTrigger::Stand,
+            );
+        }
+
         // Run custom AI script if the NPC template specifies one
         if let Some(npc) = world
             .query_one::<&Npc>(entity)
@@ -992,5 +1038,58 @@ mod tests {
                 "Mob left bounds: was in room that is not room_a or room_b"
             );
         }
+    }
+
+    #[test]
+    fn test_ai_gated_by_player_state() {
+        let mut world = World::new();
+        let room_a = world.spawn(());
+        let room_b = world.spawn(());
+        world
+            .insert(
+                room_a,
+                (RoomExits(vec![crate::Exit::new(
+                    crate::Direction::North,
+                    room_b,
+                )]),),
+            )
+            .unwrap();
+
+        // 1. Sleeping/Stunned mob should not wander
+        let mob = world.spawn((
+            Position::new(room_a),
+            Health::new(50),
+            Npc::new("wander_mob").with_ai_mode("wander"),
+            Level(1),
+            Name::new("Wanderer"),
+            AiState::Wander {
+                counter: WANDER_PULSE_THRESHOLD - 1,
+            },
+            PlayerState::Resting(crate::RestState::Sleeping),
+        ));
+
+        run_ai_pulse(&mut world);
+
+        // Verify it did not move (remains in room_a)
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_a);
+
+        // Change state to Stunned
+        world
+            .insert(mob, (PlayerState::Stunned { remaining_ms: 1000 },))
+            .unwrap();
+        run_ai_pulse(&mut world);
+        let pos = world
+            .query_one::<&Position>(mob)
+            .unwrap()
+            .get()
+            .unwrap()
+            .room;
+        assert_eq!(pos, room_a);
     }
 }

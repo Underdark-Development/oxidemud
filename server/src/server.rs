@@ -140,6 +140,7 @@ impl Server {
         } else {
             let _ = TEMPLATES.set(std::sync::RwLock::new(templates.clone()));
         }
+        oxide_core::templates::register_global_templates(templates.clone());
         self.templates = Some(templates);
         self
     }
@@ -1431,7 +1432,9 @@ where
     let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
     let mut registry_cloned = (**guard).clone();
     let result = f(&mut registry_cloned);
-    *guard = Arc::new(registry_cloned);
+    let new_arc = Arc::new(registry_cloned);
+    *guard = new_arc.clone();
+    oxide_core::templates::register_global_templates(new_arc);
     Ok(result)
 }
 
@@ -1440,10 +1443,11 @@ pub fn init_templates_for_test(templates: TemplateRegistry) {
     let templates = Arc::new(templates);
     if let Some(lock) = TEMPLATES.get() {
         let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
-        *guard = templates;
+        *guard = templates.clone();
     } else {
-        let _ = TEMPLATES.set(std::sync::RwLock::new(templates));
+        let _ = TEMPLATES.set(std::sync::RwLock::new(templates.clone()));
     }
+    oxide_core::templates::register_global_templates(templates);
 }
 
 /// Returns a clone of the world handle, if initialized.
