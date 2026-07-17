@@ -118,17 +118,18 @@ To connect the OxideMUD MCP server to Claude Desktop, add the following configur
 {
   "mcpServers": {
     "oxide-builder": {
-      "command": "cargo",
+      "command": "oxide-mcp",
       "args": [
-        "run",
-        "--manifest-path",
-        "/absolute/path/to/mud/mcp/Cargo.toml",
-        "--bin",
-        "oxide-mcp",
-        "--",
-        "/absolute/path/to/mud/content"
+        "/path/to/oxidemud/content",
+        "--url", "http://localhost:8080",
+        "--key", "your-immortal-key"
       ]
     }
   }
 }
 ```
+
+The `--url` and `--key` flags connect the MCP server to a running OxideMUD
+instance for online-only tools (player list, teleport, force, give item). When
+omitted, the server runs in offline mode using only the local TOML content
+files.
