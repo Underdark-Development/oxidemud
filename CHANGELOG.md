@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.3.1 - 2026-07-17
+#### Bug Fixes
+- fix install script - (1244287) - Kevin Lanni
+
+- - -
+
 ## 0.3.0 - 2026-07-17
 #### Features
 - (**core**) implement state transitions, update combat/AI systems, and refine documentation - (1587d21) - Kevin Lanni

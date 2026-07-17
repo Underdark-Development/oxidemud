@@ -84,7 +84,8 @@ echo "Running: $BUILD_CMD"
 $BUILD_CMD
 
 # 4. Draft packaging directory
-STAGE_DIR="target/release/oxide-pkg-temp"
+ARCHIVE_BASENAME="oxide-v${VERSION}-${ARCHIVE_TARGET}"
+STAGE_DIR="target/release/$ARCHIVE_BASENAME"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/bin"
 mkdir -p "$STAGE_DIR/data"
@@ -118,14 +119,20 @@ fi
 echo "$VERSION" > "$STAGE_DIR/.version"
 echo "  Written .version metadata file"
 
-# Copy installer scripts (Unix shell and Windows PowerShell)
+# Determine target OS for packaging
+IS_WINDOWS=false
+if [[ "$ARCHIVE_TARGET" == *"windows"* ]]; then
+    IS_WINDOWS=true
+fi
+
+# Copy installer scripts (Unix shell only; Windows PowerShell only for Windows targets)
 if [ -f "scripts/install.sh" ]; then
     cp "scripts/install.sh" "$STAGE_DIR/install.sh"
     chmod +x "$STAGE_DIR/install.sh"
     echo "  Added install.sh script"
 fi
 
-if [ -f "scripts/install.ps1" ]; then
+if [ "$IS_WINDOWS" = "true" ] && [ -f "scripts/install.ps1" ]; then
     cp "scripts/install.ps1" "$STAGE_DIR/install.ps1"
     echo "  Added install.ps1 script"
 fi
@@ -153,11 +160,6 @@ if [ -d "ansible" ]; then
 fi
 
 # 5. Archive package (ZIP for Windows, TAR.GZ for Unix)
-IS_WINDOWS=false
-if [[ "$ARCHIVE_TARGET" == *"windows"* ]]; then
-    IS_WINDOWS=true
-fi
-
 if [ "$IS_WINDOWS" = "true" ]; then
     ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.zip"
     ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
@@ -166,21 +168,21 @@ if [ "$IS_WINDOWS" = "true" ]; then
     if command -v zip &> /dev/null; then
         rm -f "$ARCHIVE_PATH"
         # Navigate to temp folder and zip contents recursively
-        (cd "$STAGE_DIR" && zip -q -r "../$ARCHIVE_NAME" .)
+        (cd "$(dirname "$STAGE_DIR")" && zip -q -r "$ARCHIVE_NAME" "$ARCHIVE_BASENAME")
         echo "Package created successfully: $ARCHIVE_PATH"
     else
         echo "Warning: zip command not found. Falling back to TAR.GZ format for Windows package."
         ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
         ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
         echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
-        tar -C "$STAGE_DIR" -czf "$ARCHIVE_PATH" .
+        COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
         echo "Package created successfully: $ARCHIVE_PATH"
     fi
 else
     ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
     ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
     echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
-    tar -C "$STAGE_DIR" -czf "$ARCHIVE_PATH" .
+    COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
     echo "Package created successfully: $ARCHIVE_PATH"
 fi
 
