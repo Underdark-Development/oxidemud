@@ -1995,6 +1995,15 @@ mod tests {
             .join(format!("temp_templates_test_{}", fastrand::u32(..)));
         std::fs::create_dir_all(temp_dir.join("areas/midgaard/rooms")).unwrap();
 
+        // Drop guard: clean up temp directory even if the test panics.
+        struct TempDirGuard(std::path::PathBuf);
+        impl Drop for TempDirGuard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _guard = TempDirGuard(temp_dir.clone());
+
         // 1. Write initial area.toml
         let area_toml = r#"
 id = "midgaard"
@@ -2071,10 +2080,9 @@ description = "Default spawn point"
 
         assert!(reloaded, "Template was not hot-reloaded within timeout");
 
-        // Clean up server task and files
+        // Clean up server task (temp dir cleaned by drop guard)
         let _ = shutdown_tx.send(true);
         let _ = server_task.await;
-        std::fs::remove_dir_all(&temp_dir).unwrap();
     }
 
     #[test]
