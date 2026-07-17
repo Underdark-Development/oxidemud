@@ -369,14 +369,14 @@ The game loop runs multiple tick intervals rather than a fixed tick rate.
 
 ### Tick Intervals
 
-| Tick          | Interval            | Description                             |
-| ------------- | ------------------- | --------------------------------------- |
-| Player State  | 250ms               | Processes decay of player stun & cast times |
-| Skill Decay   | 1s                  | Decrements cooldowns & buff durations   |
-| Combat Pulse  | 2s                  | Runs combat rounds, AI ticks, & stances |
-| Maintenance   | 5s                  | Flushes dirty stats, saves positions    |
-| Set Bonus     | 10s                 | Re-evaluates equipment set bonuses      |
-| Big Tick      | 30–90s (randomized) | HP/MP/SP regen + prompt broadcast       |
+| Tick         | Interval            | Description                                 |
+| ------------ | ------------------- | ------------------------------------------- |
+| Player State | 250ms               | Processes decay of player stun & cast times |
+| Skill Decay  | 1s                  | Decrements cooldowns & buff durations       |
+| Combat Pulse | 2s                  | Runs combat rounds, AI ticks, & stances     |
+| Maintenance  | 5s                  | Flushes dirty stats, saves positions        |
+| Set Bonus    | 10s                 | Re-evaluates equipment set bonuses          |
+| Big Tick     | 30–90s (randomized) | HP/MP/SP regen + prompt broadcast           |
 
 ### Regen (Big Tick)
 
@@ -406,32 +406,32 @@ The prompt is the status line displayed after command output. It's configurable 
 
 The following variables can be used in your prompt template and will be replaced by the system at runtime:
 
-| Variable | Description |
-| -------- | ----------- |
-| `%h`     | Current HP |
-| `%H`     | Max HP |
-| `%m`     | Current Mana |
-| `%M`     | Max Mana |
-| `%v`     | Current Stamina |
-| `%V`     | Max Stamina |
-| `%l`     | Current Level |
-| `%x`     | Current Experience (XP) |
-| `%X`     | Experience (XP) remaining to next level |
-| `%n`     | Character Name |
-| `%g`     | Wallet Gold (total copper) |
-| `%a`     | Character Alignment |
-| `%r`     | Current Room Name |
-| `%e`     | Available Exits (e.g. `n s e w`) |
-| `%s`     | Strength Attribute |
-| `%d`     | Dexterity Attribute |
-| `%i`     | Intelligence Attribute |
-| `%w`     | Wisdom Attribute |
-| `%o`     | Constitution Attribute |
-| `%u`     | Charisma Attribute |
+| Variable | Description                                                    |
+| -------- | -------------------------------------------------------------- |
+| `%h`     | Current HP                                                     |
+| `%H`     | Max HP                                                         |
+| `%m`     | Current Mana                                                   |
+| `%M`     | Max Mana                                                       |
+| `%v`     | Current Stamina                                                |
+| `%V`     | Max Stamina                                                    |
+| `%l`     | Current Level                                                  |
+| `%x`     | Current Experience (XP)                                        |
+| `%X`     | Experience (XP) remaining to next level                        |
+| `%n`     | Character Name                                                 |
+| `%g`     | Wallet Gold (total copper)                                     |
+| `%a`     | Character Alignment                                            |
+| `%r`     | Current Room Name                                              |
+| `%e`     | Available Exits (e.g. `n s e w`)                               |
+| `%s`     | Strength Attribute                                             |
+| `%d`     | Dexterity Attribute                                            |
+| `%i`     | Intelligence Attribute                                         |
+| `%w`     | Wisdom Attribute                                               |
+| `%o`     | Constitution Attribute                                         |
+| `%u`     | Charisma Attribute                                             |
 | `%R`     | Rest State (e.g. `Standing`, `Sitting`, `Resting`, `Sleeping`) |
-| `%C`     | Combat State (e.g. `In Combat`, `Not In Combat`) |
-| `%c`     | Carriage return / newline (`\r\n`) |
-| `%%`     | A literal `%` character |
+| `%C`     | Combat State (e.g. `In Combat`, `Not In Combat`)               |
+| `%c`     | Carriage return / newline (`\r\n`)                             |
+| `%%`     | A literal `%` character                                        |
 
 ### Commands
 

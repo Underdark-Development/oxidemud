@@ -166,6 +166,7 @@ if actor.is_player() {
 ## Quest Scripts (on_accept, on_complete, on_update)
 
 Quest script hooks are executed inside a specialized environment where they automatically receive variables related to the quest state:
+
 - `quest_id`: The ID of the quest triggering the script.
 - `rewards`: A map containing the rewards defined in the quest template:
   - `rewards.xp`: (integer) Experience rewarded.
@@ -174,6 +175,7 @@ Quest script hooks are executed inside a specialized environment where they auto
   - `rewards.faction`: (array of maps) Faction standing modifications, e.g. `[{ "faction_id": "town_guard", "amount": 15 }]`.
 
 ### Example Quest Chain script (`content/scripts/quests/chain_quest.rhai`)
+
 You can use `rewards` to custom-log or modify details, and automatically accept the next quest in a chain when the current quest is completed:
 
 ```rust
@@ -184,4 +186,3 @@ send_to(player, "You completed " + quest_id + "! You earned " + rewards.xp + " X
 accept_quest(world, player, "quest_b");
 send_to(player, "A new quest has started: Quest B!");
 ```
-

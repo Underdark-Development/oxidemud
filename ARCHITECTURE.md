@@ -66,14 +66,14 @@ The server architecture splits concurrent execution into two main loop layers us
 
 The background loop fires independent system intervals within a central `tokio::select!` block:
 
-| Tick          | Interval        | Phase/Function       | Description                                      |
-| ------------- | --------------- | -------------------- | ------------------------------------------------ |
-| Player State  | 250ms           | `player_state_tick`  | Decrements player casting and stun timers        |
-| Skill Decay   | 1s              | `skill_decay_tick`   | Decrements cooldowns and temporary buff durations|
-| Combat Pulse  | 2s              | `combat_tick`        | Runs combat rounds, stance systems, and AI ticks |
-| Maintenance   | 5s              | `maintenance_tick`   | Flushes dirty stats, saves positions, cleans groups |
-| Set Bonus     | 10s             | `set_bonus_tick`     | Re-evaluates equipment set bonus thresholds      |
-| Big Tick      | 30–90s (random) | `big_tick`           | Restores HP/MP/SP, broadcasts prompts to players |
+| Tick         | Interval        | Phase/Function      | Description                                         |
+| ------------ | --------------- | ------------------- | --------------------------------------------------- |
+| Player State | 250ms           | `player_state_tick` | Decrements player casting and stun timers           |
+| Skill Decay  | 1s              | `skill_decay_tick`  | Decrements cooldowns and temporary buff durations   |
+| Combat Pulse | 2s              | `combat_tick`       | Runs combat rounds, stance systems, and AI ticks    |
+| Maintenance  | 5s              | `maintenance_tick`  | Flushes dirty stats, saves positions, cleans groups |
+| Set Bonus    | 10s             | `set_bonus_tick`    | Re-evaluates equipment set bonus thresholds         |
+| Big Tick     | 30–90s (random) | `big_tick`          | Restores HP/MP/SP, broadcasts prompts to players    |
 
 ---
 
@@ -83,16 +83,16 @@ Game logic is organized into isolated, concurrent modules executed inside the ba
 
 ### Built-in Pulse Systems
 
-*   **Combat System:** Checks hits, rolls damage, handles deaths, and awards XP.
-*   **Stance System:** Applies dynamic attribute modifiers based on active fighting stances.
-*   **AI System:** Moves NPCs through their AI state machine (Idle, Wander, Patrol, Combat, Flee).
-*   **Formation System:** Evaluates group spacing to apply shield wall or column combat bonuses.
-*   **Regeneration System:** Restores HP, Mana, and Stamina on the big tick based on the player's RestState.
-*   **Effect Expiry System:** Cleans up active temporary buffs and debuffs when their timer ends.
-*   **Corpse Decay System:** Decrements corpse duration timers and spills items to rooms when decayed.
-*   **Skill Gate System:** Continually re-evaluates gear skill requirements to auto-remove items.
-*   **Group Cleanup System:** Automatically removes offline or disconnected players from groups.
-*   **Database Backup System:** Spawns a background thread to run hot backups of the SQLite database.
+- **Combat System:** Checks hits, rolls damage, handles deaths, and awards XP.
+- **Stance System:** Applies dynamic attribute modifiers based on active fighting stances.
+- **AI System:** Moves NPCs through their AI state machine (Idle, Wander, Patrol, Combat, Flee).
+- **Formation System:** Evaluates group spacing to apply shield wall or column combat bonuses.
+- **Regeneration System:** Restores HP, Mana, and Stamina on the big tick based on the player's RestState.
+- **Effect Expiry System:** Cleans up active temporary buffs and debuffs when their timer ends.
+- **Corpse Decay System:** Decrements corpse duration timers and spills items to rooms when decayed.
+- **Skill Gate System:** Continually re-evaluates gear skill requirements to auto-remove items.
+- **Group Cleanup System:** Automatically removes offline or disconnected players from groups.
+- **Database Backup System:** Spawns a background thread to run hot backups of the SQLite database.
 
 ---
 

@@ -519,22 +519,23 @@ cooldown = 60
 
 Quests define narrative tasks that players can perform for rewards (experience, gold, item templates, faction standings).
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | String | Unique quest identifier (e.g. `save_the_sheep`). |
-| `name` | String | User-facing quest title. |
-| `description` | String | In-game quest journal description. |
-| `level_requirement` | Integer | Minimum player level required to start the quest. Default `0`. |
-| `repeatable` | Boolean | If true, the player can repeat the quest after completion. Default `false`. |
-| `auto_complete` | Boolean | If true, completes instantly when all objectives are met without turning in to an NPC. Default `false`. |
-| `giver_npc` | String | Optional template ID of the NPC who offers this quest. |
-| `turn_in_npc` | String | Optional template ID of the NPC to whom this quest must be turned in. |
-| `prerequisites` | Array | List of quest IDs that must be completed before accepting this quest. |
-| `objectives` | Array | List of quest objectives (e.g. `Kill`, `Gather`, `Deliver`, `Explore`, `Talk`). |
-| `rewards` | Section | Rewards paid out on completion (XP, Gold, Items, Faction adjustments). |
-| `scripts` | Section | Path to scripts triggered on `on_accept`, `on_update`, and `on_complete`. |
+| Field               | Type    | Description                                                                                             |
+| ------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| `id`                | String  | Unique quest identifier (e.g. `save_the_sheep`).                                                        |
+| `name`              | String  | User-facing quest title.                                                                                |
+| `description`       | String  | In-game quest journal description.                                                                      |
+| `level_requirement` | Integer | Minimum player level required to start the quest. Default `0`.                                          |
+| `repeatable`        | Boolean | If true, the player can repeat the quest after completion. Default `false`.                             |
+| `auto_complete`     | Boolean | If true, completes instantly when all objectives are met without turning in to an NPC. Default `false`. |
+| `giver_npc`         | String  | Optional template ID of the NPC who offers this quest.                                                  |
+| `turn_in_npc`       | String  | Optional template ID of the NPC to whom this quest must be turned in.                                   |
+| `prerequisites`     | Array   | List of quest IDs that must be completed before accepting this quest.                                   |
+| `objectives`        | Array   | List of quest objectives (e.g. `Kill`, `Gather`, `Deliver`, `Explore`, `Talk`).                         |
+| `rewards`           | Section | Rewards paid out on completion (XP, Gold, Items, Faction adjustments).                                  |
+| `scripts`           | Section | Path to scripts triggered on `on_accept`, `on_update`, and `on_complete`.                               |
 
 #### Objective Types
+
 - **Kill**: `{ type = "Kill", mob = "wolf", count = 3 }`
 - **Gather**: `{ type = "Gather", item = "wolf_pelt", count = 2 }`
 - **Deliver**: `{ type = "Deliver", item = "old_letter", npc = "mayor" }`
@@ -547,17 +548,17 @@ Quests define narrative tasks that players can perform for rewards (experience, 
 
 Factions track players' reputations with in-game organizations or groups. Faction standings affect NPC aggressiveness and merchant prices.
 
-| Field | Type | Description |
-|---|---|---|
-| `id` | String | Unique faction identifier (e.g. `town_guard`). |
-| `name` | String | User-facing faction name. |
-| `description` | String | Description of the faction's purpose/lore. |
-| `starting_standing` | Integer | Default reputation score for players. Default `0`. |
-| `min_standing` | Integer | Minimum possible reputation score. Default `-1000`. |
-| `max_standing` | Integer | Maximum possible reputation score. Default `1000`. |
-| `ranks` | Array | List of ranks mapped to standings thresholds (e.g. `Neutral`, `Friendly`, `Hostile`). |
-| `relationships` | Map | Inter-faction propagation multipliers. |
-| `aggro_below` | Integer | Reputation threshold below which faction members automatically attack the player. |
+| Field               | Type    | Description                                                                           |
+| ------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `id`                | String  | Unique faction identifier (e.g. `town_guard`).                                        |
+| `name`              | String  | User-facing faction name.                                                             |
+| `description`       | String  | Description of the faction's purpose/lore.                                            |
+| `starting_standing` | Integer | Default reputation score for players. Default `0`.                                    |
+| `min_standing`      | Integer | Minimum possible reputation score. Default `-1000`.                                   |
+| `max_standing`      | Integer | Maximum possible reputation score. Default `1000`.                                    |
+| `ranks`             | Array   | List of ranks mapped to standings thresholds (e.g. `Neutral`, `Friendly`, `Hostile`). |
+| `relationships`     | Map     | Inter-faction propagation multipliers.                                                |
+| `aggro_below`       | Integer | Reputation threshold below which faction members automatically attack the player.     |
 
 ---
 

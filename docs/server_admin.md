@@ -256,14 +256,14 @@ When launched, the server executes the following startup sequence:
 
 The server runs a multi-tick background game loop using an asynchronous event-driven scheduler. Each tick interval fires independently:
 
-| Tick          | Interval        | Phase                | Description                                      |
-| ------------- | --------------- | -------------------- | ------------------------------------------------ |
-| Player State  | 250ms           | `player_state_tick`  | Processes decay of player stun and cast timers   |
-| Skill Decay   | 1s              | `skill_decay_tick`   | Decrements cooldowns and temporary buff durations|
-| Combat Pulse  | 2s              | `combat_tick`        | Runs combat rounds, stance systems, and AI ticks |
-| Maintenance   | 5s              | `maintenance_tick`   | Flushes dirty entities, saves positions, cleans groups |
-| Set Bonus     | 10s             | `set_bonus_tick`     | Re-evaluates equipment set bonus thresholds      |
-| Big Tick      | 30–90s (random) | `big_tick`           | Restores HP/MP/SP, broadcasts prompts to players |
+| Tick         | Interval        | Phase               | Description                                            |
+| ------------ | --------------- | ------------------- | ------------------------------------------------------ |
+| Player State | 250ms           | `player_state_tick` | Processes decay of player stun and cast timers         |
+| Skill Decay  | 1s              | `skill_decay_tick`  | Decrements cooldowns and temporary buff durations      |
+| Combat Pulse | 2s              | `combat_tick`       | Runs combat rounds, stance systems, and AI ticks       |
+| Maintenance  | 5s              | `maintenance_tick`  | Flushes dirty entities, saves positions, cleans groups |
+| Set Bonus    | 10s             | `set_bonus_tick`    | Re-evaluates equipment set bonus thresholds            |
+| Big Tick     | 30–90s (random) | `big_tick`          | Restores HP/MP/SP, broadcasts prompts to players       |
 
 The tick intervals are not configurable at runtime. See `game_mechanics.md` for regen formulas and rest state multipliers.
 
