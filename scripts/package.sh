@@ -175,14 +175,14 @@ if [ "$IS_WINDOWS" = "true" ]; then
         ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
         ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
         echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
-        COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
+        COPYFILE_DISABLE=1 tar --no-xattrs -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
         echo "Package created successfully: $ARCHIVE_PATH"
     fi
 else
     ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
     ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
     echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
-    COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
+    COPYFILE_DISABLE=1 tar --no-xattrs -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
     echo "Package created successfully: $ARCHIVE_PATH"
 fi
 

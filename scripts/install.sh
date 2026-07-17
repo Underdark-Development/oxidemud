@@ -117,6 +117,12 @@ if [ "$NON_INTERACTIVE" = "false" ]; then
         INSTALL_DIR="$user_install_dir"
     fi
 
+    # Detect upgrade after install dir is finalized
+    IS_UPGRADE=false
+    if [ -d "$INSTALL_DIR/content" ]; then
+        IS_UPGRADE=true
+    fi
+
     if [ "$INSTALL_SPADE" = "true" ]; then
         echo -n "Enter global executable path (for spade) [$BIN_INSTALL_PATH]: "
         read -r user_bin_path
@@ -131,16 +137,24 @@ if [ "$NON_INTERACTIVE" = "false" ]; then
         MCP_PORT="$user_mcp_port"
     fi
 
-    echo -n "Enter REST API URL of the game server [$API_URL]: "
-    read -r user_api_url
-    if [ -n "$user_api_url" ]; then
-        API_URL="$user_api_url"
-    fi
+    # API config: only prompt on upgrade with existing config
+    if [ "$IS_UPGRADE" = "true" ] && [ -f "$INSTALL_DIR/mcp_config.toml" ]; then
+        EXISTING_URL=$(grep '^url' "$INSTALL_DIR/mcp_config.toml" | sed 's/.*"\(.*\)"/\1/')
+        EXISTING_KEY=$(grep '^key' "$INSTALL_DIR/mcp_config.toml" | sed 's/.*"\(.*\)"/\1/')
+        [ -n "$EXISTING_URL" ] && API_URL="$EXISTING_URL"
+        [ -n "$EXISTING_KEY" ] && API_KEY="$EXISTING_KEY"
 
-    echo -n "Enter API key (blank for offline-only mode) [$API_KEY]: "
-    read -r user_api_key
-    if [ -n "$user_api_key" ]; then
-        API_KEY="$user_api_key"
+        echo -n "Game server API URL [$API_URL]: "
+        read -r user_api_url
+        if [ -n "$user_api_url" ]; then
+            API_URL="$user_api_url"
+        fi
+
+        echo -n "API key (blank for offline mode) [$API_KEY]: "
+        read -r user_api_key
+        if [ -n "$user_api_key" ]; then
+            API_KEY="$user_api_key"
+        fi
     fi
 
     # Services prompt (root only)
@@ -163,19 +177,28 @@ if [ "$NON_INTERACTIVE" = "false" ]; then
             INSTALL_MCP_SERVICE=true
         fi
     fi
+else
+    # Non-interactive: detect upgrade silently
+    IS_UPGRADE=false
+    if [ -d "$INSTALL_DIR/content" ]; then
+        IS_UPGRADE=true
+    fi
 fi
 
 # Confirming parameters
 echo -e "\nParameters:"
 echo -e "  Installation Directory:  ${YELLOW}$INSTALL_DIR${NC}"
 echo -e "  Run as User:             ${YELLOW}$RUN_AS_USER${NC}"
+echo -e "  Install Type:            ${YELLOW}${IS_UPGRADE:+upgrade}${IS_UPGRADE:-fresh install}${NC}"
 echo -e "  Install Spade Editor:    ${YELLOW}$INSTALL_SPADE${NC}"
 if [ "$INSTALL_SPADE" = "true" ]; then
     echo -e "  Executable Binary Path:  ${YELLOW}$BIN_INSTALL_PATH${NC}"
 fi
 echo -e "  MCP Server Port:         ${YELLOW}$MCP_PORT${NC}"
-echo -e "  Game Server API URL:     ${YELLOW}$API_URL${NC}"
-echo -e "  API Key:                 ${YELLOW}${API_KEY:-(not set - offline mode)}${NC}"
+if [ "$IS_UPGRADE" = "true" ] && [ -n "$API_KEY" ]; then
+    echo -e "  Game Server API URL:     ${YELLOW}$API_URL${NC}"
+    echo -e "  API Key:                 ${YELLOW}${API_KEY:-(not set)}${NC}"
+fi
 if [ "$IS_ROOT" = "true" ]; then
     echo -e "  Install Game Service:    ${YELLOW}$INSTALL_GAME_SERVICE${NC}"
     echo -e "  Install MCP Socket:      ${YELLOW}$INSTALL_MCP_SERVICE${NC}"
@@ -252,6 +275,15 @@ find "$INSTALL_DIR/content" -type f -exec chmod 664 {} +
 # Ensure data dir is writable
 chmod 775 "$INSTALL_DIR/data"
 
+# Write MCP config on upgrade (preserves API connection settings)
+if [ "$IS_UPGRADE" = "true" ] && [ -n "$API_KEY" ]; then
+    cat > "$INSTALL_DIR/mcp_config.toml" <<EOF
+url = "$API_URL"
+key = "$API_KEY"
+EOF
+    echo -e "  Updated MCP config: ${GREEN}$INSTALL_DIR/mcp_config.toml${NC}"
+fi
+
 # Write target version metadata
 echo "$VERSION" > "$INSTALL_DIR/.version"
 
@@ -317,11 +349,8 @@ EOF
 
         # Build MCP args for ExecStart
         MCP_EXEC_ARGS="$INSTALL_DIR/content"
-        if [ -n "$API_URL" ]; then
-            MCP_EXEC_ARGS="$MCP_EXEC_ARGS --url $API_URL"
-        fi
         if [ -n "$API_KEY" ]; then
-            MCP_EXEC_ARGS="$MCP_EXEC_ARGS --key $API_KEY"
+            MCP_EXEC_ARGS="$MCP_EXEC_ARGS --url $API_URL --key $API_KEY"
         fi
 
         # Write oxide-mcp@.service (MCP server instances)
@@ -360,11 +389,8 @@ if [ "$INSTALL_GAME_SERVICE" = "false" ] || [ "$INSTALL_MCP_SERVICE" = "false" ]
     fi
     if [ "$INSTALL_MCP_SERVICE" = "false" ]; then
         MCP_CMD="$INSTALL_DIR/bin/oxide-mcp $INSTALL_DIR/content"
-        if [ -n "$API_URL" ]; then
-            MCP_CMD="$MCP_CMD --url $API_URL"
-        fi
         if [ -n "$API_KEY" ]; then
-            MCP_CMD="$MCP_CMD --key $API_KEY"
+            MCP_CMD="$MCP_CMD --url $API_URL --key $API_KEY"
         fi
         echo -e "  To start the MCP server manually (stdio):"
         echo -e "    ${GREEN}$MCP_CMD${NC}"

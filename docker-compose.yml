@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   oxide-server:
     build:
-      context: .
+      context: ${HOME}/.oxide
       dockerfile: Dockerfile
     image: oxide-server:latest
     container_name: oxide-server
@@ -12,7 +10,24 @@ services:
     tty: true
     ports:
       - "4000:4000"
+      - "8080:8080"
     volumes:
-      - ./content:/app/content
-      - ./data:/app/data
-      - ./logs:/app/logs
+      - ${HOME}/.oxide/content:/app/content
+      - ${HOME}/.oxide/data:/app/data
+      - ${HOME}/.oxide/logs:/app/logs
+
+  oxide-mcp:
+    profiles:
+      - mcp
+    image: oxide-server:latest
+    container_name: oxide-mcp
+    depends_on:
+      - oxide-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - OXIDE_API_KEY=${OXIDE_API_KEY:-}
+    volumes:
+      - ${HOME}/.oxide/content:/app/content
+    entrypoint: ["/bin/sh", "-c", "socat TCP-LISTEN:5000,fork,reuseaddr EXEC:\"/app/bin/oxide-mcp /app/content --url http://oxide-server:8080 --key $OXIDE_API_KEY\""]
