@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.3.2 - 2026-07-20
+#### Bug Fixes
+- update scripts and docker files - (cd19f85) - Kevin Lanni
+
+- - -
+
 ## 0.3.1 - 2026-07-17
 #### Bug Fixes
 - fix install script - (1244287) - Kevin Lanni
