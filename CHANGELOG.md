@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.4.0 - 2026-07-22
+#### Features
+- (**console**) expand console commands, live session sync, and registry-driven help - (98d7013) - Kevin Lanni
+- implement player account and character controls with dynamic width menu wrapping - (81a5189) - Kevin Lanni
+#### Bug Fixes
+- (**install**) copy Docker files to install directory for docker compose support - (422f7a2) - Kevin Lanni
+#### Documentation
+- format - (7416f62) - Kevin Lanni
+- update getting started - (72d1c9e) - Kevin Lanni
+- add future LPC Mudlib Importer architecture plan - (558e363) - Kevin Lanni
+#### Refactoring
+- client connection states to hierarchical state machine and fix login flow redirect prompt - (8aad08c) - Kevin Lanni
+
+- - -
+
 ## 0.3.2 - 2026-07-20
 #### Bug Fixes
 - update scripts and docker files - (cd19f85) - Kevin Lanni
