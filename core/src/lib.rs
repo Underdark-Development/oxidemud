@@ -50,7 +50,10 @@ pub use templates::{
     ExitTemplate, FactionDef, FactionRank, PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult,
     RecipeSkillReq,
 };
-pub use util::entities_in_room;
+pub use util::{
+    entities_in_room, get_entity_name, get_exits, get_name, get_pos_room, get_room_desc,
+    get_room_name, get_short_desc, is_void_room,
+};
 
 use hecs as _hecs;
 

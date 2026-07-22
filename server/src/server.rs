@@ -29,6 +29,8 @@ static MOTD: OnceLock<std::sync::RwLock<Option<String>>> = OnceLock::new();
 static BANNER: OnceLock<std::sync::RwLock<Option<String>>> = OnceLock::new();
 pub(crate) static DB: OnceLock<Arc<Mutex<oxide_data::Database>>> = OnceLock::new();
 pub(crate) static TEMPLATES: OnceLock<std::sync::RwLock<Arc<TemplateRegistry>>> = OnceLock::new();
+#[cfg(test)]
+pub(crate) static TEMPLATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
 pub(crate) static REGISTRY: OnceLock<Arc<Mutex<ConnectionRegistry>>> = OnceLock::new();
 static COMMANDS: OnceLock<Arc<CommandDispatch>> = OnceLock::new();
@@ -95,6 +97,111 @@ pub struct Server {
     content_path: Option<std::path::PathBuf>,
     shutdown_complete: Arc<Notify>,
     on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
+}
+
+pub fn spawn_hot_reload_processor(
+    content_path: std::path::PathBuf,
+) -> tokio::sync::mpsc::Sender<std::path::PathBuf> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<std::path::PathBuf>(100);
+    let watcher_content_path = content_path;
+    tokio::spawn(async move {
+        loop {
+            // Wait for an event
+            let first_path = match rx.recv().await {
+                Some(p) => p,
+                None => break,
+            };
+            // Wait 100ms for more events to bundle/debounce
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            // Drain the channel
+            let mut has_scripts_change = false;
+            let mut has_templates_change = false;
+            let mut motd_changed_path: Option<std::path::PathBuf> = None;
+            let mut banner_changed_path: Option<std::path::PathBuf> = None;
+            let mut scripts_changed_files: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+
+            let mut process_path = |path: std::path::PathBuf| {
+                if let Some(path_str) = path.to_str() {
+                    if path_str.contains("/scripts/") {
+                        has_scripts_change = true;
+                        if let Ok(rel) = path.strip_prefix(watcher_content_path.join("scripts")) {
+                            if let Some(rel_str) = rel.to_str() {
+                                scripts_changed_files.insert(rel_str.to_string());
+                            }
+                        }
+                    } else if path.file_name().is_some_and(|name| name == "motd.txt") {
+                        motd_changed_path = Some(path);
+                    } else if path.file_name().is_some_and(|name| name == "banner.txt") {
+                        banner_changed_path = Some(path);
+                    } else {
+                        has_templates_change = true;
+                    }
+                }
+            };
+
+            process_path(first_path);
+
+            while let Ok(path) = rx.try_recv() {
+                process_path(path);
+            }
+
+            if has_scripts_change {
+                if let Some(bridge) = oxide_core::scripting::get_scripting_bridge() {
+                    for rel_file in scripts_changed_files {
+                        if let Err(e) = bridge.reload_script(&rel_file) {
+                            tracing::error!("Failed to reload script {}: {}", rel_file, e);
+                        } else {
+                            tracing::info!("Script hot-reloaded successfully: {}", rel_file);
+                        }
+                    }
+                }
+            }
+
+            if let Some(path) = motd_changed_path {
+                crate::server::load_motd(Some(&path));
+                tracing::info!("Hot-reloaded MOTD");
+            }
+
+            if let Some(path) = banner_changed_path {
+                crate::server::load_banner(Some(&path));
+                tracing::info!("Hot-reloaded welcome banner");
+            }
+
+            if has_templates_change {
+                let (new_registry, _) = oxide_core::content::load_registry(&watcher_content_path);
+                let errors = new_registry.validate();
+                if !errors.is_empty() {
+                    for err in &errors {
+                        tracing::error!(
+                            "Validation error in {} '{}' during hot-reload: {}",
+                            err.template_type,
+                            err.template_id,
+                            err.message
+                        );
+                    }
+                    tracing::error!("Template validation failed — keeping previous templates");
+                } else {
+                    let swap_res = crate::server::update_templates(|registry| {
+                        *registry = new_registry;
+                    });
+                    match swap_res {
+                        Ok(_) => {
+                            tracing::info!("Hot-reloaded content templates");
+                            let _event = oxide_core::GameEvent::ContentReloaded;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Failed to update template registry during hot-reload: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    });
+    tx
 }
 
 impl Server {
@@ -194,118 +301,10 @@ impl Server {
 
         // Start the hot-reload file watcher if content_path is set
         if let Some(content_path) = self.content_path {
-            let (tx, mut rx) = tokio::sync::mpsc::channel::<std::path::PathBuf>(100);
-
-            // Spawn the debouncing & processing task
-            let watcher_content_path = content_path.clone();
-            tokio::spawn(async move {
-                loop {
-                    // Wait for an event
-                    let first_path = match rx.recv().await {
-                        Some(p) => p,
-                        None => break,
-                    };
-                    // Wait 100ms for more events to bundle/debounce
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    // Drain the channel
-                    let mut has_scripts_change = false;
-                    let mut has_templates_change = false;
-                    let mut motd_changed_path: Option<std::path::PathBuf> = None;
-                    let mut banner_changed_path: Option<std::path::PathBuf> = None;
-                    let mut scripts_changed_files: std::collections::HashSet<String> =
-                        std::collections::HashSet::new();
-
-                    let mut process_path = |path: std::path::PathBuf| {
-                        if let Some(path_str) = path.to_str() {
-                            if path_str.contains("/scripts/") {
-                                has_scripts_change = true;
-                                if let Ok(rel) =
-                                    path.strip_prefix(watcher_content_path.join("scripts"))
-                                {
-                                    if let Some(rel_str) = rel.to_str() {
-                                        scripts_changed_files.insert(rel_str.to_string());
-                                    }
-                                }
-                            } else if path.file_name().is_some_and(|name| name == "motd.txt") {
-                                motd_changed_path = Some(path);
-                            } else if path.file_name().is_some_and(|name| name == "banner.txt") {
-                                banner_changed_path = Some(path);
-                            } else {
-                                has_templates_change = true;
-                            }
-                        }
-                    };
-
-                    process_path(first_path);
-
-                    while let Ok(path) = rx.try_recv() {
-                        process_path(path);
-                    }
-
-                    if has_scripts_change {
-                        if let Some(bridge) = oxide_core::scripting::get_scripting_bridge() {
-                            for rel_file in scripts_changed_files {
-                                if let Err(e) = bridge.reload_script(&rel_file) {
-                                    tracing::error!("Failed to reload script {}: {}", rel_file, e);
-                                } else {
-                                    tracing::info!(
-                                        "Script hot-reloaded successfully: {}",
-                                        rel_file
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    if let Some(path) = motd_changed_path {
-                        crate::server::load_motd(Some(&path));
-                        tracing::info!("Hot-reloaded MOTD");
-                    }
-
-                    if let Some(path) = banner_changed_path {
-                        crate::server::load_banner(Some(&path));
-                        tracing::info!("Hot-reloaded welcome banner");
-                    }
-
-                    if has_templates_change {
-                        let (new_registry, _) =
-                            oxide_core::content::load_registry(&watcher_content_path);
-                        let errors = new_registry.validate();
-                        if !errors.is_empty() {
-                            for err in &errors {
-                                tracing::error!(
-                                    "Validation error in {} '{}' during hot-reload: {}",
-                                    err.template_type,
-                                    err.template_id,
-                                    err.message
-                                );
-                            }
-                            tracing::error!(
-                                "Template validation failed — keeping previous templates"
-                            );
-                        } else {
-                            let swap_res = crate::server::update_templates(|registry| {
-                                *registry = new_registry;
-                            });
-                            match swap_res {
-                                Ok(_) => {
-                                    tracing::info!("Hot-reloaded content templates");
-                                    let _event = oxide_core::GameEvent::ContentReloaded;
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Failed to update template registry during hot-reload: {}",
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+            let tx = spawn_hot_reload_processor(content_path.clone());
 
             // Start the notify watcher
-            let watcher_path = content_path.clone();
+            let watcher_path = content_path;
             std::thread::spawn(move || {
                 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 
@@ -2003,10 +2002,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_template_hot_reloading() {
+        let _lock_guard = TEMPLATE_TEST_LOCK.lock().unwrap();
         crate::config::init(std::path::Path::new("nonexistent.toml"));
-        let temp_dir = std::env::current_dir()
-            .unwrap()
-            .join(format!("temp_templates_test_{}", fastrand::u32(..)));
+        let temp_dir =
+            std::env::temp_dir().join(format!("temp_templates_test_{}", fastrand::u32(..)));
         std::fs::create_dir_all(temp_dir.join("areas/midgaard/rooms")).unwrap();
 
         // Drop guard: clean up temp directory even if the test panics.
@@ -2040,11 +2039,8 @@ description = "Center of Midgaard"
 "#;
         std::fs::write(temp_dir.join("areas/midgaard/rooms/1.toml"), room_toml).unwrap();
 
-        // Give macOS filesystem a moment to register/index directory creation
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
         let (initial_registry, _) = oxide_core::content::load_registry(&temp_dir);
-        let server = Server::new("127.0.0.1:0", World::new())
+        let _server = Server::new("127.0.0.1:0", World::new())
             .with_templates(initial_registry)
             .with_content_path(&temp_dir);
 
@@ -2055,11 +2051,8 @@ description = "Center of Midgaard"
             assert_eq!(area.name, "Midgaard");
         }
 
-        // Spawn Server run watcher task
-        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-        let server_task = tokio::spawn(async move {
-            let _ = server.run(shutdown_rx).await;
-        });
+        // Spawn hot-reload processor directly to bypass OS file-watcher latency
+        let tx = spawn_hot_reload_processor(temp_dir.clone());
 
         // 2. Modify area.toml to trigger hot-reload
         let updated_area_toml = r#"
@@ -2072,16 +2065,17 @@ room = "1"
 label = "Temple Square"
 description = "Default spawn point"
 "#;
-        // Wait a short moment to ensure watcher is bound
-        tokio::time::sleep(Duration::from_millis(3000)).await;
+        let updated_area_path = temp_dir.join("areas/midgaard/area.toml");
+        std::fs::write(&updated_area_path, updated_area_toml).unwrap();
 
-        std::fs::write(temp_dir.join("areas/midgaard/area.toml"), updated_area_toml).unwrap();
+        // Send path update event directly to processor channel
+        tx.send(updated_area_path).await.unwrap();
 
         // Wait for reload (which is debounced by 100ms)
         let start = Instant::now();
         let mut reloaded = false;
-        while start.elapsed() < Duration::from_secs(30) {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        while start.elapsed() < Duration::from_secs(2) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
             if let Some(templates) = get_templates() {
                 if let Some(area) = templates.areas.get("midgaard") {
                     if area.name == "Midgaard Plaza" {
@@ -2093,10 +2087,6 @@ description = "Default spawn point"
         }
 
         assert!(reloaded, "Template was not hot-reloaded within timeout");
-
-        // Clean up server task (temp dir cleaned by drop guard)
-        let _ = shutdown_tx.send(true);
-        let _ = server_task.await;
     }
 
     #[test]

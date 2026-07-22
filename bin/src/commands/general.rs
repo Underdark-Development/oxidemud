@@ -1,0 +1,402 @@
+use oxide_core as core;
+use oxide_core::{AccessLevel, World};
+use oxide_server::{Connection, ConnectionRegistry, Server};
+
+pub const HELP_HELP: &str = r#"Display command help.
+
+Examples:
+  help                  list available commands
+  help look             show detailed help for the 'look' command"#;
+
+pub const HELP_WIDTH: &str = r#"Set your terminal output line wrap width (min 40, max 256).
+
+Examples:
+  width                 show current width setting
+  width 80              set output width to 80 columns"#;
+
+pub const HELP_PROMPT: &str = r#"Customize your status prompt line using template variables.
+
+Available Variables:
+  %h - Current HP       %H - Max HP
+  %m - Current Mana     %M - Max Mana
+  %s - Current Stamina  %S - Max Stamina
+  %e - Current Energy   %E - Max Energy
+  %p - Current Psi      %P - Max Psi
+  %v - Room Name        %V - Room Key
+  %x - Current XP       %X - XP to Next Level
+  %l - Level            %n - Character Name
+  %R - Rest State       %C - Combat Target Name
+  %t - Time of Day      %w - Weather
+  %% - Literal '%'
+
+Examples:
+  prompt                show current prompt template
+  prompt %h/%Hhp %m/%Mmp %s/%Ssp >  set custom prompt
+  prompt reset          restore default server prompt"#;
+
+pub fn register(server: &mut Server) {
+    server.register_command(
+        "motd",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Display the Message of the Day",
+        cmd_motd,
+    );
+    server.register_command(
+        "help",
+        &["?"],
+        AccessLevel::Player,
+        "General",
+        HELP_HELP,
+        cmd_help,
+    );
+    server.register_command(
+        "who",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "List online players",
+        cmd_who,
+    );
+    server.register_command(
+        "quit",
+        &["exit"],
+        AccessLevel::Player,
+        "General",
+        "Disconnect from the game server",
+        cmd_quit,
+    );
+    server.register_command(
+        "width",
+        &[],
+        AccessLevel::Player,
+        "General",
+        HELP_WIDTH,
+        cmd_width,
+    );
+    server.register_command(
+        "prompt",
+        &[],
+        AccessLevel::Player,
+        "General",
+        HELP_PROMPT,
+        cmd_prompt,
+    );
+    server.register_command(
+        "time",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Show current in-game time",
+        cmd_time,
+    );
+    server.register_command(
+        "weather",
+        &[],
+        AccessLevel::Player,
+        "General",
+        "Show current weather conditions",
+        cmd_weather,
+    );
+}
+
+pub fn cmd_motd(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    if let Some(motd) = oxide_server::get_motd() {
+        let ansi = conn.flags().has(oxide_server::ConnectionFlag::Ansi);
+        let allow_blink = conn.flags().has(oxide_server::ConnectionFlag::Blink);
+        let rich = oxide_core::format::parse_tags(&motd);
+        conn.send_line("");
+        conn.send_line(&rich.render(ansi, allow_blink));
+        conn.send_line("");
+    }
+}
+
+fn format_wide_list(items: &[String], max_width: usize) -> Vec<String> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let max_len = items.iter().map(|s| s.len()).max().unwrap_or(0);
+    let col_width = max_len + 3;
+    let num_cols = (max_width / col_width).max(1);
+
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 && i % num_cols == 0 {
+            lines.push(current_line);
+            current_line = String::new();
+        }
+        current_line.push_str(&format!("{:<width$}", item, width = col_width));
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    lines
+}
+
+pub fn cmd_help(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let dispatch = match oxide_server::get_commands() {
+        Some(d) => d,
+        None => {
+            conn.send_line("Help is unavailable.");
+            return;
+        }
+    };
+
+    let conn_access = conn.access_level();
+    let mut topics = std::collections::BTreeSet::new();
+    for cmd in &dispatch.commands {
+        if conn_access >= cmd.access {
+            topics.insert(cmd.topic);
+        }
+    }
+
+    let query = args.trim();
+
+    if !query.is_empty() {
+        let query_lower = query.to_lowercase();
+        let matched_topic = topics.iter().find(|t| t.to_lowercase() == query_lower);
+        if let Some(topic) = matched_topic {
+            let mut cmds = Vec::new();
+            for cmd in &dispatch.commands {
+                if cmd.topic == *topic && conn_access >= cmd.access {
+                    let name_col = if cmd.aliases.is_empty() {
+                        cmd.name.to_string()
+                    } else {
+                        format!("{} ({})", cmd.name, cmd.aliases.join(", "))
+                    };
+                    cmds.push(name_col);
+                }
+            }
+            cmds.sort();
+            let width = if conn.screen_width() > 0 {
+                conn.screen_width() as usize
+            } else {
+                80
+            };
+            conn.send_line("");
+            conn.send_line(&format!("Commands in Topic '{topic}':"));
+            conn.send_line("");
+            for line in format_wide_list(&cmds, width) {
+                conn.send_line(&format!("  {line}"));
+            }
+            conn.send_line("");
+            return;
+        }
+
+        if let Some(cmd) = dispatch.find(query) {
+            if conn_access >= cmd.access {
+                conn.send_line("");
+                let header = if cmd.aliases.is_empty() {
+                    cmd.name.to_string()
+                } else {
+                    format!("{} ({})", cmd.name, cmd.aliases.join(", "))
+                };
+                conn.send_line(&format!("  {header}"));
+                conn.send_line("");
+                for line in cmd.help_text.lines() {
+                    conn.send_line(&format!("  {line}"));
+                }
+                conn.send_line("");
+                return;
+            }
+        }
+
+        conn.send_line(&format!("No help found for '{query}'."));
+        return;
+    }
+
+    let cats: Vec<String> = topics.iter().map(|s| s.to_string()).collect();
+    let width = if conn.screen_width() > 0 {
+        conn.screen_width() as usize
+    } else {
+        80
+    };
+    conn.send_line("");
+    conn.send_line("Available Help Topics  (type 'help <topic>' or 'help <command>')");
+    conn.send_line("");
+    for line in format_wide_list(&cats, width) {
+        conn.send_line(&format!("  {line}"));
+    }
+    conn.send_line("");
+}
+
+pub fn cmd_who(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let lines = oxide_server::login::list_who(world, registry);
+    for line in &lines {
+        conn.send_line(line);
+    }
+}
+
+pub fn cmd_quit(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    if let Some(entity) = conn.entity() {
+        let _ = world.insert(entity, (core::Dirty,));
+    }
+    conn.send_line("Goodbye!");
+    conn.disconnect();
+}
+
+pub fn cmd_width(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        let current = conn.screen_width();
+        if current == 0 {
+            conn.send_line("Screen width: unlimited (0)");
+        } else {
+            conn.send_line(&format!("Screen width: {current} columns"));
+        }
+        conn.send_line("Usage: width <columns>  (0 = unlimited)");
+        return;
+    }
+
+    let width: u16 = match trimmed.parse() {
+        Ok(w) => w,
+        Err(_) => {
+            conn.send_line("Usage: width <columns>  (0 = unlimited)");
+            return;
+        }
+    };
+
+    conn.set_screen_width(width);
+
+    if let Some(entity) = conn.entity() {
+        let mut updated = false;
+        if let Ok(mut q) = world.query_one::<&mut core::Player>(entity) {
+            if let Some(player) = q.get() {
+                player.screen_width = width;
+                updated = true;
+            }
+        }
+        if updated {
+            let _ = world.insert(entity, (core::Dirty,));
+        }
+    }
+
+    if width == 0 {
+        conn.send_line("Screen width set to unlimited.");
+    } else {
+        conn.send_line(&format!("Screen width set to {width} columns."));
+    }
+}
+
+pub fn cmd_prompt(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        let msg = conn
+            .entity()
+            .and_then(|e| {
+                world
+                    .query_one::<&oxide_core::Player>(e)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned())
+                    .map(|p| match &p.prompt {
+                        Some(t) => format!("Current prompt: {t}"),
+                        None => format!(
+                            "Using default prompt: {}",
+                            oxide_server::config::get().default_prompt
+                        ),
+                    })
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "Using default prompt: {}",
+                    oxide_server::config::get().default_prompt
+                )
+            });
+        conn.send_line(&msg);
+        conn.send_line("Usage: prompt <template>");
+        conn.send_line("See 'help prompt' for available variables.");
+        conn.send_line("Type 'prompt reset' to revert to the server default.");
+        return;
+    }
+
+    if let Some(entity) = conn.entity() {
+        let updated = {
+            let mut q = match world.query_one::<&mut oxide_core::Player>(entity) {
+                Ok(q) => q,
+                Err(_) => return conn.send_line("You can't change your prompt right now."),
+            };
+            match q.get() {
+                Some(player) => {
+                    if trimmed == "reset" {
+                        tracing::debug!(entity = ?entity, old_prompt = ?player.prompt, "cmd_prompt: reset to None");
+                        player.prompt = None;
+                        true
+                    } else {
+                        tracing::debug!(entity = ?entity, new_prompt = %trimmed, "cmd_prompt: set custom prompt");
+                        player.prompt = Some(trimmed.to_string());
+                        true
+                    }
+                }
+                None => false,
+            }
+        };
+        if updated {
+            let _ = world.insert(entity, (oxide_core::Dirty,));
+            if trimmed == "reset" {
+                conn.send_line("Prompt reset to default.");
+            } else {
+                conn.send_line("Prompt updated.");
+            }
+            return;
+        }
+    }
+    conn.send_line("You can't change your prompt right now.");
+}
+
+pub fn cmd_time(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    conn.send_line("It is currently 10:00 AM in the morning.");
+}
+
+pub fn cmd_weather(
+    _world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    conn.send_line("The sky is clear and a gentle breeze blows from the east.");
+}

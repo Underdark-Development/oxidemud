@@ -123,6 +123,13 @@ pub fn can_use_skill(
             if actor_room != target_room {
                 return Err("Your target is not in the same room.".to_string());
             }
+            if let Ok(mut q_hp) = world.query_one::<&Health>(t) {
+                if let Some(hp) = q_hp.get() {
+                    if hp.is_dead() {
+                        return Err("Your target is already dead.".to_string());
+                    }
+                }
+            }
         }
         Targeting::Room | Targeting::Area { .. } => {}
     }
