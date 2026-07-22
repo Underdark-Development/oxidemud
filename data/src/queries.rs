@@ -233,10 +233,57 @@ pub fn create_character(
 }
 
 pub fn delete_character(conn: &Connection, character_id: i64) -> Result<(), rusqlite::Error> {
+    // 1. Get the entity_id of the character
+    let mut stmt = conn.prepare("SELECT entity_id FROM characters WHERE id = ?1")?;
+    let mut rows = stmt.query(params![character_id])?;
+    let entity_id = match rows.next()? {
+        Some(row) => Some(row.get::<_, i64>(0)?),
+        None => None,
+    };
+
+    // 2. Delete the character row
     conn.execute(
         "DELETE FROM characters WHERE id = ?1",
         params![character_id],
     )?;
+
+    // 3. Delete the entity row (which cascades and deletes components)
+    if let Some(eid) = entity_id {
+        conn.execute("DELETE FROM entities WHERE id = ?1", params![eid])?;
+    }
+
+    Ok(())
+}
+
+pub fn update_account_password(
+    conn: &Connection,
+    account_id: i64,
+    new_password_hash: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE accounts SET password_hash = ?1 WHERE id = ?2",
+        params![new_password_hash, account_id],
+    )?;
+    Ok(())
+}
+
+pub fn delete_account(conn: &Connection, account_id: i64) -> Result<(), rusqlite::Error> {
+    // 1. Get all character entity IDs for this account
+    let mut stmt = conn.prepare("SELECT entity_id FROM characters WHERE account_id = ?1")?;
+    let mut rows = stmt.query(params![account_id])?;
+    let mut entity_ids = Vec::new();
+    while let Some(row) = rows.next()? {
+        entity_ids.push(row.get::<_, i64>(0)?);
+    }
+
+    // 2. Delete the account (this will cascade delete api_keys and characters)
+    conn.execute("DELETE FROM accounts WHERE id = ?1", params![account_id])?;
+
+    // 3. Delete the entities (this will cascade delete all component tables data)
+    for entity_id in entity_ids {
+        conn.execute("DELETE FROM entities WHERE id = ?1", params![entity_id])?;
+    }
+
     Ok(())
 }
 
@@ -1550,6 +1597,46 @@ mod tests {
         delete_character(&conn, char_id).unwrap();
 
         let result = get_character_by_name(&conn, "DeleteMe").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_update_account_password() {
+        let conn = setup();
+        let hash = hash_password("pass");
+        let account_id = create_account(&conn, "pwowner", &hash).unwrap();
+
+        let new_hash = hash_password("newpass");
+        update_account_password(&conn, account_id, &new_hash).unwrap();
+
+        let account = get_account_by_id(&conn, account_id).unwrap().unwrap();
+        assert_eq!(account.password_hash, new_hash);
+    }
+
+    #[test]
+    fn test_delete_account() {
+        let conn = setup();
+        let hash = hash_password("pass");
+        let account_id = create_account(&conn, "accdelowner", &hash).unwrap();
+        let eid = insert_entity(&conn, "player").unwrap();
+        let _char_id = create_character(
+            &conn,
+            account_id,
+            "CharToDel",
+            "human",
+            "warrior",
+            eid,
+            Some("test:room"),
+            None,
+        )
+        .unwrap();
+
+        delete_account(&conn, account_id).unwrap();
+
+        let account = get_account_by_id(&conn, account_id).unwrap();
+        assert!(account.is_none());
+
+        let result = get_character_by_name(&conn, "CharToDel").unwrap();
         assert!(result.is_none());
     }
 

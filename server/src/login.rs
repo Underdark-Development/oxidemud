@@ -171,6 +171,24 @@ impl LoginFlow {
             LoginState::CharacterSelect => {
                 handlers::handle_character_select_state(self, input, db, world, registry).await
             }
+            LoginState::ChangePasswordOld => {
+                handlers::handle_change_password_old_state(self, input, db).await
+            }
+            LoginState::ChangePasswordNew => {
+                handlers::handle_change_password_new_state(self, input)
+            }
+            LoginState::ChangePasswordConfirm { new_password } => {
+                let new_pw = new_password.clone();
+                handlers::handle_change_password_confirm_state(self, input, new_pw, db).await
+            }
+            LoginState::CharacterDeleteConfirm { character_id, name } => {
+                let cid = *character_id;
+                let cname = name.clone();
+                handlers::handle_character_delete_confirm_state(self, input, cid, cname, db).await
+            }
+            LoginState::AccountDeleteConfirm => {
+                handlers::handle_account_delete_confirm_state(self, input, db).await
+            }
             LoginState::CharacterCreateName => {
                 handlers::handle_character_create_name_state(self, input, db).await
             }
@@ -251,6 +269,7 @@ impl LoginFlow {
         &mut self,
         db: Option<&Mutex<oxide_data::Database>>,
         templates: Option<&TemplateRegistry>,
+        screen_width: u16,
     ) -> Vec<String> {
         match &self.state {
             LoginState::Connected => {
@@ -266,7 +285,36 @@ impl LoginFlow {
                 Vec::new()
             }
             LoginState::CharacterSelect => {
-                prompt::go_to_character_select(self, db, templates).await
+                prompt::go_to_character_select(self, db, templates, screen_width).await
+            }
+            LoginState::ChangePasswordOld => {
+                vec![String::new(), "Enter current password:".to_string()]
+            }
+            LoginState::ChangePasswordNew => {
+                vec![
+                    String::new(),
+                    "Enter new password (8+ characters):".to_string(),
+                ]
+            }
+            LoginState::ChangePasswordConfirm { .. } => {
+                vec![String::new(), "Confirm new password:".to_string()]
+            }
+            LoginState::CharacterDeleteConfirm { name, .. } => {
+                vec![
+                    String::new(),
+                    format!(
+                        "Are you sure you want to permanently delete character '{}'? (y/n)",
+                        name
+                    ),
+                ]
+            }
+            LoginState::AccountDeleteConfirm => {
+                vec![
+                    String::new(),
+                    "Are you sure you want to delete your account?".to_string(),
+                    "This will permanently delete your account and all characters.".to_string(),
+                    "Enter your password to confirm account deletion:".to_string(),
+                ]
             }
             LoginState::CharacterCreateName => {
                 vec![

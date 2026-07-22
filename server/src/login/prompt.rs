@@ -21,12 +21,41 @@ const STAT_NAMES: [&str; 6] = [
     "Charisma",
 ];
 
+fn format_menu_line(items: &[String], screen_width: u16) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let width = if screen_width > 0 {
+        screen_width as usize
+    } else {
+        80
+    };
+
+    for item in items {
+        if current_line.is_empty() {
+            current_line.push_str(item);
+        } else {
+            let next_part = format!(" | {}", item);
+            if current_line.len() + next_part.len() > width {
+                lines.push(current_line);
+                current_line = item.clone();
+            } else {
+                current_line.push_str(&next_part);
+            }
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    lines
+}
+
 /// Retrieve the list of characters for the account stored in the flow and
 /// return the character-selection screen as a vector of output lines.
 pub async fn go_to_character_select(
     flow: &mut LoginFlow,
     db: Option<&Mutex<oxide_data::Database>>,
     templates: Option<&TemplateRegistry>,
+    screen_width: u16,
 ) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push(String::new());
@@ -81,7 +110,13 @@ pub async fn go_to_character_select(
 
     if chars.is_empty() {
         if flow.create_dismissed {
-            lines.push("Type 'c' to create a character, or 'who' to see who's online.".to_string());
+            let menu_items = vec![
+                "C Create".to_string(),
+                "P Password".to_string(),
+                "DA Del Account".to_string(),
+                "WHO Online".to_string(),
+            ];
+            lines.extend(format_menu_line(&menu_items, screen_width));
         } else {
             lines.push("You have no characters yet. Create one now? (y/n)".to_string());
         }
@@ -100,10 +135,17 @@ pub async fn go_to_character_select(
         ));
     }
     lines.push(String::new());
-    lines.push(
-        "Type a number to pick a character, 'c' to create one, or 'who' to see who's online."
-            .to_string(),
-    );
+
+    let menu_items = vec![
+        format!("[1-{}] Play", chars.len()),
+        "C Create".to_string(),
+        "D [num] Delete".to_string(),
+        "P Password".to_string(),
+        "DA Del Account".to_string(),
+        "WHO Online".to_string(),
+    ];
+    lines.extend(format_menu_line(&menu_items, screen_width));
+
     flow.state = LoginState::CharacterSelect;
     lines
 }
@@ -965,4 +1007,42 @@ pub fn show_age_prompt(flow: &LoginFlow, templates: Option<&TemplateRegistry>) -
         lines.push("Enter age:".to_string());
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_menu_line() {
+        let items = vec![
+            "A Option".to_string(),
+            "B Option".to_string(),
+            "C Option".to_string(),
+        ];
+
+        // 1. Fits in a single line
+        let lines = format_menu_line(&items, 80);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0], "A Option | B Option | C Option");
+
+        // 2. Wraps at narrow width (fits 2 options)
+        let lines = format_menu_line(&items, 20);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "A Option | B Option");
+        assert_eq!(lines[1], "C Option");
+
+        // 3. Wraps at extremely narrow width (1 option per line)
+        let lines = format_menu_line(&items, 15);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "A Option");
+        assert_eq!(lines[1], "B Option");
+        assert_eq!(lines[2], "C Option");
+
+        // 4. Wraps partially (fits 2 options)
+        let lines = format_menu_line(&items, 25);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "A Option | B Option");
+        assert_eq!(lines[1], "C Option");
+    }
 }

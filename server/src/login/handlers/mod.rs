@@ -3,8 +3,10 @@ mod creation;
 
 pub use auth::{
     handle_account_create_confirm_password_state, handle_account_create_confirm_state,
-    handle_account_create_password_state, handle_connected_state, handle_password_state,
-    handle_username_state,
+    handle_account_create_password_state, handle_account_delete_confirm_state,
+    handle_change_password_confirm_state, handle_change_password_new_state,
+    handle_change_password_old_state, handle_character_delete_confirm_state,
+    handle_connected_state, handle_password_state, handle_username_state,
 };
 
 pub use creation::{

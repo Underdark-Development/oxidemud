@@ -218,9 +218,20 @@ pub async fn handle_character_select_state(
                 "who" => {
                     lines.extend(super::super::prompt::list_who(world, registry));
                 }
+                "p" => {
+                    flow.echo_on = true;
+                    flow.state = LoginState::ChangePasswordOld;
+                }
+                "da" => {
+                    flow.echo_on = true;
+                    flow.state = LoginState::AccountDeleteConfirm;
+                }
+                "d" | "del" | "delete" => {
+                    lines.push("You have no characters to delete.".to_string());
+                }
                 _ => {
                     lines.push(
-                        "Type 'c' to create a character, or 'who' to see who's online.".to_string(),
+                        "Type 'c' to create a character, 'p' to change password, 'da' to delete account, or 'who' to see who's online.".to_string(),
                     );
                 }
             }
@@ -241,6 +252,14 @@ pub async fn handle_character_select_state(
             "who" => {
                 lines.extend(super::super::prompt::list_who(world, registry));
             }
+            "p" => {
+                flow.echo_on = true;
+                flow.state = LoginState::ChangePasswordOld;
+            }
+            "da" => {
+                flow.echo_on = true;
+                flow.state = LoginState::AccountDeleteConfirm;
+            }
             _ => {
                 lines.push("You have no characters yet. Create one now? (y/n)".to_string());
             }
@@ -248,7 +267,11 @@ pub async fn handle_character_select_state(
         return lines;
     }
 
-    match input.to_lowercase().as_str() {
+    let trimmed = input.trim();
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    let cmd = parts.first().copied().unwrap_or("");
+
+    match cmd.to_lowercase().as_str() {
         "c" => {
             drop(db_guard);
             clear_create_buffer(flow);
@@ -260,8 +283,45 @@ pub async fn handle_character_select_state(
             drop(db_guard);
             lines.extend(super::super::prompt::list_who(world, registry));
         }
+        "p" => {
+            drop(db_guard);
+            flow.echo_on = true;
+            flow.state = LoginState::ChangePasswordOld;
+        }
+        "da" => {
+            drop(db_guard);
+            flow.echo_on = true;
+            flow.state = LoginState::AccountDeleteConfirm;
+        }
+        "d" | "del" | "delete" => {
+            if parts.len() < 2 {
+                drop(db_guard);
+                lines.push(
+                    "Usage: d [number] (e.g., d 1 to delete the first character)".to_string(),
+                );
+            } else if let Ok(idx) = parts[1].parse::<usize>() {
+                if idx == 0 || idx > chars.len() {
+                    drop(db_guard);
+                    lines.push(
+                        "Invalid character selection. Pick a number from the list.".to_string(),
+                    );
+                } else {
+                    let char_row = &chars[idx - 1];
+                    let char_id = char_row.id;
+                    let name = std::sync::Arc::from(char_row.name.as_str());
+                    drop(db_guard);
+                    flow.state = LoginState::CharacterDeleteConfirm {
+                        character_id: char_id,
+                        name,
+                    };
+                }
+            } else {
+                drop(db_guard);
+                lines.push("Invalid character number. Usage: d [number] (e.g., d 1)".to_string());
+            }
+        }
         _ => {
-            if let Ok(idx) = input.parse::<usize>() {
+            if let Ok(idx) = trimmed.parse::<usize>() {
                 if idx == 0 || idx > chars.len() {
                     drop(db_guard);
                     lines.push("Invalid selection. Pick a number from the list, or type 'c' to create a new character.".to_string());
@@ -273,7 +333,7 @@ pub async fn handle_character_select_state(
             } else {
                 drop(db_guard);
                 lines.push(
-                    "Type a number to pick a character, 'c' to create one, or 'who' to see who's online.".to_string(),
+                    "Invalid input. Choose a character number, or enter a menu option.".to_string(),
                 );
             }
         }

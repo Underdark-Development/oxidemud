@@ -54,6 +54,16 @@ pub enum LoginState {
     },
     CharacterCreateSpawn,
     CharacterCreateConfirm,
+    ChangePasswordOld,
+    ChangePasswordNew,
+    ChangePasswordConfirm {
+        new_password: Arc<str>,
+    },
+    CharacterDeleteConfirm {
+        character_id: i64,
+        name: Arc<str>,
+    },
+    AccountDeleteConfirm,
     Playing,
 }
 

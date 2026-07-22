@@ -680,7 +680,11 @@ async fn handle_connection(
                     }
 
                     let prompt_msgs = login_flow
-                        .show_state_prompt(db_clone.as_deref(), templates.as_deref())
+                        .show_state_prompt(
+                            db_clone.as_deref(),
+                            templates.as_deref(),
+                            conn.screen_width(),
+                        )
                         .await;
                     for msg in &prompt_msgs {
                         conn.send_line(msg);

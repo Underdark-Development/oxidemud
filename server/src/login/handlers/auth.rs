@@ -302,3 +302,400 @@ pub async fn handle_account_create_confirm_password_state(
     flow.state = LoginState::Username;
     lines
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::login::LoginFlow;
+    use crate::login::LoginState;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_handle_change_password_states() {
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+
+        // 1. Create account
+        let hash = oxide_data::hash_password("oldpassword").unwrap();
+        let account_id = {
+            let db_guard = db.lock().await;
+            oxide_data::create_account(db_guard.conn(), "pwchange_user", &hash).unwrap()
+        };
+
+        let mut flow = LoginFlow::new();
+        flow.account_id = Some(account_id);
+        flow.state = LoginState::ChangePasswordOld;
+
+        // 2. Submit wrong password
+        let lines = handle_change_password_old_state(&mut flow, "wrongpass", Some(&db)).await;
+        assert!(lines.iter().any(|l| l.contains("Invalid password")));
+        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert!(!flow.echo_on);
+
+        // 3. Reset state & submit correct old password
+        flow.state = LoginState::ChangePasswordOld;
+        let lines = handle_change_password_old_state(&mut flow, "oldpassword", Some(&db)).await;
+        assert!(lines.is_empty());
+        assert_eq!(flow.state, LoginState::ChangePasswordNew);
+        assert!(flow.echo_on);
+
+        // 4. Submit new password that is too short
+        let lines = handle_change_password_new_state(&mut flow, "short");
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("must be at least 8 characters")));
+        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert!(!flow.echo_on);
+
+        // 5. Submit valid new password
+        flow.state = LoginState::ChangePasswordNew;
+        let lines = handle_change_password_new_state(&mut flow, "newsecretpass");
+        assert!(lines.is_empty());
+        match &flow.state {
+            LoginState::ChangePasswordConfirm { new_password } => {
+                assert_eq!(&**new_password, "newsecretpass");
+            }
+            _ => panic!("Expected ChangePasswordConfirm state"),
+        }
+        assert!(flow.echo_on);
+
+        // 6. Confirm password with mismatch
+        let new_pw = match &flow.state {
+            LoginState::ChangePasswordConfirm { new_password } => new_password.clone(),
+            _ => unreachable!(),
+        };
+        let lines =
+            handle_change_password_confirm_state(&mut flow, "mismatch", new_pw.clone(), Some(&db))
+                .await;
+        assert!(lines.iter().any(|l| l.contains("do not match")));
+        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert!(!flow.echo_on);
+
+        // 7. Confirm password successfully
+        flow.state = LoginState::ChangePasswordConfirm {
+            new_password: new_pw.clone(),
+        };
+        let lines =
+            handle_change_password_confirm_state(&mut flow, "newsecretpass", new_pw, Some(&db))
+                .await;
+        assert!(lines.iter().any(|l| l.contains("changed successfully")));
+        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert!(!flow.echo_on);
+
+        // 8. Verify password hash updated in DB
+        let db_guard = db.lock().await;
+        let acc = oxide_data::get_account_by_id(db_guard.conn(), account_id)
+            .unwrap()
+            .unwrap();
+        assert!(oxide_data::verify_password("newsecretpass", &acc.password_hash).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_handle_character_delete_confirm() {
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+        let hash = oxide_data::hash_password("pass").unwrap();
+        let (account_id, char_id) = {
+            let db_guard = db.lock().await;
+            let aid = oxide_data::create_account(db_guard.conn(), "deluser", &hash).unwrap();
+            let eid = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
+            let cid = oxide_data::create_character(
+                db_guard.conn(),
+                aid,
+                "DelCharName",
+                "human",
+                "warrior",
+                eid,
+                Some("test:room"),
+                None,
+            )
+            .unwrap();
+            (aid, cid)
+        };
+
+        let mut flow = LoginFlow::new();
+        flow.account_id = Some(account_id);
+        flow.state = LoginState::CharacterDeleteConfirm {
+            character_id: char_id,
+            name: Arc::from("DelCharName"),
+        };
+
+        // 1. Cancel deletion
+        let lines = handle_character_delete_confirm_state(
+            &mut flow,
+            "no",
+            char_id,
+            Arc::from("DelCharName"),
+            Some(&db),
+        )
+        .await;
+        assert!(lines.iter().any(|l| l.contains("cancelled")));
+        assert_eq!(flow.state, LoginState::CharacterSelect);
+
+        // Verify character still exists
+        {
+            let db_guard = db.lock().await;
+            let ch = oxide_data::get_character_by_name(db_guard.conn(), "DelCharName").unwrap();
+            assert!(ch.is_some());
+        }
+
+        // 2. Perform deletion
+        flow.state = LoginState::CharacterDeleteConfirm {
+            character_id: char_id,
+            name: Arc::from("DelCharName"),
+        };
+        let lines = handle_character_delete_confirm_state(
+            &mut flow,
+            "yes",
+            char_id,
+            Arc::from("DelCharName"),
+            Some(&db),
+        )
+        .await;
+        assert!(lines.iter().any(|l| l.contains("permanently deleted")));
+        assert_eq!(flow.state, LoginState::CharacterSelect);
+
+        // Verify character is gone
+        {
+            let db_guard = db.lock().await;
+            let ch = oxide_data::get_character_by_name(db_guard.conn(), "DelCharName").unwrap();
+            assert!(ch.is_none());
+        }
+    }
+}
+
+pub async fn handle_change_password_old_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    db: Option<&Mutex<oxide_data::Database>>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let db = match db {
+        Some(d) => d,
+        None => {
+            flow.echo_on = false;
+            lines
+                .push("Server error: database unavailable. Password change cancelled.".to_string());
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
+    let account_id = match flow.account_id {
+        Some(id) => id,
+        None => {
+            flow.echo_on = false;
+            lines.push("Session error. Please log in again.".to_string());
+            flow.state = LoginState::Username;
+            return lines;
+        }
+    };
+
+    let db_guard = db.lock().await;
+    let account = match oxide_data::get_account_by_id(db_guard.conn(), account_id) {
+        Ok(Some(acc)) => acc,
+        _ => {
+            flow.echo_on = false;
+            lines.push("Account not found. Password change cancelled.".to_string());
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
+    let valid =
+        oxide_data::verify_password(input.trim(), &account.password_hash).unwrap_or_default();
+
+    if valid {
+        flow.echo_on = true;
+        flow.state = LoginState::ChangePasswordNew;
+    } else {
+        flow.echo_on = false;
+        lines.push("Invalid password. Password change cancelled.".to_string());
+        flow.state = LoginState::CharacterSelect;
+    }
+    lines
+}
+
+pub fn handle_change_password_new_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let new_pw = input.trim();
+    if new_pw.len() < 8 {
+        flow.echo_on = false;
+        lines
+            .push("Password must be at least 8 characters. Password change cancelled.".to_string());
+        flow.state = LoginState::CharacterSelect;
+        return lines;
+    }
+
+    flow.echo_on = true;
+    flow.state = LoginState::ChangePasswordConfirm {
+        new_password: Arc::from(new_pw),
+    };
+    lines
+}
+
+pub async fn handle_change_password_confirm_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    new_password: Arc<str>,
+    db: Option<&Mutex<oxide_data::Database>>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let confirm = input.trim();
+    if confirm != &*new_password {
+        flow.echo_on = false;
+        lines.push("Passwords do not match. Password change cancelled.".to_string());
+        flow.state = LoginState::CharacterSelect;
+        return lines;
+    }
+
+    let db = match db {
+        Some(d) => d,
+        None => {
+            flow.echo_on = false;
+            lines
+                .push("Server error: database unavailable. Password change cancelled.".to_string());
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
+    let account_id = match flow.account_id {
+        Some(id) => id,
+        None => {
+            flow.echo_on = false;
+            lines.push("Session error. Please log in again.".to_string());
+            flow.state = LoginState::Username;
+            return lines;
+        }
+    };
+
+    let hash = match oxide_data::hash_password(&new_password) {
+        Ok(h) => h,
+        Err(e) => {
+            flow.echo_on = false;
+            lines.push(format!(
+                "Error hashing password: {e}. Password change cancelled."
+            ));
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
+    let db_guard = db.lock().await;
+    match oxide_data::update_account_password(db_guard.conn(), account_id, &hash) {
+        Ok(_) => {
+            flow.echo_on = false;
+            lines.push("Password changed successfully.".to_string());
+            flow.state = LoginState::CharacterSelect;
+        }
+        Err(e) => {
+            flow.echo_on = false;
+            lines.push(format!(
+                "DB error updating password: {e}. Password change cancelled."
+            ));
+            flow.state = LoginState::CharacterSelect;
+        }
+    }
+    lines
+}
+
+pub async fn handle_character_delete_confirm_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    character_id: i64,
+    name: Arc<str>,
+    db: Option<&Mutex<oxide_data::Database>>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let confirmation = input.trim().to_lowercase();
+    if confirmation == "y" || confirmation == "yes" {
+        let db = match db {
+            Some(d) => d,
+            None => {
+                lines.push("Server error: database unavailable. Deletion cancelled.".to_string());
+                flow.state = LoginState::CharacterSelect;
+                return lines;
+            }
+        };
+
+        let db_guard = db.lock().await;
+        match oxide_data::delete_character(db_guard.conn(), character_id) {
+            Ok(_) => {
+                lines.push(format!(
+                    "Character '{}' has been permanently deleted.",
+                    name
+                ));
+            }
+            Err(e) => {
+                lines.push(format!("DB error deleting character: {e}"));
+            }
+        }
+    } else {
+        lines.push("Character deletion cancelled.".to_string());
+    }
+
+    flow.state = LoginState::CharacterSelect;
+    lines
+}
+
+pub async fn handle_account_delete_confirm_state(
+    flow: &mut LoginFlow,
+    input: &str,
+    db: Option<&Mutex<oxide_data::Database>>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    let db = match db {
+        Some(d) => d,
+        None => {
+            flow.echo_on = false;
+            lines.push("Server error: database unavailable. Deletion cancelled.".to_string());
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
+    let account_id = match flow.account_id {
+        Some(id) => id,
+        None => {
+            flow.echo_on = false;
+            lines.push("Session error. Please log in again.".to_string());
+            flow.state = LoginState::Username;
+            return lines;
+        }
+    };
+
+    let db_guard = db.lock().await;
+    let account = match oxide_data::get_account_by_id(db_guard.conn(), account_id) {
+        Ok(Some(acc)) => acc,
+        _ => {
+            flow.echo_on = false;
+            lines.push("Account not found. Deletion cancelled.".to_string());
+            flow.state = LoginState::CharacterSelect;
+            return lines;
+        }
+    };
+
+    let valid =
+        oxide_data::verify_password(input.trim(), &account.password_hash).unwrap_or_default();
+
+    if valid {
+        match oxide_data::delete_account(db_guard.conn(), account_id) {
+            Ok(_) => {
+                flow.echo_on = false;
+                lines.push("Your account and all associated characters have been permanently deleted. Goodbye.".to_string());
+                flow.disconnect_requested = true;
+            }
+            Err(e) => {
+                flow.echo_on = false;
+                lines.push(format!(
+                    "DB error deleting account: {e}. Deletion cancelled."
+                ));
+                flow.state = LoginState::CharacterSelect;
+            }
+        }
+    } else {
+        flow.echo_on = false;
+        lines.push("Invalid password. Account deletion cancelled.".to_string());
+        flow.state = LoginState::CharacterSelect;
+    }
+    lines
+}
