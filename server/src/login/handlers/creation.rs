@@ -9,7 +9,10 @@ use oxide_core::{
 
 use crate::registry::ConnectionRegistry;
 
-use super::super::state::LoginState;
+use super::super::state::{
+    ChangePasswordSubstate, CharacterCreateSubstate, CharacterSelectSubstate, LoginState,
+    LoginSubstate,
+};
 use super::super::LoginFlow;
 
 // ---------------------------------------------------------------------------
@@ -191,7 +194,7 @@ pub async fn handle_character_select_state(
         Some(id) => id,
         None => {
             lines.push("Session error. Please log in again.".to_string());
-            flow.state = LoginState::Username;
+            flow.state = LoginState::Login(LoginSubstate::Username);
             return lines;
         }
     };
@@ -213,18 +216,23 @@ pub async fn handle_character_select_state(
                     clear_create_buffer(flow);
                     lines.push(String::new());
                     lines.push("--- Create a New Character ---".to_string());
-                    flow.state = LoginState::CharacterCreateName;
+                    flow.state = LoginState::CharacterSelect(
+                        CharacterSelectSubstate::CharacterCreate(CharacterCreateSubstate::Name),
+                    );
                 }
                 "who" => {
                     lines.extend(super::super::prompt::list_who(world, registry));
                 }
                 "p" => {
                     flow.echo_on = true;
-                    flow.state = LoginState::ChangePasswordOld;
+                    flow.state = LoginState::CharacterSelect(
+                        CharacterSelectSubstate::ChangePassword(ChangePasswordSubstate::Old),
+                    );
                 }
                 "da" => {
                     flow.echo_on = true;
-                    flow.state = LoginState::AccountDeleteConfirm;
+                    flow.state =
+                        LoginState::CharacterSelect(CharacterSelectSubstate::AccountDeleteConfirm);
                 }
                 "d" | "del" | "delete" => {
                     lines.push("You have no characters to delete.".to_string());
@@ -244,7 +252,9 @@ pub async fn handle_character_select_state(
                 clear_create_buffer(flow);
                 lines.push(String::new());
                 lines.push("--- Create a New Character ---".to_string());
-                flow.state = LoginState::CharacterCreateName;
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                    CharacterCreateSubstate::Name,
+                ));
             }
             "n" | "no" => {
                 flow.create_dismissed = true;
@@ -254,11 +264,14 @@ pub async fn handle_character_select_state(
             }
             "p" => {
                 flow.echo_on = true;
-                flow.state = LoginState::ChangePasswordOld;
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+                    ChangePasswordSubstate::Old,
+                ));
             }
             "da" => {
                 flow.echo_on = true;
-                flow.state = LoginState::AccountDeleteConfirm;
+                flow.state =
+                    LoginState::CharacterSelect(CharacterSelectSubstate::AccountDeleteConfirm);
             }
             _ => {
                 lines.push("You have no characters yet. Create one now? (y/n)".to_string());
@@ -277,7 +290,9 @@ pub async fn handle_character_select_state(
             clear_create_buffer(flow);
             lines.push(String::new());
             lines.push("--- Create a New Character ---".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
         }
         "who" => {
             drop(db_guard);
@@ -286,12 +301,14 @@ pub async fn handle_character_select_state(
         "p" => {
             drop(db_guard);
             flow.echo_on = true;
-            flow.state = LoginState::ChangePasswordOld;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+                ChangePasswordSubstate::Old,
+            ));
         }
         "da" => {
             drop(db_guard);
             flow.echo_on = true;
-            flow.state = LoginState::AccountDeleteConfirm;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::AccountDeleteConfirm);
         }
         "d" | "del" | "delete" => {
             if parts.len() < 2 {
@@ -310,10 +327,12 @@ pub async fn handle_character_select_state(
                     let char_id = char_row.id;
                     let name = std::sync::Arc::from(char_row.name.as_str());
                     drop(db_guard);
-                    flow.state = LoginState::CharacterDeleteConfirm {
-                        character_id: char_id,
-                        name,
-                    };
+                    flow.state = LoginState::CharacterSelect(
+                        CharacterSelectSubstate::CharacterDeleteConfirm {
+                            character_id: char_id,
+                            name,
+                        },
+                    );
                 }
             } else {
                 drop(db_guard);
@@ -378,7 +397,9 @@ pub async fn handle_character_create_name_state(
     }
 
     flow.create_buffer.name = Some(name.to_string());
-    flow.state = LoginState::CharacterCreateRace(Vec::new());
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+        CharacterCreateSubstate::Race(Vec::new()),
+    ));
     lines
 }
 
@@ -391,10 +412,14 @@ pub fn handle_character_create_race_state(
     let input = input.trim();
 
     let ordered_races = match &flow.state {
-        LoginState::CharacterCreateRace(ids) => ids.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Race(ids),
+        )) => ids.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -403,7 +428,9 @@ pub fn handle_character_create_race_state(
         Ok(idx) if idx > 0 && idx <= ordered_races.len() => {
             let race_id = ordered_races[idx - 1].clone();
             flow.create_buffer.race = Some(race_id);
-            flow.state = LoginState::CharacterCreateClass(Vec::new());
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Class(Vec::new()),
+            ));
         }
         _ => {
             lines.push("Invalid selection.".to_string());
@@ -421,10 +448,14 @@ pub fn handle_character_create_class_state(
     let input = input.trim();
 
     let ordered_classes = match &flow.state {
-        LoginState::CharacterCreateClass(ids) => ids.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Class(ids),
+        )) => ids.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -433,7 +464,9 @@ pub fn handle_character_create_class_state(
         Ok(idx) if idx > 0 && idx <= ordered_classes.len() => {
             let class_id = ordered_classes[idx - 1].clone();
             flow.create_buffer.class = Some(class_id);
-            flow.state = LoginState::CharacterCreateGender;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Gender,
+            ));
         }
         _ => {
             lines.push("Invalid selection.".to_string());
@@ -458,7 +491,9 @@ pub fn handle_character_create_gender_state(
         Some(r) => r,
         None => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -492,7 +527,9 @@ pub fn handle_character_create_gender_state(
         flow.create_buffer.pronoun_subject = Some(subject.into());
         flow.create_buffer.pronoun_object = Some(object.into());
         flow.create_buffer.pronoun_possessive = Some(possessive.into());
-        flow.state = LoginState::CharacterCreateAttributesPickMethod;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesPickMethod,
+        ));
         return lines;
     }
 
@@ -511,7 +548,9 @@ pub fn handle_character_create_gender_state(
                 flow.create_buffer.pronoun_object = Some(pronouns.object.clone());
                 flow.create_buffer.pronoun_possessive = Some(pronouns.possessive.clone());
             }
-            flow.state = LoginState::CharacterCreateAttributesPickMethod;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AttributesPickMethod,
+            ));
             return lines;
         }
     }
@@ -529,26 +568,32 @@ pub fn handle_attributes_pick_method_state(flow: &mut LoginFlow, input: &str) ->
     match input.trim() {
         "1" => {
             let attrs = [8u8; 6];
-            flow.state = LoginState::CharacterCreateAttributesPointBuy {
-                remaining: MAX_POINT_BUY_POINTS,
-                attrs,
-            };
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AttributesPointBuy {
+                    remaining: MAX_POINT_BUY_POINTS,
+                    attrs,
+                },
+            ));
         }
         "2" => {
-            flow.state = LoginState::CharacterCreateAttributesArray {
-                values: STANDARD_ARRAY,
-                assign_idx: 0,
-                attrs: [0u8; 6],
-            };
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AttributesArray {
+                    values: STANDARD_ARRAY,
+                    assign_idx: 0,
+                    attrs: [0u8; 6],
+                },
+            ));
         }
         "3" => {
             let rolls = roll_all_stats();
-            flow.state = LoginState::CharacterCreateAttributesRoll {
-                rolls,
-                assign_idx: 0,
-                attrs: [0u8; 6],
-                rerolls: MAX_REROLLS,
-            };
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AttributesRoll {
+                    rolls,
+                    assign_idx: 0,
+                    attrs: [0u8; 6],
+                    rerolls: MAX_REROLLS,
+                },
+            ));
         }
         _ => {
             lines.push("Invalid selection. Pick 1, 2, or 3.".to_string());
@@ -567,9 +612,9 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
 
     if input == "done" || input == "d" || input == "c" || input == "confirm" {
         let state = match &flow.state {
-            LoginState::CharacterCreateAttributesPointBuy { remaining, attrs } => {
-                (*remaining, *attrs)
-            }
+            LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AttributesPointBuy { remaining, attrs },
+            )) => (*remaining, *attrs),
             _ => return lines,
         };
         if state.0 > 0 {
@@ -582,15 +627,19 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
         flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
             state.1[0], state.1[1], state.1[2], state.1[3], state.1[4], state.1[5],
         ));
-        flow.state = LoginState::CharacterCreateAlignment;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Alignment,
+        ));
         return lines;
     }
 
     if input == "reset" {
-        flow.state = LoginState::CharacterCreateAttributesPointBuy {
-            remaining: MAX_POINT_BUY_POINTS,
-            attrs: [8u8; 6],
-        };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesPointBuy {
+                remaining: MAX_POINT_BUY_POINTS,
+                attrs: [8u8; 6],
+            },
+        ));
         return lines;
     }
 
@@ -626,9 +675,9 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
                 };
 
                 let state = match &flow.state {
-                    LoginState::CharacterCreateAttributesPointBuy { remaining, attrs } => {
-                        (*remaining, *attrs)
-                    }
+                    LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                        CharacterCreateSubstate::AttributesPointBuy { remaining, attrs },
+                    )) => (*remaining, *attrs),
                     _ => return lines,
                 };
                 let old_val = state.1[idx];
@@ -651,10 +700,13 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
                     }
                     let mut new_attrs = state.1;
                     new_attrs[idx] = old_val + amount;
-                    flow.state = LoginState::CharacterCreateAttributesPointBuy {
-                        remaining: state.0 - cost,
-                        attrs: new_attrs,
-                    };
+                    flow.state =
+                        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                            CharacterCreateSubstate::AttributesPointBuy {
+                                remaining: state.0 - cost,
+                                attrs: new_attrs,
+                            },
+                        ));
                 } else {
                     if old_val < 8 + amount {
                         lines.push(format!("Minimum stat value is 8 (currently {old_val})."));
@@ -666,10 +718,13 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
                     }
                     let mut new_attrs = state.1;
                     new_attrs[idx] = old_val - amount;
-                    flow.state = LoginState::CharacterCreateAttributesPointBuy {
-                        remaining: state.0 + refund,
-                        attrs: new_attrs,
-                    };
+                    flow.state =
+                        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                            CharacterCreateSubstate::AttributesPointBuy {
+                                remaining: state.0 + refund,
+                                attrs: new_attrs,
+                            },
+                        ));
                 }
                 return lines;
             }
@@ -687,9 +742,9 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
                     return lines;
                 }
                 let state = match &flow.state {
-                    LoginState::CharacterCreateAttributesPointBuy { remaining, attrs } => {
-                        (*remaining, *attrs)
-                    }
+                    LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                        CharacterCreateSubstate::AttributesPointBuy { remaining, attrs },
+                    )) => (*remaining, *attrs),
                     _ => return lines,
                 };
                 let old_val = state.1[idx];
@@ -723,10 +778,12 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
                 } else {
                     state.0 + cost_change
                 };
-                flow.state = LoginState::CharacterCreateAttributesPointBuy {
-                    remaining: new_remaining,
-                    attrs: new_attrs,
-                };
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                    CharacterCreateSubstate::AttributesPointBuy {
+                        remaining: new_remaining,
+                        attrs: new_attrs,
+                    },
+                ));
                 return lines;
             }
             _ => {}
@@ -746,20 +803,24 @@ pub fn handle_standard_array_state(flow: &mut LoginFlow, input: &str) -> Vec<Str
     let input = input.trim();
 
     if input == "reset" {
-        flow.state = LoginState::CharacterCreateAttributesArray {
-            values: STANDARD_ARRAY,
-            assign_idx: 0,
-            attrs: [0u8; 6],
-        };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesArray {
+                values: STANDARD_ARRAY,
+                assign_idx: 0,
+                attrs: [0u8; 6],
+            },
+        ));
         return lines;
     }
 
     let state = match &flow.state {
-        LoginState::CharacterCreateAttributesArray {
-            values,
-            assign_idx,
-            attrs,
-        } => (*values, *assign_idx, *attrs),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesArray {
+                values,
+                assign_idx,
+                attrs,
+            },
+        )) => (*values, *assign_idx, *attrs),
         _ => return lines,
     };
 
@@ -767,7 +828,9 @@ pub fn handle_standard_array_state(flow: &mut LoginFlow, input: &str) -> Vec<Str
         flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
             state.2[0], state.2[1], state.2[2], state.2[3], state.2[4], state.2[5],
         ));
-        flow.state = LoginState::CharacterCreateAlignment;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Alignment,
+        ));
         return lines;
     }
 
@@ -790,13 +853,17 @@ pub fn handle_standard_array_state(flow: &mut LoginFlow, input: &str) -> Vec<Str
                     new_attrs[4],
                     new_attrs[5],
                 ));
-                flow.state = LoginState::CharacterCreateAlignment;
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                    CharacterCreateSubstate::Alignment,
+                ));
             } else {
-                flow.state = LoginState::CharacterCreateAttributesArray {
-                    values: state.0,
-                    assign_idx: new_idx,
-                    attrs: new_attrs,
-                };
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                    CharacterCreateSubstate::AttributesArray {
+                        values: state.0,
+                        assign_idx: new_idx,
+                        attrs: new_attrs,
+                    },
+                ));
             }
         }
         None => {
@@ -819,33 +886,39 @@ pub fn handle_roll_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
 
     if input == "reset" {
         let rolls = roll_all_stats();
-        flow.state = LoginState::CharacterCreateAttributesRoll {
-            rolls,
-            assign_idx: 0,
-            attrs: [0u8; 6],
-            rerolls: MAX_REROLLS,
-        };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesRoll {
+                rolls,
+                assign_idx: 0,
+                attrs: [0u8; 6],
+                rerolls: MAX_REROLLS,
+            },
+        ));
         return lines;
     }
 
     let state = match &flow.state {
-        LoginState::CharacterCreateAttributesRoll {
-            rolls,
-            assign_idx,
-            attrs,
-            rerolls,
-        } => (*rolls, *assign_idx, *attrs, *rerolls),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesRoll {
+                rolls,
+                assign_idx,
+                attrs,
+                rerolls,
+            },
+        )) => (*rolls, *assign_idx, *attrs, *rerolls),
         _ => return lines,
     };
 
     if state.3 > 0 && (input == "reroll" || input == "r") {
         let new_rolls = roll_all_stats();
-        flow.state = LoginState::CharacterCreateAttributesRoll {
-            rolls: new_rolls,
-            assign_idx: 0,
-            attrs: [0u8; 6],
-            rerolls: state.3 - 1,
-        };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesRoll {
+                rolls: new_rolls,
+                assign_idx: 0,
+                attrs: [0u8; 6],
+                rerolls: state.3 - 1,
+            },
+        ));
         return lines;
     }
 
@@ -853,7 +926,9 @@ pub fn handle_roll_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
         flow.create_buffer.attributes = Some(oxide_core::Attributes::new(
             state.2[0], state.2[1], state.2[2], state.2[3], state.2[4], state.2[5],
         ));
-        flow.state = LoginState::CharacterCreateAlignment;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Alignment,
+        ));
         return lines;
     }
 
@@ -876,14 +951,18 @@ pub fn handle_roll_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
                     new_attrs[4],
                     new_attrs[5],
                 ));
-                flow.state = LoginState::CharacterCreateAlignment;
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                    CharacterCreateSubstate::Alignment,
+                ));
             } else {
-                flow.state = LoginState::CharacterCreateAttributesRoll {
-                    rolls: state.0,
-                    assign_idx: new_idx,
-                    attrs: new_attrs,
-                    rerolls: state.3,
-                };
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                    CharacterCreateSubstate::AttributesRoll {
+                        rolls: state.0,
+                        assign_idx: new_idx,
+                        attrs: new_attrs,
+                        rerolls: state.3,
+                    },
+                ));
             }
         }
         None => {
@@ -1024,7 +1103,9 @@ fn transition_to_deity(flow: &mut LoginFlow, templates: Option<&TemplateRegistry
             flow.create_buffer.deity = None;
             transition_from_deity(flow, templates);
         } else {
-            flow.state = LoginState::CharacterCreateDeity(options);
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Deity(options),
+            ));
         }
     }
     lines
@@ -1039,13 +1120,17 @@ fn transition_from_deity(flow: &mut LoginFlow, templates: Option<&TemplateRegist
     let has_pool = class.map(|c| !c.skill_pool.is_empty()).unwrap_or(false);
 
     if let Some(c) = class.filter(|_| has_pool) {
-        flow.state = LoginState::CharacterCreateSkillSelection {
-            pool: c.skill_pool.clone(),
-            selected: Vec::new(),
-            slots: c.starting_skill_slots,
-        };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::SkillSelection {
+                pool: c.skill_pool.clone(),
+                selected: Vec::new(),
+                slots: c.starting_skill_slots,
+            },
+        ));
     } else {
-        flow.state = LoginState::CharacterCreateAppearanceHeight;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceHeight,
+        ));
     }
 }
 
@@ -1070,10 +1155,14 @@ pub fn handle_character_create_deity_state(
     let input_lower = input.to_lowercase();
 
     let options = match &flow.state {
-        LoginState::CharacterCreateDeity(opts) => opts.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Deity(opts),
+        )) => opts.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1137,7 +1226,9 @@ pub fn handle_appearance_height_state(
     match input.parse::<u8>() {
         Ok(height) if height >= bounds.height_min && height <= bounds.height_max => {
             flow.create_buffer.appearance_height = Some(height);
-            flow.state = LoginState::CharacterCreateAppearanceWeight;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AppearanceWeight,
+            ));
         }
         _ => {
             lines.push(format!(
@@ -1161,7 +1252,9 @@ pub fn handle_appearance_weight_state(
     match input.parse::<u16>() {
         Ok(weight) if weight >= bounds.weight_min && weight <= bounds.weight_max => {
             flow.create_buffer.appearance_weight = Some(weight);
-            flow.state = LoginState::CharacterCreateAppearanceBuild(bounds.allowed_builds.clone());
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::AppearanceBuild(bounds.allowed_builds.clone()),
+            ));
         }
         _ => {
             lines.push(format!(
@@ -1183,10 +1276,14 @@ pub fn handle_appearance_build_state(
     let input_lower = input.to_lowercase();
 
     let options = match &flow.state {
-        LoginState::CharacterCreateAppearanceBuild(opts) => opts.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceBuild(opts),
+        )) => opts.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1194,7 +1291,9 @@ pub fn handle_appearance_build_state(
     let matched = match_option_index_or_name(&input_lower, &options);
     if let Some(build) = matched {
         flow.create_buffer.appearance_build = Some(build.clone());
-        flow.state = LoginState::CharacterCreateAppearanceHairStyle;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceHairStyle,
+        ));
     } else {
         lines.push(format!("'{}' is not a valid build option.", input));
     }
@@ -1214,7 +1313,9 @@ pub fn handle_appearance_hair_style_state(
     }
     flow.create_buffer.appearance_hair_style = Some(input.to_string());
     let bounds = get_race_appearance_bounds(flow, templates);
-    flow.state = LoginState::CharacterCreateAppearanceHairColor(bounds.allowed_hair_colors.clone());
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+        CharacterCreateSubstate::AppearanceHairColor(bounds.allowed_hair_colors.clone()),
+    ));
     lines
 }
 
@@ -1228,10 +1329,14 @@ pub fn handle_appearance_hair_color_state(
     let input_lower = input.to_lowercase();
 
     let options = match &flow.state {
-        LoginState::CharacterCreateAppearanceHairColor(opts) => opts.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceHairColor(opts),
+        )) => opts.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1240,8 +1345,9 @@ pub fn handle_appearance_hair_color_state(
     if let Some(color) = matched {
         flow.create_buffer.appearance_hair_color = Some(color.clone());
         let bounds = get_race_appearance_bounds(flow, templates);
-        flow.state =
-            LoginState::CharacterCreateAppearanceEyeColor(bounds.allowed_eye_colors.clone());
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceEyeColor(bounds.allowed_eye_colors.clone()),
+        ));
     } else {
         lines.push(format!("'{}' is not a valid hair color option.", input));
     }
@@ -1258,10 +1364,14 @@ pub fn handle_appearance_eye_color_state(
     let input_lower = input.to_lowercase();
 
     let options = match &flow.state {
-        LoginState::CharacterCreateAppearanceEyeColor(opts) => opts.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceEyeColor(opts),
+        )) => opts.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1270,8 +1380,9 @@ pub fn handle_appearance_eye_color_state(
     if let Some(color) = matched {
         flow.create_buffer.appearance_eye_color = Some(color.clone());
         let bounds = get_race_appearance_bounds(flow, templates);
-        flow.state =
-            LoginState::CharacterCreateAppearanceSkinTone(bounds.allowed_skin_tones.clone());
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceSkinTone(bounds.allowed_skin_tones.clone()),
+        ));
     } else {
         lines.push(format!("'{}' is not a valid eye color option.", input));
     }
@@ -1288,10 +1399,14 @@ pub fn handle_appearance_skin_tone_state(
     let input_lower = input.to_lowercase();
 
     let options = match &flow.state {
-        LoginState::CharacterCreateAppearanceSkinTone(opts) => opts.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceSkinTone(opts),
+        )) => opts.clone(),
         _ => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1299,7 +1414,9 @@ pub fn handle_appearance_skin_tone_state(
     let matched = match_option_index_or_name(&input_lower, &options);
     if let Some(tone) = matched {
         flow.create_buffer.appearance_skin_tone = Some(tone.clone());
-        flow.state = LoginState::CharacterCreateAge;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Age,
+        ));
     } else {
         lines.push(format!("'{}' is not a valid skin tone option.", input));
     }
@@ -1327,14 +1444,18 @@ pub fn handle_age_state(
 
     if input.is_empty() {
         flow.create_buffer.age = Some(age_default);
-        flow.state = LoginState::CharacterCreateDescription { lines: Vec::new() };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Description { lines: Vec::new() },
+        ));
         return lines;
     }
 
     match input.parse::<u16>() {
         Ok(age) if age >= age_default && age <= age_max => {
             flow.create_buffer.age = Some(age);
-            flow.state = LoginState::CharacterCreateDescription { lines: Vec::new() };
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Description { lines: Vec::new() },
+            ));
         }
         _ => {
             lines.push(format!(
@@ -1359,17 +1480,21 @@ pub fn handle_skill_selection_state(
     let input = input.trim().to_lowercase();
 
     let (pool, selected, slots) = match &flow.state {
-        LoginState::CharacterCreateSkillSelection {
-            pool,
-            selected,
-            slots,
-        } => (pool.clone(), selected.clone(), *slots),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::SkillSelection {
+                pool,
+                selected,
+                slots,
+            },
+        )) => (pool.clone(), selected.clone(), *slots),
         _ => return lines,
     };
 
     if input == "done" || input == "d" {
         flow.create_buffer.selected_skills = selected;
-        flow.state = LoginState::CharacterCreateAppearanceHeight;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceHeight,
+        ));
         return lines;
     }
 
@@ -1422,11 +1547,13 @@ pub fn handle_skill_selection_state(
             }
             let mut new_selected = selected;
             new_selected.push(target_id);
-            flow.state = LoginState::CharacterCreateSkillSelection {
-                pool,
-                selected: new_selected,
-                slots,
-            };
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::SkillSelection {
+                    pool,
+                    selected: new_selected,
+                    slots,
+                },
+            ));
         }
         "remove" | "r" | "rm" => {
             if !selected.contains(&target_id) {
@@ -1435,11 +1562,13 @@ pub fn handle_skill_selection_state(
             }
             let mut new_selected = selected;
             new_selected.retain(|s| s != &target_id);
-            flow.state = LoginState::CharacterCreateSkillSelection {
-                pool,
-                selected: new_selected,
-                slots,
-            };
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::SkillSelection {
+                    pool,
+                    selected: new_selected,
+                    slots,
+                },
+            ));
         }
         _ => {
             lines.push("Commands: add <skill>, remove <skill>, list, done".to_string());
@@ -1482,7 +1611,9 @@ pub fn handle_description_state(flow: &mut LoginFlow, input: &str) -> Vec<String
     let lines = Vec::new();
 
     let state_lines = match &flow.state {
-        LoginState::CharacterCreateDescription { lines } => lines.clone(),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Description { lines },
+        )) => lines.clone(),
         _ => return lines,
     };
 
@@ -1490,20 +1621,26 @@ pub fn handle_description_state(flow: &mut LoginFlow, input: &str) -> Vec<String
 
     if trimmed == "." && state_lines.is_empty() {
         flow.create_buffer.description = Some(String::new());
-        flow.state = LoginState::CharacterCreateSpawn;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Spawn,
+        ));
         return lines;
     }
 
     if trimmed == "." {
         let desc = state_lines.join("\n");
         flow.create_buffer.description = Some(desc);
-        flow.state = LoginState::CharacterCreateSpawn;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Spawn,
+        ));
         return lines;
     }
 
     let mut new_lines = state_lines;
     new_lines.push(input.to_string());
-    flow.state = LoginState::CharacterCreateDescription { lines: new_lines };
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+        CharacterCreateSubstate::Description { lines: new_lines },
+    ));
     lines
 }
 
@@ -1529,7 +1666,9 @@ pub fn handle_spawn_select_state(
         Some(r) => r,
         None => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1538,7 +1677,9 @@ pub fn handle_spawn_select_state(
         Some(c) => c,
         None => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::CharacterCreateName;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Name,
+            ));
             return lines;
         }
     };
@@ -1556,7 +1697,9 @@ pub fn handle_spawn_select_state(
             let (area_id, spawn) = available[idx - 1];
             let spawn_key = format!("{}:{}", area_id, spawn.room);
             flow.create_buffer.spawn_key = Some(spawn_key);
-            flow.state = LoginState::CharacterCreateConfirm;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Confirm,
+            ));
         }
         _ => {
             lines.push("Invalid selection.".to_string());
@@ -1584,7 +1727,7 @@ pub async fn handle_character_create_confirm_state(
         "n" | "no" => {
             clear_create_buffer(flow);
             lines.push("Character creation cancelled.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
         }
         _ => {
             lines.push("Type 'y' or 'n'.".to_string());
@@ -1607,7 +1750,7 @@ fn check_session<T>(
         Some(v) => Some(v),
         None => {
             lines.push(format!("Session error: no {label}. Starting over."));
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             None
         }
     }
@@ -1695,7 +1838,9 @@ async fn finalize_character(
         Some(r) => r,
         None => {
             lines.push("Error: The selected starting room could not be found. Please select a starting location again.".to_string());
-            flow.state = LoginState::CharacterCreateSpawn;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+                CharacterCreateSubstate::Spawn,
+            ));
             return lines;
         }
     };
@@ -2859,7 +3004,9 @@ mod tests {
 
         let mut flow = LoginFlow::new();
         flow.create_buffer.race = Some("human".to_string());
-        flow.state = LoginState::CharacterCreateGender;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Gender,
+        ));
 
         // In both show_character_gender_prompt and handle_character_create_gender_state,
         // options will be sorted alphabetically: ["female", "male", "neutral"]
@@ -2890,21 +3037,27 @@ mod tests {
 
         // Select by index
         let mut flow = LoginFlow::new();
-        flow.state = LoginState::CharacterCreateDeity(vec!["astra".to_string()]);
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Deity(vec!["astra".to_string()]),
+        ));
         flow.create_buffer.class = Some("warrior".to_string());
         let _ = handle_character_create_deity_state(&mut flow, "1", Some(&registry));
         assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
 
         // Select by ID case-insensitive
         let mut flow = LoginFlow::new();
-        flow.state = LoginState::CharacterCreateDeity(vec!["astra".to_string()]);
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Deity(vec!["astra".to_string()]),
+        ));
         flow.create_buffer.class = Some("warrior".to_string());
         let _ = handle_character_create_deity_state(&mut flow, "AsTrA", Some(&registry));
         assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
 
         // Select by name case-insensitive
         let mut flow = LoginFlow::new();
-        flow.state = LoginState::CharacterCreateDeity(vec!["astra".to_string()]);
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Deity(vec!["astra".to_string()]),
+        ));
         flow.create_buffer.class = Some("warrior".to_string());
         let _ = handle_character_create_deity_state(&mut flow, "astra goddess", Some(&registry));
         assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
@@ -2913,10 +3066,9 @@ mod tests {
     #[test]
     fn test_appearance_build_selection() {
         let mut flow = LoginFlow::new();
-        flow.state = LoginState::CharacterCreateAppearanceBuild(vec![
-            "slim".to_string(),
-            "heavy".to_string(),
-        ]);
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceBuild(vec!["slim".to_string(), "heavy".to_string()]),
+        ));
 
         // Select by index
         let _ = handle_appearance_build_state(&mut flow, "2", None);
@@ -2926,10 +3078,9 @@ mod tests {
         );
 
         // Select by name
-        flow.state = LoginState::CharacterCreateAppearanceBuild(vec![
-            "slim".to_string(),
-            "heavy".to_string(),
-        ]);
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AppearanceBuild(vec!["slim".to_string(), "heavy".to_string()]),
+        ));
         let _ = handle_appearance_build_state(&mut flow, "sLiM", None);
         assert_eq!(flow.create_buffer.appearance_build.as_deref(), Some("slim"));
     }
@@ -2996,7 +3147,9 @@ mod tests {
         let mut flow = LoginFlow::new();
         flow.create_buffer.race = Some("human".to_string());
         flow.create_buffer.class = Some("warrior".to_string());
-        flow.state = LoginState::CharacterCreateAlignment;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Alignment,
+        ));
 
         // Select lawful good (index 1)
         let _ = handle_alignment_state(&mut flow, "1", Some(&registry));

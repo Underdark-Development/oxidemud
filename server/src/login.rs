@@ -3,7 +3,10 @@ mod prompt;
 mod state;
 
 pub(crate) use handlers::{class_starting_gold, compute_final_attributes};
-pub use state::LoginState;
+pub use state::{
+    ChangePasswordSubstate, CharacterCreateSubstate, CharacterSelectSubstate, LoginState,
+    LoginSubstate,
+};
 
 pub use prompt::list_who;
 
@@ -86,7 +89,7 @@ impl Default for LoginFlow {
 impl LoginFlow {
     pub fn new() -> Self {
         LoginFlow {
-            state: LoginState::Connected,
+            state: LoginState::Login(LoginSubstate::Connected),
             create_buffer: CharacterCreateBuffer::default(),
             strikes: 0,
             account_id: None,
@@ -146,114 +149,128 @@ impl LoginFlow {
         registry: &mut ConnectionRegistry,
     ) -> Vec<String> {
         let mut lines = match &self.state {
-            LoginState::Connected => handlers::handle_connected_state(self),
-            LoginState::Username => handlers::handle_username_state(self, input, db).await,
-            LoginState::Password { username, attempts } => {
-                handlers::handle_password_state(
-                    self,
-                    input,
-                    db,
-                    username.clone(),
-                    *attempts,
-                    templates,
-                )
-                .await
-            }
-            LoginState::AccountCreateConfirm { .. } => {
-                handlers::handle_account_create_confirm_state(self, input)
-            }
-            LoginState::AccountCreatePassword => {
-                handlers::handle_account_create_password_state(self, input)
-            }
-            LoginState::AccountCreateConfirmPassword => {
-                handlers::handle_account_create_confirm_password_state(self, input, db).await
-            }
-            LoginState::CharacterSelect => {
-                handlers::handle_character_select_state(self, input, db, world, registry).await
-            }
-            LoginState::ChangePasswordOld => {
-                handlers::handle_change_password_old_state(self, input, db).await
-            }
-            LoginState::ChangePasswordNew => {
-                handlers::handle_change_password_new_state(self, input)
-            }
-            LoginState::ChangePasswordConfirm { new_password } => {
-                let new_pw = new_password.clone();
-                handlers::handle_change_password_confirm_state(self, input, new_pw, db).await
-            }
-            LoginState::CharacterDeleteConfirm { character_id, name } => {
-                let cid = *character_id;
-                let cname = name.clone();
-                handlers::handle_character_delete_confirm_state(self, input, cid, cname, db).await
-            }
-            LoginState::AccountDeleteConfirm => {
-                handlers::handle_account_delete_confirm_state(self, input, db).await
-            }
-            LoginState::CharacterCreateName => {
-                handlers::handle_character_create_name_state(self, input, db).await
-            }
-            LoginState::CharacterCreateRace(..) => {
-                handlers::handle_character_create_race_state(self, input, templates)
-            }
-            LoginState::CharacterCreateClass(..) => {
-                handlers::handle_character_create_class_state(self, input, templates)
-            }
-            LoginState::CharacterCreateGender => {
-                handlers::handle_character_create_gender_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAttributesPickMethod => {
-                handlers::handle_attributes_pick_method_state(self, input)
-            }
-            LoginState::CharacterCreateAttributesPointBuy { .. } => {
-                handlers::handle_point_buy_state(self, input)
-            }
-            LoginState::CharacterCreateAttributesArray { .. } => {
-                handlers::handle_standard_array_state(self, input)
-            }
-            LoginState::CharacterCreateAttributesRoll { .. } => {
-                handlers::handle_roll_state(self, input)
-            }
-            LoginState::CharacterCreateAlignment => {
-                handlers::handle_alignment_state(self, input, templates)
-            }
-            LoginState::CharacterCreateDeity(..) => {
-                handlers::handle_character_create_deity_state(self, input, templates)
-            }
-            LoginState::CharacterCreateSkillSelection { .. } => {
-                handlers::handle_skill_selection_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceHeight => {
-                handlers::handle_appearance_height_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceWeight => {
-                handlers::handle_appearance_weight_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceBuild(..) => {
-                handlers::handle_appearance_build_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceHairStyle => {
-                handlers::handle_appearance_hair_style_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceHairColor(..) => {
-                handlers::handle_appearance_hair_color_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceEyeColor(..) => {
-                handlers::handle_appearance_eye_color_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAppearanceSkinTone(..) => {
-                handlers::handle_appearance_skin_tone_state(self, input, templates)
-            }
-            LoginState::CharacterCreateAge => handlers::handle_age_state(self, input, templates),
-            LoginState::CharacterCreateDescription { .. } => {
-                handlers::handle_description_state(self, input)
-            }
-            LoginState::CharacterCreateSpawn => {
-                handlers::handle_spawn_select_state(self, input, templates)
-            }
-            LoginState::CharacterCreateConfirm => {
-                handlers::handle_character_create_confirm_state(self, input, db, world, templates)
+            LoginState::Login(sub) => match sub {
+                LoginSubstate::Connected => handlers::handle_connected_state(self),
+                LoginSubstate::Username => handlers::handle_username_state(self, input, db).await,
+                LoginSubstate::Password { username, attempts } => {
+                    handlers::handle_password_state(
+                        self,
+                        input,
+                        db,
+                        username.clone(),
+                        *attempts,
+                        templates,
+                    )
                     .await
-            }
+                }
+                LoginSubstate::AccountCreateConfirm { .. } => {
+                    handlers::handle_account_create_confirm_state(self, input)
+                }
+                LoginSubstate::AccountCreatePassword => {
+                    handlers::handle_account_create_password_state(self, input)
+                }
+                LoginSubstate::AccountCreateConfirmPassword => {
+                    handlers::handle_account_create_confirm_password_state(self, input, db).await
+                }
+            },
+            LoginState::CharacterSelect(sub) => match sub {
+                CharacterSelectSubstate::List => {
+                    handlers::handle_character_select_state(self, input, db, world, registry).await
+                }
+                CharacterSelectSubstate::ChangePassword(cp_sub) => match cp_sub {
+                    ChangePasswordSubstate::Old => {
+                        handlers::handle_change_password_old_state(self, input, db).await
+                    }
+                    ChangePasswordSubstate::New => {
+                        handlers::handle_change_password_new_state(self, input)
+                    }
+                    ChangePasswordSubstate::Confirm { new_password } => {
+                        let new_pw = new_password.clone();
+                        handlers::handle_change_password_confirm_state(self, input, new_pw, db)
+                            .await
+                    }
+                },
+                CharacterSelectSubstate::CharacterDeleteConfirm { character_id, name } => {
+                    let cid = *character_id;
+                    let cname = name.clone();
+                    handlers::handle_character_delete_confirm_state(self, input, cid, cname, db)
+                        .await
+                }
+                CharacterSelectSubstate::AccountDeleteConfirm => {
+                    handlers::handle_account_delete_confirm_state(self, input, db).await
+                }
+                CharacterSelectSubstate::CharacterCreate(cc_sub) => match cc_sub {
+                    CharacterCreateSubstate::Name => {
+                        handlers::handle_character_create_name_state(self, input, db).await
+                    }
+                    CharacterCreateSubstate::Race(..) => {
+                        handlers::handle_character_create_race_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::Class(..) => {
+                        handlers::handle_character_create_class_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::Gender => {
+                        handlers::handle_character_create_gender_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AttributesPickMethod => {
+                        handlers::handle_attributes_pick_method_state(self, input)
+                    }
+                    CharacterCreateSubstate::AttributesPointBuy { .. } => {
+                        handlers::handle_point_buy_state(self, input)
+                    }
+                    CharacterCreateSubstate::AttributesArray { .. } => {
+                        handlers::handle_standard_array_state(self, input)
+                    }
+                    CharacterCreateSubstate::AttributesRoll { .. } => {
+                        handlers::handle_roll_state(self, input)
+                    }
+                    CharacterCreateSubstate::Alignment => {
+                        handlers::handle_alignment_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::Deity(..) => {
+                        handlers::handle_character_create_deity_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::SkillSelection { .. } => {
+                        handlers::handle_skill_selection_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceHeight => {
+                        handlers::handle_appearance_height_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceWeight => {
+                        handlers::handle_appearance_weight_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceBuild(..) => {
+                        handlers::handle_appearance_build_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceHairStyle => {
+                        handlers::handle_appearance_hair_style_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceHairColor(..) => {
+                        handlers::handle_appearance_hair_color_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceEyeColor(..) => {
+                        handlers::handle_appearance_eye_color_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceSkinTone(..) => {
+                        handlers::handle_appearance_skin_tone_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::Age => {
+                        handlers::handle_age_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::Description { .. } => {
+                        handlers::handle_description_state(self, input)
+                    }
+                    CharacterCreateSubstate::Spawn => {
+                        handlers::handle_spawn_select_state(self, input, templates)
+                    }
+                    CharacterCreateSubstate::Confirm => {
+                        handlers::handle_character_create_confirm_state(
+                            self, input, db, world, templates,
+                        )
+                        .await
+                    }
+                },
+            },
             LoginState::Playing => Vec::new(),
         };
 
@@ -272,132 +289,154 @@ impl LoginFlow {
         screen_width: u16,
     ) -> Vec<String> {
         match &self.state {
-            LoginState::Connected => {
-                self.state = LoginState::Username;
-                Vec::new()
-            }
-            LoginState::Username
-            | LoginState::Password { .. }
-            | LoginState::AccountCreateConfirm { .. }
-            | LoginState::AccountCreatePassword
-            | LoginState::AccountCreateConfirmPassword => {
-                // Prompt already sent by handler during transition; no re-display needed.
-                Vec::new()
-            }
-            LoginState::CharacterSelect => {
-                prompt::go_to_character_select(self, db, templates, screen_width).await
-            }
-            LoginState::ChangePasswordOld => {
-                vec![String::new(), "Enter current password:".to_string()]
-            }
-            LoginState::ChangePasswordNew => {
-                vec![
-                    String::new(),
-                    "Enter new password (8+ characters):".to_string(),
-                ]
-            }
-            LoginState::ChangePasswordConfirm { .. } => {
-                vec![String::new(), "Confirm new password:".to_string()]
-            }
-            LoginState::CharacterDeleteConfirm { name, .. } => {
-                vec![
-                    String::new(),
-                    format!(
-                        "Are you sure you want to permanently delete character '{}'? (y/n)",
-                        name
-                    ),
-                ]
-            }
-            LoginState::AccountDeleteConfirm => {
-                vec![
-                    String::new(),
-                    "Are you sure you want to delete your account?".to_string(),
-                    "This will permanently delete your account and all characters.".to_string(),
-                    "Enter your password to confirm account deletion:".to_string(),
-                ]
-            }
-            LoginState::CharacterCreateName => {
-                vec![
-                    String::new(),
-                    "Enter your character's name (3-16 letters, hyphens, apostrophes):".to_string(),
-                ]
-            }
-            LoginState::CharacterCreateRace(..) => {
-                prompt::show_character_race_prompt(self, templates)
-            }
-            LoginState::CharacterCreateClass(..) => {
-                if let Some(t) = templates {
-                    prompt::show_character_class_prompt(self, t)
-                } else {
-                    Vec::new()
+            LoginState::Login(sub) => match sub {
+                LoginSubstate::Connected => {
+                    self.state = LoginState::Login(LoginSubstate::Username);
+                    vec!["Enter your username:".to_string()]
                 }
-            }
-            LoginState::CharacterCreateGender => {
-                if let Some(t) = templates {
-                    prompt::show_character_gender_prompt(self, t)
-                } else {
-                    Vec::new()
+                LoginSubstate::Username => {
+                    vec!["Enter your username:".to_string()]
                 }
-            }
-            LoginState::CharacterCreateAttributesPickMethod => {
-                prompt::show_attribute_method_prompt()
-            }
-            LoginState::CharacterCreateAttributesPointBuy { .. } => {
-                prompt::show_point_buy_prompt(self)
-            }
-            LoginState::CharacterCreateAttributesArray { .. } => {
-                prompt::show_standard_array_prompt(self)
-            }
-            LoginState::CharacterCreateAttributesRoll { .. } => prompt::show_roll_prompt(self),
-            LoginState::CharacterCreateAlignment => prompt::show_alignment_prompt(self, templates),
-            LoginState::CharacterCreateDeity(options) => {
-                prompt::show_character_deity_prompt(self, templates, options)
-            }
-            LoginState::CharacterCreateSkillSelection { .. } => {
-                prompt::show_skill_selection_prompt(self, templates)
-            }
-            LoginState::CharacterCreateAppearanceHeight => {
-                prompt::show_appearance_height_prompt(self, templates)
-            }
-            LoginState::CharacterCreateAppearanceWeight => {
-                prompt::show_appearance_weight_prompt(self, templates)
-            }
-            LoginState::CharacterCreateAppearanceBuild(options) => {
-                prompt::show_appearance_build_prompt(self, options)
-            }
-            LoginState::CharacterCreateAppearanceHairStyle => {
-                prompt::show_appearance_hair_style_prompt()
-            }
-            LoginState::CharacterCreateAppearanceHairColor(options) => {
-                prompt::show_appearance_hair_color_prompt(self, options)
-            }
-            LoginState::CharacterCreateAppearanceEyeColor(options) => {
-                prompt::show_appearance_eye_color_prompt(self, options)
-            }
-            LoginState::CharacterCreateAppearanceSkinTone(options) => {
-                prompt::show_appearance_skin_tone_prompt(self, options)
-            }
-            LoginState::CharacterCreateAge => prompt::show_age_prompt(self, templates),
-            LoginState::CharacterCreateDescription { .. } => {
-                vec![
-                    String::new(),
-                    "Enter your character's description (multi-line). Type '.' on a blank line to finish:".to_string(),
-                ]
-            }
-            LoginState::CharacterCreateSpawn => {
-                if let Some(t) = templates {
-                    prompt::show_spawn_prompt(self, t)
-                } else {
-                    Vec::new()
+                LoginSubstate::Password { .. } => {
+                    vec!["Password:".to_string()]
                 }
-            }
-            LoginState::CharacterCreateConfirm => {
-                if let Some(t) = templates {
-                    prompt::show_character_confirm(self, t)
-                } else {
-                    Vec::new()
+                LoginSubstate::AccountCreateConfirm { username } => {
+                    vec![format!(
+                        "No account found for '{username}'. Create a new account? (y/n)"
+                    )]
                 }
-            }
+                LoginSubstate::AccountCreatePassword => {
+                    vec!["Enter a password (8+ characters):".to_string()]
+                }
+                LoginSubstate::AccountCreateConfirmPassword => {
+                    vec!["Confirm password:".to_string()]
+                }
+            },
+            LoginState::CharacterSelect(sub) => match sub {
+                CharacterSelectSubstate::List => {
+                    prompt::go_to_character_select(self, db, templates, screen_width).await
+                }
+                CharacterSelectSubstate::ChangePassword(cp_sub) => match cp_sub {
+                    ChangePasswordSubstate::Old => {
+                        vec![String::new(), "Enter current password:".to_string()]
+                    }
+                    ChangePasswordSubstate::New => {
+                        vec![
+                            String::new(),
+                            "Enter new password (8+ characters):".to_string(),
+                        ]
+                    }
+                    ChangePasswordSubstate::Confirm { .. } => {
+                        vec![String::new(), "Confirm new password:".to_string()]
+                    }
+                },
+                CharacterSelectSubstate::CharacterDeleteConfirm { name, .. } => {
+                    vec![
+                        String::new(),
+                        format!(
+                            "Are you sure you want to permanently delete character '{}'? (y/n)",
+                            name
+                        ),
+                    ]
+                }
+                CharacterSelectSubstate::AccountDeleteConfirm => {
+                    vec![
+                        String::new(),
+                        "Are you sure you want to delete your account?".to_string(),
+                        "This will permanently delete your account and all characters.".to_string(),
+                        "Enter your password to confirm account deletion:".to_string(),
+                    ]
+                }
+                CharacterSelectSubstate::CharacterCreate(cc_sub) => match cc_sub {
+                    CharacterCreateSubstate::Name => {
+                        vec![
+                            String::new(),
+                            "Enter your character's name (3-16 letters, hyphens, apostrophes):"
+                                .to_string(),
+                        ]
+                    }
+                    CharacterCreateSubstate::Race(..) => {
+                        prompt::show_character_race_prompt(self, templates)
+                    }
+                    CharacterCreateSubstate::Class(..) => {
+                        if let Some(t) = templates {
+                            prompt::show_character_class_prompt(self, t)
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    CharacterCreateSubstate::Gender => {
+                        if let Some(t) = templates {
+                            prompt::show_character_gender_prompt(self, t)
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    CharacterCreateSubstate::AttributesPickMethod => {
+                        prompt::show_attribute_method_prompt()
+                    }
+                    CharacterCreateSubstate::AttributesPointBuy { .. } => {
+                        prompt::show_point_buy_prompt(self)
+                    }
+                    CharacterCreateSubstate::AttributesArray { .. } => {
+                        prompt::show_standard_array_prompt(self)
+                    }
+                    CharacterCreateSubstate::AttributesRoll { .. } => {
+                        prompt::show_roll_prompt(self)
+                    }
+                    CharacterCreateSubstate::Alignment => {
+                        prompt::show_alignment_prompt(self, templates)
+                    }
+                    CharacterCreateSubstate::Deity(options) => {
+                        prompt::show_character_deity_prompt(self, templates, options)
+                    }
+                    CharacterCreateSubstate::SkillSelection { .. } => {
+                        prompt::show_skill_selection_prompt(self, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceHeight => {
+                        prompt::show_appearance_height_prompt(self, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceWeight => {
+                        prompt::show_appearance_weight_prompt(self, templates)
+                    }
+                    CharacterCreateSubstate::AppearanceBuild(options) => {
+                        prompt::show_appearance_build_prompt(self, options)
+                    }
+                    CharacterCreateSubstate::AppearanceHairStyle => {
+                        prompt::show_appearance_hair_style_prompt()
+                    }
+                    CharacterCreateSubstate::AppearanceHairColor(options) => {
+                        prompt::show_appearance_hair_color_prompt(self, options)
+                    }
+                    CharacterCreateSubstate::AppearanceEyeColor(options) => {
+                        prompt::show_appearance_eye_color_prompt(self, options)
+                    }
+                    CharacterCreateSubstate::AppearanceSkinTone(options) => {
+                        prompt::show_appearance_skin_tone_prompt(self, options)
+                    }
+                    CharacterCreateSubstate::Age => prompt::show_age_prompt(self, templates),
+                    CharacterCreateSubstate::Description { .. } => {
+                        vec![
+                            String::new(),
+                            "Enter your character's description (multi-line). Type '.' on a blank line to finish:".to_string(),
+                        ]
+                    }
+                    CharacterCreateSubstate::Spawn => {
+                        if let Some(t) = templates {
+                            prompt::show_spawn_prompt(self, t)
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    CharacterCreateSubstate::Confirm => {
+                        if let Some(t) = templates {
+                            prompt::show_character_confirm(self, t)
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                },
+            },
             LoginState::Playing => {
                 // Don't show a prompt here; the game command loop handles its own prompt.
                 Vec::new()

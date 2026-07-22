@@ -14,7 +14,7 @@ const MAX_LOGIN_LINE_LENGTH: usize = 256;
 use crate::cmd::{AccessLevel, Command, CommandDispatch};
 use crate::connection::{Connection, TelnetConnection};
 use crate::game_loop::spawn_game_loop;
-use crate::login::{LoginFlow, LoginState};
+use crate::login::LoginFlow;
 use crate::registry::ConnectionRegistry;
 use crate::telnet::codec::TelnetReader;
 use crate::telnet::INITIAL_NEGOTIATION;
@@ -502,8 +502,12 @@ async fn handle_connection(
         let w = world.lock().await;
         send_server_greeting(&mut conn, &reg, &w);
     }
-    conn.send_line("Enter your username:");
-    login_flow.state = LoginState::Username;
+    let prompt_msgs = login_flow
+        .show_state_prompt(db.as_deref(), templates.as_deref(), conn.screen_width())
+        .await;
+    for msg in &prompt_msgs {
+        conn.send_line(msg);
+    }
 
     let telnet_reader = TelnetReader::new(reader_half);
     let mut buf_reader = BufReader::new(telnet_reader);

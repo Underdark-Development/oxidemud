@@ -1,69 +1,79 @@
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LoginState {
+pub enum LoginSubstate {
     Connected,
     Username,
-    Password {
-        username: Arc<str>,
-        attempts: u8,
-    },
-    AccountCreateConfirm {
-        username: Arc<str>,
-    },
+    Password { username: Arc<str>, attempts: u8 },
+    AccountCreateConfirm { username: Arc<str> },
     AccountCreatePassword,
     AccountCreateConfirmPassword,
-    CharacterSelect,
-    CharacterCreateName,
-    CharacterCreateRace(Vec<String>),
-    CharacterCreateClass(Vec<String>),
-    CharacterCreateGender,
-    CharacterCreateAttributesPickMethod,
-    CharacterCreateAttributesPointBuy {
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangePasswordSubstate {
+    Old,
+    New,
+    Confirm { new_password: Arc<str> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CharacterCreateSubstate {
+    Name,
+    Race(Vec<String>),
+    Class(Vec<String>),
+    Gender,
+    AttributesPickMethod,
+    AttributesPointBuy {
         remaining: u8,
         attrs: [u8; 6],
     },
-    CharacterCreateAttributesArray {
+    AttributesArray {
         values: [u8; 6],
         assign_idx: usize,
         attrs: [u8; 6],
     },
-    CharacterCreateAttributesRoll {
+    AttributesRoll {
         rolls: [u8; 6],
         assign_idx: usize,
         attrs: [u8; 6],
         rerolls: u8,
     },
-    CharacterCreateAlignment,
-    CharacterCreateDeity(Vec<String>),
-    CharacterCreateSkillSelection {
+    Alignment,
+    Deity(Vec<String>),
+    SkillSelection {
         pool: Vec<String>,
         selected: Vec<String>,
         slots: u8,
     },
-    CharacterCreateAppearanceHeight,
-    CharacterCreateAppearanceWeight,
-    CharacterCreateAppearanceBuild(Vec<String>),
-    CharacterCreateAppearanceHairStyle,
-    CharacterCreateAppearanceHairColor(Vec<String>),
-    CharacterCreateAppearanceEyeColor(Vec<String>),
-    CharacterCreateAppearanceSkinTone(Vec<String>),
-    CharacterCreateAge,
-    CharacterCreateDescription {
+    AppearanceHeight,
+    AppearanceWeight,
+    AppearanceBuild(Vec<String>),
+    AppearanceHairStyle,
+    AppearanceHairColor(Vec<String>),
+    AppearanceEyeColor(Vec<String>),
+    AppearanceSkinTone(Vec<String>),
+    Age,
+    Description {
         lines: Vec<String>,
     },
-    CharacterCreateSpawn,
-    CharacterCreateConfirm,
-    ChangePasswordOld,
-    ChangePasswordNew,
-    ChangePasswordConfirm {
-        new_password: Arc<str>,
-    },
-    CharacterDeleteConfirm {
-        character_id: i64,
-        name: Arc<str>,
-    },
+    Spawn,
+    Confirm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CharacterSelectSubstate {
+    List,
+    CharacterCreate(CharacterCreateSubstate),
+    ChangePassword(ChangePasswordSubstate),
+    CharacterDeleteConfirm { character_id: i64, name: Arc<str> },
     AccountDeleteConfirm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoginState {
+    Login(LoginSubstate),
+    CharacterSelect(CharacterSelectSubstate),
     Playing,
 }
 
@@ -73,14 +83,6 @@ impl LoginState {
     }
 
     pub fn is_pre_auth(&self) -> bool {
-        matches!(
-            self,
-            LoginState::Connected
-                | LoginState::Username
-                | LoginState::Password { .. }
-                | LoginState::AccountCreateConfirm { .. }
-                | LoginState::AccountCreatePassword
-                | LoginState::AccountCreateConfirmPassword
-        )
+        matches!(self, LoginState::Login(_))
     }
 }

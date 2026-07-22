@@ -4,7 +4,9 @@ use tokio::sync::Mutex;
 
 use oxide_core::templates::TemplateRegistry;
 
-use super::super::state::LoginState;
+use super::super::state::{
+    ChangePasswordSubstate, CharacterSelectSubstate, LoginState, LoginSubstate,
+};
 use super::super::LoginFlow;
 
 // ---------------------------------------------------------------------------
@@ -32,7 +34,7 @@ fn world_building_ready(templates: Option<&TemplateRegistry>) -> bool {
 // ---------------------------------------------------------------------------
 
 pub fn handle_connected_state(flow: &mut LoginFlow) -> Vec<String> {
-    flow.state = LoginState::Username;
+    flow.state = LoginState::Login(LoginSubstate::Username);
     Vec::new()
 }
 
@@ -68,20 +70,14 @@ pub async fn handle_username_state(
 
     if existing.is_some() {
         flow.echo_on = true;
-        lines.push(String::new());
-        lines.push("Password:".to_string());
-        flow.state = LoginState::Password {
+        flow.state = LoginState::Login(LoginSubstate::Password {
             username: Arc::from(username.to_string()),
             attempts: 0,
-        };
+        });
     } else {
-        lines.push(String::new());
-        lines.push(format!(
-            "No account found for '{username}'. Create a new account? (y/n)"
-        ));
-        flow.state = LoginState::AccountCreateConfirm {
+        flow.state = LoginState::Login(LoginSubstate::AccountCreateConfirm {
             username: Arc::from(username.to_string()),
-        };
+        });
     }
     lines
 }
@@ -153,7 +149,7 @@ pub async fn handle_password_state(
             flow.disconnect_requested = true;
             return lines;
         }
-        flow.state = LoginState::CharacterSelect;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
     } else {
         let new_attempts = attempts + 1;
         if new_attempts >= 3 {
@@ -162,13 +158,12 @@ pub async fn handle_password_state(
         } else {
             lines.push(String::new());
             lines.push(format!("Invalid password. ({new_attempts}/3 attempts)"));
-            lines.push("Password:".to_string());
             flow.echo_on = true;
             flow.strikes += 1;
-            flow.state = LoginState::Password {
+            flow.state = LoginState::Login(LoginSubstate::Password {
                 username,
                 attempts: new_attempts,
-            };
+            });
         }
     }
     lines
@@ -178,16 +173,15 @@ pub fn handle_account_create_confirm_state(flow: &mut LoginFlow, input: &str) ->
     let mut lines = Vec::new();
     match input.trim().to_lowercase().as_str() {
         "y" | "yes" => {
-            if let LoginState::AccountCreateConfirm { username } = &flow.state {
+            if let LoginState::Login(LoginSubstate::AccountCreateConfirm { username }) = &flow.state
+            {
                 flow.create_buffer.name = Some(username.to_string());
             }
             flow.echo_on = true;
-            lines.push(String::new());
-            lines.push("Enter a password (8+ characters):".to_string());
-            flow.state = LoginState::AccountCreatePassword;
+            flow.state = LoginState::Login(LoginSubstate::AccountCreatePassword);
         }
         "n" | "no" => {
-            flow.state = LoginState::Username;
+            flow.state = LoginState::Login(LoginSubstate::Username);
         }
         _ => {
             lines.push("Please answer y or n.".to_string());
@@ -210,15 +204,13 @@ pub fn handle_account_create_password_state(flow: &mut LoginFlow, input: &str) -
         flow.echo_on = false;
         lines.push(String::new());
         lines.push("Session error. Starting over.".to_string());
-        flow.state = LoginState::Username;
+        flow.state = LoginState::Login(LoginSubstate::Username);
         return lines;
     }
 
     flow.create_buffer.password = Some(password.to_string());
     flow.echo_on = true;
-    lines.push(String::new());
-    lines.push("Confirm password:".to_string());
-    flow.state = LoginState::AccountCreateConfirmPassword;
+    flow.state = LoginState::Login(LoginSubstate::AccountCreateConfirmPassword);
     lines
 }
 
@@ -240,14 +232,14 @@ pub async fn handle_account_create_confirm_password_state(
         flow.echo_on = false;
         lines.push(String::new());
         lines.push("Session error. Starting over.".to_string());
-        flow.state = LoginState::Username;
+        flow.state = LoginState::Login(LoginSubstate::Username);
         return lines;
     }
 
     if confirm != stored_password.as_deref().unwrap() {
         lines.push(String::new());
         lines.push("Passwords do not match. Try again.".to_string());
-        flow.state = LoginState::AccountCreatePassword;
+        flow.state = LoginState::Login(LoginSubstate::AccountCreatePassword);
         return lines;
     }
 
@@ -281,7 +273,7 @@ pub async fn handle_account_create_confirm_password_state(
             "That username was taken while you were choosing a password. Starting over."
                 .to_string(),
         );
-        flow.state = LoginState::Username;
+        flow.state = LoginState::Login(LoginSubstate::Username);
         flow.create_buffer.name = None;
         flow.create_buffer.password = None;
         return lines;
@@ -299,7 +291,7 @@ pub async fn handle_account_create_confirm_password_state(
     flow.echo_on = false;
     lines.push(String::new());
     lines.push("Account created! Please log in.".to_string());
-    flow.state = LoginState::Username;
+    flow.state = LoginState::Login(LoginSubstate::Username);
     lines
 }
 
@@ -323,19 +315,31 @@ mod tests {
 
         let mut flow = LoginFlow::new();
         flow.account_id = Some(account_id);
-        flow.state = LoginState::ChangePasswordOld;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+            ChangePasswordSubstate::Old,
+        ));
 
         // 2. Submit wrong password
         let lines = handle_change_password_old_state(&mut flow, "wrongpass", Some(&db)).await;
         assert!(lines.iter().any(|l| l.contains("Invalid password")));
-        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
         assert!(!flow.echo_on);
 
         // 3. Reset state & submit correct old password
-        flow.state = LoginState::ChangePasswordOld;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+            ChangePasswordSubstate::Old,
+        ));
         let lines = handle_change_password_old_state(&mut flow, "oldpassword", Some(&db)).await;
         assert!(lines.is_empty());
-        assert_eq!(flow.state, LoginState::ChangePasswordNew);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+                ChangePasswordSubstate::New
+            ))
+        );
         assert!(flow.echo_on);
 
         // 4. Submit new password that is too short
@@ -343,15 +347,22 @@ mod tests {
         assert!(lines
             .iter()
             .any(|l| l.contains("must be at least 8 characters")));
-        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
         assert!(!flow.echo_on);
 
         // 5. Submit valid new password
-        flow.state = LoginState::ChangePasswordNew;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+            ChangePasswordSubstate::New,
+        ));
         let lines = handle_change_password_new_state(&mut flow, "newsecretpass");
         assert!(lines.is_empty());
         match &flow.state {
-            LoginState::ChangePasswordConfirm { new_password } => {
+            LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+                ChangePasswordSubstate::Confirm { new_password },
+            )) => {
                 assert_eq!(&**new_password, "newsecretpass");
             }
             _ => panic!("Expected ChangePasswordConfirm state"),
@@ -360,25 +371,35 @@ mod tests {
 
         // 6. Confirm password with mismatch
         let new_pw = match &flow.state {
-            LoginState::ChangePasswordConfirm { new_password } => new_password.clone(),
+            LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+                ChangePasswordSubstate::Confirm { new_password },
+            )) => new_password.clone(),
             _ => unreachable!(),
         };
         let lines =
             handle_change_password_confirm_state(&mut flow, "mismatch", new_pw.clone(), Some(&db))
                 .await;
         assert!(lines.iter().any(|l| l.contains("do not match")));
-        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
         assert!(!flow.echo_on);
 
         // 7. Confirm password successfully
-        flow.state = LoginState::ChangePasswordConfirm {
-            new_password: new_pw.clone(),
-        };
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+            ChangePasswordSubstate::Confirm {
+                new_password: new_pw.clone(),
+            },
+        ));
         let lines =
             handle_change_password_confirm_state(&mut flow, "newsecretpass", new_pw, Some(&db))
                 .await;
         assert!(lines.iter().any(|l| l.contains("changed successfully")));
-        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
         assert!(!flow.echo_on);
 
         // 8. Verify password hash updated in DB
@@ -413,10 +434,10 @@ mod tests {
 
         let mut flow = LoginFlow::new();
         flow.account_id = Some(account_id);
-        flow.state = LoginState::CharacterDeleteConfirm {
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterDeleteConfirm {
             character_id: char_id,
             name: Arc::from("DelCharName"),
-        };
+        });
 
         // 1. Cancel deletion
         let lines = handle_character_delete_confirm_state(
@@ -428,7 +449,10 @@ mod tests {
         )
         .await;
         assert!(lines.iter().any(|l| l.contains("cancelled")));
-        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
 
         // Verify character still exists
         {
@@ -438,10 +462,10 @@ mod tests {
         }
 
         // 2. Perform deletion
-        flow.state = LoginState::CharacterDeleteConfirm {
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterDeleteConfirm {
             character_id: char_id,
             name: Arc::from("DelCharName"),
-        };
+        });
         let lines = handle_character_delete_confirm_state(
             &mut flow,
             "yes",
@@ -451,7 +475,10 @@ mod tests {
         )
         .await;
         assert!(lines.iter().any(|l| l.contains("permanently deleted")));
-        assert_eq!(flow.state, LoginState::CharacterSelect);
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
 
         // Verify character is gone
         {
@@ -474,7 +501,7 @@ pub async fn handle_change_password_old_state(
             flow.echo_on = false;
             lines
                 .push("Server error: database unavailable. Password change cancelled.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -484,7 +511,7 @@ pub async fn handle_change_password_old_state(
         None => {
             flow.echo_on = false;
             lines.push("Session error. Please log in again.".to_string());
-            flow.state = LoginState::Username;
+            flow.state = LoginState::Login(LoginSubstate::Username);
             return lines;
         }
     };
@@ -495,7 +522,7 @@ pub async fn handle_change_password_old_state(
         _ => {
             flow.echo_on = false;
             lines.push("Account not found. Password change cancelled.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -505,11 +532,13 @@ pub async fn handle_change_password_old_state(
 
     if valid {
         flow.echo_on = true;
-        flow.state = LoginState::ChangePasswordNew;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+            ChangePasswordSubstate::New,
+        ));
     } else {
         flow.echo_on = false;
         lines.push("Invalid password. Password change cancelled.".to_string());
-        flow.state = LoginState::CharacterSelect;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
     }
     lines
 }
@@ -521,14 +550,16 @@ pub fn handle_change_password_new_state(flow: &mut LoginFlow, input: &str) -> Ve
         flow.echo_on = false;
         lines
             .push("Password must be at least 8 characters. Password change cancelled.".to_string());
-        flow.state = LoginState::CharacterSelect;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
         return lines;
     }
 
     flow.echo_on = true;
-    flow.state = LoginState::ChangePasswordConfirm {
-        new_password: Arc::from(new_pw),
-    };
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::ChangePassword(
+        ChangePasswordSubstate::Confirm {
+            new_password: Arc::from(new_pw),
+        },
+    ));
     lines
 }
 
@@ -543,7 +574,7 @@ pub async fn handle_change_password_confirm_state(
     if confirm != &*new_password {
         flow.echo_on = false;
         lines.push("Passwords do not match. Password change cancelled.".to_string());
-        flow.state = LoginState::CharacterSelect;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
         return lines;
     }
 
@@ -553,7 +584,7 @@ pub async fn handle_change_password_confirm_state(
             flow.echo_on = false;
             lines
                 .push("Server error: database unavailable. Password change cancelled.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -563,7 +594,7 @@ pub async fn handle_change_password_confirm_state(
         None => {
             flow.echo_on = false;
             lines.push("Session error. Please log in again.".to_string());
-            flow.state = LoginState::Username;
+            flow.state = LoginState::Login(LoginSubstate::Username);
             return lines;
         }
     };
@@ -575,7 +606,7 @@ pub async fn handle_change_password_confirm_state(
             lines.push(format!(
                 "Error hashing password: {e}. Password change cancelled."
             ));
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -585,14 +616,14 @@ pub async fn handle_change_password_confirm_state(
         Ok(_) => {
             flow.echo_on = false;
             lines.push("Password changed successfully.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
         }
         Err(e) => {
             flow.echo_on = false;
             lines.push(format!(
                 "DB error updating password: {e}. Password change cancelled."
             ));
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
         }
     }
     lines
@@ -612,7 +643,7 @@ pub async fn handle_character_delete_confirm_state(
             Some(d) => d,
             None => {
                 lines.push("Server error: database unavailable. Deletion cancelled.".to_string());
-                flow.state = LoginState::CharacterSelect;
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
                 return lines;
             }
         };
@@ -633,7 +664,7 @@ pub async fn handle_character_delete_confirm_state(
         lines.push("Character deletion cancelled.".to_string());
     }
 
-    flow.state = LoginState::CharacterSelect;
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
     lines
 }
 
@@ -648,7 +679,7 @@ pub async fn handle_account_delete_confirm_state(
         None => {
             flow.echo_on = false;
             lines.push("Server error: database unavailable. Deletion cancelled.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -658,7 +689,7 @@ pub async fn handle_account_delete_confirm_state(
         None => {
             flow.echo_on = false;
             lines.push("Session error. Please log in again.".to_string());
-            flow.state = LoginState::Username;
+            flow.state = LoginState::Login(LoginSubstate::Username);
             return lines;
         }
     };
@@ -669,7 +700,7 @@ pub async fn handle_account_delete_confirm_state(
         _ => {
             flow.echo_on = false;
             lines.push("Account not found. Deletion cancelled.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -681,21 +712,26 @@ pub async fn handle_account_delete_confirm_state(
         match oxide_data::delete_account(db_guard.conn(), account_id) {
             Ok(_) => {
                 flow.echo_on = false;
-                lines.push("Your account and all associated characters have been permanently deleted. Goodbye.".to_string());
-                flow.disconnect_requested = true;
+                flow.account_id = None;
+                flow.create_dismissed = false;
+                flow.state = LoginState::Login(LoginSubstate::Username);
+                lines.push(
+                    "Your account and all associated characters have been permanently deleted."
+                        .to_string(),
+                );
             }
             Err(e) => {
                 flow.echo_on = false;
                 lines.push(format!(
                     "DB error deleting account: {e}. Deletion cancelled."
                 ));
-                flow.state = LoginState::CharacterSelect;
+                flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             }
         }
     } else {
         flow.echo_on = false;
         lines.push("Invalid password. Account deletion cancelled.".to_string());
-        flow.state = LoginState::CharacterSelect;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
     }
     lines
 }

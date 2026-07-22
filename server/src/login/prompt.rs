@@ -5,7 +5,7 @@ use oxide_core::{Alignment, Name, World};
 
 use crate::registry::ConnectionRegistry;
 
-use super::state::LoginState;
+use super::state::{CharacterCreateSubstate, CharacterSelectSubstate, LoginState, LoginSubstate};
 use super::LoginFlow;
 
 // ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ pub async fn go_to_character_select(
         Some(id) => id,
         None => {
             lines.push("Session error. Starting over.".to_string());
-            flow.state = LoginState::Username;
+            flow.state = LoginState::Login(LoginSubstate::Username);
             return lines;
         }
     };
@@ -83,7 +83,7 @@ pub async fn go_to_character_select(
         Some(d) => d,
         None => {
             lines.push("Server error: database unavailable.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -92,7 +92,7 @@ pub async fn go_to_character_select(
         Ok(g) => g,
         Err(_) => {
             lines.push("Server error: database unavailable.".to_string());
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -101,7 +101,7 @@ pub async fn go_to_character_select(
         Ok(c) => c,
         Err(e) => {
             lines.push(format!("DB error: {e}"));
-            flow.state = LoginState::CharacterSelect;
+            flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
             return lines;
         }
     };
@@ -120,7 +120,7 @@ pub async fn go_to_character_select(
         } else {
             lines.push("You have no characters yet. Create one now? (y/n)".to_string());
         }
-        flow.state = LoginState::CharacterSelect;
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
         return lines;
     }
 
@@ -146,7 +146,7 @@ pub async fn go_to_character_select(
     ];
     lines.extend(format_menu_line(&menu_items, screen_width));
 
-    flow.state = LoginState::CharacterSelect;
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
     lines
 }
 
@@ -174,7 +174,9 @@ pub fn show_character_race_prompt(
     races.sort_by(|a, b| a.0.cmp(b.0));
 
     let ids: Vec<String> = races.iter().map(|(id, _)| id.to_string()).collect();
-    flow.state = LoginState::CharacterCreateRace(ids);
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+        CharacterCreateSubstate::Race(ids),
+    ));
 
     for (i, (_id, race)) in races.iter().enumerate() {
         lines.push(format!("{}. {} — {}", i + 1, race.name, race.description));
@@ -193,7 +195,9 @@ pub fn show_character_class_prompt(
     let available = templates.available_classes_for_race(race_id);
 
     let ids: Vec<String> = available.iter().map(|c| c.id.clone()).collect();
-    flow.state = LoginState::CharacterCreateClass(ids);
+    flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+        CharacterCreateSubstate::Class(ids),
+    ));
 
     lines.push(String::new());
     lines.push("--- Choose a Class ---".to_string());
@@ -272,7 +276,9 @@ pub fn show_point_buy_prompt(flow: &LoginFlow) -> Vec<String> {
     let mut lines = Vec::new();
 
     let (remaining, attrs) = match &flow.state {
-        LoginState::CharacterCreateAttributesPointBuy { remaining, attrs } => (*remaining, *attrs),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesPointBuy { remaining, attrs },
+        )) => (*remaining, *attrs),
         _ => return lines,
     };
 
@@ -320,11 +326,13 @@ pub fn show_standard_array_prompt(flow: &LoginFlow) -> Vec<String> {
     let mut lines = Vec::new();
 
     let (values, assign_idx, attrs) = match &flow.state {
-        LoginState::CharacterCreateAttributesArray {
-            values,
-            assign_idx,
-            attrs,
-        } => (*values, *assign_idx, *attrs),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesArray {
+                values,
+                assign_idx,
+                attrs,
+            },
+        )) => (*values, *assign_idx, *attrs),
         _ => return lines,
     };
 
@@ -363,12 +371,14 @@ pub fn show_roll_prompt(flow: &LoginFlow) -> Vec<String> {
     let mut lines = Vec::new();
 
     let (rolls, assign_idx, attrs, rerolls) = match &flow.state {
-        LoginState::CharacterCreateAttributesRoll {
-            rolls,
-            assign_idx,
-            attrs,
-            rerolls,
-        } => (*rolls, *assign_idx, *attrs, *rerolls),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::AttributesRoll {
+                rolls,
+                assign_idx,
+                attrs,
+                rerolls,
+            },
+        )) => (*rolls, *assign_idx, *attrs, *rerolls),
         _ => return lines,
     };
 
@@ -527,11 +537,13 @@ pub fn show_skill_selection_prompt(
     let mut lines = Vec::new();
 
     let (pool, selected, slots) = match &flow.state {
-        LoginState::CharacterCreateSkillSelection {
-            pool,
-            selected,
-            slots,
-        } => (pool.clone(), selected.clone(), *slots),
+        LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::SkillSelection {
+                pool,
+                selected,
+                slots,
+            },
+        )) => (pool.clone(), selected.clone(), *slots),
         _ => return lines,
     };
 
