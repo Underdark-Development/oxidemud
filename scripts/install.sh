@@ -223,6 +223,16 @@ cp bin/oxide-mcp "$INSTALL_DIR/bin/"
 chmod +x "$INSTALL_DIR/bin/oxide-server"
 chmod +x "$INSTALL_DIR/bin/oxide-mcp"
 
+# Copy Docker files
+if [ -f "Dockerfile" ]; then
+    cp "Dockerfile" "$INSTALL_DIR/Dockerfile"
+    echo -e "  Added Dockerfile"
+fi
+if [ -f "docker-compose.yml" ]; then
+    cp "docker-compose.yml" "$INSTALL_DIR/docker-compose.yml"
+    echo -e "  Added docker-compose.yml"
+fi
+
 # Install Spade
 if [ "$INSTALL_SPADE" = "true" ]; then
     if mkdir -p "$BIN_INSTALL_PATH" 2>/dev/null && cp bin/spade "$BIN_INSTALL_PATH/" 2>/dev/null; then
