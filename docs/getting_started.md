@@ -25,6 +25,8 @@ Oxide MUD compiles into a set of standalone binaries. You can install it on your
 
 ## 2. Server Configuration
 
+> See [Server Administration Guide](server_admin.md) for detailed configuration documentation.
+
 The installation script places default configurations under `/opt/oxide/content/server.toml` (or your custom directory). You can configure ports, database connections, and system tick rates here:
 
 ```toml
@@ -68,7 +70,7 @@ Oxide MUD features a raw Telnet network reader that supports ANSI 256 colors. Yo
 
 ---
 
-## 5. Starting the MCP Co-Builder
+## 5. Starting the MCP Server
 
 To enable AI assistant world building, make sure the Model Context Protocol (MCP) server is running:
 
