@@ -150,7 +150,7 @@ impl Server {
         name: &'static str,
         aliases: &'static [&'static str],
         access: AccessLevel,
-        category: &'static str,
+        topic: &'static str,
         help_text: &'static str,
         handler: crate::cmd::CommandFn,
     ) {
@@ -158,7 +158,7 @@ impl Server {
             name,
             aliases,
             access,
-            category,
+            topic,
             help_text,
             handler,
         });

@@ -83,149 +83,158 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
 
 struct ConsoleCommand {
     name: &'static str,
-    category: &'static str,
+    topic: &'static str,
     syntax: &'static str,
     description: &'static str,
     example: &'static str,
 }
 
-static CATEGORY_DESCRIPTIONS: &[(&str, &str)] = &[
+static TOPIC_DESCRIPTIONS: &[(&str, &str)] = &[
     ("General", "Server control and information"),
-    ("Account Management", "Create, inspect, and manage player accounts"),
-    ("Character Management", "Modify character attributes and stats"),
-    ("API Key Management", "Manage API keys for MCP and Spade authentication"),
+    (
+        "Account Management",
+        "Create, inspect, and manage player accounts",
+    ),
+    (
+        "Character Management",
+        "Modify character attributes and stats",
+    ),
+    (
+        "API Key Management",
+        "Manage API keys for MCP and Spade authentication",
+    ),
 ];
 
 static CONSOLE_COMMANDS: &[ConsoleCommand] = &[
     ConsoleCommand {
         name: "help",
-        category: "General",
-        syntax: "help [command|category]",
-        description: "Show help details for console commands or categories",
+        topic: "General",
+        syntax: "help [command|topic]",
+        description: "Show help details for console commands or topics",
         example: "",
     },
     ConsoleCommand {
         name: "save",
-        category: "General",
+        topic: "General",
         syntax: "save",
         description: "Force flush dirty entities to database",
         example: "",
     },
     ConsoleCommand {
         name: "broadcast",
-        category: "General",
+        topic: "General",
         syntax: "broadcast <message>",
         description: "Send message to all online players",
         example: "broadcast The server will restart in 5 minutes.",
     },
     ConsoleCommand {
         name: "online",
-        category: "General",
+        topic: "General",
         syntax: "online",
         description: "List all online players and locations",
         example: "",
     },
     ConsoleCommand {
         name: "who",
-        category: "General",
+        topic: "General",
         syntax: "who",
         description: "Alias for 'online' command",
         example: "",
     },
     ConsoleCommand {
         name: "kick",
-        category: "General",
+        topic: "General",
         syntax: "kick <username_or_character>",
         description: "Kick an online player or character",
         example: "kick TestPlayer",
     },
     ConsoleCommand {
         name: "shutdown",
-        category: "General",
+        topic: "General",
         syntax: "shutdown",
         description: "Gracefully stop the server",
         example: "",
     },
     ConsoleCommand {
         name: "restart",
-        category: "General",
+        topic: "General",
         syntax: "restart",
         description: "Gracefully stop (restart not yet implemented)",
         example: "",
     },
     ConsoleCommand {
         name: "account list",
-        category: "Account Management",
+        topic: "Account Management",
         syntax: "account list",
         description: "List all registered accounts",
         example: "",
     },
     ConsoleCommand {
         name: "account create",
-        category: "Account Management",
+        topic: "Account Management",
         syntax: "account create <user> <pass> [level]",
         description: "Create a new account (play/build/imm/god/admin)",
         example: "account create bob secretpass build",
     },
     ConsoleCommand {
         name: "account info",
-        category: "Account Management",
+        topic: "Account Management",
         syntax: "account info <username>",
         description: "Show account details",
         example: "account info bob",
     },
     ConsoleCommand {
         name: "account set-access",
-        category: "Account Management",
+        topic: "Account Management",
         syntax: "account set-access <username> <level>",
         description: "Set account access level (play/build/imm/god/admin)",
         example: "account set-access bob imm",
     },
     ConsoleCommand {
         name: "account set-password",
-        category: "Account Management",
+        topic: "Account Management",
         syntax: "account set-password <username>",
         description: "Reset account password",
         example: "account set-password bob",
     },
     ConsoleCommand {
         name: "character set",
-        category: "Character Management",
+        topic: "Character Management",
         syntax: "character set <char> <field> <value>",
         description: "Modify character field (level, xp, name, race, class)",
         example: "character set BobTheBuilder level 50",
     },
     ConsoleCommand {
         name: "apikey generate",
-        category: "API Key Management",
+        topic: "API Key Management",
         syntax: "apikey generate <user> [opts]",
         description: "Generate a new API key for a user account.\n  Options:\n    --description, -d <text>       Key description\n    --scope, -s <mcp,spade>       Comma-separated scopes (default: mcp)\n    --expires, -e <30d|90d|1y>    Expiry duration",
         example: "apikey generate bob --scope mcp,spade --expires 90d",
     },
     ConsoleCommand {
         name: "apikey list",
-        category: "API Key Management",
+        topic: "API Key Management",
         syntax: "apikey list",
         description: "List active API keys with scopes and expiry",
         example: "",
     },
     ConsoleCommand {
         name: "apikey revoke",
-        category: "API Key Management",
+        topic: "API Key Management",
         syntax: "apikey revoke <key>",
         description: "Revoke and delete an API key",
         example: "apikey revoke <key>",
     },
     ConsoleCommand {
         name: "apikey scope add",
-        category: "API Key Management",
+        topic: "API Key Management",
         syntax: "apikey scope <key> add <scope>",
         description: "Add a scope (mcp, spade) to an existing key",
         example: "apikey scope <key> add spade",
     },
     ConsoleCommand {
         name: "apikey scope remove",
-        category: "API Key Management",
+        topic: "API Key Management",
         syntax: "apikey scope <key> remove <scope>",
         description: "Remove a scope from a key",
         example: "apikey scope <key> remove mcp",
@@ -238,38 +247,38 @@ fn print_help(query: &str) {
     // Normalize spaces for matching (strips all spaces so "apikey" matches "API Key Management")
     let norm = |s: &str| s.to_lowercase().replace(' ', "");
 
-    // Get unique categories list preserving insertion order
-    let mut categories: Vec<&str> = Vec::new();
+    // Get unique topics list preserving insertion order
+    let mut topics: Vec<&str> = Vec::new();
     for cmd in CONSOLE_COMMANDS {
-        if !categories.contains(&cmd.category) {
-            categories.push(cmd.category);
+        if !topics.contains(&cmd.topic) {
+            topics.push(cmd.topic);
         }
     }
 
     if !query.is_empty() {
         let query_norm = norm(query);
 
-        // 1. Check for Category Match
-        let matched_category = categories.iter().find(|cat| {
-            let cat_norm = norm(cat);
-            cat_norm == query_norm || cat_norm.starts_with(&query_norm)
+        // 1. Check for Topic Match
+        let matched_topic = topics.iter().find(|t| {
+            let t_norm = norm(t);
+            t_norm == query_norm || t_norm.starts_with(&query_norm)
         });
 
-        if let Some(cat) = matched_category {
-            let cat_desc = CATEGORY_DESCRIPTIONS
+        if let Some(topic) = matched_topic {
+            let topic_desc = TOPIC_DESCRIPTIONS
                 .iter()
-                .find(|(c, _)| c == cat)
+                .find(|(c, _)| c == topic)
                 .map(|(_, d)| *d)
                 .unwrap_or("");
 
             println!();
-            println!("  {cat}");
-            if !cat_desc.is_empty() {
-                println!("  {cat_desc}");
+            println!("  {topic}");
+            if !topic_desc.is_empty() {
+                println!("  {topic_desc}");
             }
             println!();
             for cmd in CONSOLE_COMMANDS {
-                if cmd.category == *cat {
+                if cmd.topic == *topic {
                     let summary = cmd.description.lines().next().unwrap_or("");
                     println!("    {:<38} {}", cmd.syntax, summary);
                 }
@@ -314,21 +323,21 @@ fn print_help(query: &str) {
         return;
     }
 
-    // Print all commands grouped by category
+    // Print all commands grouped by topic
     println!();
     println!("  Server Console Commands");
     println!("  Type 'help <command>' or 'help <topic>' for details.");
     println!();
 
-    for cat in &categories {
-        let cat_desc = CATEGORY_DESCRIPTIONS
+    for topic in &topics {
+        let topic_desc = TOPIC_DESCRIPTIONS
             .iter()
-            .find(|(c, _)| c == cat)
+            .find(|(c, _)| c == topic)
             .map(|(_, d)| *d)
             .unwrap_or("");
-        println!("  {cat} — {cat_desc}");
+        println!("  {topic} — {topic_desc}");
         for cmd in CONSOLE_COMMANDS {
-            if cmd.category == *cat {
+            if cmd.topic == *topic {
                 let summary = cmd.description.lines().next().unwrap_or("");
                 println!("    {:<38} {}", cmd.syntax, summary);
             }

@@ -10,7 +10,7 @@ pub struct Command {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub access: AccessLevel,
-    pub category: &'static str,
+    pub topic: &'static str,
     pub help_text: &'static str,
     pub handler: CommandFn,
 }
@@ -101,14 +101,14 @@ impl CommandDispatch {
         }
     }
 
-    /// Returns commands grouped by category in registration order.
+    /// Returns commands grouped by topic in registration order.
     pub fn help_groups(&self) -> Vec<(&'static str, Vec<&Command>)> {
         let mut groups: Vec<(&'static str, Vec<&Command>)> = Vec::new();
         for cmd in &self.commands {
-            if let Some(group) = groups.iter_mut().find(|(cat, _)| *cat == cmd.category) {
+            if let Some(group) = groups.iter_mut().find(|(t, _)| *t == cmd.topic) {
                 group.1.push(cmd);
             } else {
-                groups.push((cmd.category, vec![cmd]));
+                groups.push((cmd.topic, vec![cmd]));
             }
         }
         groups
@@ -176,7 +176,7 @@ mod tests {
             name: "test",
             aliases: &["t"],
             access: AccessLevel::Player,
-            category: "General",
+            topic: "General",
             help_text: "test command",
             handler: test_handler,
         });
@@ -184,7 +184,7 @@ mod tests {
             name: "admin",
             aliases: &[],
             access: AccessLevel::Admin,
-            category: "Admin",
+            topic: "Admin",
             help_text: "admin command",
             handler: noop,
         });
@@ -268,7 +268,7 @@ mod tests {
             name: "targeting",
             aliases: &[],
             access: AccessLevel::Player,
-            category: "Test",
+            topic: "Test",
             help_text: "",
             handler: noop,
         });
@@ -276,7 +276,7 @@ mod tests {
             name: "test",
             aliases: &["t"],
             access: AccessLevel::Player,
-            category: "Test",
+            topic: "Test",
             help_text: "",
             handler: noop,
         });

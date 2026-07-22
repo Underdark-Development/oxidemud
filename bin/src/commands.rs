@@ -1020,10 +1020,10 @@ pub fn cmd_help(
     };
 
     let conn_access = conn.access_level();
-    let mut categories = std::collections::BTreeSet::new();
+    let mut topics = std::collections::BTreeSet::new();
     for cmd in &dispatch.commands {
         if conn_access >= cmd.access {
-            categories.insert(cmd.category);
+            topics.insert(cmd.topic);
         }
     }
 
@@ -1031,14 +1031,12 @@ pub fn cmd_help(
 
     if !query.is_empty() {
         let query_lower = query.to_lowercase();
-        // Check if query matches a category name case-insensitively
-        let matched_category = categories
-            .iter()
-            .find(|cat| cat.to_lowercase() == query_lower);
-        if let Some(cat) = matched_category {
+        // Check if query matches a topic name case-insensitively
+        let matched_topic = topics.iter().find(|t| t.to_lowercase() == query_lower);
+        if let Some(topic) = matched_topic {
             let mut cmds = Vec::new();
             for cmd in &dispatch.commands {
-                if cmd.category == *cat && conn_access >= cmd.access {
+                if cmd.topic == *topic && conn_access >= cmd.access {
                     let name_col = if cmd.aliases.is_empty() {
                         cmd.name.to_string()
                     } else {
@@ -1054,7 +1052,7 @@ pub fn cmd_help(
                 80
             };
             conn.send_line("");
-            conn.send_line(&format!("Commands in Category '{cat}':"));
+            conn.send_line(&format!("Commands in Topic '{topic}':"));
             conn.send_line("");
             for line in format_wide_list(&cmds, width) {
                 conn.send_line(&format!("  {line}"));
@@ -1086,14 +1084,14 @@ pub fn cmd_help(
         return;
     }
 
-    let cats: Vec<String> = categories.iter().map(|s| s.to_string()).collect();
+    let cats: Vec<String> = topics.iter().map(|s| s.to_string()).collect();
     let width = if conn.screen_width() > 0 {
         conn.screen_width() as usize
     } else {
         80
     };
     conn.send_line("");
-    conn.send_line("Available Help Categories  (type 'help <category>' or 'help <command>')");
+    conn.send_line("Available Help Topics  (type 'help <topic>' or 'help <command>')");
     conn.send_line("");
     for line in format_wide_list(&cats, width) {
         conn.send_line(&format!("  {line}"));
@@ -10416,13 +10414,13 @@ mod tests {
     }
 
     #[test]
-    fn test_help_categories_and_filtering() {
+    fn test_help_topics_and_filtering() {
         let mut dispatch = oxide_server::CommandDispatch::new();
         dispatch.register(oxide_server::Command {
             name: "help",
             aliases: &[],
             access: core::AccessLevel::Player,
-            category: "General",
+            topic: "General",
             help_text: "Help command description",
             handler: |w, c, n, a, r| cmd_help(w, c, n, a, r),
         });
@@ -10430,7 +10428,7 @@ mod tests {
             name: "look",
             aliases: &[],
             access: core::AccessLevel::Player,
-            category: "General",
+            topic: "General",
             help_text: "look description",
             handler: |_, _, _, _, _| {},
         });
@@ -10438,7 +10436,7 @@ mod tests {
             name: "goto",
             aliases: &[],
             access: core::AccessLevel::Immortal,
-            category: "Immortal",
+            topic: "Immortal",
             help_text: "goto description",
             handler: |_, _, _, _, _| {},
         });
@@ -10446,7 +10444,7 @@ mod tests {
             name: "@dig",
             aliases: &[],
             access: core::AccessLevel::Builder,
-            category: "Builder",
+            topic: "Builder",
             help_text: "dig description",
             handler: |_, _, _, _, _| {},
         });
@@ -10456,17 +10454,15 @@ mod tests {
         let mut conn = MockConnection::new();
         let conn_reg = ConnectionRegistry::new();
 
-        // 1. Player access (only General, Combat, etc. categories, no Builder/Immortal)
+        // 1. Player access (only General, Combat, etc. topics, no Builder/Immortal)
         conn.set_access_level(core::AccessLevel::Player);
         cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
         let lines = conn.take_lines();
 
-        // Assert categories are printed
-        assert!(lines
-            .iter()
-            .any(|l| l.contains("Available Help Categories")));
+        // Assert topics are printed
+        assert!(lines.iter().any(|l| l.contains("Available Help Topics")));
         assert!(lines.iter().any(|l| l.contains("General")));
-        // Assert staff categories are hidden
+        // Assert staff topics are hidden
         assert!(!lines.iter().any(|l| l.contains("Builder")));
         assert!(!lines.iter().any(|l| l.contains("Immortal")));
 
@@ -10477,7 +10473,7 @@ mod tests {
             .iter()
             .any(|l| l.contains("No help found for 'goto'.")));
 
-        // 3. Builder access (Builder category visible, Immortal hidden)
+        // 3. Builder access (Builder topic visible, Immortal hidden)
         conn.set_access_level(core::AccessLevel::Builder);
         cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
         let lines = conn.take_lines();
@@ -10489,7 +10485,7 @@ mod tests {
         let lines = conn.take_lines();
         assert!(lines.iter().any(|l| l.contains("@dig")));
 
-        // 5. Immortal access (Immortal category visible)
+        // 5. Immortal access (Immortal topic visible)
         conn.set_access_level(core::AccessLevel::Immortal);
         cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
         let lines = conn.take_lines();
