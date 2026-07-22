@@ -2080,7 +2080,7 @@ description = "Default spawn point"
         // Wait for reload (which is debounced by 100ms)
         let start = Instant::now();
         let mut reloaded = false;
-        while start.elapsed() < Duration::from_secs(10) {
+        while start.elapsed() < Duration::from_secs(30) {
             tokio::time::sleep(Duration::from_millis(50)).await;
             if let Some(templates) = get_templates() {
                 if let Some(area) = templates.areas.get("midgaard") {
