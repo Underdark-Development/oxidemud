@@ -1112,6 +1112,38 @@ mcp/
 
 ---
 
+## Future Feature: LPC Mudlib Importer (Post-1.0, Low Priority)
+
+This outline details the planned (post-1.0, low priority) offline transpiler and runner architecture (`lpc-to-oxide`) to migrate legacy LPC mudlibs (rooms, items, NPCs, and base objects) into OxideMUD compatible TOML data templates and Rhai scripts.
+
+### 1. Stateful Object State Mapping
+LPC objects store local variables that persist over their active lifetime. Oxide's Rhai scripts are stateless.
+* **Solution:** Introduce an in-memory `DynamicState` component (`HashMap<String, Dynamic>`) to the ECS. When modified by scripts, the entity is flagged as `Dirty`. State will be flushed to the SQLite database during the standard 5-second `DirtyFlush` maintenance tick, preventing database write bottlenecks. Expose `self.get_state("key")` and `self.set_state("key", value)` to Rhai.
+
+### 2. Dynamic Commands (`add_action`)
+LPC mudlibs register actions dynamically on players in proximity.
+* **Solution:** Add an `ActiveCommands` component to characters. When a player enters a room or equips an item, the engine registers their custom command verbs. The command dispatcher (`server/src/cmd/`) matches input verbs using the same prefix/abbreviation matching rules as built-in commands. Built-in engine commands always take precedence.
+
+### 3. Pre-Movement Interception (`on_before_exit`)
+LPC scripts block player movement based on custom conditions (e.g., guard NPCs blocking exits).
+* **Solution:** Implement an `on_before_exit` hook run by `systems::movement` on the current room and all NPCs inside it. Returning `false` or invoking `cancel_move` aborts the move.
+
+### 4. Code Reuse and Inheritance
+LPC heavily relies on class inheritance (e.g., inheriting `/std/room.c`).
+* **Solution:** The transpiler will flatten the inheritance hierarchy during compilation or generate Rhai `import` statements (e.g., `import "std/room" as room;`).
+
+### 5. Delayed Events & Heartbeats (`call_out`)
+LPC allows scheduling future functions and recurring ticks.
+* **Solution:** Implement a central `ScriptTimerManager` resource in the ECS world. It will register delayed/recurring task profiles and trigger executions on the 250ms Player State tick.
+
+### 6. Transpiler Pipeline
+The offline tool converts LPC assets into Oxide templates and scripts:
+* **Phase 1: Preprocessing & Macro Resolution:** Integrate a dedicated C-preprocessor pass accepting a mudlib `--include-dir` to resolve all macros, conditional compilation (`#ifdef`), and header expansions.
+* **Phase 2: Static Structure Extraction:** Parse static configurators (e.g., `set_short`, `set_long`) and output clean TOML templates.
+* **Phase 3: Behavior Transpilation:** Map LPC functions (`init`, `hit_callback`) and standard efuns (`write`, `say`, `destruct`) into Rhai equivalents.
+
+---
+
 ## Development Phases
 
 ### Phase 0 — Foundation ✓
