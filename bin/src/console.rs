@@ -86,7 +86,15 @@ struct ConsoleCommand {
     category: &'static str,
     syntax: &'static str,
     description: &'static str,
+    example: &'static str,
 }
+
+static CATEGORY_DESCRIPTIONS: &[(&str, &str)] = &[
+    ("General", "Server control and information"),
+    ("Account Management", "Create, inspect, and manage player accounts"),
+    ("Character Management", "Modify character attributes and stats"),
+    ("API Key Management", "Manage API keys for MCP and Spade authentication"),
+];
 
 static CONSOLE_COMMANDS: &[ConsoleCommand] = &[
     ConsoleCommand {
@@ -94,132 +102,176 @@ static CONSOLE_COMMANDS: &[ConsoleCommand] = &[
         category: "General",
         syntax: "help [command|category]",
         description: "Show help details for console commands or categories",
+        example: "",
     },
     ConsoleCommand {
         name: "save",
         category: "General",
         syntax: "save",
         description: "Force flush dirty entities to database",
+        example: "",
     },
     ConsoleCommand {
         name: "broadcast",
         category: "General",
         syntax: "broadcast <message>",
         description: "Send message to all online players",
+        example: "broadcast The server will restart in 5 minutes.",
     },
     ConsoleCommand {
         name: "online",
         category: "General",
         syntax: "online",
         description: "List all online players and locations",
+        example: "",
     },
     ConsoleCommand {
         name: "who",
         category: "General",
         syntax: "who",
         description: "Alias for 'online' command",
+        example: "",
     },
     ConsoleCommand {
         name: "kick",
         category: "General",
         syntax: "kick <username_or_character>",
         description: "Kick an online player or character",
+        example: "kick TestPlayer",
     },
     ConsoleCommand {
         name: "shutdown",
         category: "General",
         syntax: "shutdown",
         description: "Gracefully stop the server",
+        example: "",
     },
     ConsoleCommand {
         name: "restart",
         category: "General",
         syntax: "restart",
         description: "Gracefully stop (restart not yet implemented)",
+        example: "",
     },
     ConsoleCommand {
         name: "account list",
         category: "Account Management",
         syntax: "account list",
         description: "List all registered accounts",
+        example: "",
     },
     ConsoleCommand {
         name: "account create",
         category: "Account Management",
         syntax: "account create <user> <pass> [level]",
         description: "Create a new account (play/build/imm/god/admin)",
+        example: "account create bob secretpass build",
     },
     ConsoleCommand {
         name: "account info",
         category: "Account Management",
         syntax: "account info <username>",
         description: "Show account details",
+        example: "account info bob",
     },
     ConsoleCommand {
         name: "account set-access",
         category: "Account Management",
         syntax: "account set-access <username> <level>",
         description: "Set account access level (play/build/imm/god/admin)",
+        example: "account set-access bob imm",
     },
     ConsoleCommand {
         name: "account set-password",
         category: "Account Management",
         syntax: "account set-password <username>",
         description: "Reset account password",
+        example: "account set-password bob",
     },
     ConsoleCommand {
         name: "character set",
         category: "Character Management",
         syntax: "character set <char> <field> <value>",
         description: "Modify character field (level, xp, name, race, class)",
+        example: "character set BobTheBuilder level 50",
     },
     ConsoleCommand {
         name: "apikey generate",
         category: "API Key Management",
-        syntax: "apikey generate <u> [desc]",
-        description: "Generate a new REST API key for user <u>",
+        syntax: "apikey generate <user> [opts]",
+        description: "Generate a new API key for a user account.\n  Options:\n    --description, -d <text>       Key description\n    --scope, -s <mcp,spade>       Comma-separated scopes (default: mcp)\n    --expires, -e <30d|90d|1y>    Expiry duration",
+        example: "apikey generate bob --scope mcp,spade --expires 90d",
     },
     ConsoleCommand {
         name: "apikey list",
         category: "API Key Management",
         syntax: "apikey list",
-        description: "List active REST API keys",
+        description: "List active API keys with scopes and expiry",
+        example: "",
     },
     ConsoleCommand {
         name: "apikey revoke",
         category: "API Key Management",
-        syntax: "apikey revoke <k>",
-        description: "Revoke/delete API key <k>",
+        syntax: "apikey revoke <key>",
+        description: "Revoke and delete an API key",
+        example: "apikey revoke <key>",
+    },
+    ConsoleCommand {
+        name: "apikey scope add",
+        category: "API Key Management",
+        syntax: "apikey scope <key> add <scope>",
+        description: "Add a scope (mcp, spade) to an existing key",
+        example: "apikey scope <key> add spade",
+    },
+    ConsoleCommand {
+        name: "apikey scope remove",
+        category: "API Key Management",
+        syntax: "apikey scope <key> remove <scope>",
+        description: "Remove a scope from a key",
+        example: "apikey scope <key> remove mcp",
     },
 ];
 
 fn print_help(query: &str) {
     let query = query.trim();
 
-    // Get unique categories list
-    let mut categories = std::collections::BTreeSet::new();
+    // Normalize spaces for matching (strips all spaces so "apikey" matches "API Key Management")
+    let norm = |s: &str| s.to_lowercase().replace(' ', "");
+
+    // Get unique categories list preserving insertion order
+    let mut categories: Vec<&str> = Vec::new();
     for cmd in CONSOLE_COMMANDS {
-        categories.insert(cmd.category);
+        if !categories.contains(&cmd.category) {
+            categories.push(cmd.category);
+        }
     }
 
     if !query.is_empty() {
-        let query_lower = query.to_lowercase();
+        let query_norm = norm(query);
 
         // 1. Check for Category Match
         let matched_category = categories.iter().find(|cat| {
-            let cat_lower = cat.to_lowercase();
-            cat_lower == query_lower
-                || cat_lower.starts_with(&query_lower)
-                || cat_lower.contains(&query_lower)
+            let cat_norm = norm(cat);
+            cat_norm == query_norm || cat_norm.starts_with(&query_norm)
         });
 
         if let Some(cat) = matched_category {
+            let cat_desc = CATEGORY_DESCRIPTIONS
+                .iter()
+                .find(|(c, _)| c == cat)
+                .map(|(_, d)| *d)
+                .unwrap_or("");
+
             println!();
-            println!("Commands in Category '{}':", cat);
-            println!("{}", "-".repeat(60));
+            println!("  {cat}");
+            if !cat_desc.is_empty() {
+                println!("  {cat_desc}");
+            }
+            println!();
             for cmd in CONSOLE_COMMANDS {
                 if cmd.category == *cat {
-                    println!("  {:<30} - {}", cmd.syntax, cmd.description);
+                    let summary = cmd.description.lines().next().unwrap_or("");
+                    println!("    {:<38} {}", cmd.syntax, summary);
                 }
             }
             println!();
@@ -229,15 +281,31 @@ fn print_help(query: &str) {
         // 2. Check for Command Match
         let matched_command = CONSOLE_COMMANDS.iter().find(|c| {
             let name_lower = c.name.to_lowercase();
-            name_lower == query_lower || name_lower.starts_with(&query_lower)
+            name_lower == query.to_lowercase() || name_lower.starts_with(&query.to_lowercase())
         });
 
         if let Some(cmd) = matched_command {
             println!();
-            println!("Command:      {}", cmd.name);
-            println!("Category:     {}", cmd.category);
-            println!("Syntax:       {}", cmd.syntax);
-            println!("Description:  {}", cmd.description);
+            let summary = cmd.description.lines().next().unwrap_or("");
+            println!("  {}", cmd.name);
+            println!();
+            println!("  {summary}");
+
+            let extra_lines: Vec<&str> = cmd.description.lines().skip(1).collect();
+            if !extra_lines.is_empty() {
+                println!();
+                println!("  Usage:");
+                println!("    {}", cmd.syntax);
+                for line in &extra_lines {
+                    println!("    {line}");
+                }
+            }
+
+            if !cmd.example.is_empty() {
+                println!();
+                println!("  Example:");
+                println!("    {}", cmd.example);
+            }
             println!();
             return;
         }
@@ -248,18 +316,25 @@ fn print_help(query: &str) {
 
     // Print all commands grouped by category
     println!();
-    println!("Server Console Commands:");
-    println!("Type 'help <command>' or 'help <category>' for specific details (e.g. 'help account' or 'help account set-access').");
+    println!("  Server Console Commands");
+    println!("  Type 'help <command>' or 'help <topic>' for details.");
+    println!();
 
-    for cat in categories {
-        println!("\n[{cat}]");
+    for cat in &categories {
+        let cat_desc = CATEGORY_DESCRIPTIONS
+            .iter()
+            .find(|(c, _)| c == cat)
+            .map(|(_, d)| *d)
+            .unwrap_or("");
+        println!("  {cat} — {cat_desc}");
         for cmd in CONSOLE_COMMANDS {
-            if cmd.category == cat {
-                println!("  {:<30} - {}", cmd.syntax, cmd.description);
+            if cmd.category == *cat {
+                let summary = cmd.description.lines().next().unwrap_or("");
+                println!("    {:<38} {}", cmd.syntax, summary);
             }
         }
+        println!();
     }
-    println!();
 }
 
 fn cmd_save() {
