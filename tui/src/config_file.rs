@@ -34,6 +34,8 @@ pub struct ConnectionConfig {
     pub username: String,
     #[serde(default)]
     pub tls: bool,
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
 impl Default for ConnectionConfig {
@@ -43,6 +45,7 @@ impl Default for ConnectionConfig {
             port: default_port(),
             username: String::new(),
             tls: false,
+            api_key: None,
         }
     }
 }

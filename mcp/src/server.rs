@@ -45,6 +45,19 @@ impl OxideMcpServer {
         content::load_registry(&self.content_path)
     }
 
+    /// Validate a content ID is safe for filesystem operations and that the
+    /// resulting path stays within the content directory.
+    fn validate_id(&self, id: &str) -> Result<(), String> {
+        content::validate_content_id(id)
+    }
+
+    /// Validate a content ID and check that a constructed path is contained
+    /// within the content directory.
+    fn validate_and_contain(&self, id: &str, path: &std::path::Path) -> Result<(), String> {
+        content::validate_content_id(id)?;
+        content::assert_within_content_dir(&self.content_path, path)
+    }
+
     fn entity_list(items: &HashMap<String, impl AsRef<str>>, label: &str) -> String {
         if items.is_empty() {
             return format!("No {} found.", label);
@@ -281,6 +294,8 @@ struct TeleportParams {
 struct ForceCommandParams {
     player_name: String,
     command: String,
+    #[schemars(description = "Must be true to confirm this destructive operation")]
+    confirm: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -472,7 +487,13 @@ impl OxideMcpServer {
     #[tool(description = "Create a new area")]
     fn create_area(&self, params: Parameters<CreateAreaParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let area_dir = self.content_path.join("areas").join(&p.id);
+        if let Err(e) = self.validate_and_contain(&p.id, &area_dir) {
+            return format!("Error: {e}");
+        }
 
         if let Err(e) = fs::create_dir_all(area_dir.join("rooms"))
             .and_then(|_| fs::create_dir_all(area_dir.join("areas")))
@@ -630,6 +651,12 @@ impl OxideMcpServer {
         let p = params.0;
         let area_id = &p.area_id;
         let room_id = &p.room_id;
+        if let Err(e) = self.validate_id(area_id) {
+            return format!("Error: {e}");
+        }
+        if let Err(e) = self.validate_id(room_id) {
+            return format!("Error: {e}");
+        }
         let (_, file_map) = self.load();
 
         let area_dir = match content::area_dir_from_file(&file_map, area_id) {
@@ -638,6 +665,9 @@ impl OxideMcpServer {
         };
 
         let room_path = area_dir.join("rooms").join(format!("{room_id}.toml"));
+        if let Err(e) = self.validate_and_contain(room_id, &room_path) {
+            return format!("Error: {e}");
+        }
         if room_path.exists() {
             return format!(
                 "Error: room '{}' already exists in area '{}'",
@@ -1052,11 +1082,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new mob template")]
     fn create_mob(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("mobs")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let mob = MobTemplate {
             id: p.id.clone(),
             name,
@@ -1146,11 +1182,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new item template")]
     fn create_item(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("items")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let item = ItemTemplate {
             id: p.id.clone(),
             name,
@@ -1253,11 +1295,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new quest template")]
     fn create_quest(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("quests")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let quest = QuestDef {
             id: p.id.clone(),
             name,
@@ -1339,11 +1387,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new faction template")]
     fn create_faction(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("factions")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let faction = FactionDef {
             id: p.id.clone(),
             name,
@@ -1424,11 +1478,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new recipe template")]
     fn create_recipe(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("recipes")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let recipe = RecipeDef {
             id: p.id.clone(),
             name,
@@ -1510,11 +1570,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new shop template")]
     fn create_shop(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("shops")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let shop = oxide_core::templates::ShopTemplate {
             id: p.id.clone(),
             name,
@@ -1593,11 +1659,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new deity template")]
     fn create_deity(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("deities")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let deity = oxide_core::templates::DeityTemplate {
             id: p.id.clone(),
             name,
@@ -1665,11 +1737,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new stance template")]
     fn create_stance(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("stances")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let stance = StanceDef {
             id: p.id.clone(),
             name,
@@ -1755,11 +1833,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new item set template")]
     fn create_set(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("sets")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let set = SetDef {
             id: p.id.clone(),
             name,
@@ -1822,11 +1906,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new affix template")]
     fn create_affix(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("affixes")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let affix = AffixDef {
             id: p.id.clone(),
             name,
@@ -1902,11 +1992,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new passive template")]
     fn create_passive(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("passives")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let passive = PassiveDef {
             id: p.id.clone(),
             name,
@@ -1969,11 +2065,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new skill template")]
     fn create_skill(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("skills")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let skill = oxide_core::SkillDef::new(
             p.id.clone(),
             name,
@@ -2036,11 +2138,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new race template")]
     fn create_race(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("races")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let race = RaceTemplate {
             id: p.id.clone(),
             name,
@@ -2110,11 +2218,17 @@ impl OxideMcpServer {
     #[tool(description = "Create a new class template")]
     fn create_class(&self, params: Parameters<CreateEntityParams>) -> String {
         let p = params.0;
+        if let Err(e) = self.validate_id(&p.id) {
+            return format!("Error: {e}");
+        }
         let name = p.name.unwrap_or_else(|| p.id.clone());
         let path = self
             .content_path
             .join("classes")
             .join(format!("{}.toml", p.id));
+        if let Err(e) = self.validate_and_contain(&p.id, &path) {
+            return format!("Error: {e}");
+        }
         let class = ClassTemplate {
             id: p.id.clone(),
             name,
@@ -2986,6 +3100,11 @@ impl OxideMcpServer {
     #[tool(description = "Force a player to execute a command as if they typed it (Online Only)")]
     async fn imm_force_command(&self, params: Parameters<ForceCommandParams>) -> String {
         let p = params.0;
+
+        if !p.confirm {
+            return "Error: This is a destructive operation. Set `confirm` to true to proceed.".to_string();
+        }
+
         let (url, key) = match (&self.api_url, &self.api_key) {
             (Some(u), Some(k)) => (u, k),
             _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),

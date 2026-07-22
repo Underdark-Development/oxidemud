@@ -620,34 +620,89 @@ async fn cmd_character_set(char_name: &str, field: &str, value: &str) {
 }
 
 async fn cmd_apikey(args: &str) {
-    let parts: Vec<&str> = args.splitn(2, char::is_whitespace).collect();
+    let parts: Vec<&str> = args.split_whitespace().collect();
     match parts.as_slice() {
-        ["generate", rest] => {
-            let subparts: Vec<&str> = rest.splitn(2, char::is_whitespace).collect();
-            match subparts.as_slice() {
-                [username] => cmd_apikey_generate(username, None).await,
-                [username, desc] => cmd_apikey_generate(username, Some(desc)).await,
-                _ => println!("Usage: apikey generate <username> [description]"),
+        ["generate", username, ..] => {
+            let mut description = None;
+            let mut scopes: Vec<&str> = Vec::new();
+            let mut expires = None;
+            for chunk in parts[2..].chunks(2) {
+                if chunk.len() == 2 {
+                    match chunk[0] {
+                        "--description" | "-d" => description = Some(chunk[1]),
+                        "--scope" | "-s" => {
+                            scopes.extend(chunk[1].split(','));
+                        }
+                        "--expires" | "-e" => expires = Some(chunk[1]),
+                        _ => {}
+                    }
+                }
             }
+            if scopes.is_empty() {
+                scopes = vec!["mcp"];
+            }
+            cmd_apikey_generate(username, description, &scopes, expires).await;
         }
         ["list"] => cmd_apikey_list().await,
         ["revoke", key] => cmd_apikey_revoke(key).await,
+        ["scope", key, "add", scope] => cmd_apikey_scope_add(key, scope).await,
+        ["scope", key, "remove", scope] => cmd_apikey_scope_remove(key, scope).await,
         _ => {
             println!("Usage:");
-            println!("  apikey generate <username> [description]   Generate a new API key");
-            println!("  apikey list                                List active API keys");
-            println!("  apikey revoke <key>                        Revoke/delete an API key");
+            println!("  apikey generate <username> [options]        Generate a new API key");
+            println!("    Options:");
+            println!("      --description, -d <text>                Key description");
+            println!("      --scope, -s <mcp,spade>                Comma-separated scopes (default: mcp)");
+            println!("      --expires, -e <30d|90d|1y>             Expiry duration");
+            println!("  apikey list                                 List active API keys");
+            println!("  apikey revoke <key>                         Revoke/delete an API key");
+            println!("  apikey scope <key> add <scope>              Add a scope to an existing key");
+            println!("  apikey scope <key> remove <scope>           Remove a scope from a key");
         }
     }
 }
 
-async fn cmd_apikey_generate(username: &str, description: Option<&str>) {
+fn parse_expiry_duration(duration: &str) -> Option<String> {
+    let now = chrono::Local::now();
+    let duration = duration.trim();
+    if duration.len() < 2 {
+        return None;
+    }
+    let (num_str, unit) = duration.split_at(duration.len() - 1);
+    let num: i64 = num_str.parse().ok()?;
+    let dt = match unit {
+        "d" => now + chrono::Duration::days(num),
+        "w" => now + chrono::Duration::weeks(num),
+        "m" => now + chrono::Duration::days(num * 30),
+        "y" => now + chrono::Duration::days(num * 365),
+        _ => return None,
+    };
+    Some(dt.format("%Y-%m-%d %H:%M:%S").to_string())
+}
+
+async fn cmd_apikey_generate(
+    username: &str,
+    description: Option<&str>,
+    scopes: &[&str],
+    expires: Option<&str>,
+) {
     let db = match oxide_server::get_db() {
         Some(d) => d,
         None => {
             println!("Database not available.");
             return;
         }
+    };
+
+    let expires_at = match expires {
+        Some(e) => match parse_expiry_duration(e) {
+            Some(dt) => Some(dt),
+            None => {
+                println!("Invalid expiry duration '{e}'. Use formats like 30d, 2w, 3m, 1y.");
+                return;
+            }
+        },
+        None => None,
     };
 
     let conn = db.lock().await;
@@ -664,14 +719,26 @@ async fn cmd_apikey_generate(username: &str, description: Option<&str>) {
     };
 
     let key = uuid::Uuid::new_v4().to_string();
-    match oxide_data::insert_api_key(conn.conn(), &key, account.id, description) {
+    let scope_refs: Vec<&str> = scopes.to_vec();
+    match oxide_data::insert_api_key(
+        conn.conn(),
+        &key,
+        account.id,
+        description,
+        expires_at.as_deref(),
+        &scope_refs,
+    ) {
         Ok(()) => {
             println!("New API key generated successfully:");
             println!("  User:        {}", account.username);
             println!("  Access Tier: {}", account.access_level);
+            println!("  Scopes:      {}", scopes.join(", "));
             println!("  Key:         {key}");
             if let Some(desc) = description {
                 println!("  Description: {desc}");
+            }
+            if let Some(exp) = &expires_at {
+                println!("  Expires:     {exp}");
             }
             println!("  IMPORTANT: Store this key safely. It will not be shown again.");
         }
@@ -690,9 +757,10 @@ async fn cmd_apikey_list() {
 
     let conn = db.lock().await;
     let mut stmt = match conn.conn().prepare(
-        "SELECT k.key, a.username, k.description, k.created_at 
-         FROM api_keys k 
-         JOIN accounts a ON k.account_id = a.id",
+        "SELECT k.key, a.username, k.description, k.created_at, k.expires_at
+         FROM api_keys k
+         JOIN accounts a ON k.account_id = a.id
+         ORDER BY k.created_at DESC",
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -706,20 +774,43 @@ async fn cmd_apikey_list() {
         let username: String = row.get(1)?;
         let desc: Option<String> = row.get(2)?;
         let created_at: String = row.get(3)?;
-        Ok((key, username, desc, created_at))
+        let expires_at: Option<String> = row.get(4)?;
+        Ok((key, username, desc, created_at, expires_at))
     });
+
+    // Load scopes for each key
+    let mut scope_stmt = match conn.conn().prepare(
+        "SELECT scope FROM api_key_scopes WHERE key = ?1",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("Database error: {e}");
+            return;
+        }
+    };
 
     match rows {
         Ok(iter) => {
             println!();
-            println!(
-                "{:<36} | {:<15} | {:<20} | {:<20}",
-                "API Key", "User", "Description", "Created At"
+            let header = format!(
+                "{:<36} | {:<15} | {:<10} | {:<20} | {:<20} | {}",
+                "API Key", "User", "Scopes", "Created At", "Expires", "Description"
             );
-            println!("{}", "-".repeat(100));
+            println!("{header}");
+            println!("{}", "-".repeat(130));
             for r in iter.flatten() {
+                let key_str = &r.0;
+                let scopes: Vec<String> = scope_stmt
+                    .query_map([key_str], |row| row.get::<_, String>(0))
+                    .map(|iter| iter.flatten().collect())
+                    .unwrap_or_default();
+                let scope_str = scopes.join(",");
                 let desc = r.2.unwrap_or_default();
-                println!("{:<36} | {:<15} | {:<20} | {:<20}", r.0, r.1, desc, r.3);
+                let expires = r.4.unwrap_or_else(|| "never".to_string());
+                println!(
+                    "{:<36} | {:<15} | {:<10} | {:<20} | {:<20} | {}",
+                    key_str, r.1, scope_str, r.3, expires, desc
+                );
             }
             println!();
         }
@@ -737,12 +828,45 @@ async fn cmd_apikey_revoke(key: &str) {
     };
 
     let conn = db.lock().await;
-    match conn.conn().execute(
-        "DELETE FROM api_keys WHERE key = ?1",
-        rusqlite::params![key],
-    ) {
+    match oxide_data::revoke_api_key(conn.conn(), key) {
         Ok(0) => println!("API key not found."),
         Ok(n) => println!("Revoked {n} API key(s)."),
+        Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_apikey_scope_add(key: &str, scope: &str) {
+    if !matches!(scope, "mcp" | "spade") {
+        println!("Invalid scope '{scope}'. Must be 'mcp' or 'spade'.");
+        return;
+    }
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    match oxide_data::add_api_key_scope(conn.conn(), key, scope) {
+        Ok(()) => println!("Added scope '{scope}' to key."),
+        Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_apikey_scope_remove(key: &str, scope: &str) {
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    match oxide_data::remove_api_key_scope(conn.conn(), key, scope) {
+        Ok(()) => println!("Removed scope '{scope}' from key."),
         Err(e) => println!("Database error: {e}"),
     }
 }

@@ -358,6 +358,8 @@ Administrators executing commands directly from the server console can access th
 
 - **Character & API Key Management**
   - `character set <character_name> <field> <value>` — Directly modify character fields (`level`, `xp`, `name`, `race`, `class`) on the database (and live session if connected).
-  - `apikey generate <username> [description]` — Generate a new REST API key for the user.
-  - `apikey list` — List all active REST API keys.
-  - `apikey revoke <key>` — Revoke and delete a specific REST API key.
+  - `apikey generate <username> [description] [--scope mcp|spade] [--expires <duration>]` — Generate a new API key. Use `--scope mcp` for REST API access (AI agents), `--scope spade` for Spade online mode builder access, or both. Duration formats: `30d`, `2w`, `6m`, `1y`.
+  - `apikey list` — List all active API keys with scopes, expiry, and descriptions.
+  - `apikey revoke <key>` — Revoke and delete a specific API key.
+  - `apikey scope <key> add <scope>` — Add a scope (`mcp` or `spade`) to an existing key.
+  - `apikey scope <key> remove <scope>` — Remove a scope from a key.

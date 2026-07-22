@@ -949,6 +949,20 @@ Lightweight endpoints: GET `/api/who`, `/api/characters`, `/api/characters/:id`,
 | Split               | `spade --mode split` (F9)         | Builder 50%                                               |
 | Connection profile  | `spade connect <host> <port>`     | Quick-connect with saved profile                          |
 
+### Online Mode Authentication
+
+When connecting to a remote server, spade supports two authentication methods:
+
+- **Player mode** — standard username/password login (no config needed)
+- **Builder/imm mode** — API key authentication via `api_key` field in `~/.config/spade/config.toml` under `[connection]`. When set, spade sends `@apikey <key>` as the username, bypassing the password prompt. The key must have the `spade` scope and be associated with an account that has builder or imm access.
+
+```toml
+[connection]
+host = "mud.example.com"
+port = 4000
+api_key = "your-api-key-here"
+```
+
 ### Screens (Builder Mode)
 
 F1 Entities Editor (world tree + template form), F2 Room Grid (ASCII map + exit commands), F3 Validation Panel (error list with jump-to-source), F4 File Browser (content tree + TOML/Rhai preview), F5 Script Console (Rhai editor + test runner), F6 Live Dashboard (gauges + log tail). Command Palette via `Ctrl+P`. Layout: left tree, center form/map, right details. Status bar at bottom.
@@ -1051,7 +1065,7 @@ REST bridge to running game server. Imm tools require immortal+ API key.
 | `list_connected_players` | `GET /api/players`            | List online players             |
 | `imm_put_item`           | `POST /api/imm/put_item`      | Add item to player inventory    |
 | `imm_teleport`           | `POST /api/imm/teleport`      | Teleport player to room         |
-| `imm_force_command`      | `POST /api/imm/force_command` | Force player to execute command |
+| `imm_force_command`      | `POST /api/imm/force_command` | Force player to execute command (requires `confirm: true`) |
 
 #### Planned Imm Tools (Phase 6)
 

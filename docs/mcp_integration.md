@@ -122,7 +122,7 @@ To connect the OxideMUD MCP server to Claude Desktop, add the following configur
       "args": [
         "/path/to/oxidemud/content",
         "--url", "http://localhost:8080",
-        "--key", "your-immortal-key"
+        "--key", "your-mcp-api-key"
       ]
     }
   }
@@ -133,3 +133,15 @@ The `--url` and `--key` flags connect the MCP server to a running OxideMUD
 instance for online-only tools (player list, teleport, force, give item). When
 omitted, the server runs in offline mode using only the local TOML content
 files.
+
+---
+
+## API Key Authentication
+
+MCP access requires an API key with the `mcp` scope. Generate one from the MUD server console:
+
+```
+apikey generate myagent --scope mcp
+```
+
+Keys can be scoped to `mcp` (REST API access for AI agents), `spade` (builder access via Spade TUI), or both. Keys support optional expiration (`--expires 30d`) and can be revoked at any time.

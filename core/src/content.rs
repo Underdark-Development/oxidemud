@@ -179,3 +179,155 @@ pub fn delete_file(file_map: &FileMap, category: &str, id: &str) -> Result<(), S
     let path = find_file(file_map, category, id)?;
     fs::remove_file(&path).map_err(|e| format!("failed to delete {}: {e}", path.display()))
 }
+
+/// Validate that a content ID is safe for use in filesystem path construction.
+///
+/// Rejects path traversal sequences (`..`, `/`, `\`), null bytes, and characters
+/// outside the allowed set. This must be called before any `Path::join()` that
+/// incorporates a user-supplied ID.
+pub fn validate_content_id(id: &str) -> Result<(), String> {
+    if id.is_empty() {
+        return Err("ID must not be empty".to_string());
+    }
+    if id.len() > 128 {
+        return Err("ID must not exceed 128 characters".to_string());
+    }
+    if id.contains('\0') {
+        return Err("ID must not contain null bytes".to_string());
+    }
+    if id.contains("..") || id.contains('/') || id.contains('\\') {
+        return Err(format!("ID '{}' contains invalid path characters", id));
+    }
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+    {
+        return Err(format!(
+            "ID '{}' contains characters outside [a-zA-Z0-9_-]",
+            id
+        ));
+    }
+    Ok(())
+}
+
+/// Assert that a resolved path is contained within the content directory.
+///
+/// Call this after constructing a path via `Path::join()` to prevent directory
+/// traversal even if `validate_content_id` was bypassed or the content directory
+/// is a symlink.
+pub fn assert_within_content_dir(
+    content_dir: &Path,
+    resolved_path: &Path,
+) -> Result<(), String> {
+    // Canonicalize the base if it exists; otherwise use it as-is.
+    let base = if content_dir.exists() {
+        content_dir
+            .canonicalize()
+            .map_err(|e| format!("failed to resolve content directory: {e}"))?
+    } else {
+        content_dir.to_path_buf()
+    };
+    // Walk the target path from the root, canonicalizing each existing prefix
+    // directory. This handles the case where the full target doesn't exist yet
+    // (e.g. a file we're about to create) while still resolving symlinks in
+    // parent directories.
+    let mut accumulated = PathBuf::new();
+    let mut remaining = Vec::new();
+    for comp in resolved_path.components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                if !remaining.is_empty() {
+                    remaining.pop();
+                } else {
+                    accumulated = accumulated.parent().unwrap_or(&accumulated).to_path_buf();
+                }
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(part) => {
+                accumulated.push(part);
+                if accumulated.exists() && accumulated.is_dir() {
+                    if let Ok(canon) = accumulated.canonicalize() {
+                        accumulated = canon;
+                    }
+                } else {
+                    remaining.push(part);
+                    break;
+                }
+            }
+            other => accumulated.push(other),
+        }
+    }
+    // Append any remaining non-existent path components without canonicalizing.
+    for part in &remaining {
+        accumulated.push(part);
+    }
+    if !accumulated.starts_with(&base) {
+        return Err(format!(
+            "path '{}' escapes content directory",
+            resolved_path.display()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_content_ids() {
+        assert!(validate_content_id("goblin_01").is_ok());
+        assert!(validate_content_id("iron-sword").is_ok());
+        assert!(validate_content_id("my.area").is_ok());
+        assert!(validate_content_id("A").is_ok());
+        assert!(validate_content_id("test123").is_ok());
+        let max_id = "a".repeat(128);
+        assert!(validate_content_id(&max_id).is_ok());
+    }
+
+    #[test]
+    fn reject_empty_id() {
+        assert!(validate_content_id("").is_err());
+    }
+
+    #[test]
+    fn reject_path_traversal() {
+        assert!(validate_content_id("../etc/passwd").is_err());
+        assert!(validate_content_id("..").is_err());
+        assert!(validate_content_id("foo/../../bar").is_err());
+        assert!(validate_content_id("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn reject_null_bytes() {
+        assert!(validate_content_id("foo\0bar").is_err());
+    }
+
+    #[test]
+    fn reject_special_characters() {
+        assert!(validate_content_id("foo bar").is_err());
+        assert!(validate_content_id("foo@bar").is_err());
+        assert!(validate_content_id("foo:bar").is_err());
+        assert!(validate_content_id("foo;bar").is_err());
+    }
+
+    #[test]
+    fn reject_too_long() {
+        let long_id = "a".repeat(129);
+        assert!(validate_content_id(&long_id).is_err());
+    }
+
+    #[test]
+    fn containment_check() {
+        let tmp = std::env::temp_dir().join("oxidemud_test_content");
+        let mobs = tmp.join("mobs");
+        let _ = fs::create_dir_all(&mobs);
+        let safe_path = mobs.join("goblin.toml");
+        // safe_path doesn't exist, so canonicalize falls back — but the
+        // non-canonical path still starts_with the canonicalized parent.
+        assert!(assert_within_content_dir(&tmp, &safe_path).is_ok());
+        let escape_path = tmp.join("..").join("escape.toml");
+        assert!(assert_within_content_dir(&tmp, &escape_path).is_err());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+}

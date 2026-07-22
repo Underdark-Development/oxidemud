@@ -44,7 +44,47 @@ pub async fn handle_username_state(
     db: Option<&Mutex<oxide_data::Database>>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
-    let username = input.trim();
+    let input = input.trim();
+
+    // API key login: @apikey <key>
+    if input == "@apikey" || input.starts_with("@apikey ") {
+        let key = input.strip_prefix("@apikey").unwrap().trim();
+        if key.is_empty() {
+            lines.push("Usage: @apikey <your-api-key>".to_string());
+            return lines;
+        }
+        let db = match db {
+            Some(d) => d,
+            None => return lines,
+        };
+        let db_guard = db.lock().await;
+        let (account_id, username, _access_level) =
+            match oxide_data::validate_api_key(db_guard.conn(), key, Some("spade")) {
+                Ok(Some(t)) => t,
+                Ok(None) => {
+                    lines.push("Invalid or expired API key.".to_string());
+                    return lines;
+                }
+                Err(e) => {
+                    lines.push(format!("DB error: {e}"));
+                    return lines;
+                }
+            };
+        drop(db_guard);
+
+        {
+            let db_guard = db.lock().await;
+            let _ = oxide_data::update_last_login(db_guard.conn(), account_id);
+        }
+
+        flow.account_id = Some(account_id);
+        lines.push(String::new());
+        lines.push(format!("Welcome, {username}! (authenticated via API key)"));
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::List);
+        return lines;
+    }
+
+    let username = input;
     if !is_valid_username(username) {
         lines.push(String::new());
         lines.push(
@@ -486,6 +526,57 @@ mod tests {
             let ch = oxide_data::get_character_by_name(db_guard.conn(), "DelCharName").unwrap();
             assert!(ch.is_none());
         }
+    }
+
+    #[tokio::test]
+    async fn test_apikey_login() {
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+
+        // Create account + API key with spade scope
+        let hash = oxide_data::hash_password("password123").unwrap();
+        let account_id = {
+            let db_guard = db.lock().await;
+            oxide_data::create_account(db_guard.conn(), "apikey_user", &hash).unwrap()
+        };
+        let api_key = {
+            let db_guard = db.lock().await;
+            oxide_data::insert_api_key(
+                db_guard.conn(),
+                "test-key-spade",
+                account_id,
+                None,
+                None,
+                &["spade"],
+            )
+            .unwrap();
+            "test-key-spade"
+        };
+
+        // 1. Valid @apikey login
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::Login(LoginSubstate::Username);
+        let lines = handle_username_state(&mut flow, &format!("@apikey {api_key}"), Some(&db)).await;
+        assert!(lines.iter().any(|l| l.contains("Welcome")));
+        assert!(lines.iter().any(|l| l.contains("API key")));
+        assert_eq!(
+            flow.state,
+            LoginState::CharacterSelect(CharacterSelectSubstate::List)
+        );
+        assert_eq!(flow.account_id, Some(account_id));
+
+        // 2. Invalid @apikey
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::Login(LoginSubstate::Username);
+        let lines =
+            handle_username_state(&mut flow, "@apikey invalid-key", Some(&db)).await;
+        assert!(lines.iter().any(|l| l.contains("Invalid")));
+        assert!(matches!(flow.state, LoginState::Login(LoginSubstate::Username)));
+
+        // 3. Empty @apikey
+        let mut flow = LoginFlow::new();
+        flow.state = LoginState::Login(LoginSubstate::Username);
+        let lines = handle_username_state(&mut flow, "@apikey ", Some(&db)).await;
+        assert!(lines.iter().any(|l| l.contains("Usage")));
     }
 }
 

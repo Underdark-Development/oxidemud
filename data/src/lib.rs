@@ -426,6 +426,29 @@ impl Database {
             )?;
         }
 
+        if current < 25 {
+            // Migration 25: add expires_at to api_keys + api_key_scopes table
+            // Guard: only add column if it doesn't exist (fresh DBs using SCHEMA already have it)
+            let has_col: bool = self.conn
+                .prepare("SELECT expires_at FROM api_keys LIMIT 0")
+                .is_ok();
+            if !has_col {
+                self.conn
+                    .execute_batch("ALTER TABLE api_keys ADD COLUMN expires_at TEXT;")?;
+            }
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS api_key_scopes (
+                    key TEXT NOT NULL REFERENCES api_keys(key) ON DELETE CASCADE,
+                    scope TEXT NOT NULL CHECK(scope IN ('mcp', 'spade')),
+                    PRIMARY KEY (key, scope)
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (25)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

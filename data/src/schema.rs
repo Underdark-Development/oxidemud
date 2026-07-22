@@ -233,7 +233,14 @@ CREATE TABLE IF NOT EXISTS api_keys (
     key TEXT PRIMARY KEY NOT NULL,
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     description TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS api_key_scopes (
+    key TEXT NOT NULL REFERENCES api_keys(key) ON DELETE CASCADE,
+    scope TEXT NOT NULL CHECK(scope IN ('mcp', 'spade')),
+    PRIMARY KEY (key, scope)
 );
 
 CREATE TABLE IF NOT EXISTS components_quest_log (
@@ -257,7 +264,7 @@ CREATE TABLE IF NOT EXISTS components_multiclass (
 );
 ";
 
-pub const VERSION: i64 = 24;
+pub const VERSION: i64 = 25;
 
 #[cfg(test)]
 mod tests {

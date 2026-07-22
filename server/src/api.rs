@@ -66,6 +66,8 @@ struct TeleportParams {
 struct ForceCommandParams {
     player_name: String,
     command: String,
+    #[serde(default)]
+    confirm: bool,
 }
 
 pub async fn start_api_server(
@@ -137,7 +139,7 @@ async fn auth_middleware(
     let db_lock = crate::get_db().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let db = db_lock.lock().await;
 
-    let (_account_id, username, access_level) = match oxide_data::validate_api_key(db.conn(), token)
+    let (_account_id, username, access_level) = match oxide_data::validate_api_key(db.conn(), token, Some("mcp"))
     {
         Ok(Some(info)) => info,
         _ => return Err(StatusCode::UNAUTHORIZED),
@@ -702,6 +704,13 @@ async fn imm_teleport(
 async fn imm_force_command(
     Json(params): Json<ForceCommandParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !params.confirm {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "This is a destructive operation. Set `confirm` to true to proceed.".to_string(),
+        ));
+    }
+
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),

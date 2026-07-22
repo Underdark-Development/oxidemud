@@ -18,25 +18,57 @@ pub fn insert_api_key(
     key: &str,
     account_id: i64,
     description: Option<&str>,
+    expires_at: Option<&str>,
+    scopes: &[&str],
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
-        "INSERT INTO api_keys (key, account_id, description) VALUES (?1, ?2, ?3)",
-        params![key, account_id, description],
+        "INSERT INTO api_keys (key, account_id, description, expires_at) VALUES (?1, ?2, ?3, ?4)",
+        params![key, account_id, description, expires_at],
     )?;
+    for scope in scopes {
+        conn.execute(
+            "INSERT INTO api_key_scopes (key, scope) VALUES (?1, ?2)",
+            params![key, scope],
+        )?;
+    }
     Ok(())
 }
 
+/// Validate an API key, optionally requiring a specific scope.
+///
+/// If `required_scope` is `Some`, the key must have that scope. If `None`, any
+/// valid (non-expired) key matches.
 pub fn validate_api_key(
     conn: &Connection,
     key: &str,
+    required_scope: Option<&str>,
 ) -> Result<Option<(i64, String, String)>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT a.id, a.username, a.access_level 
-         FROM api_keys k 
-         JOIN accounts a ON k.account_id = a.id 
-         WHERE k.key = ?1",
-    )?;
-    let mut rows = stmt.query_map(params![key], |row| {
+    let (sql, param): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match required_scope {
+        Some(scope) => (
+            "SELECT a.id, a.username, a.access_level
+             FROM api_keys k
+             JOIN accounts a ON k.account_id = a.id
+             JOIN api_key_scopes s ON s.key = k.key
+             WHERE k.key = ?1
+               AND s.scope = ?2
+               AND (k.expires_at IS NULL OR k.expires_at > datetime('now'))",
+            vec![
+                Box::new(key.to_string()),
+                Box::new(scope.to_string()),
+            ],
+        ),
+        None => (
+            "SELECT a.id, a.username, a.access_level
+             FROM api_keys k
+             JOIN accounts a ON k.account_id = a.id
+             WHERE k.key = ?1
+               AND (k.expires_at IS NULL OR k.expires_at > datetime('now'))",
+            vec![Box::new(key.to_string())],
+        ),
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = param.iter().map(|p| p.as_ref()).collect();
+    let mut rows = stmt.query_map(param_refs.as_slice(), |row| {
         Ok((
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
@@ -49,6 +81,35 @@ pub fn validate_api_key(
     } else {
         Ok(None)
     }
+}
+
+pub fn add_api_key_scope(
+    conn: &Connection,
+    key: &str,
+    scope: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR IGNORE INTO api_key_scopes (key, scope) VALUES (?1, ?2)",
+        params![key, scope],
+    )?;
+    Ok(())
+}
+
+pub fn remove_api_key_scope(
+    conn: &Connection,
+    key: &str,
+    scope: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "DELETE FROM api_key_scopes WHERE key = ?1 AND scope = ?2",
+        params![key, scope],
+    )?;
+    Ok(())
+}
+
+pub fn revoke_api_key(conn: &Connection, key: &str) -> Result<u32, rusqlite::Error> {
+    let rows = conn.execute("DELETE FROM api_keys WHERE key = ?1", params![key])?;
+    Ok(rows as u32)
 }
 
 #[derive(Debug, Clone)]
