@@ -215,10 +215,7 @@ pub fn validate_content_id(id: &str) -> Result<(), String> {
 /// Call this after constructing a path via `Path::join()` to prevent directory
 /// traversal even if `validate_content_id` was bypassed or the content directory
 /// is a symlink.
-pub fn assert_within_content_dir(
-    content_dir: &Path,
-    resolved_path: &Path,
-) -> Result<(), String> {
+pub fn assert_within_content_dir(content_dir: &Path, resolved_path: &Path) -> Result<(), String> {
     // Canonicalize the base if it exists; otherwise use it as-is.
     let base = if content_dir.exists() {
         content_dir

@@ -656,7 +656,9 @@ async fn cmd_apikey(args: &str) {
             println!("      --expires, -e <30d|90d|1y>             Expiry duration");
             println!("  apikey list                                 List active API keys");
             println!("  apikey revoke <key>                         Revoke/delete an API key");
-            println!("  apikey scope <key> add <scope>              Add a scope to an existing key");
+            println!(
+                "  apikey scope <key> add <scope>              Add a scope to an existing key"
+            );
             println!("  apikey scope <key> remove <scope>           Remove a scope from a key");
         }
     }
@@ -779,9 +781,10 @@ async fn cmd_apikey_list() {
     });
 
     // Load scopes for each key
-    let mut scope_stmt = match conn.conn().prepare(
-        "SELECT scope FROM api_key_scopes WHERE key = ?1",
-    ) {
+    let mut scope_stmt = match conn
+        .conn()
+        .prepare("SELECT scope FROM api_key_scopes WHERE key = ?1")
+    {
         Ok(s) => s,
         Err(e) => {
             println!("Database error: {e}");

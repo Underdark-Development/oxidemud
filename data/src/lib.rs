@@ -429,7 +429,8 @@ impl Database {
         if current < 25 {
             // Migration 25: add expires_at to api_keys + api_key_scopes table
             // Guard: only add column if it doesn't exist (fresh DBs using SCHEMA already have it)
-            let has_col: bool = self.conn
+            let has_col: bool = self
+                .conn
                 .prepare("SELECT expires_at FROM api_keys LIMIT 0")
                 .is_ok();
             if !has_col {

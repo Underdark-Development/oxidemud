@@ -555,7 +555,8 @@ mod tests {
         // 1. Valid @apikey login
         let mut flow = LoginFlow::new();
         flow.state = LoginState::Login(LoginSubstate::Username);
-        let lines = handle_username_state(&mut flow, &format!("@apikey {api_key}"), Some(&db)).await;
+        let lines =
+            handle_username_state(&mut flow, &format!("@apikey {api_key}"), Some(&db)).await;
         assert!(lines.iter().any(|l| l.contains("Welcome")));
         assert!(lines.iter().any(|l| l.contains("API key")));
         assert_eq!(
@@ -567,10 +568,12 @@ mod tests {
         // 2. Invalid @apikey
         let mut flow = LoginFlow::new();
         flow.state = LoginState::Login(LoginSubstate::Username);
-        let lines =
-            handle_username_state(&mut flow, "@apikey invalid-key", Some(&db)).await;
+        let lines = handle_username_state(&mut flow, "@apikey invalid-key", Some(&db)).await;
         assert!(lines.iter().any(|l| l.contains("Invalid")));
-        assert!(matches!(flow.state, LoginState::Login(LoginSubstate::Username)));
+        assert!(matches!(
+            flow.state,
+            LoginState::Login(LoginSubstate::Username)
+        ));
 
         // 3. Empty @apikey
         let mut flow = LoginFlow::new();

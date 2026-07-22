@@ -139,11 +139,11 @@ async fn auth_middleware(
     let db_lock = crate::get_db().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
     let db = db_lock.lock().await;
 
-    let (_account_id, username, access_level) = match oxide_data::validate_api_key(db.conn(), token, Some("mcp"))
-    {
-        Ok(Some(info)) => info,
-        _ => return Err(StatusCode::UNAUTHORIZED),
-    };
+    let (_account_id, username, access_level) =
+        match oxide_data::validate_api_key(db.conn(), token, Some("mcp")) {
+            Ok(Some(info)) => info,
+            _ => return Err(StatusCode::UNAUTHORIZED),
+        };
 
     // Log the request with username (masking key)
     let method = request.method().clone();

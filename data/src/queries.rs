@@ -52,10 +52,7 @@ pub fn validate_api_key(
              WHERE k.key = ?1
                AND s.scope = ?2
                AND (k.expires_at IS NULL OR k.expires_at > datetime('now'))",
-            vec![
-                Box::new(key.to_string()),
-                Box::new(scope.to_string()),
-            ],
+            vec![Box::new(key.to_string()), Box::new(scope.to_string())],
         ),
         None => (
             "SELECT a.id, a.username, a.access_level
@@ -83,11 +80,7 @@ pub fn validate_api_key(
     }
 }
 
-pub fn add_api_key_scope(
-    conn: &Connection,
-    key: &str,
-    scope: &str,
-) -> Result<(), rusqlite::Error> {
+pub fn add_api_key_scope(conn: &Connection, key: &str, scope: &str) -> Result<(), rusqlite::Error> {
     conn.execute(
         "INSERT OR IGNORE INTO api_key_scopes (key, scope) VALUES (?1, ?2)",
         params![key, scope],

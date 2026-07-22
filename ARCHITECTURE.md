@@ -1060,11 +1060,11 @@ Simulation tools that hook into core game systems for balance analysis:
 
 REST bridge to running game server. Imm tools require immortal+ API key.
 
-| Tool                     | REST Endpoint                 | Description                     |
-| ------------------------ | ----------------------------- | ------------------------------- |
-| `list_connected_players` | `GET /api/players`            | List online players             |
-| `imm_put_item`           | `POST /api/imm/put_item`      | Add item to player inventory    |
-| `imm_teleport`           | `POST /api/imm/teleport`      | Teleport player to room         |
+| Tool                     | REST Endpoint                 | Description                                                |
+| ------------------------ | ----------------------------- | ---------------------------------------------------------- |
+| `list_connected_players` | `GET /api/players`            | List online players                                        |
+| `imm_put_item`           | `POST /api/imm/put_item`      | Add item to player inventory                               |
+| `imm_teleport`           | `POST /api/imm/teleport`      | Teleport player to room                                    |
 | `imm_force_command`      | `POST /api/imm/force_command` | Force player to execute command (requires `confirm: true`) |
 
 #### Planned Imm Tools (Phase 6)

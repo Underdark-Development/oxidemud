@@ -3102,7 +3102,8 @@ impl OxideMcpServer {
         let p = params.0;
 
         if !p.confirm {
-            return "Error: This is a destructive operation. Set `confirm` to true to proceed.".to_string();
+            return "Error: This is a destructive operation. Set `confirm` to true to proceed."
+                .to_string();
         }
 
         let (url, key) = match (&self.api_url, &self.api_key) {
