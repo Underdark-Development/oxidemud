@@ -3,6 +3,8 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::watch;
 
+use oxide_core::{AccessLevel, Dirty, Name, Player, Position, Room};
+
 /// Run the server console — reads commands from stdin and dispatches them.
 pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
     // Wait until the server is fully initialized
@@ -50,12 +52,14 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
         };
 
         match cmd {
-            "help" => print_help(),
+            "help" => print_help(args),
             "save" => cmd_save(),
             "broadcast" => cmd_broadcast(args).await,
             "account" => cmd_account(&mut reader, args).await,
             "character" => cmd_character(&mut reader, args).await,
             "apikey" => cmd_apikey(args).await,
+            "online" | "who" => cmd_online().await,
+            "kick" => cmd_kick(args).await,
             "shutdown" => {
                 if confirm_destructive(&mut reader, "shutdown").await {
                     tracing::info!("Console: initiating shutdown");
@@ -77,25 +81,184 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
     }
 }
 
-fn print_help() {
+struct ConsoleCommand {
+    name: &'static str,
+    category: &'static str,
+    syntax: &'static str,
+    description: &'static str,
+}
+
+static CONSOLE_COMMANDS: &[ConsoleCommand] = &[
+    ConsoleCommand {
+        name: "help",
+        category: "General",
+        syntax: "help [command|category]",
+        description: "Show help details for console commands or categories",
+    },
+    ConsoleCommand {
+        name: "save",
+        category: "General",
+        syntax: "save",
+        description: "Force flush dirty entities to database",
+    },
+    ConsoleCommand {
+        name: "broadcast",
+        category: "General",
+        syntax: "broadcast <message>",
+        description: "Send message to all online players",
+    },
+    ConsoleCommand {
+        name: "online",
+        category: "General",
+        syntax: "online",
+        description: "List all online players and locations",
+    },
+    ConsoleCommand {
+        name: "who",
+        category: "General",
+        syntax: "who",
+        description: "Alias for 'online' command",
+    },
+    ConsoleCommand {
+        name: "kick",
+        category: "General",
+        syntax: "kick <username_or_character>",
+        description: "Kick an online player or character",
+    },
+    ConsoleCommand {
+        name: "shutdown",
+        category: "General",
+        syntax: "shutdown",
+        description: "Gracefully stop the server",
+    },
+    ConsoleCommand {
+        name: "restart",
+        category: "General",
+        syntax: "restart",
+        description: "Gracefully stop (restart not yet implemented)",
+    },
+    ConsoleCommand {
+        name: "account list",
+        category: "Account Management",
+        syntax: "account list",
+        description: "List all registered accounts",
+    },
+    ConsoleCommand {
+        name: "account create",
+        category: "Account Management",
+        syntax: "account create <user> <pass> [level]",
+        description: "Create a new account (play/build/imm/god/admin)",
+    },
+    ConsoleCommand {
+        name: "account info",
+        category: "Account Management",
+        syntax: "account info <username>",
+        description: "Show account details",
+    },
+    ConsoleCommand {
+        name: "account set-access",
+        category: "Account Management",
+        syntax: "account set-access <username> <level>",
+        description: "Set account access level (play/build/imm/god/admin)",
+    },
+    ConsoleCommand {
+        name: "account set-password",
+        category: "Account Management",
+        syntax: "account set-password <username>",
+        description: "Reset account password",
+    },
+    ConsoleCommand {
+        name: "character set",
+        category: "Character Management",
+        syntax: "character set <char> <field> <value>",
+        description: "Modify character field (level, xp, name, race, class)",
+    },
+    ConsoleCommand {
+        name: "apikey generate",
+        category: "API Key Management",
+        syntax: "apikey generate <u> [desc]",
+        description: "Generate a new REST API key for user <u>",
+    },
+    ConsoleCommand {
+        name: "apikey list",
+        category: "API Key Management",
+        syntax: "apikey list",
+        description: "List active REST API keys",
+    },
+    ConsoleCommand {
+        name: "apikey revoke",
+        category: "API Key Management",
+        syntax: "apikey revoke <k>",
+        description: "Revoke/delete API key <k>",
+    },
+];
+
+fn print_help(query: &str) {
+    let query = query.trim();
+
+    // Get unique categories list
+    let mut categories = std::collections::BTreeSet::new();
+    for cmd in CONSOLE_COMMANDS {
+        categories.insert(cmd.category);
+    }
+
+    if !query.is_empty() {
+        let query_lower = query.to_lowercase();
+
+        // 1. Check for Category Match
+        let matched_category = categories.iter().find(|cat| {
+            let cat_lower = cat.to_lowercase();
+            cat_lower == query_lower
+                || cat_lower.starts_with(&query_lower)
+                || cat_lower.contains(&query_lower)
+        });
+
+        if let Some(cat) = matched_category {
+            println!();
+            println!("Commands in Category '{}':", cat);
+            println!("{}", "-".repeat(60));
+            for cmd in CONSOLE_COMMANDS {
+                if cmd.category == *cat {
+                    println!("  {:<30} - {}", cmd.syntax, cmd.description);
+                }
+            }
+            println!();
+            return;
+        }
+
+        // 2. Check for Command Match
+        let matched_command = CONSOLE_COMMANDS.iter().find(|c| {
+            let name_lower = c.name.to_lowercase();
+            name_lower == query_lower || name_lower.starts_with(&query_lower)
+        });
+
+        if let Some(cmd) = matched_command {
+            println!();
+            println!("Command:      {}", cmd.name);
+            println!("Category:     {}", cmd.category);
+            println!("Syntax:       {}", cmd.syntax);
+            println!("Description:  {}", cmd.description);
+            println!();
+            return;
+        }
+
+        println!("No help found for '{query}'. Type 'help' to see all commands.");
+        return;
+    }
+
+    // Print all commands grouped by category
     println!();
     println!("Server Console Commands:");
-    println!("  help                           Show this help");
-    println!("  save                           Force flush dirty entities to database");
-    println!("  broadcast <message>            Send message to all online players");
-    println!("  account info <username>        Show account details");
-    println!(
-        "  account set-access <u> <level> Set account tier (player/builder/immortal/god/admin)"
-    );
-    println!("  account set-password <u>       Reset account password");
-    println!(
-        "  character set <char> <f> <v>   Modify character field (level, xp, name, race, class)"
-    );
-    println!("  apikey generate <u> [desc]     Generate a new REST API key for user <u>");
-    println!("  apikey list                    List active REST API keys (full keys)");
-    println!("  apikey revoke <k>              Revoke/delete API key <k>");
-    println!("  shutdown                       Gracefully stop the server");
-    println!("  restart                        Gracefully stop (restart not yet implemented)");
+    println!("Type 'help <command>' or 'help <category>' for specific details (e.g. 'help account' or 'help account set-access').");
+
+    for cat in categories {
+        println!("\n[{cat}]");
+        for cmd in CONSOLE_COMMANDS {
+            if cmd.category == cat {
+                println!("  {:<30} - {}", cmd.syntax, cmd.description);
+            }
+        }
+    }
     println!();
 }
 
@@ -149,38 +312,71 @@ async fn confirm_risky(reader: &mut BufReader<tokio::io::Stdin>, warning: &str) 
 }
 
 async fn cmd_account(reader: &mut BufReader<tokio::io::Stdin>, args: &str) {
-    let parts: Vec<&str> = args.splitn(3, char::is_whitespace).collect();
-    match parts.as_slice() {
-        ["info", username] => cmd_account_info(username).await,
-        ["set-access", username, level] => {
-            if !confirm_risky(
-                reader,
-                &format!("This grants '{level}' access to '{username}'."),
-            )
-            .await
-            {
-                return;
-            }
-            cmd_account_set_access(username, level).await;
+    let trimmed = args.trim();
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    if parts.is_empty() {
+        print_account_usage();
+        return;
+    }
+
+    match parts[0] {
+        "list" => {
+            cmd_account_list().await;
         }
-        ["set-password", username] => {
+        "create" => {
+            let create_args = trimmed.strip_prefix("create").unwrap_or("").trim();
+            cmd_account_create(create_args).await;
+        }
+        "info" => {
+            if parts.len() < 2 {
+                println!("Usage: account info <username>");
+                return;
+            }
+            cmd_account_info(parts[1]).await;
+        }
+        "set-access" => {
+            if parts.len() < 3 {
+                println!("Usage: account set-access <username> <level>");
+                return;
+            }
             if !confirm_risky(
                 reader,
-                &format!("This resets the password for '{username}'."),
+                &format!("This grants '{}' access to '{}'.", parts[2], parts[1]),
             )
             .await
             {
                 return;
             }
-            cmd_account_set_password(reader, username).await;
+            cmd_account_set_access(parts[1], parts[2]).await;
+        }
+        "set-password" => {
+            if parts.len() < 2 {
+                println!("Usage: account set-password <username>");
+                return;
+            }
+            if !confirm_risky(
+                reader,
+                &format!("This resets the password for '{}'.", parts[1]),
+            )
+            .await
+            {
+                return;
+            }
+            cmd_account_set_password(reader, parts[1]).await;
         }
         _ => {
-            println!("Usage:");
-            println!("  account info <username>");
-            println!("  account set-access <username> <level>");
-            println!("  account set-password <username>");
+            print_account_usage();
         }
     }
+}
+
+fn print_account_usage() {
+    println!("Usage:");
+    println!("  account list                           List all accounts");
+    println!("  account create <user> <pass> [level]   Create a new account");
+    println!("  account info <username>                Show account details");
+    println!("  account set-access <username> <level>  Set account access tier");
+    println!("  account set-password <username>        Reset account password");
 }
 
 async fn cmd_account_info(username: &str) {
@@ -225,11 +421,20 @@ async fn cmd_account_set_access(username: &str, level: &str) {
         }
     };
 
-    let valid = ["player", "builder", "immortal", "god", "admin"];
-    if !valid.contains(&level) {
-        println!("Invalid level '{level}'. Valid: {}", valid.join(", "));
-        return;
-    }
+    let level_lower = level.to_lowercase();
+    let normalized_level = match level_lower.as_str() {
+        "admin" | "adm" => "admin",
+        "god" => "god",
+        "immortal" | "imm" => "immortal",
+        "builder" | "build" => "builder",
+        "player" | "play" => "player",
+        _ => {
+            println!(
+                "Invalid access level '{level}'. Valid: player, builder, immortal, god, admin"
+            );
+            return;
+        }
+    };
 
     let conn = db.lock().await;
     let account = match oxide_data::get_account_by_username(conn.conn(), username) {
@@ -244,18 +449,46 @@ async fn cmd_account_set_access(username: &str, level: &str) {
         }
     };
 
-    match oxide_data::set_account_access_level(conn.conn(), account.id, level) {
+    match oxide_data::set_account_access_level(conn.conn(), account.id, normalized_level) {
         Ok(()) => {
             tracing::warn!(
                 target: "audit",
                 action = "set_access",
                 target = username,
-                level = level,
+                level = normalized_level,
                 "Console set access level"
             );
-            println!("Access level for '{username}' set to '{level}'.");
+            println!("Access level for '{username}' set to '{normalized_level}'.");
         }
         Err(e) => println!("Database error: {e}"),
+    }
+
+    drop(conn);
+
+    if let Some(world_mutex) = oxide_server::get_world() {
+        let mut world = world_mutex.lock().await;
+        let mut target_entity = None;
+        {
+            let mut query = world.query::<(&oxide_core::Player, &mut oxide_core::AccessLevel)>();
+            for (entity, (player, access_level)) in query.iter() {
+                if player.account_id == account.id {
+                    let parsed_level = match normalized_level {
+                        "admin" => oxide_core::AccessLevel::Admin,
+                        "god" => oxide_core::AccessLevel::God,
+                        "immortal" => oxide_core::AccessLevel::Immortal,
+                        "builder" => oxide_core::AccessLevel::Builder,
+                        _ => oxide_core::AccessLevel::Player,
+                    };
+                    *access_level = parsed_level;
+                    target_entity = Some(oxide_core::Entity::from(entity));
+                    break;
+                }
+            }
+        }
+        if let Some(entity) = target_entity {
+            let _ = world.insert(entity, (oxide_core::Dirty,));
+            println!("Updated active session access level for online character of '{username}' to '{normalized_level}'.");
+        }
     }
 }
 
@@ -511,5 +744,286 @@ async fn cmd_apikey_revoke(key: &str) {
         Ok(0) => println!("API key not found."),
         Ok(n) => println!("Revoked {n} API key(s)."),
         Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_account_list() {
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    let mut stmt = match conn.conn().prepare(
+        "SELECT id, username, access_level, created_at, last_login FROM accounts ORDER BY username ASC",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("Database error: {e}");
+            return;
+        }
+    };
+
+    let rows = stmt.query_map([], |row| {
+        let id: i64 = row.get(0)?;
+        let username: String = row.get(1)?;
+        let access_level: String = row.get(2)?;
+        let created_at: String = row.get(3)?;
+        let last_login: Option<String> = row.get(4)?;
+        Ok((id, username, access_level, created_at, last_login))
+    });
+
+    match rows {
+        Ok(iter) => {
+            println!();
+            println!(
+                "{:<6} | {:<20} | {:<12} | {:<20} | {:<20}",
+                "ID", "Username", "Access Level", "Created At", "Last Login"
+            );
+            println!("{}", "-".repeat(86));
+            let mut count = 0;
+            for r in iter.flatten() {
+                count += 1;
+                let last_login = r.4.unwrap_or_else(|| "never".to_string());
+                println!(
+                    "{:<6} | {:<20} | {:<12} | {:<20} | {:<20}",
+                    r.0, r.1, r.2, r.3, last_login
+                );
+            }
+            println!("\nTotal accounts: {count}");
+            println!();
+        }
+        Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_account_create(args: &str) {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.len() < 2 || parts.len() > 3 {
+        println!("Usage: account create <username> <password> [access_level]");
+        return;
+    }
+
+    let username = parts[0];
+    let password = parts[1];
+    let access_level = parts.get(2).copied().unwrap_or("player");
+
+    let level_lower = access_level.to_lowercase();
+    let normalized_level = match level_lower.as_str() {
+        "admin" | "adm" => "admin",
+        "god" => "god",
+        "immortal" | "imm" => "immortal",
+        "builder" | "build" => "builder",
+        "player" | "play" => "player",
+        _ => {
+            println!("Invalid access level '{access_level}'. Valid: player, builder, immortal, god, admin");
+            return;
+        }
+    };
+
+    if password.len() < 8 {
+        println!("Password must be at least 8 characters.");
+        return;
+    }
+
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let hash = match oxide_data::hash_password(password) {
+        Ok(h) => h,
+        Err(e) => {
+            println!("Password hashing error: {e}");
+            return;
+        }
+    };
+
+    let conn = db.lock().await;
+    match oxide_data::get_account_by_username(conn.conn(), username) {
+        Ok(Some(_)) => {
+            println!("Account '{username}' already exists.");
+            return;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            println!("Database error: {e}");
+            return;
+        }
+    }
+
+    match oxide_data::create_account(conn.conn(), username, &hash) {
+        Ok(account_id) => {
+            if normalized_level != "player" {
+                if let Err(e) =
+                    oxide_data::set_account_access_level(conn.conn(), account_id, normalized_level)
+                {
+                    println!("Failed to set access level: {e}");
+                    return;
+                }
+            }
+            println!(
+                "Account '{username}' created successfully with access level '{normalized_level}'."
+            );
+        }
+        Err(e) => println!("Database error: {e}"),
+    }
+}
+
+async fn cmd_online() {
+    let world_mutex = match oxide_server::get_world() {
+        Some(w) => w,
+        None => {
+            println!("World not available.");
+            return;
+        }
+    };
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            println!("Database not available.");
+            return;
+        }
+    };
+
+    let world = world_mutex.lock().await;
+    let conn = db.lock().await;
+
+    let mut query = world.query::<(&Player, &Name, &Position, &AccessLevel)>();
+    let mut players = Vec::new();
+    for (entity, (player, name, position, access_level)) in query.iter() {
+        let entity_wrapped: oxide_core::Entity = entity.into();
+        let username = match oxide_data::get_account_by_id(conn.conn(), player.account_id) {
+            Ok(Some(a)) => a.username,
+            _ => "unknown".to_string(),
+        };
+
+        let room_name = if let Ok(mut q) = world.query_one::<&Room>(position.room) {
+            if let Some(r) = q.get() {
+                r.name.clone()
+            } else {
+                format!("Entity {:?}", position.room)
+            }
+        } else {
+            format!("Entity {:?}", position.room)
+        };
+
+        players.push((
+            entity_wrapped,
+            username,
+            name.as_str().to_string(),
+            *access_level,
+            room_name,
+        ));
+    }
+
+    println!();
+    if players.is_empty() {
+        println!("No players online.");
+    } else {
+        println!("Connected Players ({}):", players.len());
+        println!(
+            "{:<10} | {:<20} | {:<20} | {:<12} | {:<25}",
+            "Entity ID", "Username", "Character", "Access", "Location"
+        );
+        println!("{}", "-".repeat(95));
+        for p in players {
+            println!(
+                "{:<10} | {:<20} | {:<20} | {:<12?} | {:<25}",
+                p.0.id(),
+                p.1,
+                p.2,
+                p.3,
+                p.4
+            );
+        }
+    }
+    println!();
+}
+
+async fn cmd_kick(args: &str) {
+    let target = args.trim();
+    if target.is_empty() {
+        println!("Usage: kick <username_or_character>");
+        return;
+    }
+
+    let world_mutex = match oxide_server::get_world() {
+        Some(w) => w,
+        None => {
+            println!("World not available.");
+            return;
+        }
+    };
+    let registry_mutex = match oxide_server::get_registry() {
+        Some(r) => r,
+        None => {
+            println!("Connection registry not available.");
+            return;
+        }
+    };
+
+    let mut world = world_mutex.lock().await;
+    let registry = registry_mutex.lock().await;
+
+    let mut target_entity: Option<oxide_core::Entity> = None;
+    let mut target_char_name = String::new();
+
+    // 1. Search by character name
+    {
+        let mut query = world.query::<(&Name, &Player)>();
+        for (entity, (name, _player)) in query.iter() {
+            if name.as_str().eq_ignore_ascii_case(target) {
+                target_entity = Some(entity.into());
+                target_char_name = name.as_str().to_string();
+                break;
+            }
+        }
+    }
+
+    // 2. Search by account username if not found by character name
+    if target_entity.is_none() {
+        let db = match oxide_server::get_db() {
+            Some(d) => d,
+            None => {
+                println!("Database not available.");
+                return;
+            }
+        };
+        let conn = db.lock().await;
+        if let Ok(Some(account)) = oxide_data::get_account_by_username(conn.conn(), target) {
+            let mut found_entity = None;
+            {
+                let mut query = world.query::<(&Name, &Player)>();
+                for (entity, (name, player)) in query.iter() {
+                    if player.account_id == account.id {
+                        found_entity = Some((entity.into(), name.as_str().to_string()));
+                        break;
+                    }
+                }
+            }
+            if let Some((entity, char_name)) = found_entity {
+                target_entity = Some(entity);
+                target_char_name = char_name;
+            }
+        }
+    }
+
+    if let Some(entity) = target_entity {
+        if let Some(tx) = registry.sender(entity) {
+            let _ = tx.send(b"\x00\xFFKICK\x00".to_vec());
+            println!("Kicked online player/character '{target_char_name}'.");
+            let _ = world.insert(entity, (Dirty,));
+        } else {
+            println!("Character '{target_char_name}' is not connected.");
+        }
+    } else {
+        println!("No online player or character found matching '{target}'.");
     }
 }

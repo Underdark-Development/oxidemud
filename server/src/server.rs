@@ -474,6 +474,12 @@ async fn handle_connection(
                 last_was_prompt = true;
             } else if bytes == b"\x00\xFFRESET\x00" {
                 last_was_prompt = false;
+            } else if bytes == b"\x00\xFFKICK\x00" {
+                let _ = writer_half
+                    .write_all(b"\r\nYou have been kicked from the server by an administrator.\r\n")
+                    .await;
+                let _ = tokio::time::timeout(Duration::from_millis(50), writer_half.flush()).await;
+                break;
             } else {
                 if last_was_prompt {
                     if let Err(e) = writer_half.write_all(b"\r\n").await {

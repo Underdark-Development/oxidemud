@@ -338,10 +338,26 @@ Server logs are written to both standard output (`stdout`) and rotating files in
 
 ### Console Commands
 
-Administrators executing commands directly from the server console or via game client connections with `Admin` credentials can access the following controls:
+Administrators executing commands directly from the server console can access the following controls:
 
-- `shutdown` — Initiates the graceful shutdown sequence.
-- `restart` — Gracefully saves state and reboots the process.
-- `wizlock` — Toggles restricting server entry to Immortals only.
-- `version` — Displays current engine version and build details.
-- `audit` — Reviews the admin action audit log database.
+- **General Commands**
+  - `help` — Show help listing all available console commands.
+  - `save` — Force flush dirty entities to the SQLite database.
+  - `broadcast <message>` — Send an administrative broadcast message to all connected players.
+  - `online` (or `who`) — List all currently connected players in a tabular format showing their Entity ID, Username, Character Name, Access Level, and Location.
+  - `kick <username_or_character>` — Disconnect an active player by their account username or character name.
+  - `shutdown` — Gracefully stop the server.
+  - `restart` — Gracefully stop (restart behavior is MUD-client handled).
+
+- **Account Management**
+  - `account list` — List all registered accounts in the SQLite database.
+  - `account create <username> <password> [access_level]` — Create a new account with a hashed password and optional access level (`player`, `builder`, `immortal` / `imm`, `god`, `admin` / `adm`).
+  - `account info <username>` — Show detailed account credentials, access levels, and login timestamps.
+  - `account set-access <username> <level>` — Set the access tier of an account. Accepts short aliases: `imm` (immortal), `build` (builder), `play` (player), `adm` (admin). If the player is online, their active session access level is updated instantly.
+  - `account set-password <username>` — Reset the password for the specified account.
+
+- **Character & API Key Management**
+  - `character set <character_name> <field> <value>` — Directly modify character fields (`level`, `xp`, `name`, `race`, `class`) on the database (and live session if connected).
+  - `apikey generate <username> [description]` — Generate a new REST API key for the user.
+  - `apikey list` — List all active REST API keys.
+  - `apikey revoke <key>` — Revoke and delete a specific REST API key.

@@ -37,6 +37,14 @@ impl CommandDispatch {
         input: &str,
         registry: &ConnectionRegistry,
     ) {
+        if let Some(entity) = conn.entity() {
+            if let Ok(mut q) = world.query_one::<&AccessLevel>(entity) {
+                if let Some(&level) = q.get() {
+                    conn.set_access_level(level);
+                }
+            }
+        }
+
         let input = input.trim();
 
         if input.is_empty() {
@@ -305,6 +313,28 @@ mod tests {
         dispatch.execute(&mut world, &mut conn, "admin", &registry);
 
         // Should not output "Huh? Type 'help'..."
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(!msg.contains("Huh? Type 'help' for a list of commands."));
+        }
+    }
+
+    #[test]
+    fn test_command_dispatch_sync_access_level_from_ecs() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let entity = world.spawn((AccessLevel::Admin,));
+
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
+        conn.set_entity(entity);
+        conn.set_access_level(AccessLevel::Player);
+
+        let registry = empty_registry();
+
+        dispatch.execute(&mut world, &mut conn, "admin", &registry);
+
+        assert_eq!(conn.access_level(), AccessLevel::Admin);
+
         if let Ok(bytes) = rx.try_recv() {
             let msg = String::from_utf8_lossy(&bytes);
             assert!(!msg.contains("Huh? Type 'help' for a list of commands."));
