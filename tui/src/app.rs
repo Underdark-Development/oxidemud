@@ -10,7 +10,7 @@ use crate::screens::live_dashboard::LiveDashboardScreen;
 use crate::screens::room_grid::RoomGridScreen;
 use crate::screens::script_console::ScriptConsoleScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
-use crate::screens::Screen;
+use crate::screens::{Screen, ScreenId};
 use oxide_core::templates::TemplateRegistry;
 use ratatui::{
     backend::CrosstermBackend,
@@ -44,7 +44,7 @@ pub struct App {
     pub prefs: PrefsConfig,
     pub content_path: PathBuf,
     pub screens: Vec<Box<dyn Screen>>,
-    pub active_screen: usize,
+    pub active_screen: ScreenId,
     pub registry: TemplateRegistry,
     pub file_map: FileMap,
     pub command_sidebar: CommandSidebar,
@@ -100,7 +100,7 @@ impl App {
             prefs: file_config.prefs,
             content_path,
             screens,
-            active_screen: 0,
+            active_screen: ScreenId::Entities,
             registry,
             file_map,
             command_sidebar: CommandSidebar::new(),
@@ -112,22 +112,21 @@ impl App {
     }
 
     pub fn active_screen(&self) -> &dyn Screen {
-        &*self.screens[self.active_screen]
+        &*self.screens[self.active_screen.as_index()]
     }
 
     pub fn active_screen_mut(&mut self) -> &mut dyn Screen {
-        &mut *self.screens[self.active_screen]
+        &mut *self.screens[self.active_screen.as_index()]
     }
 
-    pub fn switch_screen(&mut self, idx: usize) {
-        if idx < self.screens.len() {
-            self.active_screen = idx;
-        }
+    pub fn switch_screen(&mut self, id: ScreenId) {
+        self.active_screen = id;
     }
 
     pub fn reload_content(&mut self) {
-        self.screens[0].reload();
-        if let Some(registry) = self.screens[0].registry() {
+        let entities_idx = ScreenId::Entities.as_index();
+        self.screens[entities_idx].reload();
+        if let Some(registry) = self.screens[entities_idx].registry() {
             let registry = registry.clone();
             self.registry = registry.clone();
             for i in 1..self.screens.len() {
@@ -148,15 +147,17 @@ impl App {
         match action {
             CommandAction::ValidateContent => {
                 self.set_status("Opening Validation Panel");
-                self.switch_screen(2);
+                self.switch_screen(ScreenId::Validation);
             }
             CommandAction::Quit => {
                 self.set_status("Quitting...");
                 self.should_quit = true;
             }
             CommandAction::SwitchScreen(idx) => {
-                self.switch_screen(idx);
-                self.set_status(format!("Switched to {}", self.screens[idx].name()));
+                if let Some(id) = ScreenId::from_index(idx) {
+                    self.switch_screen(id);
+                    self.set_status(format!("Switched to {}", id.name()));
+                }
             }
             CommandAction::ToggleSidebar => {
                 self.sidebar_visible = !self.sidebar_visible;
@@ -174,9 +175,11 @@ impl App {
             }
             ref action => {
                 let active = self.active_screen;
-                match self.screens[active].handle_command_action(action) {
+                match self.screens[active.as_index()].handle_command_action(action) {
                     Ok(true) => {
-                        if let Some(registry) = self.screens[0].registry() {
+                        if let Some(registry) =
+                            self.screens[ScreenId::Entities.as_index()].registry()
+                        {
                             let registry = registry.clone();
                             self.registry = registry.clone();
                             for i in 1..self.screens.len() {
@@ -225,16 +228,16 @@ impl App {
             }
         }
 
-        let action = self.screens[self.active_screen].take_action();
+        let action = self.screens[self.active_screen.as_index()].take_action();
         match action {
             crate::screens::ScreenAction::Inspect(category, id) => {
-                self.active_screen = 0;
-                self.screens[0].inspect_entity(&category, &id);
+                self.active_screen = ScreenId::Entities;
+                self.screens[ScreenId::Entities.as_index()].inspect_entity(&category, &id);
                 self.set_status(format!("Inspecting {} {}", category, id));
             }
             crate::screens::ScreenAction::LoadScript(path) => {
-                self.active_screen = 4;
-                self.screens[4].load_script_file(&path);
+                self.active_screen = ScreenId::ScriptConsole;
+                self.screens[ScreenId::ScriptConsole.as_index()].load_script_file(&path);
                 self.set_status(format!("Loaded script {}", path.display()));
             }
             crate::screens::ScreenAction::None => {}

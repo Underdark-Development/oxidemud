@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::components::CommandAction;
+use crate::screens::ScreenId;
 
 #[derive(Debug, Clone)]
 pub struct PaletteItem {
@@ -39,32 +40,32 @@ impl CommandPalette {
             PaletteItem::new(
                 "Switch to Entities Editor",
                 Some("F1"),
-                CommandAction::SwitchScreen(0),
+                CommandAction::SwitchScreen(ScreenId::Entities.as_index()),
             ),
             PaletteItem::new(
                 "Switch to Room Grid",
                 Some("F2"),
-                CommandAction::SwitchScreen(1),
+                CommandAction::SwitchScreen(ScreenId::RoomGrid.as_index()),
             ),
             PaletteItem::new(
                 "Switch to Validation Panel",
                 Some("F3"),
-                CommandAction::SwitchScreen(2),
+                CommandAction::SwitchScreen(ScreenId::Validation.as_index()),
             ),
             PaletteItem::new(
                 "Switch to File Browser",
                 Some("F4"),
-                CommandAction::SwitchScreen(3),
+                CommandAction::SwitchScreen(ScreenId::FileBrowser.as_index()),
             ),
             PaletteItem::new(
                 "Switch to Script Console",
                 Some("F5"),
-                CommandAction::SwitchScreen(4),
+                CommandAction::SwitchScreen(ScreenId::ScriptConsole.as_index()),
             ),
             PaletteItem::new(
                 "Switch to Live Dashboard",
                 Some("F6"),
-                CommandAction::SwitchScreen(5),
+                CommandAction::SwitchScreen(ScreenId::LiveDashboard.as_index()),
             ),
             PaletteItem::new(
                 "Save Active Entity",

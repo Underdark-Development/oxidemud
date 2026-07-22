@@ -7,6 +7,7 @@ use ratatui::{
 
 use super::dropdown::{dropdown_item_style, highlight_dropdown_row, render_dropdown_box};
 use super::CommandAction;
+use crate::screens::ScreenId;
 
 const APP_NAME: &str = " spade ";
 
@@ -135,24 +136,15 @@ impl MenuBar {
             ),
         ];
 
-        let screen_names = [
-            "Entities Editor",
-            "Room Grid",
-            "Validation Panel",
-            "File Browser",
-            "Script Console",
-            "Live Dashboard",
-        ];
-        let screen_items: Vec<MenuItem> = screen_names
+        let screen_items: Vec<MenuItem> = ScreenId::all()
             .iter()
-            .enumerate()
-            .map(|(i, name)| {
-                let shortcut = if i < 6 {
-                    Some(format!("F{}", i + 1))
-                } else {
-                    None
-                };
-                MenuItem::action(*name, shortcut, CommandAction::SwitchScreen(i))
+            .map(|id| {
+                let shortcut = id.fkey().map(|n| format!("F{n}"));
+                MenuItem::action(
+                    id.name(),
+                    shortcut,
+                    CommandAction::SwitchScreen(id.as_index()),
+                )
             })
             .collect();
 

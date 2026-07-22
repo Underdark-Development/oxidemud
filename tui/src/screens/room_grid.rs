@@ -660,7 +660,11 @@ impl Screen for RoomGridScreen {
                         .map_err(|e| format!("failed to write new room: {e}"))?;
 
                     // Insert into registry
-                    let area = self.registry.areas.get_mut(&area_id).unwrap();
+                    let area = self
+                        .registry
+                        .areas
+                        .get_mut(&area_id)
+                        .ok_or_else(|| format!("area '{area_id}' not found"))?;
                     area.rooms.insert(new_room_id.clone(), new_room);
                 }
 

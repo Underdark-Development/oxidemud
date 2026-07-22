@@ -12,6 +12,79 @@ use ratatui::{
 
 use crate::components::CommandAction;
 
+/// Identifies a screen by kind rather than positional index.
+/// The `as_index()` mapping must match the order in `App::new`'s `screens` Vec.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenId {
+    Entities = 0,
+    RoomGrid = 1,
+    Validation = 2,
+    FileBrowser = 3,
+    ScriptConsole = 4,
+    LiveDashboard = 5,
+}
+
+impl ScreenId {
+    pub fn as_index(self) -> usize {
+        self as usize
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Entities => "Entities Editor",
+            Self::RoomGrid => "Room Grid",
+            Self::Validation => "Validation Panel",
+            Self::FileBrowser => "File Browser",
+            Self::ScriptConsole => "Script Console",
+            Self::LiveDashboard => "Live Dashboard",
+        }
+    }
+
+    pub fn fkey(self) -> Option<u8> {
+        let n = self as usize as u8 + 1;
+        if n <= 6 {
+            Some(n)
+        } else {
+            None
+        }
+    }
+
+    pub fn from_fkey(n: u8) -> Option<Self> {
+        match n {
+            1 => Some(Self::Entities),
+            2 => Some(Self::RoomGrid),
+            3 => Some(Self::Validation),
+            4 => Some(Self::FileBrowser),
+            5 => Some(Self::ScriptConsole),
+            6 => Some(Self::LiveDashboard),
+            _ => None,
+        }
+    }
+
+    pub fn from_index(i: usize) -> Option<Self> {
+        match i {
+            0 => Some(Self::Entities),
+            1 => Some(Self::RoomGrid),
+            2 => Some(Self::Validation),
+            3 => Some(Self::FileBrowser),
+            4 => Some(Self::ScriptConsole),
+            5 => Some(Self::LiveDashboard),
+            _ => None,
+        }
+    }
+
+    pub fn all() -> &'static [ScreenId] {
+        &[
+            Self::Entities,
+            Self::RoomGrid,
+            Self::Validation,
+            Self::FileBrowser,
+            Self::ScriptConsole,
+            Self::LiveDashboard,
+        ]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum ScreenAction {
     None,

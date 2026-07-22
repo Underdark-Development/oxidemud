@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::screens::ScreenId;
 use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Style},
@@ -66,7 +67,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         } else {
             Color::Indexed(245)
         };
-        let sidebar_title = if app.active_screen == 1 {
+        let sidebar_title = if app.active_screen == ScreenId::RoomGrid {
             " Attributes "
         } else {
             " Commands "
@@ -91,7 +92,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         let contextual = app.active_screen().contextual_commands();
 
         // Pass room details if on Room Grid screen
-        let selected_room = if app.active_screen == 1 {
+        let selected_room = if app.active_screen == ScreenId::RoomGrid {
             ctx.as_ref().and_then(|c| {
                 app.registry
                     .areas

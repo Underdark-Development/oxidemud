@@ -1,5 +1,6 @@
 use crate::app::App;
 use crate::components::CommandAction;
+use crate::screens::ScreenId;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
@@ -51,8 +52,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
     // F1..F6: screen switching
     if let KeyCode::F(n) = key.code {
-        if (1..=6).contains(&n) {
-            app.switch_screen((n - 1) as usize);
+        if let Some(id) = ScreenId::from_fkey(n) {
+            app.switch_screen(id);
             return;
         }
     }
