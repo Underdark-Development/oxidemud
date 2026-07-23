@@ -1474,17 +1474,23 @@ impl ScriptingBridge for ScriptEngine {
         world: &mut World,
     ) -> Result<bool, String> {
         let _guard = push_script_context(actor, Some(actor), target_entity, world);
-        let ast = self.get_ast(script)?;
         let mut scope = Scope::new();
         scope.push("actor", actor);
         scope.push("target", target_entity);
         scope.push("world", ScriptWorld::new(world));
 
-        if let Ok(res) = self.engine.call_fn::<bool>(&mut scope, &ast, "can_use", ()) {
-            Ok(res)
+        if script.ends_with(".rhai") {
+            let ast = self.get_ast(script)?;
+            if let Ok(res) = self.engine.call_fn::<bool>(&mut scope, &ast, "can_use", ()) {
+                Ok(res)
+            } else {
+                self.engine
+                    .eval_ast_with_scope::<bool>(&mut scope, &ast)
+                    .map_err(|e| e.to_string())
+            }
         } else {
             self.engine
-                .eval_ast_with_scope::<bool>(&mut scope, &ast)
+                .eval_with_scope::<bool>(&mut scope, script)
                 .map_err(|e| e.to_string())
         }
     }
