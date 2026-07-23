@@ -196,6 +196,46 @@ impl ScriptEngine {
                 bridge.send_to_entity(entity, &msg);
             }
         });
+
+        // Direct room messaging on Room Entity handle
+        engine.register_fn("echo", |room: Entity, msg: String| {
+            if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                bridge.echo_to_room(room, &msg);
+            }
+        });
+        engine.register_fn(
+            "echo_except",
+            |room: Entity, msg: String, exclude: rhai::Array| {
+                if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                    let excluded_entities: Vec<Entity> = exclude
+                        .into_iter()
+                        .filter_map(|v| v.try_cast::<Entity>())
+                        .collect();
+                    bridge.echo_to_room_except(room, &msg, &excluded_entities);
+                }
+            },
+        );
+
+        // Remote room messaging by room entity handle
+        engine.register_fn("echo_to", |room: Entity, msg: String| {
+            if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                bridge.echo_to_room(room, &msg);
+            }
+        });
+        engine.register_fn(
+            "echo_to_except",
+            |room: Entity, msg: String, exclude: rhai::Array| {
+                if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                    let excluded_entities: Vec<Entity> = exclude
+                        .into_iter()
+                        .filter_map(|v| v.try_cast::<Entity>())
+                        .collect();
+                    bridge.echo_to_room_except(room, &msg, &excluded_entities);
+                }
+            },
+        );
+
+        // Context room messaging via world + entity (e.g. echo_room(world, actor, "msg"), echo_room_except(world, actor, "msg", [actor, target]))
         engine.register_fn(
             "echo_room",
             |world: ScriptWorld, entity: Entity, msg: String| unsafe {

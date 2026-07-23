@@ -73,20 +73,17 @@ self.say("Intruders will be incinerated!");
 let room = actor.room();
 ```
 
-### `RoomHandle`
+### Messaging API Reference
 
-Represents a room in the game world.
+| Function | Example Usage | Description |
+| :--- | :--- | :--- |
+| **`send`** | `send("You feel a surge of energy.");` | Direct line to the current `actor`. |
+| **`entity.send` / `send_to`** | `target.send("You take 5 damage.");` | Direct line to a specific entity. |
+| **`echo`** | `echo("A low rumble shakes the cavern.");` | Scoped broadcast to the current execution room (actor or self's room). |
+| **`echo_except`** | `echo_except(def + " parries " + atk + "'s attack!", [actor, target]);` | Scoped broadcast to current room, excluding listed entities. |
+| **`echo_to`** | `echo_to(town_square, "The cathedral bell tolls.");` | Remote broadcast to any explicit room entity. |
+| **`echo_to_except`** | `echo_to_except(room, "A lightning strike shakes the area!", [actor]);` | Remote broadcast to any explicit room entity, excluding specified entities. |
 
-```rust
-// Print message to all occupants in the room
-self.echo("A low rumble shakes the cavern walls.");
-
-// Get list of entities inside the room
-let entities = self.entities();
-
-// Inspect exit destinations
-let dest = self.exit_destination("north");
-```
 
 ### `WorldHandle`
 

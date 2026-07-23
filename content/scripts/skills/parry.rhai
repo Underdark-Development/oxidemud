@@ -11,9 +11,8 @@ fn on_use() {
     }
 
     let chance = (rank * 60) / 100;
-    actor.send("You focus on parrying incoming attacks! (Parry Rank: " + rank + "%, Deflect Chance: " + chance + "%)");
-    let room = actor.room();
-    room.echo(actor.name() + " readies their weapon, watching for incoming strikes.");
+    send("You focus on parrying incoming attacks! (Parry Rank: " + rank + "%, Deflect Chance: " + chance + "%)");
+    echo(actor.name() + " readies their weapon, watching for incoming strikes.");
 }
 
 fn on_combat_hit() {
@@ -29,11 +28,11 @@ fn on_combat_hit() {
         let attacker_name = world.get_name(hit_ctx.attacker);
 
         // Send direct targeted messages to defender and attacker
-        send_to(hit_ctx.target, "You parry " + attacker_name + "'s attack!");
-        send_to(hit_ctx.attacker, defender_name + " parries your attack!");
+        hit_ctx.target.send("You parry " + attacker_name + "'s attack!");
+        hit_ctx.attacker.send(defender_name + " parries your attack!");
 
-        // Broadcast to third-party room spectators, excluding both defender (actor) and attacker (actee)
-        echo_room_except(world, hit_ctx.target, defender_name + " parries " + attacker_name + "'s attack!", [hit_ctx.target, hit_ctx.attacker]);
+        // Broadcast to third-party room spectators automatically in current room, excluding defender and attacker
+        echo_except(defender_name + " parries " + attacker_name + "'s attack!", [hit_ctx.target, hit_ctx.attacker]);
 
         hit_ctx.abort("");
     }
