@@ -31,7 +31,7 @@ fn on_combat_hit() {
         hit_ctx.target.send("You parry " + attacker_name + "'s attack!");
         hit_ctx.attacker.send(defender_name + " parries your attack!");
 
-        // Scoped room broadcast excluding defender and attacker (no room entity parameter needed)
+        // Scoped room broadcast excluding defender and attacker
         echo_except(defender_name + " parries " + attacker_name + "'s attack!", [hit_ctx.target, hit_ctx.attacker]);
 
         hit_ctx.abort("");

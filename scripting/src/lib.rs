@@ -1618,16 +1618,18 @@ fn test_fail() {
         scope.push("self", room);
         scope.push("world", ScriptWorld::new(&mut world));
 
+        let _guard = push_script_context(room, None, None, &mut world);
+
         let exits_list = engine
             .engine()
-            .eval_with_scope::<rhai::Array>(&mut scope, "world.room_exits(self)")
+            .eval_with_scope::<rhai::Array>(&mut scope, "room_exits(self)")
             .unwrap();
         assert_eq!(exits_list.len(), 1);
         assert_eq!(exits_list[0].to_string(), "north");
 
         let is_closed = engine
             .engine()
-            .eval_with_scope::<bool>(&mut scope, r#"world.is_exit_closed(self, "north")"#)
+            .eval_with_scope::<bool>(&mut scope, r#"is_exit_closed(self, "north")"#)
             .unwrap();
         assert!(is_closed);
 
@@ -1636,15 +1638,15 @@ fn test_fail() {
             .run_with_scope(
                 &mut scope,
                 r#"
-            world.set_exit_locked(self, "north", false);
-            world.set_exit_closed(self, "north", false);
+            set_exit_locked(self, "north", false);
+            set_exit_closed(self, "north", false);
         "#,
             )
             .unwrap();
 
         let is_closed_now = engine
             .engine()
-            .eval_with_scope::<bool>(&mut scope, r#"world.is_exit_closed(self, "north")"#)
+            .eval_with_scope::<bool>(&mut scope, r#"is_exit_closed(self, "north")"#)
             .unwrap();
         assert!(!is_closed_now);
     }
@@ -1811,7 +1813,7 @@ fn test_fail() {
             assert(rewards.gold == 50);
 
             // Accept the next quest in chain
-            accept_quest(world, player, "quest_b");
+            accept_quest(player, "quest_b");
         "#;
         let ast = engine.engine().compile(script).unwrap();
 
