@@ -1068,6 +1068,21 @@ impl ScriptEngine {
     }
 }
 
+fn resolve_skill_script_path(skill_id: &str) -> Option<String> {
+    if let Some(script) =
+        oxide_core::with_dynamic_skills(|reg| reg.skills.get(skill_id).map(|s| s.script.clone()))
+    {
+        return Some(script);
+    }
+    Some(format!("skills/{}.rhai", skill_id))
+}
+
+fn notify_script_error(entity: Entity, script: &str, err: &str) {
+    if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+        bridge.send_to_entity(entity, &format!("[Script Error in '{}']: {}", script, err));
+    }
+}
+
 impl ScriptingBridge for ScriptEngine {
     fn execute_trigger(
         &self,
@@ -1096,7 +1111,12 @@ impl ScriptingBridge for ScriptEngine {
 
         self.engine
             .call_fn::<bool>(&mut scope, &ast, "on_trigger", ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| {
+                if let Some(act) = actor.or(Some(entity)) {
+                    notify_script_error(act, script, &e.to_string());
+                }
+                e.to_string()
+            })
     }
 
     fn execute_combat_hit_hook(
@@ -1117,28 +1137,38 @@ impl ScriptingBridge for ScriptEngine {
             override_hit: None,
         };
 
-        // If target has parry, execute the parry script.
-        let has_parry = if let Ok(mut q) = world.query_one::<&oxide_core::LearnedSkills>(target) {
-            q.get().map(|s| s.has("parry")).unwrap_or(false)
-        } else {
-            false
-        };
+        let learned_skills: Vec<String> =
+            if let Ok(mut q) = world.query_one::<&oxide_core::LearnedSkills>(target) {
+                q.get()
+                    .map(|s| s.skills.keys().cloned().collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
-        if has_parry {
-            if let Ok(ast) = self.get_ast("skills/parry.rhai") {
-                let mut scope = Scope::new();
-                scope.push("world", ScriptWorld::new(world));
-                scope.push("hit_ctx", hit_ctx.clone());
+        for skill_id in learned_skills {
+            if hit_ctx.is_aborted {
+                break;
+            }
+            if let Some(script_path) = resolve_skill_script_path(&skill_id) {
+                if let Ok(ast) = self.get_ast(&script_path) {
+                    let mut scope = Scope::new();
+                    scope.push("world", ScriptWorld::new(world));
+                    scope.push("hit_ctx", hit_ctx.clone());
 
-                match self
-                    .engine
-                    .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
-                {
-                    Ok(returned_ctx) => {
-                        hit_ctx = returned_ctx;
-                    }
-                    Err(e) => {
-                        println!("on_combat_hit error: {:?}", e);
+                    match self
+                        .engine
+                        .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
+                    {
+                        Ok(returned_ctx) => {
+                            hit_ctx = returned_ctx;
+                        }
+                        Err(e) => {
+                            let err_str = e.to_string();
+                            if !err_str.contains("Function not found") {
+                                notify_script_error(target, &script_path, &err_str);
+                            }
+                        }
                     }
                 }
             }
@@ -1149,13 +1179,53 @@ impl ScriptingBridge for ScriptEngine {
 
     fn execute_combat_damage_hook(
         &self,
-        _attacker: Entity,
-        _target: Entity,
+        attacker: Entity,
+        target: Entity,
         damage: i32,
         damage_type: DamageType,
-        _world: &mut World,
+        world: &mut World,
     ) -> Result<(i32, DamageType), String> {
-        Ok((damage, damage_type))
+        let _guard = push_script_context(target, Some(attacker), Some(target), world);
+        let mut final_damage = damage;
+        let final_type = damage_type;
+
+        let learned_skills: Vec<String> =
+            if let Ok(mut q) = world.query_one::<&oxide_core::LearnedSkills>(target) {
+                q.get()
+                    .map(|s| s.skills.keys().cloned().collect())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+
+        for skill_id in learned_skills {
+            if let Some(script_path) = resolve_skill_script_path(&skill_id) {
+                if let Ok(ast) = self.get_ast(&script_path) {
+                    let mut scope = Scope::new();
+                    scope.push("world", ScriptWorld::new(world));
+
+                    let type_str = format!("{:?}", final_type).to_lowercase();
+                    match self.engine.call_fn::<i64>(
+                        &mut scope,
+                        &ast,
+                        "on_combat_damage",
+                        (final_damage as i64, type_str),
+                    ) {
+                        Ok(mod_dmg) => {
+                            final_damage = mod_dmg.max(0) as i32;
+                        }
+                        Err(e) => {
+                            let err_str = e.to_string();
+                            if !err_str.contains("Function not found") {
+                                notify_script_error(target, &script_path, &err_str);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((final_damage, final_type))
     }
 
     fn execute_mob_ai(
@@ -1403,6 +1473,7 @@ impl ScriptingBridge for ScriptEngine {
         target_entity: Option<Entity>,
         world: &mut World,
     ) -> Result<bool, String> {
+        let _guard = push_script_context(actor, Some(actor), target_entity, world);
         let ast = self.get_ast(script)?;
         let mut scope = Scope::new();
         scope.push("actor", actor);
@@ -2009,5 +2080,50 @@ fn test_fail() {
             .unwrap()
             .has("parrying");
         assert!(!has_parry_effect);
+    }
+
+    #[test]
+    fn test_evaluate_script_predicate_and_combat_damage_hook() {
+        use oxide_core::{DamageType, LearnedSkills, Level};
+
+        let engine = ScriptEngine::default();
+        let mut world = World::new();
+
+        let player = world.spawn((Level(10), LearnedSkills::default()));
+        {
+            let mut q = world.query_one::<&mut LearnedSkills>(player).unwrap();
+            let ls = q.get().unwrap();
+            ls.set_rank("stoneskin", 100);
+        }
+
+        // Test evaluate_script_predicate
+        let is_level_10 = engine
+            .evaluate_script_predicate("get_level(actor) >= 10", player, None, &mut world)
+            .unwrap();
+        assert!(is_level_10);
+
+        let is_level_20 = engine
+            .evaluate_script_predicate("get_level(actor) >= 20", player, None, &mut world)
+            .unwrap();
+        assert!(!is_level_20);
+
+        // Mock stoneskin.rhai in ast_cache for combat damage hook testing
+        let script = r#"
+            fn on_combat_damage(dmg, dtype) {
+                // Halve incoming damage
+                return dmg / 2;
+            }
+        "#;
+        let ast = engine.engine().compile(script).unwrap();
+        {
+            let mut cache = engine.ast_cache.write().unwrap();
+            cache.insert("skills/stoneskin.rhai".to_string(), ast);
+        }
+
+        let attacker = world.spawn(());
+        let (final_dmg, _final_type) = engine
+            .execute_combat_damage_hook(attacker, player, 40, DamageType::Slash, &mut world)
+            .unwrap();
+        assert_eq!(final_dmg, 20);
     }
 }
