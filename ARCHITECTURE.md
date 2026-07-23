@@ -1227,35 +1227,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### High: Scripting Crate Monolith
-
-**Problem:** `scripting/src/lib.rs` is a single 2000+ line file with six distinct responsibilities,
-making it a **shallow module** — the interface is nearly as large as the implementation.
-
-Responsibilities packed into one file:
-
-- Thread-local context machinery (`ScriptWorld`, `ScriptExecContext`, `push_script_context`,
-  `with_current_world`)
-- ~800 lines of Rhai binding registrations in a single `new()` constructor, organized by neither
-  domain nor concern
-- `ScriptEngine` struct with AST caching, eval, and test runner
-- `ScriptingBridge` trait implementation (10 bridge methods)
-- Test infrastructure (`parse_test_blocks`, `construct_test_script`, `strip_tests`)
-- Unit tests (~460 lines)
-
-**Fix:** Split into domain-grouped modules:
-
-- `context.rs` — `ScriptWorld`, `ScriptExecContext`, thread-local, `push_script_context`,
-  `with_current_world`
-- `bindings/` — subdirectory with domain-grouped registration functions (combat, world, messaging,
-  quests, effects, equipment, entity commands)
-- `engine.rs` — `ScriptEngine` struct, AST caching, eval
-- `bridge.rs` — `ScriptingBridge` trait implementation
-- `tests/` — test infrastructure and test modules
-
-**Leverage:** Adding a new binding means editing one domain file, not scrolling through 950 lines
-of `new()`. Finding where a function is registered becomes a file-system lookup, not a text search.
-
 ### High: Game Logic Leaking into Scripting Layer
 
 **Problem:** The scripting crate re-implements game logic that belongs in core systems, violating
@@ -1278,24 +1249,6 @@ Specific violations:
 **Fix:** Move parry/say-dispatch/effect-parsing logic into core systems or a new
 `core/src/script_dispatch.rs` module. The scripting crate's bridge methods should accept a list of
 script paths + parameters, not query the ECS world to discover them.
-
-### High: Thread-Local Dual-Path World Access
-
-**Problem:** Two independent mechanisms exist for Rhai bindings to access the ECS `World`, but only
-one is actually used.
-
-- `ScriptWorld` is pushed into every Rhai scope (e.g. `scope.push("world", ScriptWorld::new(world))`)
-  but its `as_mut`/`as_ref` methods are never called from any Rhai script or binding.
-- Every binding closure accesses `World` through the `CURRENT_SCRIPT_CONTEXT` thread-local via
-  `with_current_world()`.
-
-`ScriptWorld` is a red herring — it exists only as a type registration so Rhai can accept it as a
-parameter, but no code path actually reads it. A reader must discover the thread-local to
-understand how bindings work.
-
-**Fix:** Remove one path. Either (a) remove `ScriptWorld` from Rhai scope entirely (it's unused),
-or (b) remove the thread-local and pass `World` through `ScriptWorld` methods called from bindings.
-Pick one; having both is pure confusion.
 
 ### High: Dead Event Bus
 
