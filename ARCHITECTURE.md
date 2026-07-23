@@ -1229,31 +1229,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### High: Manual Persistence Column Mapping
-
-**Problem:** `data/src/queries.rs` is 2100+ lines of hand-written save/load functions using
-positional `row.get(N)` calls with no compile-time guarantees.
-
-Every component has a manual `save_*` and `load_*` function with listed column names and
-positional indexing: `save_health_component`, `save_mana_component`, `save_stamina_component`,
-`save_golds_component`, `save_attributes_component`, `save_level_component`,
-`save_experience_component`, `save_combat_stats_component`, `save_player_component`,
-`save_alignment_component`, `save_description_component`, `save_appearance_component`,
-`save_age_component`, `save_deity_component`, `save_quest_log_component`,
-`save_faction_standing_component`, `save_learned_recipes_component`,
-`save_multiclass_component`. The pattern repeats with mirror-image `load_*` functions.
-
-Adding a column to any component requires editing three places: the schema, the save function, and
-the load function — all with positional indexing that must stay in sync by hand. There is no
-compile-time check that save and load agree on column order.
-
-`save_player_progress` in `game_loop.rs` calls these in a numbered sequence, creating a fourth
-place to update.
-
-**Fix:** Options include (a) derive macros that generate save/load from struct field definitions,
-(b) a column-name-to-index mapping struct generated alongside the schema, or (c) at minimum, a
-shared const array of column names used by both save and load to eliminate positional drift.
-
 ### Medium: Global Singletons
 
 **Problem:** Four separate `OnceLock` global singleton patterns in `core`:

@@ -496,6 +496,8 @@ pub fn load_position_component(
     }
 }
 
+pub const PLAYER_COLS: &[&str] = &["account_id", "prompt", "screen_width"];
+
 pub fn save_player_component(
     conn: &Connection,
     entity_id: i64,
@@ -503,15 +505,16 @@ pub fn save_player_component(
     prompt: Option<&str>,
     screen_width: u16,
 ) -> Result<(), rusqlite::Error> {
+    let sql = format!(
+        "INSERT OR REPLACE INTO components_player (entity_id, {}) VALUES (?1, ?2, ?3, ?4)",
+        PLAYER_COLS.join(", ")
+    );
     if let Some(prompt) = prompt {
-        conn.execute(
-            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, ?3, ?4)",
-            params![entity_id, account_id, prompt, screen_width],
-        )?;
+        conn.execute(&sql, params![entity_id, account_id, prompt, screen_width])?;
     } else {
         conn.execute(
-            "INSERT OR REPLACE INTO components_player (entity_id, account_id, prompt, screen_width) VALUES (?1, ?2, NULL, ?3)",
-            params![entity_id, account_id, screen_width],
+            &sql,
+            params![entity_id, account_id, Option::<&str>::None, screen_width],
         )?;
     }
     Ok(())
@@ -523,9 +526,11 @@ pub fn load_player_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<PlayerComponent>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT account_id, prompt, screen_width FROM components_player WHERE entity_id = ?1",
-    )?;
+    let sql = format!(
+        "SELECT {} FROM components_player WHERE entity_id = ?1",
+        PLAYER_COLS.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some((
@@ -561,16 +566,19 @@ pub fn load_npc_component(
     }
 }
 
+pub const HEALTH_COLS: &[&str] = &["current", "max"];
+
 pub fn save_health_component(
     conn: &Connection,
     entity_id: i64,
     current: i32,
     max: i32,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT OR REPLACE INTO components_health (entity_id, current, max) VALUES (?1, ?2, ?3)",
-        params![entity_id, current, max],
-    )?;
+    let sql = format!(
+        "INSERT OR REPLACE INTO components_health (entity_id, {}) VALUES (?1, ?2, ?3)",
+        HEALTH_COLS.join(", ")
+    );
+    conn.execute(&sql, params![entity_id, current, max])?;
     Ok(())
 }
 
@@ -626,8 +634,11 @@ pub fn load_health_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<(i32, i32)>, rusqlite::Error> {
-    let mut stmt =
-        conn.prepare("SELECT current, max FROM components_health WHERE entity_id = ?1")?;
+    let sql = format!(
+        "SELECT {} FROM components_health WHERE entity_id = ?1",
+        HEALTH_COLS.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some((row.get(0)?, row.get(1)?))),
@@ -635,13 +646,27 @@ pub fn load_health_component(
     }
 }
 
+pub const APPEARANCE_COLS: &[&str] = &[
+    "height",
+    "weight",
+    "build",
+    "hair_color",
+    "hair_style",
+    "eye_color",
+    "skin_tone",
+];
+
 pub fn save_appearance_component(
     conn: &Connection,
     entity_id: i64,
     appearance: &Appearance,
 ) -> Result<(), rusqlite::Error> {
+    let sql = format!(
+        "INSERT OR REPLACE INTO components_appearance (entity_id, {}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        APPEARANCE_COLS.join(", ")
+    );
     conn.execute(
-        "INSERT OR REPLACE INTO components_appearance (entity_id, height, weight, build, hair_color, hair_style, eye_color, skin_tone) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        &sql,
         params![
             entity_id,
             appearance.height as i32,
@@ -661,7 +686,11 @@ pub fn load_appearance_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<(i32, i32, String, String, String, String, String)>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT height, weight, build, hair_color, hair_style, eye_color, skin_tone FROM components_appearance WHERE entity_id = ?1")?;
+    let sql = format!(
+        "SELECT {} FROM components_appearance WHERE entity_id = ?1",
+        APPEARANCE_COLS.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some((
@@ -725,6 +754,15 @@ pub fn load_deity_component(
     }
 }
 
+pub const ATTRIBUTES_COLS: &[&str] = &[
+    "strength",
+    "dexterity",
+    "intelligence",
+    "wisdom",
+    "constitution",
+    "charisma",
+];
+
 #[derive(Debug, Clone, Copy)]
 pub struct AttributesRow {
     pub strength: u8,
@@ -740,10 +778,21 @@ pub fn save_attributes_component(
     entity_id: i64,
     attrs: &AttributesRow,
 ) -> Result<(), rusqlite::Error> {
+    let sql = format!(
+        "INSERT OR REPLACE INTO components_attributes (entity_id, {}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        ATTRIBUTES_COLS.join(", ")
+    );
     conn.execute(
-        "INSERT OR REPLACE INTO components_attributes (entity_id, strength, dexterity, intelligence, wisdom, constitution, charisma) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![entity_id, attrs.strength, attrs.dexterity, attrs.intelligence, attrs.wisdom, attrs.constitution, attrs.charisma],
+        &sql,
+        params![
+            entity_id,
+            attrs.strength,
+            attrs.dexterity,
+            attrs.intelligence,
+            attrs.wisdom,
+            attrs.constitution,
+            attrs.charisma
+        ],
     )?;
     Ok(())
 }
@@ -752,10 +801,11 @@ pub fn load_attributes_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<AttributesRow>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT strength, dexterity, intelligence, wisdom, constitution, charisma \
-         FROM components_attributes WHERE entity_id = ?1",
-    )?;
+    let sql = format!(
+        "SELECT {} FROM components_attributes WHERE entity_id = ?1",
+        ATTRIBUTES_COLS.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some(AttributesRow {
@@ -1071,6 +1121,8 @@ pub fn load_armor_component(
     }
 }
 
+pub const COMBAT_STATS_COLS: &[&str] = &["base_attack_bonus", "fort_save", "ref_save", "will_save"];
+
 pub fn save_combat_stats_component(
     conn: &Connection,
     entity_id: i64,
@@ -1079,10 +1131,11 @@ pub fn save_combat_stats_component(
     ref_: i32,
     will: i32,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT OR REPLACE INTO components_combat_stats (entity_id, base_attack_bonus, fort_save, ref_save, will_save) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![entity_id, bab, fort, ref_, will],
-    )?;
+    let sql = format!(
+        "INSERT OR REPLACE INTO components_combat_stats (entity_id, {}) VALUES (?1, ?2, ?3, ?4, ?5)",
+        COMBAT_STATS_COLS.join(", ")
+    );
+    conn.execute(&sql, params![entity_id, bab, fort, ref_, will])?;
     Ok(())
 }
 
@@ -1090,15 +1143,19 @@ pub fn load_combat_stats_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<(i32, i32, i32, i32)>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT base_attack_bonus, fort_save, ref_save, will_save FROM components_combat_stats WHERE entity_id = ?1",
-    )?;
+    let sql = format!(
+        "SELECT {} FROM components_combat_stats WHERE entity_id = ?1",
+        COMBAT_STATS_COLS.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))),
         None => Ok(None),
     }
 }
+
+pub const GOLDS_COLS: &[&str] = &["copper", "silver", "gold", "platinum"];
 
 pub fn save_golds_component(
     conn: &Connection,
@@ -1108,10 +1165,11 @@ pub fn save_golds_component(
     gold: i64,
     platinum: i64,
 ) -> Result<(), rusqlite::Error> {
-    conn.execute(
-        "INSERT OR REPLACE INTO components_golds (entity_id, copper, silver, gold, platinum) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![entity_id, copper, silver, gold, platinum],
-    )?;
+    let sql = format!(
+        "INSERT OR REPLACE INTO components_golds (entity_id, {}) VALUES (?1, ?2, ?3, ?4, ?5)",
+        GOLDS_COLS.join(", ")
+    );
+    conn.execute(&sql, params![entity_id, copper, silver, gold, platinum])?;
     Ok(())
 }
 
@@ -1119,9 +1177,11 @@ pub fn load_golds_component(
     conn: &Connection,
     entity_id: i64,
 ) -> Result<Option<(i64, i64, i64, i64)>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT copper, silver, gold, platinum FROM components_golds WHERE entity_id = ?1",
-    )?;
+    let sql = format!(
+        "SELECT {} FROM components_golds WHERE entity_id = ?1",
+        GOLDS_COLS.join(", ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![entity_id])?;
     match rows.next()? {
         Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))),
