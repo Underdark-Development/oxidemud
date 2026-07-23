@@ -1904,8 +1904,16 @@ fn test_fail() {
         let engine = ScriptEngine::new("../content/scripts");
         let mut world = World::new();
 
-        let defender = world.spawn((LearnedSkills::default(), ActiveScriptEffects::default()));
         let attacker = world.spawn(());
+        let defender = world.spawn((
+            LearnedSkills::default(),
+            ActiveScriptEffects::default(),
+            CombatState::Engaged {
+                target: attacker,
+                round_started: std::time::Instant::now(),
+                stance: None,
+            },
+        ));
 
         {
             let mut q = world.query_one::<&mut LearnedSkills>(defender).unwrap();
