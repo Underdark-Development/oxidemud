@@ -938,9 +938,7 @@ impl MobTemplate {
         ));
 
         if let Some(ref race_id) = self.race {
-            world
-                .insert(npc, (crate::components::Race(race_id.clone()),))
-                .unwrap();
+            let _ = world.insert(npc, (crate::components::Race(race_id.clone()),));
         }
 
         let short_desc = if self.short_desc.is_empty() {
@@ -948,21 +946,17 @@ impl MobTemplate {
         } else {
             self.short_desc.clone()
         };
-        world
-            .insert(npc, (crate::components::ShortDesc(short_desc),))
-            .unwrap();
+        let _ = world.insert(npc, (crate::components::ShortDesc(short_desc),));
 
         if self.friendly {
-            world.insert(npc, (crate::components::Friendly,)).unwrap();
+            let _ = world.insert(npc, (crate::components::Friendly,));
         }
 
         if !self.trainer_types.is_empty() {
-            world
-                .insert(
-                    npc,
-                    (crate::components::Trainer::new(self.trainer_types.clone()),),
-                )
-                .unwrap();
+            let _ = world.insert(
+                npc,
+                (crate::components::Trainer::new(self.trainer_types.clone()),),
+            );
         }
 
         // Equip natural weapon and equipment from templates
@@ -1021,32 +1015,28 @@ impl MobTemplate {
                                 range,
                                 hands,
                             };
-                            world.insert(item, (weapon,)).unwrap();
+                            let _ = world.insert(item, (weapon,));
                         }
                     }
                 }
 
                 if let Some(ref set) = item_tpl.set {
                     let membership = crate::components::SetMembership::from(set.clone());
-                    world.insert(item, (membership,)).unwrap();
+                    let _ = world.insert(item, (membership,));
                 }
 
                 if !item_tpl.triggers.is_empty() {
-                    world
-                        .insert(item, (crate::ItemTriggers(item_tpl.triggers.clone()),))
-                        .unwrap();
+                    let _ = world.insert(item, (crate::ItemTriggers(item_tpl.triggers.clone()),));
                 }
 
                 if let Some(ref req) = item_tpl.requires_skill {
-                    world
-                        .insert(
-                            item,
-                            (crate::components::ItemSkillRequirement {
-                                id: req.id.clone(),
-                                level: req.level,
-                            },),
-                        )
-                        .unwrap();
+                    let _ = world.insert(
+                        item,
+                        (crate::components::ItemSkillRequirement {
+                            id: req.id.clone(),
+                            level: req.level,
+                        },),
+                    );
                 }
 
                 let slot = crate::components::EquipmentSlot::from_str(&entry.slot)

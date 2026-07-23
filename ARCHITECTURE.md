@@ -1227,51 +1227,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### Critical: Unsafe Code in Scripting Crate
-
-**Violates:** Non-Negotiable invariant "Zero `unsafe` Code"
-
-`scripting/src/lib.rs` contains five `unsafe` blocks:
-
-- `ScriptWorld` struct holds `*mut World` and has `unsafe impl Send` / `unsafe impl Sync`
-- `ScriptWorld::as_mut` and `ScriptWorld::as_ref` are `pub unsafe` raw pointer dereference methods
-- `with_current_world` dereferences the raw pointer from the thread-local `ScriptExecContext`
-
-A parallel raw pointer lives in `ScriptExecContext` (also `*mut World`), stored in the
-`CURRENT_SCRIPT_CONTEXT` thread-local. Two raw pointers to the same `World` are simultaneously
-alive and dereferenced through two separate paths. The safety argument ("scripts run under the
-world lock") is a runtime convention, not enforced by the type system.
-
-**Fix:** Eliminate raw pointers. Options: (a) lifetime-bound wrapper that ties World access to the
-lock guard scope, (b) channel-based message passing to the game loop, or (c) a `SafeWorld` type
-that wraps the pointer behind an API that only compiles inside a verified execution context.
-
-### Critical: Panics in Runtime Code
-
-**Violates:** Non-Negotiable invariant "Zero Panics in Runtime"
-
-Runtime `unwrap()` calls that can cascade-poison locks or crash the server:
-
-- `scripting/src/lib.rs`: `ast_cache.read().unwrap()` and `ast_cache.write().unwrap()` in
-  `ScriptEngine` methods — a single panic in any thread poisons the RwLock, causing every
-  subsequent script execution to panic
-- `scripting/src/lib.rs`: `hecs::Entity::from_bits(0).unwrap()` in the `spawn_mob` Rhai binding
-  fallback paths — panics if the entity bits are somehow invalid
-- `core/src/scripting.rs`: `registry.read().unwrap()` in `with_dynamic_skills` — called by 5+
-  call sites across server and bin crates
-- `core/src/templates.rs`: `unwrap()` calls in `spawn_mob_from_template` — panics if world insert
-  fails
-- `core/src/content.rs`: `fs::read_dir(dir).unwrap()` in `load_dir` — panics if content directory
-  is missing
-- `core/src/systems/crafting.rs`: `templates.recipes.get(recipe_id).unwrap()` — panics on unknown
-  recipe ID
-- `scripting/src/lib.rs`: `println!("on_combat_hit error: {:?}", e)` in
-  `execute_combat_hit_hook` — bypasses tracing infrastructure
-
-**Fix:** Replace all runtime `unwrap()` with `?` propagation, `.unwrap_or_else()` with
-`tracing::error!`/`tracing::warn!`, or explicit `match` with graceful degradation. Replace
-`println!` with `tracing::error!`.
-
 ### High: Scripting Crate Monolith
 
 **Problem:** `scripting/src/lib.rs` is a single 2000+ line file with six distinct responsibilities,

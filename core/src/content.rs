@@ -86,7 +86,11 @@ fn load_areas_recursive(
     room_path_map: &mut HashMap<String, PathBuf>,
     prefix: &str,
 ) {
-    for entry in fs::read_dir(dir).unwrap().flatten() {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
         let path = entry.path();
 
         // Only subdirectory format: <dir>/<area_id>/area.toml + rooms/*.toml + areas/*

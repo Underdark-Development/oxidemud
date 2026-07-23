@@ -107,7 +107,10 @@ pub fn craft_recipe(
 ) -> Result<String, String> {
     can_craft_recipe(world, player, recipe_id, templates)?;
 
-    let recipe = templates.recipes.get(recipe_id).unwrap().clone();
+    let recipe = match templates.recipes.get(recipe_id) {
+        Some(r) => r.clone(),
+        None => return Err(format!("Unknown recipe: {}", recipe_id)),
+    };
 
     let mut inventory = world
         .query_one::<&Inventory>(player)

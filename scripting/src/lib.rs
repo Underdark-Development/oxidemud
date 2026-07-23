@@ -22,43 +22,6 @@ pub struct TestResult {
     pub error: Option<String>,
 }
 
-/// A thread-safe wrapper around the ECS `World` raw pointer.
-/// Rhai scripts run synchronously under the World lock, so this raw pointer
-/// remains valid for the duration of the script's execution.
-#[derive(Clone)]
-pub struct ScriptWorld {
-    world_ptr: *mut World,
-}
-
-// SAFETY: Rhai scripts run synchronously under the main game loop / world lock.
-// The pointer is only accessed while the lock is held.
-unsafe impl Send for ScriptWorld {}
-unsafe impl Sync for ScriptWorld {}
-
-impl ScriptWorld {
-    pub fn new(world: &mut World) -> Self {
-        ScriptWorld { world_ptr: world }
-    }
-
-    /// Access the underlying mutable reference to `World`.
-    ///
-    /// # SAFETY
-    /// The caller must ensure that the pointer remains valid and is not aliased
-    /// concurrently (which is guaranteed during synchronous script execution).
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn as_mut(&self) -> &mut World {
-        &mut *self.world_ptr
-    }
-
-    /// Access the underlying immutable reference to `World`.
-    ///
-    /// # SAFETY
-    /// The caller must ensure that the pointer remains valid.
-    pub unsafe fn as_ref(&self) -> &World {
-        &*self.world_ptr
-    }
-}
-
 thread_local! {
     static CURRENT_SCRIPT_CONTEXT: std::cell::RefCell<Option<ScriptExecContext>> = const { std::cell::RefCell::new(None) };
 }
@@ -69,7 +32,7 @@ pub struct ScriptExecContext {
     pub actor: Option<Entity>,
     pub target: Option<Entity>,
     pub room: Option<Entity>,
-    pub world_ptr: *mut World,
+    world_ptr: *mut World,
 }
 
 pub struct ScriptContextGuard;
@@ -114,6 +77,10 @@ pub fn push_script_context(
 pub fn with_current_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     CURRENT_SCRIPT_CONTEXT.with(|c| {
         if let Some(ctx) = *c.borrow() {
+            // SAFETY: `world_ptr` is set from a valid `&mut World` in `push_script_context`
+            // on the current thread, and cleared when `ScriptContextGuard` drops at the end of
+            // the script execution scope. The reference is non-null and valid for the duration
+            // of `with_current_world` because script execution is synchronous and single-threaded.
             unsafe {
                 let w = &mut *ctx.world_ptr;
                 Some(f(w))
@@ -141,7 +108,6 @@ impl ScriptEngine {
 
         // Register custom types
         engine.register_type_with_name::<Entity>("Entity");
-        engine.register_type_with_name::<ScriptWorld>("World");
         engine.register_type_with_name::<HitContext>("HitContext");
         engine.register_type_with_name::<DamageType>("DamageType");
 
@@ -507,15 +473,15 @@ impl ScriptEngine {
                 with_current_world(|w| {
                     let templates = match oxide_core::templates::get_global_templates() {
                         Some(t) => t,
-                        None => return Entity::from(hecs::Entity::from_bits(0).unwrap()),
+                        None => return Entity::from(hecs::Entity::DANGLING),
                     };
                     if let Some(mob_tpl) = templates.mobs.get(&template_id) {
                         mob_tpl.spawn(w, room_entity, &templates)
                     } else {
-                        Entity::from(hecs::Entity::from_bits(0).unwrap())
+                        Entity::from(hecs::Entity::DANGLING)
                     }
                 })
-                .unwrap_or_else(|| Entity::from(hecs::Entity::from_bits(0).unwrap()))
+                .unwrap_or_else(|| Entity::from(hecs::Entity::DANGLING))
             },
         );
 
@@ -963,7 +929,7 @@ impl ScriptEngine {
     /// Retrieve or compile an AST for the given script path relative to the script directory.
     pub fn get_ast(&self, rel_path: &str) -> Result<AST, String> {
         {
-            let cache = self.ast_cache.read().unwrap();
+            let cache = self.ast_cache.read().unwrap_or_else(|e| e.into_inner());
             if let Some(ast) = cache.get(rel_path) {
                 return Ok(ast.clone());
             }
@@ -979,7 +945,7 @@ impl ScriptEngine {
             .compile(&processed)
             .map_err(|e| format!("Compile error in {}: {}", rel_path, e))?;
 
-        let mut cache = self.ast_cache.write().unwrap();
+        let mut cache = self.ast_cache.write().unwrap_or_else(|e| e.into_inner());
         cache.insert(rel_path.to_string(), ast.clone());
         Ok(ast)
     }
@@ -1098,7 +1064,6 @@ impl ScriptingBridge for ScriptEngine {
         scope.push("self", entity);
         scope.push("actor", actor);
         scope.push("target", target);
-        scope.push("world", ScriptWorld::new(world));
 
         // Inject ScriptParams if any
         if let Ok(mut q) = world.query_one::<&oxide_core::ScriptParams>(entity) {
@@ -1153,7 +1118,6 @@ impl ScriptingBridge for ScriptEngine {
             if let Some(script_path) = resolve_skill_script_path(&skill_id) {
                 if let Ok(ast) = self.get_ast(&script_path) {
                     let mut scope = Scope::new();
-                    scope.push("world", ScriptWorld::new(world));
                     scope.push("hit_ctx", hit_ctx.clone());
 
                     match self
@@ -1202,7 +1166,6 @@ impl ScriptingBridge for ScriptEngine {
             if let Some(script_path) = resolve_skill_script_path(&skill_id) {
                 if let Ok(ast) = self.get_ast(&script_path) {
                     let mut scope = Scope::new();
-                    scope.push("world", ScriptWorld::new(world));
 
                     let type_str = format!("{:?}", final_type).to_lowercase();
                     match self.engine.call_fn::<i64>(
@@ -1238,7 +1201,6 @@ impl ScriptingBridge for ScriptEngine {
         let ast = self.get_ast(script)?;
         let mut scope = Scope::new();
         scope.push("self", entity);
-        scope.push("world", ScriptWorld::new(world));
 
         // Inject ScriptParams if any
         if let Ok(mut q) = world.query_one::<&oxide_core::ScriptParams>(entity) {
@@ -1315,7 +1277,6 @@ impl ScriptingBridge for ScriptEngine {
             scope.push("self", script_entity);
             scope.push("speaker", speaker);
             scope.push("message", message.to_string());
-            scope.push("world", ScriptWorld::new(world));
 
             for (k, v) in params {
                 scope.push(k, v);
@@ -1341,7 +1302,6 @@ impl ScriptingBridge for ScriptEngine {
         let mut scope = Scope::new();
         scope.push("actor", actor);
         scope.push("target", target);
-        scope.push("world", ScriptWorld::new(world));
 
         // SkillDef parameters injection is handled by resolving SkillDef from learned skills or by checking if the skill entity or registry params exist.
         // We can check if `actor` has the skill or query the database/registry. Let's look up the skill in LearnedSkills or Skills component if it is attached.
@@ -1366,7 +1326,6 @@ impl ScriptingBridge for ScriptEngine {
         let ast = self.get_ast(script)?;
         let mut scope = Scope::new();
         scope.push("player", player);
-        scope.push("world", ScriptWorld::new(world));
         scope.push("quest_id", quest_id.to_string());
 
         let mut rewards_map = rhai::Map::new();
@@ -1416,7 +1375,6 @@ impl ScriptingBridge for ScriptEngine {
         let mut scope = Scope::new();
         scope.push("actor", actor);
         scope.push("args", args.to_string());
-        scope.push("world", ScriptWorld::new(world));
 
         if self
             .engine
@@ -1450,7 +1408,6 @@ impl ScriptingBridge for ScriptEngine {
         scope.push("self", entity);
         scope.push("actor", actor);
         scope.push("args", args.to_string());
-        scope.push("world", ScriptWorld::new(world));
 
         if self
             .engine
@@ -1477,7 +1434,6 @@ impl ScriptingBridge for ScriptEngine {
         let mut scope = Scope::new();
         scope.push("actor", actor);
         scope.push("target", target_entity);
-        scope.push("world", ScriptWorld::new(world));
 
         if script.ends_with(".rhai") {
             let ast = self.get_ast(script)?;
@@ -1498,7 +1454,7 @@ impl ScriptingBridge for ScriptEngine {
     fn reload_script(&self, rel_path: &str) -> Result<(), String> {
         let full_path = self.script_dir.join(rel_path);
         if !full_path.exists() {
-            let mut cache = self.ast_cache.write().unwrap();
+            let mut cache = self.ast_cache.write().unwrap_or_else(|e| e.into_inner());
             cache.remove(rel_path);
             return Ok(());
         }
@@ -1512,7 +1468,7 @@ impl ScriptingBridge for ScriptEngine {
             .compile(&processed)
             .map_err(|e| format!("Compile error in {}: {}", rel_path, e))?;
 
-        let mut cache = self.ast_cache.write().unwrap();
+        let mut cache = self.ast_cache.write().unwrap_or_else(|e| e.into_inner());
         cache.insert(rel_path.to_string(), ast);
         Ok(())
     }
@@ -1793,7 +1749,6 @@ fn test_fail() {
 
         let mut scope = Scope::new();
         scope.push("self", room);
-        scope.push("world", ScriptWorld::new(&mut world));
 
         let _guard = push_script_context(room, None, None, &mut world);
 

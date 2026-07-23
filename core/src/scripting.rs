@@ -284,6 +284,6 @@ pub fn register_dynamic_skill(skill: ScriptSkill) {
 
 pub fn with_dynamic_skills<R>(f: impl FnOnce(&DynamicSkillRegistry) -> R) -> R {
     let registry = DYNAMIC_SKILLS.get_or_init(|| RwLock::new(DynamicSkillRegistry::new()));
-    let reader = registry.read().unwrap();
+    let reader = registry.read().unwrap_or_else(|e| e.into_inner());
     f(&reader)
 }
