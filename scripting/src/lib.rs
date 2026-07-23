@@ -152,6 +152,9 @@ impl ScriptEngine {
         });
 
         // HitContext bindings
+        engine.register_get("attacker", |ctx: &mut HitContext| ctx.attacker);
+        engine.register_get("target", |ctx: &mut HitContext| ctx.target);
+        engine.register_get("is_offhand", |ctx: &mut HitContext| ctx.is_offhand);
         engine.register_get_set(
             "is_aborted",
             |ctx: &mut HitContext| ctx.is_aborted,
