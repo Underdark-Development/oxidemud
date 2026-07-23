@@ -23,7 +23,7 @@ pub use scripting::{
     DynamicSkillRegistry, HitContext, MessageOutputBridge, ScriptSkill, ScriptingBridge,
 };
 pub use systems::ai::AiState;
-pub use systems::combat::HitResult;
+pub use systems::combat::{HitResult, transition_combat_state};
 pub use systems::crafting::{can_craft_recipe, craft_recipe};
 pub use systems::faction::{adjust_faction_standing, handle_faction_kill};
 pub use systems::group::{

@@ -1836,7 +1836,7 @@ fn test_fail() {
 
     #[test]
     fn test_parry_active_stance_and_combat_end_deactivation() {
-        use oxide_core::{ActiveScriptEffects, CombatState, LearnedSkills, SkillRank};
+        use oxide_core::{ActiveScriptEffects, CombatState, LearnedSkills};
 
         let engine = ScriptEngine::new("../content/scripts");
         let mut world = World::new();
@@ -1847,7 +1847,7 @@ fn test_fail() {
         {
             let mut q = world.query_one::<&mut LearnedSkills>(defender).unwrap();
             let skills = q.get().unwrap();
-            skills.skills.insert("parry".to_string(), SkillRank { rank: 100 });
+            skills.set_rank("parry", 100);
         }
 
         // 1. Without active "parrying" stance, hit context is NOT aborted
