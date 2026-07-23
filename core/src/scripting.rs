@@ -1,5 +1,5 @@
 use crate::{DamageType, Entity, World};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// Context passed to and returned from combat hit scripts.
 #[derive(Debug, Clone)]
@@ -150,27 +150,39 @@ pub trait MessageOutputBridge: Send + Sync {
     fn echo_to_room_except(&self, room: Entity, message: &str, exclude: &[Entity]);
 }
 
-pub static SCRIPTING_BRIDGE: OnceLock<Box<dyn ScriptingBridge>> = OnceLock::new();
-pub static MESSAGE_BRIDGE: OnceLock<Box<dyn MessageOutputBridge>> = OnceLock::new();
+static SCRIPTING_BRIDGE: OnceLock<RwLock<Option<Arc<dyn ScriptingBridge>>>> = OnceLock::new();
+static MESSAGE_BRIDGE: OnceLock<RwLock<Option<Arc<dyn MessageOutputBridge>>>> = OnceLock::new();
 
-/// Register the global scripting implementation.
+/// Register or replace the global scripting implementation.
 pub fn register_scripting_bridge(bridge: Box<dyn ScriptingBridge>) {
-    let _ = SCRIPTING_BRIDGE.set(bridge);
+    let arc_bridge: Arc<dyn ScriptingBridge> = bridge.into();
+    let cell = SCRIPTING_BRIDGE.get_or_init(|| RwLock::new(None));
+    let mut writer = cell.write().unwrap_or_else(|e| e.into_inner());
+    *writer = Some(arc_bridge);
 }
 
-/// Register the global messaging/broadcast implementation.
+/// Register or replace the global messaging/broadcast implementation.
 pub fn register_message_bridge(bridge: Box<dyn MessageOutputBridge>) {
-    let _ = MESSAGE_BRIDGE.set(bridge);
+    let arc_bridge: Arc<dyn MessageOutputBridge> = bridge.into();
+    let cell = MESSAGE_BRIDGE.get_or_init(|| RwLock::new(None));
+    let mut writer = cell.write().unwrap_or_else(|e| e.into_inner());
+    *writer = Some(arc_bridge);
 }
 
-/// Retrieve the active scripting implementation.
-pub fn get_scripting_bridge() -> Option<&'static dyn ScriptingBridge> {
-    SCRIPTING_BRIDGE.get().map(|b| b.as_ref())
+/// Retrieve the active scripting implementation Arc if set.
+pub fn get_scripting_bridge() -> Option<Arc<dyn ScriptingBridge>> {
+    SCRIPTING_BRIDGE.get().and_then(|cell| {
+        let reader = cell.read().unwrap_or_else(|e| e.into_inner());
+        reader.clone()
+    })
 }
 
-/// Retrieve the active messaging implementation.
-pub fn get_message_bridge() -> Option<&'static dyn MessageOutputBridge> {
-    MESSAGE_BRIDGE.get().map(|b| b.as_ref())
+/// Retrieve the active messaging implementation Arc if set.
+pub fn get_message_bridge() -> Option<Arc<dyn MessageOutputBridge>> {
+    MESSAGE_BRIDGE.get().and_then(|cell| {
+        let reader = cell.read().unwrap_or_else(|e| e.into_inner());
+        reader.clone()
+    })
 }
 
 use crate::components::CommandRestrictions;
@@ -277,9 +289,8 @@ static DYNAMIC_SKILLS: OnceLock<RwLock<DynamicSkillRegistry>> = OnceLock::new();
 
 pub fn register_dynamic_skill(skill: ScriptSkill) {
     let registry = DYNAMIC_SKILLS.get_or_init(|| RwLock::new(DynamicSkillRegistry::new()));
-    if let Ok(mut writer) = registry.write() {
-        writer.register(skill);
-    }
+    let mut writer = registry.write().unwrap_or_else(|e| e.into_inner());
+    writer.register(skill);
 }
 
 pub fn with_dynamic_skills<R>(f: impl FnOnce(&DynamicSkillRegistry) -> R) -> R {

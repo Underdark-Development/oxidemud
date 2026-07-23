@@ -1229,25 +1229,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### Medium: Global Singletons
-
-**Problem:** Four separate `OnceLock` global singleton patterns in `core`:
-
-| Singleton          | Location       | Pattern                                   |
-| ------------------ | -------------- | ----------------------------------------- |
-| `GLOBAL_TEMPLATES` | `templates.rs` | `OnceLock<RwLock<Arc<TemplateRegistry>>>` |
-| `SCRIPTING_BRIDGE` | `scripting.rs` | `OnceLock<Box<dyn ScriptingBridge>>`      |
-| `MESSAGE_BRIDGE`   | `scripting.rs` | `OnceLock<Box<dyn MessageOutputBridge>>`  |
-| `DYNAMIC_SKILLS`   | `scripting.rs` | `OnceLock<RwLock<DynamicSkillRegistry>>`  |
-
-Each test that touches templates or scripting must call `register_*` to initialize globals, and
-tests cannot run in parallel. The four singletons use inconsistent patterns (`Arc<T>` vs
-`Box<dyn Trait>` vs `RwLock<T>`).
-
-**Fix:** Replace globals with a `Resources` struct passed explicitly through the call chain, or at
-minimum unify the pattern (all `Arc<RwLock<T>>` or all `Box<dyn Trait>` behind a consistent
-accessor API).
-
 ### Medium: Glob Re-exports and Flat Public API
 
 **Problem:** `core/src/lib.rs` uses `#![allow(ambiguous_glob_reexports)]` to suppress name
