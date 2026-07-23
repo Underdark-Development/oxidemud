@@ -734,6 +734,10 @@ impl ScriptEngine {
              affects_display: String,
              expire_msg: String| {
                 with_current_world(|w| {
+                    let mut expire_conditions = Vec::new();
+                    if duration_secs > 0 {
+                        expire_conditions.push(oxide_core::EffectExpireCondition::Timer);
+                    }
                     let effect = oxide_core::ActiveScriptEffect {
                         id: id.clone(),
                         display_name: source.clone(),
@@ -749,6 +753,7 @@ impl ScriptEngine {
                         short_desc_override: None,
                         visible_on_look: false,
                         look_aura: None,
+                        expire_conditions,
                         params: HashMap::new(),
                     };
                     if let Ok(mut q) = w.query_one::<&mut oxide_core::ActiveScriptEffects>(target) {
@@ -780,6 +785,30 @@ impl ScriptEngine {
              expire_msg: String,
              params: rhai::Map| {
                 with_current_world(|w| {
+                    let mut expire_conditions = Vec::new();
+                    if let Some(cond_val) = params.get("expire_conditions") {
+                        if let Ok(arr) = cond_val.clone().into_array() {
+                            for v in arr {
+                                if let Ok(s) = v.into_string() {
+                                    match s.to_lowercase().as_str() {
+                                        "exit_combat" => expire_conditions.push(oxide_core::EffectExpireCondition::ExitCombat),
+                                        "change_stance" => expire_conditions.push(oxide_core::EffectExpireCondition::ChangeStance),
+                                        "timer" => expire_conditions.push(oxide_core::EffectExpireCondition::Timer),
+                                        other => expire_conditions.push(oxide_core::EffectExpireCondition::Custom { condition_id: other.to_string() }),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if expire_conditions.is_empty() && duration_secs > 0 {
+                        expire_conditions.push(oxide_core::EffectExpireCondition::Timer);
+                    }
+
+                    let parsed_params: HashMap<String, String> = params
+                        .into_iter()
+                        .filter_map(|(k, v)| v.into_string().ok().map(|s| (k.to_string(), s)))
+                        .collect();
+
                     let effect = oxide_core::ActiveScriptEffect {
                         id: id.clone(),
                         display_name: display_name.clone(),
@@ -795,7 +824,8 @@ impl ScriptEngine {
                         short_desc_override: if short_desc_override.is_empty() { None } else { Some(short_desc_override) },
                         visible_on_look: !look_aura.is_empty(),
                         look_aura: if look_aura.is_empty() { None } else { Some(look_aura) },
-                        params: params.into_iter().filter_map(|(k, v)| v.into_string().ok().map(|s| (k.to_string(), s))).collect(),
+                        expire_conditions,
+                        params: parsed_params,
                     };
                     if let Ok(mut q) = w.query_one::<&mut oxide_core::ActiveScriptEffects>(target) {
                         if let Some(active) = q.get() {
@@ -1878,6 +1908,7 @@ fn test_fail() {
                 short_desc_override: None,
                 visible_on_look: false,
                 look_aura: None,
+                expire_conditions: vec![oxide_core::EffectExpireCondition::ExitCombat],
                 params: HashMap::new(),
             });
         }

@@ -348,6 +348,32 @@ pub fn calculate_hit(
     }
 }
 
+/// Expire all active script effects on an entity matching a specified expiry condition.
+pub fn expire_effects_by_condition(world: &mut World, entity: Entity, condition: crate::EffectExpireCondition) {
+    let mut expired_msgs = Vec::new();
+    if let Ok(mut q) = world.query_one::<&mut crate::ActiveScriptEffects>(entity) {
+        if let Some(active) = q.get() {
+            let mut remaining = Vec::new();
+            for effect in active.effects.drain(..) {
+                if effect.expire_conditions.contains(&condition) {
+                    if let Some(msg) = effect.expire_message {
+                        expired_msgs.push(msg);
+                    }
+                } else {
+                    remaining.push(effect);
+                }
+            }
+            active.effects = remaining;
+        }
+    }
+
+    if let Some(bridge) = crate::scripting::get_message_bridge() {
+        for msg in expired_msgs {
+            bridge.send_to_entity(entity, &msg);
+        }
+    }
+}
+
 pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: CombatState) {
     let old_state = world
         .query_one::<&CombatState>(entity)
@@ -359,25 +385,8 @@ pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: Com
         let _ = world.insert(entity, (new_state.clone(),));
 
         if new_state == CombatState::NotInCombat {
-            // Automatically deactivate combat stance script effects like parry/parrying when combat ends
-            let expire_msg = if let Ok(mut q) = world.query_one::<&mut crate::ActiveScriptEffects>(entity) {
-                if let Some(effects) = q.get() {
-                    effects
-                        .remove("parrying")
-                        .or_else(|| effects.remove("parry"))
-                        .and_then(|e| e.expire_message)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            if let Some(msg) = expire_msg {
-                if let Some(bridge) = crate::scripting::get_message_bridge() {
-                    bridge.send_to_entity(entity, &msg);
-                }
-            }
+            // Automatically expire any active script effects configured to expire on ExitCombat
+            expire_effects_by_condition(world, entity, crate::EffectExpireCondition::ExitCombat);
         }
 
         let _event = crate::GameEvent::CombatStateChanged {

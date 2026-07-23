@@ -19,13 +19,21 @@ fn on_use() {
     }
 
     let chance = (rank * 60) / 100;
-    apply_script_effect(
+    apply_script_effect_full(
         actor,
         "parrying",
         "Parrying Stance",
+        "Parry",
         3600,
         "Actively parrying incoming melee attacks (Max 60% deflect chance)",
-        "You lower your guard and stop parrying."
+        "",
+        "",
+        "",
+        "",
+        "You lower your guard and stop parrying.",
+        #{
+            "expire_conditions": ["exit_combat"]
+        }
     );
 
     send("You focus on parrying incoming attacks! (Parry Rank: " + rank + "%, Deflect Chance: " + chance + "%)");

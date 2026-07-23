@@ -302,6 +302,16 @@ pub struct EntityCommandDef {
     pub examine_hint: Option<String>,
 }
 
+/// Conditions under which an active script effect automatically expires.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EffectExpireCondition {
+    Timer,
+    ExitCombat,
+    ChangeStance,
+    Custom { condition_id: String },
+}
+
 /// Active script effect (buff, debuff, aura, temporary weapon enchant).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveScriptEffect {
@@ -328,6 +338,8 @@ pub struct ActiveScriptEffect {
     pub visible_on_look: bool,
     #[serde(default)]
     pub look_aura: Option<String>,
+    #[serde(default)]
+    pub expire_conditions: Vec<EffectExpireCondition>,
     #[serde(default)]
     pub params: HashMap<String, String>,
 }
