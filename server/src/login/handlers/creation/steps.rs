@@ -9,167 +9,12 @@ use oxide_core::{
 
 use crate::registry::ConnectionRegistry;
 
-use super::super::state::{
+use super::super::super::state::{
     ChangePasswordSubstate, CharacterCreateSubstate, CharacterSelectSubstate, LoginState,
     LoginSubstate,
 };
-use super::super::LoginFlow;
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const POINT_BUY_COST: [u8; 11] = [1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4];
-
-const STANDARD_ARRAY: [u8; 6] = [15, 14, 13, 12, 10, 8];
-
-const MAX_POINT_BUY_POINTS: u8 = 27;
-const MAX_REROLLS: u8 = 3;
-
-// ---------------------------------------------------------------------------
-// Handler helpers
-// ---------------------------------------------------------------------------
-
-/// Validates a character name: 3-16 chars, letters, hyphens, apostrophes.
-fn is_valid_character_name(s: &str) -> bool {
-    if !(3..=16).contains(&s.len()) {
-        return false;
-    }
-    let mut chars = s.chars();
-    let first = chars.next().unwrap();
-    let last = chars.last().unwrap_or(first);
-    if !first.is_ascii_alphabetic() || !last.is_ascii_alphabetic() {
-        return false;
-    }
-    s.chars()
-        .all(|c| c.is_ascii_alphabetic() || c == '-' || c == '\'')
-}
-
-/// Roll 4d6 drop lowest, return the result.
-fn roll_4d6_drop_lowest() -> u8 {
-    let mut rolls: [u8; 4] = [
-        fastrand::u8(1..=6),
-        fastrand::u8(1..=6),
-        fastrand::u8(1..=6),
-        fastrand::u8(1..=6),
-    ];
-    rolls.sort_unstable();
-    rolls[1] + rolls[2] + rolls[3]
-}
-
-/// Roll 6 sets of 4d6 drop lowest, return sorted descending.
-fn roll_all_stats() -> [u8; 6] {
-    let mut stats = [0u8; 6];
-    for s in &mut stats {
-        *s = roll_4d6_drop_lowest();
-    }
-    stats.sort_unstable_by(|a, b| b.cmp(a));
-    stats
-}
-
-/// Match an option by 1-based index or by name (case-insensitive).
-fn match_option_index_or_name<'a>(input_lower: &str, options: &'a [String]) -> Option<&'a String> {
-    if let Ok(idx) = input_lower.parse::<usize>() {
-        if idx > 0 && idx <= options.len() {
-            return Some(&options[idx - 1]);
-        }
-    }
-    options.iter().find(|o| o.to_lowercase() == input_lower)
-}
-
-/// Parse a stat name abbreviation to index (0-5).
-fn stat_index(s: &str) -> Option<usize> {
-    match s {
-        "str" | "strength" => Some(0),
-        "dex" | "dexterity" => Some(1),
-        "int" | "intelligence" => Some(2),
-        "wis" | "wisdom" => Some(3),
-        "con" | "constitution" => Some(4),
-        "cha" | "charisma" => Some(5),
-        _ => None,
-    }
-}
-
-/// Cost to raise a stat from its current value by 1.
-fn point_buy_cost(current: u8) -> Option<u8> {
-    if !(8..18).contains(&current) {
-        return None;
-    }
-    Some(POINT_BUY_COST[(current - 8) as usize])
-}
-
-/// Compute final attributes from race base + class mod + player-chosen base.
-pub fn compute_final_attributes(
-    templates: Option<&TemplateRegistry>,
-    race_id: &str,
-    class_id: &str,
-    player_base: &oxide_core::Attributes,
-) -> (oxide_core::Attributes, i32, oxide_core::LearnedSkills) {
-    let mut skills = oxide_core::LearnedSkills::new();
-
-    let (base_str, base_dex, base_int, base_wis, base_con, base_cha) = templates
-        .and_then(|t| t.get_race(race_id))
-        .map(|r| {
-            for ability in &r.racial_abilities {
-                skills.grant(ability);
-            }
-            (
-                r.attributes.strength as i16,
-                r.attributes.dexterity as i16,
-                r.attributes.intelligence as i16,
-                r.attributes.wisdom as i16,
-                r.attributes.constitution as i16,
-                r.attributes.charisma as i16,
-            )
-        })
-        .unwrap_or((10, 10, 10, 10, 10, 10));
-
-    let (mod_str, mod_dex, mod_int, mod_wis, mod_con, mod_cha, hit_die) = templates
-        .and_then(|t| t.get_class(class_id))
-        .map(|c| {
-            for skill_id in &c.auto_skills {
-                skills.grant(skill_id);
-            }
-            (
-                c.attribute_mods.strength,
-                c.attribute_mods.dexterity,
-                c.attribute_mods.intelligence,
-                c.attribute_mods.wisdom,
-                c.attribute_mods.constitution,
-                c.attribute_mods.charisma,
-                c.hit_die,
-            )
-        })
-        .unwrap_or((0, 0, 0, 0, 0, 0, 8));
-
-    let attrs = oxide_core::Attributes::new(
-        (base_str + mod_str as i16 + player_base.strength as i16 - 8).clamp(3, 50) as u8,
-        (base_dex + mod_dex as i16 + player_base.dexterity as i16 - 8).clamp(3, 50) as u8,
-        (base_int + mod_int as i16 + player_base.intelligence as i16 - 8).clamp(3, 50) as u8,
-        (base_wis + mod_wis as i16 + player_base.wisdom as i16 - 8).clamp(3, 50) as u8,
-        (base_con + mod_con as i16 + player_base.constitution as i16 - 8).clamp(3, 50) as u8,
-        (base_cha + mod_cha as i16 + player_base.charisma as i16 - 8).clamp(3, 50) as u8,
-    );
-
-    let hp = hit_die as i32 + (attrs.constitution as i32 - 10) / 2;
-
-    (attrs, hp.max(1), skills)
-}
-
-/// Retrieve starting gold from class template.
-pub fn class_starting_gold(templates: Option<&TemplateRegistry>, class_id: &str) -> Wallet {
-    templates
-        .and_then(|t| t.get_class(class_id))
-        .map(|c| {
-            Wallet::new(
-                c.starting_gold.copper,
-                c.starting_gold.silver,
-                c.starting_gold.gold,
-                c.starting_gold.platinum,
-            )
-        })
-        .unwrap_or_default()
-}
+use super::super::super::LoginFlow;
+use super::helpers::*;
 
 // ---------------------------------------------------------------------------
 // Character Select
@@ -221,7 +66,7 @@ pub async fn handle_character_select_state(
                     );
                 }
                 "who" => {
-                    lines.extend(super::super::prompt::list_who(world, registry));
+                    lines.extend(super::super::super::prompt::list_who(world, registry));
                 }
                 "p" => {
                     flow.echo_on = true;
@@ -260,7 +105,7 @@ pub async fn handle_character_select_state(
                 flow.create_dismissed = true;
             }
             "who" => {
-                lines.extend(super::super::prompt::list_who(world, registry));
+                lines.extend(super::super::super::prompt::list_who(world, registry));
             }
             "p" => {
                 flow.echo_on = true;
@@ -296,7 +141,7 @@ pub async fn handle_character_select_state(
         }
         "who" => {
             drop(db_guard);
-            lines.extend(super::super::prompt::list_who(world, registry));
+            lines.extend(super::super::super::prompt::list_who(world, registry));
         }
         "p" => {
             drop(db_guard);
@@ -655,12 +500,10 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
             }
         };
 
-        // Determine separator character to choose mode
         let sep = input.as_bytes()[prefix.len()] as char;
 
         match sep {
             '+' | '-' => {
-                // Increment/decrement mode: str+, str+1, str-2, etc.
                 let rest = rest.trim();
                 let amount: u8 = if rest.is_empty() {
                     1
@@ -729,7 +572,6 @@ pub fn handle_point_buy_state(flow: &mut LoginFlow, input: &str) -> Vec<String> 
                 return lines;
             }
             '=' | ' ' => {
-                // Absolute set mode: str=12, str 12
                 let val: u8 = match rest.trim().parse() {
                     Ok(v) => v,
                     Err(_) => {
@@ -967,7 +809,7 @@ pub fn handle_roll_state(flow: &mut LoginFlow, input: &str) -> Vec<String> {
         }
         None => {
             if state.1 == 0 && state.3 > 0 {
-                lines.push("Pick a stat name (str, dex, int, wis, con, cha) to assign, or type 'reroll' to discard all assignments and re-roll." .to_string());
+                lines.push("Pick a stat name (str, dex, int, wis, con, cha) to assign, or type 'reroll' to discard all assignments and re-roll.".to_string());
             } else {
                 lines.push(
                     "Pick a stat name (str, dex, int, wis, con, cha) to assign the rolled value."
@@ -1578,8 +1420,6 @@ pub fn handle_skill_selection_state(
     lines
 }
 
-/// Helper: resolve a skill name (exact or partial) to a skill ID, or return an
-/// error message suitable for display to the user.
 fn resolve_skill_input(
     input: &str,
     templates: Option<&TemplateRegistry>,
@@ -1822,7 +1662,6 @@ async fn finalize_character(
         compute_final_attributes(templates, &race_id, &class_id, &player_base_attrs);
     let mana = Mana::from_formula(1, attrs.intelligence as u16, attrs.wisdom as u16);
     let stamina = Stamina::from_formula(1, attrs.strength as u16, attrs.dexterity as u16);
-    // Grant player-chosen skills
     for skill_id in &flow.create_buffer.selected_skills {
         skills.grant(skill_id);
     }
@@ -2015,7 +1854,6 @@ async fn finalize_character(
         }
     };
 
-    // Persist initial recall room (same as spawn point)
     if let Err(e) = oxide_data::update_character_recall_room_key(conn_db, entity_id, &spawn_key) {
         lines.push(format!("Error saving recall room: {e}"));
         return lines;
@@ -2135,7 +1973,6 @@ async fn finalize_character(
     lines
 }
 
-/// Spawn a starting item from the template registry tied to the player.
 fn spawn_starting_item(
     world: &mut World,
     player: oxide_core::Entity,
@@ -2166,7 +2003,7 @@ fn spawn_starting_item(
 // Load an existing character
 // ---------------------------------------------------------------------------
 
-async fn load_character(
+pub async fn load_character(
     flow: &mut LoginFlow,
     world: &mut World,
     char_row: &oxide_data::CharacterRow,
@@ -2232,7 +2069,6 @@ async fn load_character(
         Stamina { current, max }
     };
 
-    // Save back if either was missing (migration: fill components_mana/stamina)
     if oxide_data::load_mana_component(conn_db, entity_id)
         .ok()
         .flatten()
@@ -2358,7 +2194,6 @@ async fn load_character(
             mc
         });
 
-    // Load inventory
     let inv_rows = oxide_data::load_inventory(conn_db, entity_id).unwrap_or_default();
     let mut inventory = oxide_core::Inventory::new();
     if let Some(ref templates) = crate::get_templates() {
@@ -2376,7 +2211,6 @@ async fn load_character(
         }
     }
 
-    // Load equipment
     let eq_rows = oxide_data::load_equipment(conn_db, entity_id).unwrap_or_default();
     let mut equipment = oxide_core::Equipment::new();
     if let Some(ref templates) = crate::get_templates() {
@@ -2490,7 +2324,6 @@ async fn load_character(
 
     drop(db_guard);
 
-    // Resolve current room: saved room key → spawn_key
     let room = char_row
         .current_room_key
         .as_deref()
@@ -2507,7 +2340,6 @@ async fn load_character(
         })
         .expect("Must find at least one room in the world");
 
-    // Resolve recall room: saved recall key → spawn_key
     let recall_room = char_row
         .recall_room_key
         .as_deref()
@@ -2592,11 +2424,7 @@ async fn load_character(
     lines
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-fn clear_create_buffer(flow: &mut LoginFlow) {
+pub fn clear_create_buffer(flow: &mut LoginFlow) {
     flow.create_buffer.name = None;
     flow.create_buffer.race = None;
     flow.create_buffer.class = None;
@@ -2634,7 +2462,6 @@ mod tests {
     fn test_deity_filtering() {
         let mut registry = TemplateRegistry::new();
 
-        // Register a mock warrior class with DeityPolicy::Any
         let warrior = ClassTemplate {
             id: "warrior".to_string(),
             name: "Warrior".to_string(),
@@ -2659,7 +2486,6 @@ mod tests {
         };
         registry.classes.insert(warrior.id.clone(), warrior);
 
-        // Register Astra (good deity, good/neutral can choose)
         let astra = DeityTemplate {
             id: "astra".to_string(),
             name: "Astra".to_string(),
@@ -2684,7 +2510,6 @@ mod tests {
         };
         registry.deities.insert(astra.id.clone(), astra);
 
-        // Register Kronos (neutral deity, any alignment can choose)
         let kronos = DeityTemplate {
             id: "kronos".to_string(),
             name: "Kronos".to_string(),
@@ -2712,7 +2537,6 @@ mod tests {
         };
         registry.deities.insert(kronos.id.clone(), kronos);
 
-        // Register Vulgath (evil deity, neutral/evil can choose)
         let vulgath = DeityTemplate {
             id: "vulgath".to_string(),
             name: "Vulgath".to_string(),
@@ -2737,7 +2561,6 @@ mod tests {
         };
         registry.deities.insert(vulgath.id.clone(), vulgath);
 
-        // Register Karrgath (orc deity, war focused, any alignment, Orc only)
         let karrgath = DeityTemplate {
             id: "karrgath".to_string(),
             name: "Karrgath".to_string(),
@@ -2765,7 +2588,6 @@ mod tests {
         };
         registry.deities.insert(karrgath.id.clone(), karrgath);
 
-        // Test Case A: Human Warrior, Lawful Good
         let mut flow = LoginFlow::new();
         flow.create_buffer.race = Some("human".to_string());
         flow.create_buffer.class = Some("warrior".to_string());
@@ -2773,7 +2595,6 @@ mod tests {
         let allowed = get_allowed_deities(&flow, Some(&registry));
         assert_eq!(allowed, vec!["astra".to_string(), "kronos".to_string()]);
 
-        // Test Case B: Human Warrior, True Neutral
         let mut flow = LoginFlow::new();
         flow.create_buffer.race = Some("human".to_string());
         flow.create_buffer.class = Some("warrior".to_string());
@@ -2788,7 +2609,6 @@ mod tests {
             ]
         );
 
-        // Test Case C: Human Warrior, Chaotic Evil
         let mut flow = LoginFlow::new();
         flow.create_buffer.race = Some("human".to_string());
         flow.create_buffer.class = Some("warrior".to_string());
@@ -2796,7 +2616,6 @@ mod tests {
         let allowed = get_allowed_deities(&flow, Some(&registry));
         assert_eq!(allowed, vec!["kronos".to_string(), "vulgath".to_string()]);
 
-        // Test Case D: Orc Warrior, Chaotic Evil
         let mut flow = LoginFlow::new();
         flow.create_buffer.race = Some("orc".to_string());
         flow.create_buffer.class = Some("warrior".to_string());
@@ -2955,7 +2774,6 @@ mod tests {
             age_max: 100,
             params: HashMap::new(),
         };
-        // Insert out of alphabetical order
         race.allowed_genders.insert(
             "neutral".to_string(),
             GenderPronouns {
@@ -2988,9 +2806,6 @@ mod tests {
             CharacterCreateSubstate::Gender,
         ));
 
-        // In both show_character_gender_prompt and handle_character_create_gender_state,
-        // options will be sorted alphabetically: ["female", "male", "neutral"]
-        // Select index 1 (which should be "female")
         let _ = handle_character_create_gender_state(&mut flow, "1", Some(&registry));
         assert_eq!(flow.create_buffer.gender.as_deref(), Some("female"));
     }
@@ -3015,7 +2830,6 @@ mod tests {
         };
         registry.deities.insert("astra".to_string(), astra);
 
-        // Select by index
         let mut flow = LoginFlow::new();
         flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
             CharacterCreateSubstate::Deity(vec!["astra".to_string()]),
@@ -3024,7 +2838,6 @@ mod tests {
         let _ = handle_character_create_deity_state(&mut flow, "1", Some(&registry));
         assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
 
-        // Select by ID case-insensitive
         let mut flow = LoginFlow::new();
         flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
             CharacterCreateSubstate::Deity(vec!["astra".to_string()]),
@@ -3033,7 +2846,6 @@ mod tests {
         let _ = handle_character_create_deity_state(&mut flow, "AsTrA", Some(&registry));
         assert_eq!(flow.create_buffer.deity.as_deref(), Some("astra"));
 
-        // Select by name case-insensitive
         let mut flow = LoginFlow::new();
         flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
             CharacterCreateSubstate::Deity(vec!["astra".to_string()]),
@@ -3050,77 +2862,17 @@ mod tests {
             CharacterCreateSubstate::AppearanceBuild(vec!["slim".to_string(), "heavy".to_string()]),
         ));
 
-        // Select by index
         let _ = handle_appearance_build_state(&mut flow, "2", None);
         assert_eq!(
             flow.create_buffer.appearance_build.as_deref(),
             Some("heavy")
         );
 
-        // Select by name
         flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
             CharacterCreateSubstate::AppearanceBuild(vec!["slim".to_string(), "heavy".to_string()]),
         ));
         let _ = handle_appearance_build_state(&mut flow, "sLiM", None);
         assert_eq!(flow.create_buffer.appearance_build.as_deref(), Some("slim"));
-    }
-
-    #[tokio::test]
-    async fn test_load_character_fallback() {
-        let mut world = World::new();
-        let fallback_room = world.spawn((
-            oxide_core::Name::new("The Limbo Fallback"),
-            oxide_core::RoomKey("limbo:1".to_string()),
-        ));
-
-        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
-        let account_id = {
-            let db_guard = db.lock().await;
-            oxide_data::create_account(db_guard.conn(), "testuser2", "hash").unwrap()
-        };
-
-        let _char_id = {
-            let db_guard = db.lock().await;
-            let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
-            oxide_data::create_character(
-                db_guard.conn(),
-                &oxide_data::CreateCharacterParams {
-                    account_id,
-                    name: "FallbackChar".into(),
-                    race: "human".into(),
-                    class: "warrior".into(),
-                    entity_id,
-                    spawn_key: Some("deleted_room:3".into()),
-                    current_room_key: Some("deleted_room:3".into()),
-                },
-            )
-            .unwrap()
-        };
-
-        let char_row = {
-            let db_guard = db.lock().await;
-            let _ = db_guard.conn().execute(
-                "UPDATE characters SET current_room_key = 'deleted_room:1', recall_room_key = 'deleted_room:2' WHERE name = 'FallbackChar'",
-                [],
-            );
-            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
-                .unwrap()
-                .into_iter()
-                .find(|c| c.name == "FallbackChar")
-                .unwrap()
-        };
-
-        let mut flow = LoginFlow::new();
-        let _lines = load_character(&mut flow, &mut world, &char_row, &db).await;
-
-        let player_entity = flow.entity.unwrap();
-        let position = world
-            .query_one::<&Position>(player_entity)
-            .unwrap()
-            .get()
-            .map(|p| p.room)
-            .unwrap();
-        assert_eq!(position, fallback_room);
     }
 
     #[test]
@@ -3133,7 +2885,6 @@ mod tests {
             CharacterCreateSubstate::Alignment,
         ));
 
-        // Select lawful good (index 1)
         let _ = handle_alignment_state(&mut flow, "1", Some(&registry));
         assert_eq!(flow.create_buffer.alignment.as_deref(), Some("lawful_good"));
     }

@@ -1229,30 +1229,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### High: Login Character Creation God Object
-
-**Problem:** `server/src/login/handlers/creation.rs` is 3100+ lines with 24 handler functions,
-all mutating a single `LoginState` struct. This is a **God Object** — a struct that knows too
-much and does too much.
-
-- `LoginState` has 30+ fields including `db: Arc<Db>`, `templates: Arc<Templates>`, and every
-  piece of state needed across the entire login and creation flow.
-- `CharacterCreateSubstate` has 20+ variants — one per creation step.
-- All 24 handlers take `&mut LoginState` and mutate it freely. Testing any handler requires
-  constructing a full `LoginState` with mocked DB, templates, and connection.
-- Shared logic (validation, error formatting, state transitions) is duplicated across handlers
-  rather than extracted into helpers.
-
-**Fix:**
-
-- Decompose `LoginState` into smaller focused contexts: `AuthContext` (DB, templates, strikes)
-  and `CreationContext` (all creation wizard state).
-- Extract shared helpers for common patterns (validation, state transition, error message
-  formatting).
-- Consider a step-based pipeline where each creation step is a function
-  `(CreationContext) -> Result<CreationContext, CreationError>` rather than 24 free functions
-  mutating a shared mutable reference.
-
 ### High: Manual Persistence Column Mapping
 
 **Problem:** `data/src/queries.rs` is 2100+ lines of hand-written save/load functions using
