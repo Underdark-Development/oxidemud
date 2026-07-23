@@ -681,8 +681,10 @@ mod tests {
 
     #[test]
     fn test_database_backup_and_pruning() {
-        // Create a temporary directory for backups
-        let temp_dir = std::env::temp_dir().join("temp_backups_test");
+        let temp_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("temp_backups_test");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }

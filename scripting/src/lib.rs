@@ -1517,7 +1517,10 @@ fn test_fail() {
 
     #[test]
     fn test_reload_script() {
-        let temp_dir = std::env::temp_dir().join("temp_scripts_test");
+        let temp_dir = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("temp_scripts_test");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
