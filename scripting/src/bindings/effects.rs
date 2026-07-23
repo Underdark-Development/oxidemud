@@ -109,19 +109,7 @@ pub fn register(engine: &mut Engine) {
                     if let Ok(arr) = cond_val.clone().into_array() {
                         for v in arr {
                             if let Ok(s) = v.into_string() {
-                                match s.to_lowercase().as_str() {
-                                    "exit_combat" => expire_conditions
-                                        .push(oxide_core::EffectExpireCondition::ExitCombat),
-                                    "change_stance" => expire_conditions
-                                        .push(oxide_core::EffectExpireCondition::ChangeStance),
-                                    "timer" => expire_conditions
-                                        .push(oxide_core::EffectExpireCondition::Timer),
-                                    other => expire_conditions.push(
-                                        oxide_core::EffectExpireCondition::Custom {
-                                            condition_id: other.to_string(),
-                                        },
-                                    ),
-                                }
+                                expire_conditions.push(oxide_core::EffectExpireCondition::parse(&s));
                             }
                         }
                     }

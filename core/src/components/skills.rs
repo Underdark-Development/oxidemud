@@ -312,6 +312,19 @@ pub enum EffectExpireCondition {
     Custom { condition_id: String },
 }
 
+impl EffectExpireCondition {
+    pub fn parse(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "exit_combat" => EffectExpireCondition::ExitCombat,
+            "change_stance" => EffectExpireCondition::ChangeStance,
+            "timer" => EffectExpireCondition::Timer,
+            other => EffectExpireCondition::Custom {
+                condition_id: other.to_string(),
+            },
+        }
+    }
+}
+
 /// Active script effect (buff, debuff, aura, temporary weapon enchant).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActiveScriptEffect {

@@ -1,17 +1,9 @@
 use crate::context::push_script_context;
 use crate::engine::ScriptEngine;
-use oxide_core::{DamageType, Entity, HitContext, ItemTriggers, Npc, Room, ScriptingBridge, World};
+use oxide_core::script_dispatch::{collect_learned_skill_scripts, collect_say_scripts};
+use oxide_core::{DamageType, Entity, HitContext, ScriptingBridge, World};
 use rhai::Scope;
-use std::collections::HashMap;
 
-fn resolve_skill_script_path(skill_id: &str) -> Option<String> {
-    if let Some(script) =
-        oxide_core::with_dynamic_skills(|reg| reg.skills.get(skill_id).map(|s| s.script.clone()))
-    {
-        return Some(script);
-    }
-    Some(format!("skills/{}.rhai", skill_id))
-}
 
 fn notify_script_error(entity: Entity, script: &str, err: &str) {
     if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
@@ -71,36 +63,26 @@ impl ScriptingBridge for ScriptEngine {
             override_hit: None,
         };
 
-        let learned_skills: Vec<String> =
-            if let Ok(mut q) = world.query_one::<&oxide_core::LearnedSkills>(target) {
-                q.get()
-                    .map(|s| s.skills.keys().cloned().collect())
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-
-        for skill_id in learned_skills {
+        let skill_scripts = collect_learned_skill_scripts(world, target);
+        for script_path in skill_scripts {
             if hit_ctx.is_aborted {
                 break;
             }
-            if let Some(script_path) = resolve_skill_script_path(&skill_id) {
-                if let Ok(ast) = self.get_ast(&script_path) {
-                    let mut scope = Scope::new();
-                    scope.push("hit_ctx", hit_ctx.clone());
+            if let Ok(ast) = self.get_ast(&script_path) {
+                let mut scope = Scope::new();
+                scope.push("hit_ctx", hit_ctx.clone());
 
-                    match self
-                        .engine
-                        .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
-                    {
-                        Ok(returned_ctx) => {
-                            hit_ctx = returned_ctx;
-                        }
-                        Err(e) => {
-                            let err_str = e.to_string();
-                            if !err_str.contains("Function not found") {
-                                notify_script_error(target, &script_path, &err_str);
-                            }
+                match self
+                    .engine
+                    .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
+                {
+                    Ok(returned_ctx) => {
+                        hit_ctx = returned_ctx;
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        if !err_str.contains("Function not found") {
+                            notify_script_error(target, &script_path, &err_str);
                         }
                     }
                 }
@@ -122,35 +104,25 @@ impl ScriptingBridge for ScriptEngine {
         let mut final_damage = damage;
         let final_type = damage_type;
 
-        let learned_skills: Vec<String> =
-            if let Ok(mut q) = world.query_one::<&oxide_core::LearnedSkills>(target) {
-                q.get()
-                    .map(|s| s.skills.keys().cloned().collect())
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
+        let skill_scripts = collect_learned_skill_scripts(world, target);
+        for script_path in skill_scripts {
+            if let Ok(ast) = self.get_ast(&script_path) {
+                let mut scope = Scope::new();
 
-        for skill_id in learned_skills {
-            if let Some(script_path) = resolve_skill_script_path(&skill_id) {
-                if let Ok(ast) = self.get_ast(&script_path) {
-                    let mut scope = Scope::new();
-
-                    let type_str = format!("{:?}", final_type).to_lowercase();
-                    match self.engine.call_fn::<i64>(
-                        &mut scope,
-                        &ast,
-                        "on_combat_damage",
-                        (final_damage as i64, type_str),
-                    ) {
-                        Ok(mod_dmg) => {
-                            final_damage = mod_dmg.max(0) as i32;
-                        }
-                        Err(e) => {
-                            let err_str = e.to_string();
-                            if !err_str.contains("Function not found") {
-                                notify_script_error(target, &script_path, &err_str);
-                            }
+                let type_str = format!("{:?}", final_type).to_lowercase();
+                match self.engine.call_fn::<i64>(
+                    &mut scope,
+                    &ast,
+                    "on_combat_damage",
+                    (final_damage as i64, type_str),
+                ) {
+                    Ok(mod_dmg) => {
+                        final_damage = mod_dmg.max(0) as i32;
+                    }
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        if !err_str.contains("Function not found") {
+                            notify_script_error(target, &script_path, &err_str);
                         }
                     }
                 }
@@ -192,51 +164,7 @@ impl ScriptingBridge for ScriptEngine {
         world: &mut World,
     ) -> Result<(), String> {
         let _guard = push_script_context(script_entity, Some(speaker), None, world);
-        let mut scripts_to_run: Vec<(String, HashMap<String, String>)> = Vec::new();
-
-        if let Ok(mut q) = world.query_one::<&Npc>(script_entity) {
-            if let Some(npc) = q.get() {
-                if let Some(ref s) = npc.script {
-                    let mut params = HashMap::new();
-                    if let Ok(mut q_params) =
-                        world.query_one::<&oxide_core::ScriptParams>(script_entity)
-                    {
-                        if let Some(p) = q_params.get() {
-                            params = p.0.clone();
-                        }
-                    }
-                    scripts_to_run.push((s.clone(), params));
-                }
-            }
-        }
-
-        if let Ok(mut q) = world.query_one::<&Room>(script_entity) {
-            if let Some(room) = q.get() {
-                if let Some(ref s) = room.script {
-                    let mut params = HashMap::new();
-                    if let Ok(mut q_params) =
-                        world.query_one::<&oxide_core::ScriptParams>(script_entity)
-                    {
-                        if let Some(p) = q_params.get() {
-                            params = p.0.clone();
-                        }
-                    }
-                    scripts_to_run.push((s.clone(), params));
-                }
-            }
-        }
-
-        if let Ok(mut q) = world.query_one::<&ItemTriggers>(script_entity) {
-            if let Some(triggers) = q.get() {
-                for trigger in &triggers.0 {
-                    if trigger.event == "say" {
-                        if let Some(ref s) = trigger.script {
-                            scripts_to_run.push((s.clone(), trigger.params.clone()));
-                        }
-                    }
-                }
-            }
-        }
+        let scripts_to_run = collect_say_scripts(world, script_entity);
 
         for (script_path, params) in scripts_to_run {
             let ast = self.get_ast(&script_path)?;

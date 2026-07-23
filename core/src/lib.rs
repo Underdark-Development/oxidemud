@@ -8,6 +8,7 @@ pub mod format;
 pub mod prompt;
 pub mod regen;
 mod resources;
+pub mod script_dispatch;
 pub mod scripting;
 pub mod systems;
 pub mod templates;

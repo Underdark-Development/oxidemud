@@ -1227,29 +1227,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### High: Game Logic Leaking into Scripting Layer
-
-**Problem:** The scripting crate re-implements game logic that belongs in core systems, violating
-the driver/content separation principle.
-
-Specific violations:
-
-- `execute_combat_hit_hook` hardcodes knowledge of the parry skill: checks the `LearnedSkills`
-  component for `has("parry")`, then fetches the script at `"skills/parry.rhai"` by path. The
-  combat system should decide whether to invoke a parry hook; the scripting crate should only
-  execute whatever script it's given.
-- `execute_say_hook` contains entity-type-aware dispatch logic: it queries `Npc`, `Room`, and
-  `ItemTriggers` components to discover which scripts to run. This is a core system's
-  responsibility — the scripting crate should receive a list of scripts to execute, not discover
-  them itself.
-- `apply_script_effect_full` hand-parses `EffectExpireCondition` variant strings
-  (`"exit_combat"`, `"change_stance"`, `"timer"`) inside a Rhai binding closure. This parsing
-  logic is a core concern that leaked into the scripting layer.
-
-**Fix:** Move parry/say-dispatch/effect-parsing logic into core systems or a new
-`core/src/script_dispatch.rs` module. The scripting crate's bridge methods should accept a list of
-script paths + parameters, not query the ECS world to discover them.
-
 ### High: Dead Event Bus
 
 **Problem:** `core/src/events.rs` declares `GameEvent` (19 variants) and the architecture doc
