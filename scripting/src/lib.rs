@@ -224,16 +224,19 @@ impl ScriptEngine {
             })
             .unwrap_or(1)
         });
-        engine.register_fn("get_skill_rank", |entity: Entity, skill_id: String| -> i64 {
-            with_current_world(|w| {
-                if let Ok(mut q) = w.query_one::<&oxide_core::LearnedSkills>(entity) {
-                    q.get().map(|s| s.rank(&skill_id) as i64).unwrap_or(0)
-                } else {
-                    0
-                }
-            })
-            .unwrap_or(0)
-        });
+        engine.register_fn(
+            "get_skill_rank",
+            |entity: Entity, skill_id: String| -> i64 {
+                with_current_world(|w| {
+                    if let Ok(mut q) = w.query_one::<&oxide_core::LearnedSkills>(entity) {
+                        q.get().map(|s| s.rank(&skill_id) as i64).unwrap_or(0)
+                    } else {
+                        0
+                    }
+                })
+                .unwrap_or(0)
+            },
+        );
         engine.register_fn("rand", |low: i64, high: i64| -> i64 {
             fastrand::i64(low..=high)
         });
@@ -287,7 +290,9 @@ impl ScriptEngine {
             }
         });
         engine.register_fn("send", |msg: String| {
-            if let Some(target_ent) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.actor.or(Some(ctx.entity)))) {
+            if let Some(target_ent) = CURRENT_SCRIPT_CONTEXT
+                .with(|c| c.borrow().and_then(|ctx| ctx.actor.or(Some(ctx.entity))))
+            {
                 if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
                     bridge.send_to_entity(target_ent, &msg);
                 }
@@ -296,14 +301,16 @@ impl ScriptEngine {
 
         // Scoped current room messaging (0 arguments needed)
         engine.register_fn("echo", |msg: String| {
-            if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room)) {
+            if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room))
+            {
                 if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
                     bridge.echo_to_room(room, &msg);
                 }
             }
         });
         engine.register_fn("echo_except", |msg: String, exclude: rhai::Array| {
-            if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room)) {
+            if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room))
+            {
                 if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
                     let excluded_entities: Vec<Entity> = exclude
                         .into_iter()
@@ -353,20 +360,17 @@ impl ScriptEngine {
         );
 
         // Follower control
-        engine.register_fn(
-            "follow",
-            |entity: Entity, target: Entity| {
-                with_current_world(|w| {
-                    let _ = w.insert(
-                        entity,
-                        (oxide_core::Following {
-                            target,
-                            autofollow: true,
-                        },),
-                    );
-                });
-            },
-        );
+        engine.register_fn("follow", |entity: Entity, target: Entity| {
+            with_current_world(|w| {
+                let _ = w.insert(
+                    entity,
+                    (oxide_core::Following {
+                        target,
+                        autofollow: true,
+                    },),
+                );
+            });
+        });
         engine.register_fn("unfollow", |entity: Entity| {
             with_current_world(|w| {
                 let _ = w.remove_one::<oxide_core::Following>(entity);
@@ -374,46 +378,40 @@ impl ScriptEngine {
         });
 
         // Exit controls & Room query
-        engine.register_fn(
-            "is_exit_closed",
-            |room: Entity, dir_str: String| -> bool {
-                with_current_world(|w| {
-                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
-                        if let Some(exits) = q.get() {
-                            if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
-                                .or_else(|| oxide_core::Direction::from_long(&dir_str))
-                            {
-                                if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
-                                    return exit.is_closed();
-                                }
+        engine.register_fn("is_exit_closed", |room: Entity, dir_str: String| -> bool {
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                    if let Some(exits) = q.get() {
+                        if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                            .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                        {
+                            if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
+                                return exit.is_closed();
                             }
                         }
                     }
-                    false
-                })
-                .unwrap_or(false)
-            },
-        );
-        engine.register_fn(
-            "is_exit_locked",
-            |room: Entity, dir_str: String| -> bool {
-                with_current_world(|w| {
-                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
-                        if let Some(exits) = q.get() {
-                            if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
-                                .or_else(|| oxide_core::Direction::from_long(&dir_str))
-                            {
-                                if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
-                                    return exit.is_locked();
-                                }
+                }
+                false
+            })
+            .unwrap_or(false)
+        });
+        engine.register_fn("is_exit_locked", |room: Entity, dir_str: String| -> bool {
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                    if let Some(exits) = q.get() {
+                        if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
+                            .or_else(|| oxide_core::Direction::from_long(&dir_str))
+                        {
+                            if let Some(exit) = exits.0.iter().find(|e| e.direction == dir) {
+                                return exit.is_locked();
                             }
                         }
                     }
-                    false
-                })
-                .unwrap_or(false)
-            },
-        );
+                }
+                false
+            })
+            .unwrap_or(false)
+        });
         engine.register_fn(
             "set_exit_closed",
             |room: Entity, dir_str: String, closed: bool| {
@@ -423,7 +421,8 @@ impl ScriptEngine {
                             if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
                                 .or_else(|| oxide_core::Direction::from_long(&dir_str))
                             {
-                                if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir) {
+                                if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir)
+                                {
                                     exit.set_closed(closed);
                                 }
                             }
@@ -441,7 +440,8 @@ impl ScriptEngine {
                             if let Some(dir) = oxide_core::Direction::from_short(&dir_str)
                                 .or_else(|| oxide_core::Direction::from_long(&dir_str))
                             {
-                                if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir) {
+                                if let Some(exit) = exits.0.iter_mut().find(|e| e.direction == dir)
+                                {
                                     exit.set_locked(locked);
                                 }
                             }
@@ -459,24 +459,21 @@ impl ScriptEngine {
             })
             .unwrap_or(entity)
         });
-        engine.register_fn(
-            "room_exits",
-            |room: Entity| -> rhai::Array {
-                with_current_world(|w| {
-                    if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
-                        if let Some(exits) = q.get() {
-                            return exits
-                                .0
-                                .iter()
-                                .map(|e| rhai::Dynamic::from(e.direction.long_name().to_string()))
-                                .collect();
-                        }
+        engine.register_fn("room_exits", |room: Entity| -> rhai::Array {
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::RoomExits>(room) {
+                    if let Some(exits) = q.get() {
+                        return exits
+                            .0
+                            .iter()
+                            .map(|e| rhai::Dynamic::from(e.direction.long_name().to_string()))
+                            .collect();
                     }
-                    Vec::new()
-                })
-                .unwrap_or_default()
-            },
-        );
+                }
+                Vec::new()
+            })
+            .unwrap_or_default()
+        });
         engine.register_fn(
             "room_exit_target",
             |room: Entity, dir_str: String| -> Entity {
@@ -497,14 +494,11 @@ impl ScriptEngine {
                 .unwrap_or(room)
             },
         );
-        engine.register_fn(
-            "move_entity",
-            |entity: Entity, dest: Entity| {
-                with_current_world(|w| {
-                    let _ = w.insert(entity, (oxide_core::Position::new(dest), oxide_core::Dirty));
-                });
-            },
-        );
+        engine.register_fn("move_entity", |entity: Entity, dest: Entity| {
+            with_current_world(|w| {
+                let _ = w.insert(entity, (oxide_core::Position::new(dest), oxide_core::Dirty));
+            });
+        });
 
         // Mob spawning & Template spawn
         engine.register_fn(
@@ -525,29 +519,26 @@ impl ScriptEngine {
             },
         );
 
-        engine.register_fn(
-            "accept_quest",
-            |player: Entity, quest_id: String| -> bool {
-                with_current_world(|w| {
-                    let templates = match oxide_core::templates::get_global_templates() {
-                        Some(t) => t,
-                        None => return false,
-                    };
-                    let res = oxide_core::accept_quest(w, player, &quest_id, &templates);
-                    if let Ok(msgs) = res {
-                        if let Some(msg_bridge) = oxide_core::scripting::get_message_bridge() {
-                            for msg in msgs {
-                                msg_bridge.send_to_entity(player, &msg);
-                            }
+        engine.register_fn("accept_quest", |player: Entity, quest_id: String| -> bool {
+            with_current_world(|w| {
+                let templates = match oxide_core::templates::get_global_templates() {
+                    Some(t) => t,
+                    None => return false,
+                };
+                let res = oxide_core::accept_quest(w, player, &quest_id, &templates);
+                if let Ok(msgs) = res {
+                    if let Some(msg_bridge) = oxide_core::scripting::get_message_bridge() {
+                        for msg in msgs {
+                            msg_bridge.send_to_entity(player, &msg);
                         }
-                        true
-                    } else {
-                        false
                     }
-                })
-                .unwrap_or(false)
-            },
-        );
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false)
+        });
 
         engine.register_fn(
             "complete_quest",
@@ -573,20 +564,17 @@ impl ScriptEngine {
             },
         );
 
-        engine.register_fn(
-            "is_on_quest",
-            |player: Entity, quest_id: String| -> bool {
-                with_current_world(|w| {
-                    if let Ok(mut q) = w.query_one::<&oxide_core::QuestLog>(player) {
-                        if let Some(log) = q.get() {
-                            return log.active.contains_key(&quest_id);
-                        }
+        engine.register_fn("is_on_quest", |player: Entity, quest_id: String| -> bool {
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::QuestLog>(player) {
+                    if let Some(log) = q.get() {
+                        return log.active.contains_key(&quest_id);
                     }
-                    false
-                })
-                .unwrap_or(false)
-            },
-        );
+                }
+                false
+            })
+            .unwrap_or(false)
+        });
 
         engine.register_fn(
             "has_completed_quest",
@@ -702,10 +690,7 @@ impl ScriptEngine {
 
         engine.register_fn(
             "register_entity_command",
-            |entity: Entity,
-             command_name: String,
-             script: String,
-             help_text: String| {
+            |entity: Entity, command_name: String, script: String, help_text: String| {
                 with_current_world(|w| {
                     if let Ok(mut q) = w.query_one::<&mut oxide_core::EntityCommands>(entity) {
                         if let Some(ec) = q.get() {
@@ -741,7 +726,9 @@ impl ScriptEngine {
             |entity: Entity, skill_id: String| -> bool {
                 with_current_world(|w| {
                     if let Ok(mut q) = w.query_one::<&oxide_core::SkillCooldowns>(entity) {
-                        q.get().map(|cd| cd.is_on_cooldown(&skill_id)).unwrap_or(false)
+                        q.get()
+                            .map(|cd| cd.is_on_cooldown(&skill_id))
+                            .unwrap_or(false)
                     } else {
                         false
                     }
@@ -769,8 +756,16 @@ impl ScriptEngine {
                         source,
                         description: affects_display.clone(),
                         remaining_secs: duration_secs.max(0) as u32,
-                        expire_message: if expire_msg.is_empty() { None } else { Some(expire_msg) },
-                        affects_display: if affects_display.is_empty() { None } else { Some(affects_display) },
+                        expire_message: if expire_msg.is_empty() {
+                            None
+                        } else {
+                            Some(expire_msg)
+                        },
+                        affects_display: if affects_display.is_empty() {
+                            None
+                        } else {
+                            Some(affects_display)
+                        },
                         show_remaining_time: true,
                         visible_in_affects: true,
                         name_prefix: None,
@@ -816,10 +811,17 @@ impl ScriptEngine {
                             for v in arr {
                                 if let Ok(s) = v.into_string() {
                                     match s.to_lowercase().as_str() {
-                                        "exit_combat" => expire_conditions.push(oxide_core::EffectExpireCondition::ExitCombat),
-                                        "change_stance" => expire_conditions.push(oxide_core::EffectExpireCondition::ChangeStance),
-                                        "timer" => expire_conditions.push(oxide_core::EffectExpireCondition::Timer),
-                                        other => expire_conditions.push(oxide_core::EffectExpireCondition::Custom { condition_id: other.to_string() }),
+                                        "exit_combat" => expire_conditions
+                                            .push(oxide_core::EffectExpireCondition::ExitCombat),
+                                        "change_stance" => expire_conditions
+                                            .push(oxide_core::EffectExpireCondition::ChangeStance),
+                                        "timer" => expire_conditions
+                                            .push(oxide_core::EffectExpireCondition::Timer),
+                                        other => expire_conditions.push(
+                                            oxide_core::EffectExpireCondition::Custom {
+                                                condition_id: other.to_string(),
+                                            },
+                                        ),
                                     }
                                 }
                             }
@@ -840,15 +842,39 @@ impl ScriptEngine {
                         source,
                         description: affects_display.clone(),
                         remaining_secs: duration_secs.max(0) as u32,
-                        expire_message: if expire_msg.is_empty() { None } else { Some(expire_msg) },
-                        affects_display: if affects_display.is_empty() { None } else { Some(affects_display) },
+                        expire_message: if expire_msg.is_empty() {
+                            None
+                        } else {
+                            Some(expire_msg)
+                        },
+                        affects_display: if affects_display.is_empty() {
+                            None
+                        } else {
+                            Some(affects_display)
+                        },
                         show_remaining_time: true,
                         visible_in_affects: true,
-                        name_prefix: if name_prefix.is_empty() { None } else { Some(name_prefix) },
-                        name_suffix: if name_suffix.is_empty() { None } else { Some(name_suffix) },
-                        short_desc_override: if short_desc_override.is_empty() { None } else { Some(short_desc_override) },
+                        name_prefix: if name_prefix.is_empty() {
+                            None
+                        } else {
+                            Some(name_prefix)
+                        },
+                        name_suffix: if name_suffix.is_empty() {
+                            None
+                        } else {
+                            Some(name_suffix)
+                        },
+                        short_desc_override: if short_desc_override.is_empty() {
+                            None
+                        } else {
+                            Some(short_desc_override)
+                        },
                         visible_on_look: !look_aura.is_empty(),
-                        look_aura: if look_aura.is_empty() { None } else { Some(look_aura) },
+                        look_aura: if look_aura.is_empty() {
+                            None
+                        } else {
+                            Some(look_aura)
+                        },
                         expire_conditions,
                         params: parsed_params,
                     };
@@ -883,20 +909,17 @@ impl ScriptEngine {
             },
         );
 
-        engine.register_fn(
-            "has_script_effect",
-            |target: Entity, id: String| -> bool {
-                with_current_world(|w| {
-                    if let Ok(mut q) = w.query_one::<&oxide_core::ActiveScriptEffects>(target) {
-                        if let Some(active) = q.get() {
-                            return active.effects.iter().any(|e| e.id == id);
-                        }
+        engine.register_fn("has_script_effect", |target: Entity, id: String| -> bool {
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::ActiveScriptEffects>(target) {
+                    if let Some(active) = q.get() {
+                        return active.effects.iter().any(|e| e.id == id);
                     }
-                    false
-                })
-                .unwrap_or(false)
-            },
-        );
+                }
+                false
+            })
+            .unwrap_or(false)
+        });
 
         engine.register_fn("is_equipped", |item: Entity| -> bool {
             with_current_world(|w| {
@@ -1929,7 +1952,9 @@ fn test_fail() {
 
         // 2. Activate parrying stance effect
         {
-            let mut q = world.query_one::<&mut ActiveScriptEffects>(defender).unwrap();
+            let mut q = world
+                .query_one::<&mut ActiveScriptEffects>(defender)
+                .unwrap();
             let effects = q.get().unwrap();
             effects.add_or_replace(oxide_core::ActiveScriptEffect {
                 id: "parrying".to_string(),

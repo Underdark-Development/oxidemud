@@ -6,7 +6,7 @@
 
 ## 1. Overview & Architecture
 
-OxideMUD follows a strict **driver/content separation** architecture. The core Rust engine provides networking, ECS storage, database persistence, state machines, and system pulses. **All DIKU MUD gameplay content — skills, spells, mob AI, quest triggers, room behaviors, and item procs — is implemented in Rhai scripts.**
+OxideMUD follows a strict **driver/content separation** architecture. The core Rust engine provides networking, ECS storage, database persistence, state machines, and system pulses. **All gameplay content — skills, spells, mob AI, quest triggers, room behaviors, and item procs — is implemented in Rhai scripts.**
 
 Rhai is an embedded, lightweight, sandboxed scripting language for Rust with zero dependencies.
 
@@ -16,16 +16,17 @@ Rhai is an embedded, lightweight, sandboxed scripting language for Rust with zer
 
 Since scripts can be written by world builders or reloaded live, the Rhai engine runs inside a strict sandboxed execution environment to protect server stability:
 
-| Metric              | Bounded Limit      | Protection                                          |
-| :------------------ | :----------------- | :-------------------------------------------------- |
-| **Max Operations**  | 50,000 operations  | Prevents infinite loops and CPU hogging.            |
-| **Max Call Stack**  | 32 call levels     | Prevents stack overflow crashes from recursion.     |
-| **Loaded Modules**  | 8 modules          | Limits file imports.                                |
-| **Max String Size** | 10,000 characters  | Prevents out-of-memory errors from buffer bloat.    |
-| **Max Arrays**      | 100 dynamic arrays | Prevents heap-allocation exhaustion.                |
-| **Max Maps**        | 50 key-value maps  | Prevents heap-allocation exhaustion.                |
+| Metric              | Bounded Limit      | Protection                                       |
+| :------------------ | :----------------- | :----------------------------------------------- |
+| **Max Operations**  | 50,000 operations  | Prevents infinite loops and CPU hogging.         |
+| **Max Call Stack**  | 32 call levels     | Prevents stack overflow crashes from recursion.  |
+| **Loaded Modules**  | 8 modules          | Limits file imports.                             |
+| **Max String Size** | 10,000 characters  | Prevents out-of-memory errors from buffer bloat. |
+| **Max Arrays**      | 100 dynamic arrays | Prevents heap-allocation exhaustion.             |
+| **Max Maps**        | 50 key-value maps  | Prevents heap-allocation exhaustion.             |
 
 Additionally, the scripting sandbox:
+
 - **Filesystem isolation**: Resolves script files exclusively within `content/scripts/`.
 - **No Network / OS Access**: Sockets, HTTP requests, shell calls, and database connections are unavailable inside scripts.
 
@@ -34,11 +35,13 @@ Additionally, the scripting sandbox:
 ## 3. Script Lifecycle & Execution Context
 
 ### 3.1 Caching & Hot Reloading
+
 1. **Compilation & Caching**: On startup, `ScriptEngine` scans `content/scripts/`, compiles all `.rhai` files into Abstract Syntax Trees (ASTs), and caches them in memory.
 2. **Execution**: When a skill, spell, AI tick, or trigger fires, the engine uses thread-local execution context (`CURRENT_SCRIPT_CONTEXT`) to implicitly bind `world`, `actor`, `self`, `target`, and current `room`.
 3. **Hot-Reloading**: A background file watcher monitors `content/scripts/`. When a script is edited on disk, its AST is automatically recompiled and updated in memory without restarting the server.
 
 ### 3.2 Implicit Thread-Local Context (`CURRENT_SCRIPT_CONTEXT`)
+
 All script functions operate on a zero-parameter / zero-world clean API. Scripts **never** need to receive or pass `world` or `room` pointers for standard game operations:
 
 ```rhai
@@ -56,14 +59,14 @@ echo(actor.name() + " readies their weapon.");
 
 OxideMUD provides a clean, scoped messaging API. Room-scoped broadcasts automatically target the current room of the executing entity/actor:
 
-| Function | Example Usage | Description |
-| :--- | :--- | :--- |
-| **`send`** | `send("You focus your energy.");` | Direct line to the current `actor` / `self`. |
-| **`send_to` / `entity.send`** | `target.send("You take 15 damage.");` | Direct message to a specific entity handle. |
-| **`echo`** | `echo("A rumble shakes the room.");` | Scoped broadcast to current execution room. |
-| **`echo_except`** | `echo_except(name + " parries!", [actor, target]);` | Scoped broadcast to current room, excluding specified entities. |
-| **`echo_to`** | `echo_to(room_handle, "A bell tolls in town.");` | Remote broadcast to an explicit room entity handle. |
-| **`echo_to_except`** | `echo_to_except(room_handle, "Lightning strikes!", [actor]);` | Remote broadcast to an explicit room entity, excluding specified entities. |
+| Function                      | Example Usage                                                 | Description                                                                |
+| :---------------------------- | :------------------------------------------------------------ | :------------------------------------------------------------------------- |
+| **`send`**                    | `send("You focus your energy.");`                             | Direct line to the current `actor` / `self`.                               |
+| **`send_to` / `entity.send`** | `target.send("You take 15 damage.");`                         | Direct message to a specific entity handle.                                |
+| **`echo`**                    | `echo("A rumble shakes the room.");`                          | Scoped broadcast to current execution room.                                |
+| **`echo_except`**             | `echo_except(name + " parries!", [actor, target]);`           | Scoped broadcast to current room, excluding specified entities.            |
+| **`echo_to`**                 | `echo_to(room_handle, "A bell tolls in town.");`              | Remote broadcast to an explicit room entity handle.                        |
+| **`echo_to_except`**          | `echo_to_except(room_handle, "Lightning strikes!", [actor]);` | Remote broadcast to an explicit room entity, excluding specified entities. |
 
 ---
 
@@ -87,6 +90,7 @@ target.send("You feel a strange force take hold!");
 ## 6. Cooldowns, Script Effects & Data-Driven Expiry
 
 ### 6.1 Cooldown Management
+
 ```rhai
 // Set skill cooldown (duration in seconds)
 set_cooldown(actor, "chain_lightning", 10);
@@ -99,6 +103,7 @@ if is_on_cooldown(actor, "chain_lightning") {
 ```
 
 ### 6.2 Data-Driven Effect Expiry (`EffectExpireCondition`)
+
 Core systems like `combat.rs` are 100% agnostic of specific skill or spell names. Active script effects specify their own expiration conditions via `EffectExpireCondition`:
 
 - **`timer`**: Standard TTL duration countdown.
@@ -107,6 +112,7 @@ Core systems like `combat.rs` are 100% agnostic of specific skill or spell names
 - **`custom`**: Custom condition handled by script triggers.
 
 ### 6.3 Applying Effects (`apply_script_effect_full`)
+
 ```rhai
 apply_script_effect_full(
     actor,
@@ -139,7 +145,7 @@ The engine provides built-in quantitative restriction evaluation (`CommandRestri
 
 - `allowed_classes`: e.g. `["warrior"]` or `["mage", "wizard"]`.
 - `allowed_races`: e.g. `["elf", "human"]`.
-- `min_level`: Level gate (e.g. `5`). Engine yields: *"You are not experienced enough to use that ability."*
+- `min_level`: Level gate (e.g. `5`). Engine yields: _"You are not experienced enough to use that ability."_
 - `min_skill_ranks`: Skill practice level requirements.
 - `allowed_stances`: e.g. `["defensive"]`.
 - `in_combat_only`: Skill only usable while in combat.
@@ -150,6 +156,7 @@ The engine provides built-in quantitative restriction evaluation (`CommandRestri
 ## 8. Comprehensive Example Scripts
 
 ### 8.1 Parry Skill (`content/scripts/skills/parry.rhai`)
+
 Deflects incoming melee attacks based on practice rank (max 60% deflect chance at 100% practice). Automatically deactivates when combat ends.
 
 ```rhai
@@ -215,6 +222,7 @@ fn on_combat_hit() {
 ---
 
 ### 8.2 Chain Lightning Spell (`content/scripts/spells/chain_lightning.rhai`)
+
 Strikes the primary target and arcs to up to 2 secondary targets in the room with decaying damage.
 
 ```rhai
@@ -251,6 +259,7 @@ fn on_use() {
 ---
 
 ### 8.3 Envenom Blade Command (`content/scripts/items/envenom_blade.rhai`)
+
 Contextual item command granted by holding the Venomous Serpent Dagger.
 
 ```rhai
@@ -281,6 +290,7 @@ fn on_use() {
 ---
 
 ### 8.4 Poison Proc (`content/scripts/items/poison_proc.rhai`)
+
 Weapon proc trigger attached to the serpent dagger, applying poison on strike.
 
 ```rhai
@@ -308,6 +318,7 @@ fn on_hit() {
 ---
 
 ### 8.5 Mob AI Trigger (`content/scripts/mobs/goblin.rhai`)
+
 NPC AI tick trigger controlling goblin behavior.
 
 ```rhai
@@ -329,6 +340,7 @@ fn on_ai_tick() {
 ---
 
 ### 8.6 Room Door Trigger (`content/scripts/rooms/open_sesame.rhai`)
+
 Room say hook opening a locked secret exit when a spoken password matches.
 
 ```rhai

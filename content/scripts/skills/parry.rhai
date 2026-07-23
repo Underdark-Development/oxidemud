@@ -25,7 +25,7 @@ fn on_use() {
         "Parrying Stance",
         "Parry",
         3600,
-        "Actively parrying incoming melee attacks (Max 60% deflect chance)",
+        "Actively parrying incoming melee attacks",
         "",
         "",
         "",
@@ -36,7 +36,7 @@ fn on_use() {
         }
     );
 
-    send("You focus on parrying incoming attacks! (Parry Rank: " + rank + "%, Deflect Chance: " + chance + "%)");
+    send("You focus on parrying incoming attacks!");
     echo(actor.name() + " readies their weapon, watching for incoming strikes.");
 }
 

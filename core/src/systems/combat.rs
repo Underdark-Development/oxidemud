@@ -349,7 +349,11 @@ pub fn calculate_hit(
 }
 
 /// Expire all active script effects on an entity matching a specified expiry condition.
-pub fn expire_effects_by_condition(world: &mut World, entity: Entity, condition: crate::EffectExpireCondition) {
+pub fn expire_effects_by_condition(
+    world: &mut World,
+    entity: Entity,
+    condition: crate::EffectExpireCondition,
+) {
     let mut expired_msgs = Vec::new();
     if let Ok(mut q) = world.query_one::<&mut crate::ActiveScriptEffects>(entity) {
         if let Some(active) = q.get() {
