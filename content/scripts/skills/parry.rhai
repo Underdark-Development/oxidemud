@@ -1,6 +1,7 @@
 // content/scripts/skills/parry.rhai
 // Parry skill script.
 // Restrictions (allowed_classes: ["warrior"]) are enforced automatically by engine CommandRestrictions.
+// Parry must be explicitly activated during combat, and automatically deactivates when combat ends.
 // Deflect success rate scales with practice level (max 60% success chance at 100% practice level).
 
 fn on_use() {
@@ -10,12 +11,33 @@ fn on_use() {
         return;
     }
 
+    if has_script_effect(actor, "parrying") {
+        remove_script_effect(actor, "parrying");
+        send("You lower your guard and stop attempting to parry incoming attacks.");
+        echo(actor.name() + " lowers their guard.");
+        return;
+    }
+
     let chance = (rank * 60) / 100;
+    apply_script_effect(
+        actor,
+        "parrying",
+        "Parrying Stance",
+        3600,
+        "Actively parrying incoming melee attacks (Max 60% deflect chance)",
+        "You lower your guard and stop parrying."
+    );
+
     send("You focus on parrying incoming attacks! (Parry Rank: " + rank + "%, Deflect Chance: " + chance + "%)");
     echo(actor.name() + " readies their weapon, watching for incoming strikes.");
 }
 
 fn on_combat_hit() {
+    // Parry only applies if the defender has actively enabled parrying stance
+    if !has_script_effect(hit_ctx.target, "parrying") {
+        return hit_ctx;
+    }
+
     let rank = get_skill_rank(hit_ctx.target, "parry");
     if rank == 0 {
         return hit_ctx;

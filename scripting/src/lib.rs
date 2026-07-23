@@ -1833,4 +1833,67 @@ fn test_fail() {
         let log = q_log.get().unwrap();
         assert!(log.active.contains_key("quest_b"));
     }
+
+    #[test]
+    fn test_parry_active_stance_and_combat_end_deactivation() {
+        use oxide_core::{ActiveScriptEffects, CombatState, LearnedSkills, SkillRank};
+
+        let engine = ScriptEngine::new("../content/scripts");
+        let mut world = World::new();
+
+        let defender = world.spawn((LearnedSkills::default(), ActiveScriptEffects::default()));
+        let attacker = world.spawn(());
+
+        {
+            let mut q = world.query_one::<&mut LearnedSkills>(defender).unwrap();
+            let skills = q.get().unwrap();
+            skills.skills.insert("parry".to_string(), SkillRank { rank: 100 });
+        }
+
+        // 1. Without active "parrying" stance, hit context is NOT aborted
+        let hit_ctx = engine
+            .execute_combat_hit_hook(attacker, defender, false, &mut world)
+            .unwrap();
+        assert!(!hit_ctx.is_aborted);
+
+        // 2. Activate parrying stance effect
+        {
+            let mut q = world.query_one::<&mut ActiveScriptEffects>(defender).unwrap();
+            let effects = q.get().unwrap();
+            effects.add_or_replace(oxide_core::ActiveScriptEffect {
+                id: "parrying".to_string(),
+                display_name: "Parrying Stance".to_string(),
+                source: "Parry".to_string(),
+                description: "Parrying stance".to_string(),
+                remaining_secs: 3600,
+                expire_message: Some("You stop parrying.".to_string()),
+                affects_display: None,
+                show_remaining_time: false,
+                visible_in_affects: true,
+                name_prefix: None,
+                name_suffix: None,
+                short_desc_override: None,
+                visible_on_look: false,
+                look_aura: None,
+                params: HashMap::new(),
+            });
+        }
+
+        // 3. With active parrying stance and 100% rank, hit is aborted by parry!
+        let hit_ctx_parried = engine
+            .execute_combat_hit_hook(attacker, defender, false, &mut world)
+            .unwrap();
+        assert!(hit_ctx_parried.is_aborted);
+
+        // 4. Transition combat state to NotInCombat -> parrying stance is automatically removed!
+        oxide_core::transition_combat_state(&mut world, defender, CombatState::NotInCombat);
+
+        let has_parry_effect = world
+            .query_one::<&ActiveScriptEffects>(defender)
+            .unwrap()
+            .get()
+            .unwrap()
+            .has("parrying");
+        assert!(!has_parry_effect);
+    }
 }

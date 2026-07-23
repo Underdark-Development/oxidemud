@@ -338,6 +338,25 @@ pub struct ActiveScriptEffects {
     pub effects: Vec<ActiveScriptEffect>,
 }
 
+impl ActiveScriptEffects {
+    pub fn add_or_replace(&mut self, effect: ActiveScriptEffect) {
+        self.effects.retain(|e| e.id != effect.id);
+        self.effects.push(effect);
+    }
+
+    pub fn remove(&mut self, id: &str) -> Option<ActiveScriptEffect> {
+        if let Some(pos) = self.effects.iter().position(|e| e.id == id) {
+            Some(self.effects.remove(pos))
+        } else {
+            None
+        }
+    }
+
+    pub fn has(&self, id: &str) -> bool {
+        self.effects.iter().any(|e| e.id == id)
+    }
+}
+
 /// Conditions for permanent passive affects on items or entities.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "lowercase")]
