@@ -6,7 +6,7 @@ OxideMUD is a modern DIKU-style MUD engine written in Rust. Event-driven, ECS-ba
 
 **Stack:** Rust + Tokio + hecs (ECS) + rusqlite + Rhai (scripting)
 
-**Design Philosophy:** Driver/mudlib separation (inspired by LPMud, Evennia). The engine provides networking, ECS, persistence, and scripting — game content (combat, spells, quests) lives in data files and scripts, not in engine code.
+**Design Philosophy:** Decoupled driver/content separation. The engine provides networking, ECS, persistence, and the scripting runtime — all DIKU game content (skills, spells, quests, mob AI) lives in TOML templates and Rhai scripts rather than hardcoded engine files.
 
 ---
 

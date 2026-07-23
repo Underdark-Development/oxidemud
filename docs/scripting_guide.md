@@ -6,7 +6,7 @@
 
 ## 1. Overview & Architecture
 
-OxideMUD follows a strict **driver/content separation** design (inspired by LPMud and LPMud-style mudlibs). The core Rust engine provides networking, ECS storage, database persistence, state machines, and system pulses. **All dynamic gameplay logic — skills, spells, mob AI, quest triggers, room behaviors, and item procs — is written in Rhai scripts.**
+OxideMUD follows a strict **driver/content separation** architecture. The core Rust engine provides networking, ECS storage, database persistence, state machines, and system pulses. **All DIKU MUD gameplay content — skills, spells, mob AI, quest triggers, room behaviors, and item procs — is implemented in Rhai scripts.**
 
 Rhai is an embedded, lightweight, sandboxed scripting language for Rust with zero dependencies.
 
