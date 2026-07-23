@@ -1,12 +1,38 @@
-fn on_combat_hit() {
-    let rank = world.get_skill_rank(hit_ctx.target, "parry");
-    if rank == 0 {
-        return hit_ctx;
+// content/scripts/skills/parry.rhai
+// Parry skill script restricted to Warrior class
+
+fn on_use() {
+    let class_name = actor.class();
+    if class_name != "Warrior" && class_name != "warrior" {
+        actor.send("Only Warriors possess the discipline to parry attacks!");
+        return;
     }
-    let chance = rank / 2;
-    if rand(1, 100) <= chance {
-        let attacker_name = world.get_name(hit_ctx.attacker);
-        hit_ctx.abort("You parry " + attacker_name + "'s attack!");
+
+    if is_on_cooldown(world, actor, "parry") {
+        actor.send("You must wait before parrying again.");
+        return;
     }
-    return hit_ctx;
+
+    actor.send("You adopt a tight defensive stance, preparing to parry incoming blows!");
+    let room = actor.room();
+    room.echo(actor.name() + " readies their weapon in a defensive stance.");
+
+    // Apply temporary defensive parry effect for 12 seconds
+    apply_script_effect_full(
+        world,
+        actor,
+        "parrying",
+        "Parrying Stance",
+        "Parry",
+        12,
+        "Ready to parry incoming attacks (+4 Armor Class)",
+        "",
+        "",
+        "",
+        "is holding a tight parrying guard.",
+        "Your parrying guard drops.",
+        #{}
+    );
+
+    set_cooldown(world, actor, "parry", 15);
 }

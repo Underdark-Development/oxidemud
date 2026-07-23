@@ -1,0 +1,47 @@
+id = "poison_dagger"
+name = "a venomous serpent dagger"
+description = "A curved steel dagger dipped in potent wyrm poison."
+item_type = "weapon"
+subtype = "dagger"
+quality = "rare"
+level_requirement = 3
+weight = 1.5
+value = 750
+flags = ["metal", "magic"]
+
+allowed_classes = ["rogue", "assassin", "warrior"]
+allowed_races = []
+
+[weapon]
+damage = "1d4+1"
+damage_type = "pierce"
+speed = 1.8
+range = "melee"
+
+[equipment]
+slot = "weapon"
+
+# Contextual command granted when equipped
+[[commands]]
+name = "envenom"
+script = "scripts/items/envenom_blade.rhai"
+help = "Coat the serpent blade in extra potent venom."
+requires_equipped = true
+equip_message = "Equipping the serpent dagger bestows the ability to 'envenom'."
+unequip_message = "Unequipping the serpent dagger removes the ability to 'envenom'."
+examine_hint = "Green liquid glistens along the razor edge."
+
+# Permanent passive affect when equipped
+[[permanent_affects]]
+id = "serpent_bite"
+name = "+1 to Hit"
+stat = "to_hit"
+amount = 1
+condition = "none"
+affects_display = "The balanced venomous blade grants +1 to attack rolls."
+
+# Proc on hit: small chance to apply poison for 2 rounds
+[[triggers]]
+event = "on_hit"
+chance = 25
+script = "scripts/items/poison_proc.rhai"
