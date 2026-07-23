@@ -490,7 +490,38 @@ combat_bonus = { hit = -5, damage = 25 }
 | `allowed_weapons` | Array  | Weapon subtypes allowed (empty = all).                           |
 | `allowed_armor`   | Array  | Armor subtypes allowed (empty = all).                            |
 | `skill_modifiers` | Table  | Skill rank bonuses: `{ skill_id = bonus_pct }`.                  |
-| `combat_bonus`    | Table  | Combat roll modifiers: `{ hit, damage, armor }` as percentages.  |
+---
+
+### Skills & Spells (`SkillDef`)
+
+Stored in `content/skills/<skill_id>.toml`. Defines combat abilities, spells, and utilities. Skills can be restricted via engine `[restrictions]` and linked to Rhai script triggers.
+
+```toml
+id = "parry"
+name = "Parry"
+command = "parry"
+script = "skills/parry.rhai"
+description = "Deflect incoming melee attacks. Success rate scales with practice level up to 60%."
+
+# Built-in Engine Restrictions (automatically evaluated prior to script invocation)
+[restrictions]
+allowed_classes = ["warrior"]
+allowed_races = []
+min_level = 1
+in_combat_only = false
+```
+
+#### Restriction Fields (`CommandRestrictions`)
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `allowed_classes` | Array | List of permitted classes (e.g. `["warrior"]` or `["mage", "wizard"]`). Empty = all classes. |
+| `allowed_races` | Array | List of permitted races (e.g. `["elf"]`). Empty = all races. |
+| `min_level` | Integer | Minimum character level required. If under-leveled, engine prints: *"You are not experienced enough to use that ability."* |
+| `min_skill_ranks` | Table | Required practice ranks: `{ "two_handed" = 50 }`. |
+| `allowed_stances` | Array | Required fighting stances: `["defensive"]`. |
+| `in_combat_only` | Bool | If true, skill can only be used while in combat. |
+| `out_of_combat_only` | Bool | If true, skill can only be used outside combat. |
 
 ---
 

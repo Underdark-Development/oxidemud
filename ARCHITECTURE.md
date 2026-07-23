@@ -94,6 +94,14 @@ Game logic is organized into isolated, concurrent modules executed inside the ba
 - **Group Cleanup System:** Automatically removes offline or disconnected players from groups.
 - **Database Backup System:** Spawns a background thread to run hot backups of the SQLite database.
 
+### Scripting & Core System Decoupling
+
+OxideMUD enforces strict architectural decoupling between core Rust engine systems (`combat.rs`, `regen.rs`, etc.) and game content (skills, spells, item affects):
+
+1. **No Core Hardcoding**: Core systems **never** contain hardcoded skill names, spell IDs, or specific item strings.
+2. **Data-Driven Effect Expiry (`EffectExpireCondition`)**: Active script effects register their own expiration criteria (`Timer`, `ExitCombat`, `ChangeStance`, `Custom`). State transitions in core systems (such as `transition_combat_state` moving an entity to `CombatState::NotInCombat`) trigger generic condition-driven expiration routines (`expire_effects_by_condition(world, entity, EffectExpireCondition::ExitCombat)`).
+3. **Implicit Execution Context (`CURRENT_SCRIPT_CONTEXT`)**: Rhai script invocations bind context (`world`, `actor`, `self`, `target`, `room`) via RAII thread-local guards, providing a clean zero-parameter script API without leaking engine memory pointers.
+
 ---
 
 ## Event Bus
