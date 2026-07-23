@@ -191,6 +191,11 @@ impl ScriptEngine {
                 bridge.send_to_entity(entity, &msg);
             }
         });
+        engine.register_fn("send", |entity: Entity, msg: String| {
+            if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                bridge.send_to_entity(entity, &msg);
+            }
+        });
         engine.register_fn(
             "echo_room",
             |world: ScriptWorld, entity: Entity, msg: String| unsafe {

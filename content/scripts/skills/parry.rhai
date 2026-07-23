@@ -25,8 +25,15 @@ fn on_combat_hit() {
     // Success rate depends on practice level: max 60% chance at 100% practice
     let chance = (rank * 60) / 100;
     if rand(1, 100) <= chance {
+        let defender_name = world.get_name(hit_ctx.target);
         let attacker_name = world.get_name(hit_ctx.attacker);
-        hit_ctx.abort("You parry " + attacker_name + "'s attack!");
+
+        // Notify defender, attacker, and room spectators
+        send_to(hit_ctx.target, "You parry " + attacker_name + "'s attack!");
+        send_to(hit_ctx.attacker, defender_name + " parries your attack!");
+        echo_room(world, hit_ctx.target, defender_name + " parries " + attacker_name + "'s attack!");
+
+        hit_ctx.abort("");
     }
 
     return hit_ctx;
