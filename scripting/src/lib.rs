@@ -249,6 +249,19 @@ impl ScriptEngine {
             })
             .unwrap_or_else(|| "Someone".to_string())
         });
+        engine.register_get("name", |entity: &mut Entity| -> String {
+            let ent = *entity;
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::Name>(ent) {
+                    q.get()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "Someone".to_string())
+                } else {
+                    "Someone".to_string()
+                }
+            })
+            .unwrap_or_else(|| "Someone".to_string())
+        });
 
         // Messaging
         engine.register_fn("send_to", |entity: Entity, msg: String| {
