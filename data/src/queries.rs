@@ -261,7 +261,6 @@ pub fn get_character_by_name(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn create_character(
     conn: &Connection,
     account_id: i64,
@@ -629,7 +628,6 @@ pub fn load_health_component(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn save_appearance_component(
     conn: &Connection,
     entity_id: i64,

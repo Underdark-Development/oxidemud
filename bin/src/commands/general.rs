@@ -1,104 +1,110 @@
 use oxide_core as core;
 use oxide_core::{AccessLevel, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
-pub const HELP_HELP: &str = r#"Display command help.
+pub const HELP_HELP: &str = "Usage: help [topic|command]";
 
-Examples:
-  help                  list available commands
-  help look             show detailed help for the 'look' command"#;
+pub const HELP_WIDTH: &str = "Usage: width [columns]\n  0 = unlimited (default)";
 
-pub const HELP_WIDTH: &str = r#"Set your terminal output line wrap width (min 40, max 256).
-
-Examples:
-  width                 show current width setting
-  width 80              set output width to 80 columns"#;
-
-pub const HELP_PROMPT: &str = r#"Customize your status prompt line using template variables.
-
-Available Variables:
-  %h - Current HP       %H - Max HP
-  %m - Current Mana     %M - Max Mana
-  %s - Current Stamina  %S - Max Stamina
-  %e - Current Energy   %E - Max Energy
-  %p - Current Psi      %P - Max Psi
-  %v - Room Name        %V - Room Key
-  %x - Current XP       %X - XP to Next Level
-  %l - Level            %n - Character Name
-  %R - Rest State       %C - Combat Target Name
-  %t - Time of Day      %w - Weather
-  %% - Literal '%'
-
-Examples:
-  prompt                show current prompt template
-  prompt %h/%Hhp %m/%Mmp %s/%Ssp >  set custom prompt
-  prompt reset          restore default server prompt"#;
+pub const HELP_PROMPT: &str = r#"Usage: prompt [template|reset]
+  %h/%H  HP current/max    %m/%M  Mana current/max
+  %s/%S  Stamina curr/max  %e/%E  Energy current/max
+  %p/%P  Psi current/max   %x/%X  XP current/to-next
+  %l  Level                %n  Character name
+  %v  Room name            %V  Room key
+  %R  Rest state           %C  Combat target
+  %t  Time of day          %w  Weather
+  %%  Literal '%'"#;
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "motd",
-        &[],
-        AccessLevel::Player,
-        "General",
-        "Display the Message of the Day",
-        cmd_motd,
-    );
-    server.register_command(
-        "help",
-        &["?"],
-        AccessLevel::Player,
-        "General",
-        HELP_HELP,
-        cmd_help,
-    );
-    server.register_command(
-        "who",
-        &[],
-        AccessLevel::Player,
-        "General",
-        "List online players",
-        cmd_who,
-    );
-    server.register_command(
-        "quit",
-        &["exit"],
-        AccessLevel::Player,
-        "General",
-        "Disconnect from the game server",
-        cmd_quit,
-    );
-    server.register_command(
-        "width",
-        &[],
-        AccessLevel::Player,
-        "General",
-        HELP_WIDTH,
-        cmd_width,
-    );
-    server.register_command(
-        "prompt",
-        &[],
-        AccessLevel::Player,
-        "General",
-        HELP_PROMPT,
-        cmd_prompt,
-    );
-    server.register_command(
-        "time",
-        &[],
-        AccessLevel::Player,
-        "General",
-        "Show current in-game time",
-        cmd_time,
-    );
-    server.register_command(
-        "weather",
-        &[],
-        AccessLevel::Player,
-        "General",
-        "Show current weather conditions",
-        cmd_weather,
-    );
+    server.register_command(Command {
+        name: "motd",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Display the Message of the Day",
+            body: None,
+        },
+        handler: cmd_motd,
+    });
+    server.register_command(Command {
+        name: "help",
+        aliases: &["?"],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Display command help",
+            body: Some(HELP_HELP),
+        },
+        handler: cmd_help,
+    });
+    server.register_command(Command {
+        name: "who",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "List online players",
+            body: None,
+        },
+        handler: cmd_who,
+    });
+    server.register_command(Command {
+        name: "quit",
+        aliases: &["exit"],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Disconnect from the game server",
+            body: None,
+        },
+        handler: cmd_quit,
+    });
+    server.register_command(Command {
+        name: "width",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Set terminal output line wrap width",
+            body: Some(HELP_WIDTH),
+        },
+        handler: cmd_width,
+    });
+    server.register_command(Command {
+        name: "prompt",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Customize your status prompt line",
+            body: Some(HELP_PROMPT),
+        },
+        handler: cmd_prompt,
+    });
+    server.register_command(Command {
+        name: "time",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Show current in-game time",
+            body: None,
+        },
+        handler: cmd_time,
+    });
+    server.register_command(Command {
+        name: "weather",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Show current weather conditions",
+            body: None,
+        },
+        handler: cmd_weather,
+    });
 }
 
 pub fn cmd_motd(
@@ -178,43 +184,37 @@ pub fn cmd_help(
             .find(|t| t.to_lowercase() == query_lower)
             .cloned();
         if let Some(topic) = matched_topic {
-            let mut cmds = Vec::new();
+            let mut entries: Vec<String> = Vec::new();
             for cmd in &dispatch.commands {
                 if cmd.topic == topic && conn_access >= cmd.access {
                     let name_col = if cmd.aliases.is_empty() {
                         cmd.name.to_string()
                     } else {
-                        format!("{} ({})", cmd.name, cmd.aliases.join(", "))
+                        format!("{}, {}", cmd.name, cmd.aliases.join(", "))
                     };
-                    cmds.push(name_col);
+                    entries.push(format!("  {:<16}{}", name_col, cmd.help.short));
                 }
             }
             core::with_dynamic_skills(|reg| {
                 for skill in reg.skills_for_topic(&topic) {
                     let display_name = if let Some(cmd) = &skill.command {
                         if skill.is_spell {
-                            format!("cast {} ({})", cmd, skill.name)
+                            format!("cast {}", cmd)
                         } else {
-                            format!("{} ({})", cmd, skill.name)
+                            cmd.clone()
                         }
                     } else {
                         skill.name.clone()
                     };
-                    cmds.push(display_name);
+                    entries.push(format!("  {:<16}{}", display_name, skill.short));
                 }
             });
 
-            cmds.sort();
-            let width = if conn.screen_width() > 0 {
-                conn.screen_width() as usize
-            } else {
-                80
-            };
+            entries.sort();
+            conn.send_line(&format!("  {topic} Commands:"));
             conn.send_line("");
-            conn.send_line(&format!("Commands in Topic '{topic}':"));
-            conn.send_line("");
-            for line in format_wide_list(&cmds, width) {
-                conn.send_line(&format!("  {line}"));
+            for entry in &entries {
+                conn.send_line(entry);
             }
             conn.send_line("");
             return;
@@ -224,7 +224,6 @@ pub fn cmd_help(
         let dynamic_skill =
             core::with_dynamic_skills(|reg| reg.find_by_name_or_command(query).cloned());
         if let Some(skill) = dynamic_skill {
-            conn.send_line("");
             let header = if let Some(cmd) = &skill.command {
                 if skill.is_spell {
                     format!("cast {} - {}", cmd, skill.name)
@@ -234,10 +233,9 @@ pub fn cmd_help(
             } else {
                 skill.name.clone()
             };
-            conn.send_line(&format!("  {header}"));
-            conn.send_line("");
+            conn.send_line(&header);
             for line in skill.help_text.lines() {
-                conn.send_line(&format!("  {line}"));
+                conn.send_line(line);
             }
             conn.send_line("");
             return;
@@ -249,11 +247,9 @@ pub fn cmd_help(
                 if let Ok(mut q) = _world.query_one::<&core::EntityCommands>(room) {
                     if let Some(cmds) = q.get() {
                         if let Some(cmd) = cmds.find(query) {
-                            conn.send_line("");
-                            conn.send_line(&format!("  {} (Room Command)", cmd.command_name));
-                            conn.send_line("");
+                            conn.send_line(&format!("{} (Room Command)", cmd.command_name));
                             for line in cmd.help_text.lines() {
-                                conn.send_line(&format!("  {line}"));
+                                conn.send_line(line);
                             }
                             conn.send_line("");
                             return;
@@ -266,16 +262,16 @@ pub fn cmd_help(
         // 3. Check static commands
         if let Some(cmd) = dispatch.find(query) {
             if conn_access >= cmd.access {
-                conn.send_line("");
                 let header = if cmd.aliases.is_empty() {
                     cmd.name.to_string()
                 } else {
-                    format!("{} ({})", cmd.name, cmd.aliases.join(", "))
+                    format!("{}, {}", cmd.name, cmd.aliases.join(", "))
                 };
-                conn.send_line(&format!("  {header}"));
-                conn.send_line("");
-                for line in cmd.help_text.lines() {
-                    conn.send_line(&format!("  {line}"));
+                conn.send_line(&format!("{} - {}", header, cmd.help.short));
+                if let Some(body) = cmd.help.body {
+                    for line in body.lines() {
+                        conn.send_line(line);
+                    }
                 }
                 conn.send_line("");
                 return;
@@ -292,8 +288,7 @@ pub fn cmd_help(
     } else {
         80
     };
-    conn.send_line("");
-    conn.send_line("Available Help Topics  (type 'help <topic>' or 'help <command>')");
+    conn.send_line("  Available Topics:");
     conn.send_line("");
     for line in format_wide_list(&cats, width) {
         conn.send_line(&format!("  {line}"));

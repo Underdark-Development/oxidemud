@@ -427,8 +427,10 @@ impl EntityCommands {
         help_text: impl Into<String>,
         requires_equipped: bool,
     ) {
-        let mut restr = CommandRestrictions::default();
-        restr.requires_equipped = requires_equipped;
+        let restr = CommandRestrictions {
+            requires_equipped,
+            ..Default::default()
+        };
         self.add_full(
             command_name,
             script,

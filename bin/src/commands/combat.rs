@@ -1,62 +1,56 @@
 use oxide_core as core;
 use oxide_core::{get_pos_room, AccessLevel, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
-pub const HELP_STANCE: &str = r#"View or change your combat stance.
+pub const HELP_STANCE: &str = "Usage: stance [normal|defensive|aggressive|berserk]\n  normal      Balanced offense and defense\n  defensive   Less damage, reduced offense\n  aggressive  More damage, reduced defense\n  berserk     Maximum offense, minimum defense";
 
-Examples:
-  stance                show your current stance
-  stance normal         return to a balanced stance
-  stance defensive      reduce damage taken at the cost of offense
-  stance aggressive     deal more damage at the cost of defense
-  stance berserk        maximum offense, minimal defense"#;
-
-pub const HELP_GROUP: &str = r#"Manage your party/group and formations.
-
-Usage:
-  group                        show current group status
-  group invite <player>        invite a player to join
-  group accept                 accept a pending invite
-  group leave                  leave the group
-  group disband                disband the group (leader only)
-  group kick <player>          kick a member (leader only)
-  group loot <mode>            change loot mode (freeforall/roundrobin/master)
-  group formation <type>       change formation (default/line/scattered/column/wedge/shieldwall)
-  group leader <player>        transfer leadership to another member (leader only)"#;
+pub const HELP_GROUP: &str = "Usage: group [status|invite <player>|accept|leave|disband|kick <player>|loot <mode>|formation <type>|leader <player>]\n  loot modes: freeforall, roundrobin, master\n  formations: default, line, scattered, column, wedge, shieldwall";
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "kill",
-        &[],
-        AccessLevel::Player,
-        "Combat",
-        "Attack a target",
-        cmd_kill,
-    );
-    server.register_command(
-        "flee",
-        &[],
-        AccessLevel::Player,
-        "Combat",
-        "Attempt to flee from combat",
-        cmd_flee,
-    );
-    server.register_command(
-        "stance",
-        &[],
-        AccessLevel::Player,
-        "Combat",
-        HELP_STANCE,
-        cmd_stance,
-    );
-    server.register_command(
-        "group",
-        &[],
-        AccessLevel::Player,
-        "Combat",
-        HELP_GROUP,
-        cmd_group,
-    );
+    server.register_command(Command {
+        name: "kill",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Combat",
+        help: CommandHelp {
+            short: "Attack a target",
+            body: None,
+        },
+        handler: cmd_kill,
+    });
+    server.register_command(Command {
+        name: "flee",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Combat",
+        help: CommandHelp {
+            short: "Attempt to flee from combat",
+            body: None,
+        },
+        handler: cmd_flee,
+    });
+    server.register_command(Command {
+        name: "stance",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Combat",
+        help: CommandHelp {
+            short: "View or change combat stance",
+            body: Some(HELP_STANCE),
+        },
+        handler: cmd_stance,
+    });
+    server.register_command(Command {
+        name: "group",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Combat",
+        help: CommandHelp {
+            short: "Manage party and formations",
+            body: Some(HELP_GROUP),
+        },
+        handler: cmd_group,
+    });
 }
 
 pub fn cmd_kill(

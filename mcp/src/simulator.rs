@@ -114,7 +114,6 @@ pub fn simulate_loot(
 }
 
 // --- Combat Simulator ---
-#[allow(clippy::too_many_arguments)]
 pub fn simulate_combat(
     registry: &TemplateRegistry,
     attacker_template: Option<&str>,
@@ -990,7 +989,6 @@ pub fn validate_content_dag(content_path: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn simulate_character_creation(
     registry: &TemplateRegistry,
     race_id: &str,
@@ -1281,7 +1279,6 @@ pub fn simulate_crafting(
     Ok(out)
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn simulate_skill_use(
     registry: &TemplateRegistry,
     skill_id: &str,

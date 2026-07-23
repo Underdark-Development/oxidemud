@@ -1,50 +1,65 @@
 use oxide_core as core;
 use oxide_core::{get_name, get_pos_room, is_void_room, AccessLevel, Name, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::common::*;
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "say",
-        &[],
-        AccessLevel::Player,
-        "Communication",
-        "Speak aloud in the room",
-        cmd_say,
-    );
-    server.register_command(
-        "tell",
-        &[],
-        AccessLevel::Player,
-        "Communication",
-        "Send a private message to another player",
-        cmd_tell,
-    );
-    server.register_command(
-        "reply",
-        &["r"],
-        AccessLevel::Player,
-        "Communication",
-        "Reply to the last player who messaged you",
-        cmd_reply,
-    );
-    server.register_command(
-        "shout",
-        &[],
-        AccessLevel::Player,
-        "Communication",
-        "Shout a message to the entire zone",
-        cmd_shout,
-    );
-    server.register_command(
-        "whisper",
-        &[],
-        AccessLevel::Player,
-        "Communication",
-        "Whisper a message to someone in the same room",
-        cmd_whisper,
-    );
+    server.register_command(Command {
+        name: "say",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Speak aloud in the room",
+            body: None,
+        },
+        handler: cmd_say,
+    });
+    server.register_command(Command {
+        name: "tell",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Send a private message to another player",
+            body: None,
+        },
+        handler: cmd_tell,
+    });
+    server.register_command(Command {
+        name: "reply",
+        aliases: &["r"],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Reply to the last player who messaged you",
+            body: None,
+        },
+        handler: cmd_reply,
+    });
+    server.register_command(Command {
+        name: "shout",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Shout a message to the entire zone",
+            body: None,
+        },
+        handler: cmd_shout,
+    });
+    server.register_command(Command {
+        name: "whisper",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Whisper a message to someone in the same room",
+            body: None,
+        },
+        handler: cmd_whisper,
+    });
 }
 
 pub fn cmd_say(

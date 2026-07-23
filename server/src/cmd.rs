@@ -6,12 +6,17 @@ pub type CommandFn = fn(&mut World, &mut dyn Connection, &str, &str, &Connection
 
 pub use oxide_core::AccessLevel;
 
+pub struct CommandHelp {
+    pub short: &'static str,
+    pub body: Option<&'static str>,
+}
+
 pub struct Command {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub access: AccessLevel,
     pub topic: &'static str,
-    pub help_text: &'static str,
+    pub help: CommandHelp,
     pub handler: CommandFn,
 }
 
@@ -413,7 +418,10 @@ mod tests {
             aliases: &["t"],
             access: AccessLevel::Player,
             topic: "General",
-            help_text: "test command",
+            help: CommandHelp {
+                short: "test command",
+                body: None,
+            },
             handler: test_handler,
         });
         d.register(Command {
@@ -421,7 +429,10 @@ mod tests {
             aliases: &[],
             access: AccessLevel::Admin,
             topic: "Admin",
-            help_text: "admin command",
+            help: CommandHelp {
+                short: "admin command",
+                body: None,
+            },
             handler: noop,
         });
         d
@@ -505,7 +516,10 @@ mod tests {
             aliases: &[],
             access: AccessLevel::Player,
             topic: "Test",
-            help_text: "",
+            help: CommandHelp {
+                short: "",
+                body: None,
+            },
             handler: noop,
         });
         d.register(Command {
@@ -513,7 +527,10 @@ mod tests {
             aliases: &["t"],
             access: AccessLevel::Player,
             topic: "Test",
-            help_text: "",
+            help: CommandHelp {
+                short: "",
+                body: None,
+            },
             handler: noop,
         });
         // "t" should match the exact alias on "test", not the prefix of "targeting"
@@ -582,6 +599,7 @@ mod tests {
         let skill = oxide_core::ScriptSkill {
             id: "parry_skill".to_string(),
             name: "Parry".to_string(),
+            short: "Parry an incoming attack".to_string(),
             command: Some("parry".to_string()),
             is_spell: false,
             topic: "Skills".to_string(),
@@ -599,6 +617,7 @@ mod tests {
         let spell = oxide_core::ScriptSkill {
             id: "fireball_spell".to_string(),
             name: "Fireball".to_string(),
+            short: "Hurl a ball of fire".to_string(),
             command: Some("fireball".to_string()),
             is_spell: true,
             topic: "Spells".to_string(),

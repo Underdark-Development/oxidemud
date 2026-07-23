@@ -5,167 +5,204 @@ use oxide_core::{
     get_short_desc, is_void_room, AccessLevel, Description, Direction, FloorItems, Inventory, Item,
     Name, Npc, Position, RoomExits, World,
 };
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::common::*;
 
-pub const HELP_LOOK: &str = r#"Examine your surroundings, a specific target, or a direction.
+pub const HELP_LOOK: &str =
+    "Usage: look [target|direction]\n  show the room, examine a target, or peek through an exit";
 
-Examples:
-  look                  look around the room
-  look goblin           examine a mob in the room
-  look sword            examine an item in the room or inventory
-  look north            peek through an exit
-  look at goblin        same as 'look goblin'"#;
-
-pub const HELP_FOLLOW: &str = r#"Follow a player in the same room.
-
-Usage:
-  follow <player>              start following a player
-  follow                       stop following"#;
-
-pub const HELP_UNFOLLOW: &str = r#"Stop following another player.
-
-Usage:
-  unfollow                     stop following"#;
+pub const HELP_FOLLOW: &str =
+    "Usage: follow [player]\n  start following a player, or stop following with no argument";
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "look",
-        &["l"],
-        AccessLevel::Player,
-        "General",
-        HELP_LOOK,
-        cmd_look,
-    );
-    server.register_command(
-        "follow",
-        &[],
-        AccessLevel::Player,
-        "Movement",
-        HELP_FOLLOW,
-        cmd_follow,
-    );
-    server.register_command(
-        "unfollow",
-        &[],
-        AccessLevel::Player,
-        "Movement",
-        HELP_UNFOLLOW,
-        cmd_unfollow,
-    );
-    server.register_command(
-        "open",
-        &[],
-        AccessLevel::Player,
-        "Movement",
-        "Open a closed door",
-        cmd_open,
-    );
-    server.register_command(
-        "close",
-        &[],
-        AccessLevel::Player,
-        "Movement",
-        "Close an open door",
-        cmd_close,
-    );
-    server.register_command(
-        "lock",
-        &[],
-        AccessLevel::Player,
-        "Movement",
-        "Lock a door using a key",
-        cmd_lock,
-    );
-    server.register_command(
-        "unlock",
-        &[],
-        AccessLevel::Player,
-        "Movement",
-        "Unlock a door using a key",
-        cmd_unlock,
-    );
-    server.register_command(
-        "north",
-        &["n"],
-        AccessLevel::Player,
-        "Movement",
-        "Move north",
-        cmd_move,
-    );
-    server.register_command(
-        "south",
-        &["s"],
-        AccessLevel::Player,
-        "Movement",
-        "Move south",
-        cmd_move,
-    );
-    server.register_command(
-        "east",
-        &["e"],
-        AccessLevel::Player,
-        "Movement",
-        "Move east",
-        cmd_move,
-    );
-    server.register_command(
-        "west",
-        &["w"],
-        AccessLevel::Player,
-        "Movement",
-        "Move west",
-        cmd_move,
-    );
-    server.register_command(
-        "up",
-        &["u"],
-        AccessLevel::Player,
-        "Movement",
-        "Move up",
-        cmd_move,
-    );
-    server.register_command(
-        "down",
-        &["d"],
-        AccessLevel::Player,
-        "Movement",
-        "Move down",
-        cmd_move,
-    );
-    server.register_command(
-        "northeast",
-        &["ne"],
-        AccessLevel::Player,
-        "Movement",
-        "Move northeast",
-        cmd_move,
-    );
-    server.register_command(
-        "northwest",
-        &["nw"],
-        AccessLevel::Player,
-        "Movement",
-        "Move northwest",
-        cmd_move,
-    );
-    server.register_command(
-        "southeast",
-        &["se"],
-        AccessLevel::Player,
-        "Movement",
-        "Move southeast",
-        cmd_move,
-    );
-    server.register_command(
-        "southwest",
-        &["sw"],
-        AccessLevel::Player,
-        "Movement",
-        "Move southwest",
-        cmd_move,
-    );
+    server.register_command(Command {
+        name: "look",
+        aliases: &["l"],
+        access: AccessLevel::Player,
+        topic: "General",
+        help: CommandHelp {
+            short: "Examine your surroundings",
+            body: Some(HELP_LOOK),
+        },
+        handler: cmd_look,
+    });
+    server.register_command(Command {
+        name: "follow",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Follow a player",
+            body: Some(HELP_FOLLOW),
+        },
+        handler: cmd_follow,
+    });
+    server.register_command(Command {
+        name: "unfollow",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Stop following another player",
+            body: None,
+        },
+        handler: cmd_unfollow,
+    });
+    server.register_command(Command {
+        name: "open",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Open a closed door",
+            body: None,
+        },
+        handler: cmd_open,
+    });
+    server.register_command(Command {
+        name: "close",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Close an open door",
+            body: None,
+        },
+        handler: cmd_close,
+    });
+    server.register_command(Command {
+        name: "lock",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Lock a door using a key",
+            body: None,
+        },
+        handler: cmd_lock,
+    });
+    server.register_command(Command {
+        name: "unlock",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Unlock a door using a key",
+            body: None,
+        },
+        handler: cmd_unlock,
+    });
+    server.register_command(Command {
+        name: "north",
+        aliases: &["n"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move north",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "south",
+        aliases: &["s"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move south",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "east",
+        aliases: &["e"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move east",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "west",
+        aliases: &["w"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move west",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "up",
+        aliases: &["u"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move up",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "down",
+        aliases: &["d"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move down",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "northeast",
+        aliases: &["ne"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move northeast",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "northwest",
+        aliases: &["nw"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move northwest",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "southeast",
+        aliases: &["se"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move southeast",
+            body: None,
+        },
+        handler: cmd_move,
+    });
+    server.register_command(Command {
+        name: "southwest",
+        aliases: &["sw"],
+        access: AccessLevel::Player,
+        topic: "Movement",
+        help: CommandHelp {
+            short: "Move southwest",
+            body: None,
+        },
+        handler: cmd_move,
+    });
 }
 
 pub fn cmd_look(

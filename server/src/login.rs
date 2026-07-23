@@ -139,7 +139,6 @@ impl LoginFlow {
     /// ([`take_echo`](LoginFlow::take_echo),
     /// [`take_disconnect`](LoginFlow::take_disconnect)) and apply them to
     /// the connection.
-    #[allow(clippy::too_many_arguments)]
     pub async fn handle_input(
         &mut self,
         input: &str,

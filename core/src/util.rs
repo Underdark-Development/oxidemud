@@ -62,10 +62,7 @@ pub fn get_short_desc(world: &World, entity: Entity) -> Option<String> {
         }
     };
 
-    let base = match base_sd {
-        Some(s) => s,
-        None => return None,
-    };
+    let base = base_sd?;
 
     if let Ok(mut q) = world.query_one::<&crate::ActiveScriptEffects>(entity) {
         if let Some(active) = q.get() {

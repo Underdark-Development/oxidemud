@@ -183,6 +183,7 @@ use std::sync::RwLock;
 pub struct ScriptSkill {
     pub id: String,
     pub name: String,
+    pub short: String,
     pub command: Option<String>,
     pub is_spell: bool,
     pub topic: String,

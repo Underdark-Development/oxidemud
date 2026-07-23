@@ -1,34 +1,43 @@
 use oxide_core as core;
 use oxide_core::{get_pos_room, AccessLevel, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::common::*;
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "craft",
-        &[],
-        AccessLevel::Player,
-        "Abilities",
-        "Craft an item using a known recipe",
-        cmd_craft,
-    );
-    server.register_command(
-        "use",
-        &[],
-        AccessLevel::Player,
-        "Abilities",
-        "Use a skill, potion, or item",
-        cmd_use,
-    );
-    server.register_command(
-        "cast",
-        &[],
-        AccessLevel::Player,
-        "Abilities",
-        "Cast a spell",
-        cmd_cast,
-    );
+    server.register_command(Command {
+        name: "craft",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Craft an item using a known recipe",
+            body: None,
+        },
+        handler: cmd_craft,
+    });
+    server.register_command(Command {
+        name: "use",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Use a skill, potion, or item",
+            body: None,
+        },
+        handler: cmd_use,
+    });
+    server.register_command(Command {
+        name: "cast",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Cast a spell",
+            body: None,
+        },
+        handler: cmd_cast,
+    });
 }
 
 pub fn cmd_craft(

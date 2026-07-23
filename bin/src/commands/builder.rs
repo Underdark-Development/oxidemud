@@ -1,218 +1,296 @@
 use oxide_core as core;
 use oxide_core::{AccessLevel, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::movement::cmd_look;
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "@award",
-        &[],
-        AccessLevel::Admin,
-        "Admin",
-        "Award experience points to yourself",
-        cmd_award,
-    );
-    server.register_command(
-        "@area",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Manage area templates (create, list, edit, delete, reset, save)",
-        cmd_area,
-    );
-    server.register_command(
-        "@dig",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Dig a new room and exit in a specified direction",
-        cmd_dig,
-    );
-    server.register_command(
-        "@link",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Link an exit direction to an existing room key",
-        cmd_link,
-    );
-    server.register_command(
-        "@unlink",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Remove an exit link in a specified direction",
-        cmd_unlink,
-    );
-    server.register_command(
-        "@set",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Set entity or room properties (@set self|room|name field value)",
-        cmd_set,
-    );
-    server.register_command(
-        "@desc",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Set the description of the current room",
-        cmd_desc,
-    );
-    server.register_command(
-        "@room",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Manage room instances (@room delete [key])",
-        cmd_room,
-    );
-    server.register_command(
-        "@portal",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Manage room portals (@portal add/remove/hide)",
-        cmd_portal,
-    );
-    server.register_command(
-        "@mob",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Manage mob templates and spawn/despawn (@mob add/remove/edit)",
-        cmd_mob,
-    );
-    server.register_command(
-        "@item",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Manage item templates (@item create/edit/delete)",
-        cmd_item,
-    );
-    server.register_command(
-        "@load",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Load an item or mob template into game (@load item|mob <id>)",
-        cmd_load,
-    );
-    server.register_command(
-        "@validate",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Validate content templates for integrity errors",
-        cmd_validate,
-    );
-    server.register_command(
-        "goto",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Teleport directly to a room key or player location",
-        cmd_goto,
-    );
-    server.register_command(
-        "at",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Execute a command at a distant room or player location",
-        cmd_at,
-    );
-    server.register_command(
-        "force",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Force a target player or mob to execute a command",
-        cmd_force,
-    );
-    server.register_command(
-        "stat",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Display detailed entity internal stats and ECS components",
-        cmd_stat,
-    );
-    server.register_command(
-        "olocate",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Locate all instances of an item in the world",
-        cmd_olocate,
-    );
-    server.register_command(
-        "gecho",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Broadcast a message to all connected players across all zones",
-        cmd_gecho,
-    );
-    server.register_command(
-        "gtell",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Send a message to the staff channel",
-        cmd_gtell,
-    );
-    server.register_command(
-        "wizwho",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "List all online staff members and their ranks",
-        cmd_wizwho,
-    );
-    server.register_command(
-        "wizin",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Toggle staff invisibility",
-        cmd_wizin,
-    );
-    server.register_command(
-        "holylight",
-        &[],
-        AccessLevel::Builder,
-        "Builder",
-        "Toggle holy light to see all dark/hidden areas",
-        cmd_holylight,
-    );
-    server.register_command(
-        "@teleport",
-        &[],
-        AccessLevel::Immortal,
-        "Immortal",
-        "Teleport another player to a room key or player",
-        cmd_teleport,
-    );
-    server.register_command(
-        "switch",
-        &[],
-        AccessLevel::God,
-        "God",
-        "Possess and control an NPC mob body",
-        cmd_switch,
-    );
-    server.register_command(
-        "return",
-        &[],
-        AccessLevel::God,
-        "God",
-        "Return to your original body after possessing a mob",
-        cmd_return,
-    );
+    server.register_command(Command {
+        name: "@award",
+        aliases: &[],
+        access: AccessLevel::Admin,
+        topic: "Admin",
+        help: CommandHelp {
+            short: "Award experience points to yourself",
+            body: None,
+        },
+        handler: cmd_award,
+    });
+    server.register_command(Command {
+        name: "@area",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Manage area templates",
+            body: None,
+        },
+        handler: cmd_area,
+    });
+    server.register_command(Command {
+        name: "@dig",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Dig a new room and exit in a specified direction",
+            body: None,
+        },
+        handler: cmd_dig,
+    });
+    server.register_command(Command {
+        name: "@link",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Link an exit direction to an existing room key",
+            body: None,
+        },
+        handler: cmd_link,
+    });
+    server.register_command(Command {
+        name: "@unlink",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Remove an exit link in a specified direction",
+            body: None,
+        },
+        handler: cmd_unlink,
+    });
+    server.register_command(Command {
+        name: "@set",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Set entity or room properties",
+            body: None,
+        },
+        handler: cmd_set,
+    });
+    server.register_command(Command {
+        name: "@desc",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Set the description of the current room",
+            body: None,
+        },
+        handler: cmd_desc,
+    });
+    server.register_command(Command {
+        name: "@room",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Manage room instances",
+            body: None,
+        },
+        handler: cmd_room,
+    });
+    server.register_command(Command {
+        name: "@portal",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Manage room portals",
+            body: None,
+        },
+        handler: cmd_portal,
+    });
+    server.register_command(Command {
+        name: "@mob",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Manage mob templates and spawn/despawn",
+            body: None,
+        },
+        handler: cmd_mob,
+    });
+    server.register_command(Command {
+        name: "@item",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Manage item templates",
+            body: None,
+        },
+        handler: cmd_item,
+    });
+    server.register_command(Command {
+        name: "@load",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Load an item or mob template into the game",
+            body: None,
+        },
+        handler: cmd_load,
+    });
+    server.register_command(Command {
+        name: "@validate",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Validate content templates for integrity errors",
+            body: None,
+        },
+        handler: cmd_validate,
+    });
+    server.register_command(Command {
+        name: "goto",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Teleport directly to a room key or player",
+            body: None,
+        },
+        handler: cmd_goto,
+    });
+    server.register_command(Command {
+        name: "at",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Execute a command at a distant room or player",
+            body: None,
+        },
+        handler: cmd_at,
+    });
+    server.register_command(Command {
+        name: "force",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Force a target player or mob to execute a command",
+            body: None,
+        },
+        handler: cmd_force,
+    });
+    server.register_command(Command {
+        name: "stat",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Display detailed entity stats and ECS components",
+            body: None,
+        },
+        handler: cmd_stat,
+    });
+    server.register_command(Command {
+        name: "olocate",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Locate all instances of an item in the world",
+            body: None,
+        },
+        handler: cmd_olocate,
+    });
+    server.register_command(Command {
+        name: "gecho",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Broadcast a message to all connected players",
+            body: None,
+        },
+        handler: cmd_gecho,
+    });
+    server.register_command(Command {
+        name: "gtell",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Send a message to the staff channel",
+            body: None,
+        },
+        handler: cmd_gtell,
+    });
+    server.register_command(Command {
+        name: "wizwho",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "List all online staff members and their ranks",
+            body: None,
+        },
+        handler: cmd_wizwho,
+    });
+    server.register_command(Command {
+        name: "wizin",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Toggle staff invisibility",
+            body: None,
+        },
+        handler: cmd_wizin,
+    });
+    server.register_command(Command {
+        name: "holylight",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Toggle holy light to see all dark/hidden areas",
+            body: None,
+        },
+        handler: cmd_holylight,
+    });
+    server.register_command(Command {
+        name: "@teleport",
+        aliases: &[],
+        access: AccessLevel::Immortal,
+        topic: "Immortal",
+        help: CommandHelp {
+            short: "Teleport another player to a room key or player",
+            body: None,
+        },
+        handler: cmd_teleport,
+    });
+    server.register_command(Command {
+        name: "switch",
+        aliases: &[],
+        access: AccessLevel::God,
+        topic: "God",
+        help: CommandHelp {
+            short: "Possess and control an NPC mob body",
+            body: None,
+        },
+        handler: cmd_switch,
+    });
+    server.register_command(Command {
+        name: "return",
+        aliases: &[],
+        access: AccessLevel::God,
+        topic: "God",
+        help: CommandHelp {
+            short: "Return to your original body after possessing a mob",
+            body: None,
+        },
+        handler: cmd_return,
+    });
 }
 
 fn find_player_by_name(world: &World, name: &str) -> Option<core::Entity> {
@@ -2696,7 +2774,10 @@ mod tests {
             aliases: &[],
             access: core::AccessLevel::Player,
             topic: "General",
-            help_text: "Help command description",
+            help: oxide_server::CommandHelp {
+                short: "Help command description",
+                body: None,
+            },
             handler: |w, c, n, a, r| cmd_help(w, c, n, a, r),
         });
         dispatch.register(oxide_server::Command {
@@ -2704,7 +2785,10 @@ mod tests {
             aliases: &[],
             access: core::AccessLevel::Player,
             topic: "General",
-            help_text: "look description",
+            help: oxide_server::CommandHelp {
+                short: "look description",
+                body: None,
+            },
             handler: |_, _, _, _, _| {},
         });
         dispatch.register(oxide_server::Command {
@@ -2712,7 +2796,10 @@ mod tests {
             aliases: &[],
             access: core::AccessLevel::Immortal,
             topic: "Immortal",
-            help_text: "goto description",
+            help: oxide_server::CommandHelp {
+                short: "goto description",
+                body: None,
+            },
             handler: |_, _, _, _, _| {},
         });
         dispatch.register(oxide_server::Command {
@@ -2720,7 +2807,10 @@ mod tests {
             aliases: &[],
             access: core::AccessLevel::Builder,
             topic: "Builder",
-            help_text: "dig description",
+            help: oxide_server::CommandHelp {
+                short: "dig description",
+                body: None,
+            },
             handler: |_, _, _, _, _| {},
         });
         let _ = oxide_server::set_commands(dispatch);
@@ -2733,7 +2823,7 @@ mod tests {
         cmd_help(&mut world, &mut conn, "help", "", &conn_reg);
         let lines = conn.take_lines();
 
-        assert!(lines.iter().any(|l| l.contains("Available Help Topics")));
+        assert!(lines.iter().any(|l| l.contains("Available Topics")));
         assert!(lines.iter().any(|l| l.contains("General")));
         assert!(!lines.iter().any(|l| l.contains("Builder")));
         assert!(!lines.iter().any(|l| l.contains("Immortal")));

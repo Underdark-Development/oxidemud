@@ -1,190 +1,239 @@
 use oxide_core as core;
 use oxide_core::templates::SkillResolveError;
 use oxide_core::{get_pos_room, AccessLevel, FloorItems, Item, Name, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::common::*;
 
-pub const HELP_TRAIN: &str = r#"Spend practice points to increase your core attributes.
+pub const HELP_TRAIN: &str =
+    "Usage: train [attribute]\n  show attributes and cost, or train an attribute";
 
-Examples:
-  train                 show your attributes and cost to train
-  train strength        increase your strength by 1"#;
+pub const HELP_PRACTICE: &str = "Usage: practice [list|skill]\n  show skills and points, list trainable skills, or train a skill";
 
-pub const HELP_PRACTICE: &str = r#"View your skills and spend practice points to increase ranks.
-
-Examples:
-  practice              show your skills and unspent points
-  practice list         list trainable skills
-  practice swords       increase rank in the swords skill"#;
-
-pub const HELP_PRAY: &str = r#"Offer a prayer to your chosen deity to seek their favor and blessing.
-Prayers trigger a deity-specific blessing and incur a cooldown.
-
-Example:
-  pray                  pray to your deity"#;
+pub const HELP_PRAY: &str =
+    "Usage: pray\n  offer a prayer to your deity for a blessing (cooldown applies)";
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "affects",
-        &["effects", "spells"],
-        AccessLevel::Player,
-        "Character",
-        "Display active spells, temporary effects, and permanent passives",
-        cmd_affects,
-    );
-    server.register_command(
-        "score",
-        &["stats"],
-        AccessLevel::Player,
-        "Character",
-        "Display your character stats",
-        cmd_score,
-    );
-    server.register_command(
-        "quest",
-        &["quests"],
-        AccessLevel::Player,
-        "Character",
-        "Manage your quests (list, show, accept, complete, abandon)",
-        cmd_quest,
-    );
-    server.register_command(
-        "faction",
-        &["factions"],
-        AccessLevel::Player,
-        "Character",
-        "Display your faction standings and ranks",
-        cmd_faction,
-    );
-    server.register_command(
-        "recipes",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Display your learned crafting recipes",
-        cmd_recipes,
-    );
-    server.register_command(
-        "train",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        HELP_TRAIN,
-        cmd_train,
-    );
-    server.register_command(
-        "practice",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        HELP_PRACTICE,
-        cmd_practice,
-    );
-    server.register_command(
-        "pray",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        HELP_PRAY,
-        cmd_pray,
-    );
-    server.register_command(
-        "sit",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Sit down to rest or look around",
-        cmd_sit,
-    );
-    server.register_command(
-        "rest",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Rest and recover health/mana/stamina faster",
-        cmd_rest,
-    );
-    server.register_command(
-        "sleep",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Go to sleep for maximum recovery rate",
-        cmd_sleep,
-    );
-    server.register_command(
-        "wake",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Wake up from sleep",
-        cmd_wake,
-    );
-    server.register_command(
-        "stand",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Stand up to allow movement and combat",
-        cmd_stand,
-    );
-    server.register_command(
-        "die",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Choose to submit to death when unconscious to instantly respawn as a ghost",
-        cmd_die,
-    );
-    server.register_command(
-        "reclaim",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Reclaim your corpse to return to life with your items",
-        cmd_reclaim,
-    );
-    server.register_command(
-        "revive",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Pray at an altar or reclaim your corpse to return to life",
-        cmd_revive,
-    );
-    server.register_command(
-        "toggle",
-        &[],
-        AccessLevel::Player,
-        "Character",
-        "Toggle player settings (e.g., 'toggle resurrect')",
-        cmd_toggle,
-    );
-    server.register_command(
-        "@advance",
-        &[],
-        AccessLevel::Player,
-        "Progression",
-        "Spend a pending level to advance one of your class levels",
-        cmd_advance,
-    );
-    server.register_command(
-        "@multi_class",
-        &[],
-        AccessLevel::Player,
-        "Progression",
-        "Spend a pending level to adopt a new base class at level 1",
-        cmd_multi_class,
-    );
-    server.register_command(
-        "@prestige",
-        &[],
-        AccessLevel::Player,
-        "Progression",
-        "Spend a pending level to adopt a prestige class at level 1",
-        cmd_prestige,
-    );
+    server.register_command(Command {
+        name: "affects",
+        aliases: &["effects", "spells"],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Display active spells, effects, and passives",
+            body: None,
+        },
+        handler: cmd_affects,
+    });
+    server.register_command(Command {
+        name: "score",
+        aliases: &["stats"],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Display your character stats",
+            body: None,
+        },
+        handler: cmd_score,
+    });
+    server.register_command(Command {
+        name: "quest",
+        aliases: &["quests"],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Manage your quests",
+            body: None,
+        },
+        handler: cmd_quest,
+    });
+    server.register_command(Command {
+        name: "faction",
+        aliases: &["factions"],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Display faction standings and ranks",
+            body: None,
+        },
+        handler: cmd_faction,
+    });
+    server.register_command(Command {
+        name: "recipes",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Display learned crafting recipes",
+            body: None,
+        },
+        handler: cmd_recipes,
+    });
+    server.register_command(Command {
+        name: "train",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Spend practice points to increase attributes",
+            body: Some(HELP_TRAIN),
+        },
+        handler: cmd_train,
+    });
+    server.register_command(Command {
+        name: "practice",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "View skills and spend practice points",
+            body: Some(HELP_PRACTICE),
+        },
+        handler: cmd_practice,
+    });
+    server.register_command(Command {
+        name: "pray",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Pray to your deity for a blessing",
+            body: Some(HELP_PRAY),
+        },
+        handler: cmd_pray,
+    });
+    server.register_command(Command {
+        name: "sit",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Sit down to rest or look around",
+            body: None,
+        },
+        handler: cmd_sit,
+    });
+    server.register_command(Command {
+        name: "rest",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Rest and recover health/mana/stamina faster",
+            body: None,
+        },
+        handler: cmd_rest,
+    });
+    server.register_command(Command {
+        name: "sleep",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Go to sleep for maximum recovery rate",
+            body: None,
+        },
+        handler: cmd_sleep,
+    });
+    server.register_command(Command {
+        name: "wake",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Wake up from sleep",
+            body: None,
+        },
+        handler: cmd_wake,
+    });
+    server.register_command(Command {
+        name: "stand",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Stand up to allow movement and combat",
+            body: None,
+        },
+        handler: cmd_stand,
+    });
+    server.register_command(Command {
+        name: "die",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Submit to death when unconscious to respawn as a ghost",
+            body: None,
+        },
+        handler: cmd_die,
+    });
+    server.register_command(Command {
+        name: "reclaim",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Reclaim your corpse to return to life with your items",
+            body: None,
+        },
+        handler: cmd_reclaim,
+    });
+    server.register_command(Command {
+        name: "revive",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Pray at an altar or reclaim your corpse to revive",
+            body: None,
+        },
+        handler: cmd_revive,
+    });
+    server.register_command(Command {
+        name: "toggle",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Character",
+        help: CommandHelp {
+            short: "Toggle player settings",
+            body: None,
+        },
+        handler: cmd_toggle,
+    });
+    server.register_command(Command {
+        name: "@advance",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Progression",
+        help: CommandHelp {
+            short: "Spend a pending level to advance a class level",
+            body: None,
+        },
+        handler: cmd_advance,
+    });
+    server.register_command(Command {
+        name: "@multi_class",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Progression",
+        help: CommandHelp {
+            short: "Adopt a new base class at level 1",
+            body: None,
+        },
+        handler: cmd_multi_class,
+    });
+    server.register_command(Command {
+        name: "@prestige",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Progression",
+        help: CommandHelp {
+            short: "Adopt a prestige class at level 1",
+            body: None,
+        },
+        handler: cmd_prestige,
+    });
 }
 
 pub fn cmd_score(

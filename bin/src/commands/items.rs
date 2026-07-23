@@ -4,7 +4,7 @@ use std::str::FromStr;
 use oxide_core as core;
 use oxide_core::templates::SetDef;
 use oxide_core::{get_entity_name, get_pos_room, AccessLevel, World};
-use oxide_server::{Connection, ConnectionRegistry, Server};
+use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 fn trigger_message(trigger: &core::TriggeredEffect, world: &World) -> String {
     let item_name = world
@@ -17,94 +17,127 @@ fn trigger_message(trigger: &core::TriggeredEffect, world: &World) -> String {
 }
 
 pub fn register(server: &mut Server) {
-    server.register_command(
-        "inventory",
-        &["inv", "i"],
-        AccessLevel::Player,
-        "Items",
-        "List your carried items",
-        cmd_inventory,
-    );
-    server.register_command(
-        "equipment",
-        &["eq"],
-        AccessLevel::Player,
-        "Items",
-        "Show what you are wearing and wielding",
-        cmd_equipment,
-    );
-    server.register_command(
-        "wear",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Wear a piece of armor",
-        cmd_wear,
-    );
-    server.register_command(
-        "wield",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Wield a weapon",
-        cmd_wield,
-    );
-    server.register_command(
-        "remove",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Remove an equipped item",
-        cmd_remove,
-    );
-    server.register_command(
-        "examine",
-        &["exa"],
-        AccessLevel::Player,
-        "Items",
-        "Inspect an item or target",
-        cmd_examine,
-    );
-    server.register_command(
-        "get",
-        &["take"],
-        AccessLevel::Player,
-        "Items",
-        "Pick up an item",
-        cmd_get,
-    );
-    server.register_command(
-        "drop",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Drop an item",
-        cmd_drop,
-    );
-    server.register_command(
-        "put",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Put an item into a container",
-        cmd_put,
-    );
-    server.register_command(
-        "give",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Give an item to someone",
-        cmd_give,
-    );
-    server.register_command(
-        "loot",
-        &[],
-        AccessLevel::Player,
-        "Items",
-        "Take all items from a corpse",
-        cmd_loot,
-    );
+    server.register_command(Command {
+        name: "inventory",
+        aliases: &["inv", "i"],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "List your carried items",
+            body: None,
+        },
+        handler: cmd_inventory,
+    });
+    server.register_command(Command {
+        name: "equipment",
+        aliases: &["eq"],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Show what you are wearing and wielding",
+            body: None,
+        },
+        handler: cmd_equipment,
+    });
+    server.register_command(Command {
+        name: "wear",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Wear a piece of armor",
+            body: None,
+        },
+        handler: cmd_wear,
+    });
+    server.register_command(Command {
+        name: "wield",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Wield a weapon",
+            body: None,
+        },
+        handler: cmd_wield,
+    });
+    server.register_command(Command {
+        name: "remove",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Remove an equipped item",
+            body: None,
+        },
+        handler: cmd_remove,
+    });
+    server.register_command(Command {
+        name: "examine",
+        aliases: &["exa"],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Inspect an item or target",
+            body: None,
+        },
+        handler: cmd_examine,
+    });
+    server.register_command(Command {
+        name: "get",
+        aliases: &["take"],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Pick up an item",
+            body: None,
+        },
+        handler: cmd_get,
+    });
+    server.register_command(Command {
+        name: "drop",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Drop an item",
+            body: None,
+        },
+        handler: cmd_drop,
+    });
+    server.register_command(Command {
+        name: "put",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Put an item into a container",
+            body: None,
+        },
+        handler: cmd_put,
+    });
+    server.register_command(Command {
+        name: "give",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Give an item to someone",
+            body: None,
+        },
+        handler: cmd_give,
+    });
+    server.register_command(Command {
+        name: "loot",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Take all items from a corpse",
+            body: None,
+        },
+        handler: cmd_loot,
+    });
 }
 
 pub fn cmd_inventory(

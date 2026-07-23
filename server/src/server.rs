@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, Notify};
 const LOGIN_READ_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_LOGIN_LINE_LENGTH: usize = 256;
 
-use crate::cmd::{AccessLevel, Command, CommandDispatch};
+use crate::cmd::{Command, CommandDispatch};
 use crate::connection::{Connection, TelnetConnection};
 use crate::game_loop::spawn_game_loop;
 use crate::login::LoginFlow;
@@ -252,23 +252,8 @@ impl Server {
         self
     }
 
-    pub fn register_command(
-        &mut self,
-        name: &'static str,
-        aliases: &'static [&'static str],
-        access: AccessLevel,
-        topic: &'static str,
-        help_text: &'static str,
-        handler: crate::cmd::CommandFn,
-    ) {
-        self.commands.register(Command {
-            name,
-            aliases,
-            access,
-            topic,
-            help_text,
-            handler,
-        });
+    pub fn register_command(&mut self, command: Command) {
+        self.commands.register(command);
     }
 
     pub async fn run(
@@ -432,7 +417,6 @@ fn handle_negotiation(conn: &mut TelnetConnection, neg: crate::telnet::codec::Ne
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_connection(
     conn_id: String,
     stream: tokio::net::TcpStream,

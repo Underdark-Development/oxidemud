@@ -604,10 +604,16 @@ impl ScriptEngine {
 
         engine.register_fn(
             "register_skill",
-            |id: String, name: String, command: String, script: String, help_text: String| {
+            |id: String,
+             name: String,
+             command: String,
+             script: String,
+             help_text: String,
+             short: String| {
                 oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
                     id,
                     name,
+                    short,
                     command: Some(command),
                     is_spell: false,
                     topic: "Skills".to_string(),
@@ -625,16 +631,20 @@ impl ScriptEngine {
              command: String,
              script: String,
              help_text: String,
+             short: String,
              allowed_classes: rhai::Array| {
                 let classes = allowed_classes
                     .into_iter()
                     .filter_map(|v| v.into_string().ok())
                     .collect();
-                let mut restrictions = oxide_core::CommandRestrictions::default();
-                restrictions.allowed_classes = classes;
+                let restrictions = oxide_core::CommandRestrictions {
+                    allowed_classes: classes,
+                    ..Default::default()
+                };
                 oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
                     id,
                     name,
+                    short,
                     command: Some(command),
                     is_spell: false,
                     topic: "Skills".to_string(),
@@ -647,10 +657,16 @@ impl ScriptEngine {
 
         engine.register_fn(
             "register_spell",
-            |id: String, name: String, spell_name: String, script: String, help_text: String| {
+            |id: String,
+             name: String,
+             spell_name: String,
+             script: String,
+             help_text: String,
+             short: String| {
                 oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
                     id,
                     name,
+                    short,
                     command: Some(spell_name),
                     is_spell: true,
                     topic: "Spells".to_string(),
@@ -668,16 +684,20 @@ impl ScriptEngine {
              spell_name: String,
              script: String,
              help_text: String,
+             short: String,
              allowed_classes: rhai::Array| {
                 let classes = allowed_classes
                     .into_iter()
                     .filter_map(|v| v.into_string().ok())
                     .collect();
-                let mut restrictions = oxide_core::CommandRestrictions::default();
-                restrictions.allowed_classes = classes;
+                let restrictions = oxide_core::CommandRestrictions {
+                    allowed_classes: classes,
+                    ..Default::default()
+                };
                 oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
                     id,
                     name,
+                    short,
                     command: Some(spell_name),
                     is_spell: true,
                     topic: "Spells".to_string(),
@@ -1332,20 +1352,16 @@ impl ScriptingBridge for ScriptEngine {
             .engine
             .call_fn::<()>(&mut scope, &ast, "on_use", ())
             .is_err()
-        {
-            if self
+            && self
                 .engine
                 .call_fn::<()>(&mut scope, &ast, "on_cast", ())
                 .is_err()
-            {
-                if self
-                    .engine
-                    .call_fn::<()>(&mut scope, &ast, "main", ())
-                    .is_err()
-                {
-                    let _ = self.engine.run_ast_with_scope(&mut scope, &ast);
-                }
-            }
+            && self
+                .engine
+                .call_fn::<()>(&mut scope, &ast, "main", ())
+                .is_err()
+        {
+            let _ = self.engine.run_ast_with_scope(&mut scope, &ast);
         }
         Ok(())
     }
@@ -1370,14 +1386,12 @@ impl ScriptingBridge for ScriptEngine {
             .engine
             .call_fn::<()>(&mut scope, &ast, "on_command", ())
             .is_err()
-        {
-            if self
+            && self
                 .engine
                 .call_fn::<()>(&mut scope, &ast, "main", ())
                 .is_err()
-            {
-                let _ = self.engine.run_ast_with_scope(&mut scope, &ast);
-            }
+        {
+            let _ = self.engine.run_ast_with_scope(&mut scope, &ast);
         }
         Ok(())
     }
