@@ -392,7 +392,7 @@ impl Server {
         if let Some(ref db) = db {
             let db_guard = db.lock().await;
             let mut w = world.lock().await;
-            crate::game_loop::save_online_players(&mut w, &db_guard, true);
+            crate::persistence::save_online_players(&mut w, &db_guard, true);
             tracing::info!("Online player state saved");
         }
 

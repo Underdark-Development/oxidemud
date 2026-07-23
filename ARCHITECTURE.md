@@ -1229,31 +1229,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### High: Game Loop Orchestration Sprawl
-
-**Problem:** `server/src/game_loop.rs` is 880+ lines with inline orchestration that duplicates
-logic from other systems.
-
-Specific issues:
-
-- Combat outcome dispatch (the `combat_tick` arm) manually iterates `Vec<CombatOutcome>` for quest
-  events, faction adjustments, XP calculation, group XP splitting, corpse spawning, DB saves, and
-  prompt sending — all inline in a 100-line block. This duplicates logic already handled inside
-  `combat.rs` (`apply_damage` processes kills, spawns corpses, awards XP).
-- `save_player_progress` is a 330-line function with 20 numbered sections, each manually querying
-  a component and calling a data function. Adding a new component that needs saving requires
-  editing this numbered list.
-- Lock acquisition (`world.lock().await` + `registry.lock().await`) is repeated in every
-  `tokio::select!` arm with no shared helper.
-
-**Fix:**
-
-- Extract combat outcome dispatch into a `server/src/dispatch.rs` module that processes outcomes
-  once (eliminating the dual-path processing).
-- Replace the numbered `save_player_progress` sections with a component-registration pattern:
-  systems register their save functions, and the flush iterates registered savers.
-- Extract a lock-acquisition helper or restructure the select loop to reduce repetition.
-
 ### High: Login Character Creation God Object
 
 **Problem:** `server/src/login/handlers/creation.rs` is 3100+ lines with 24 handler functions,
