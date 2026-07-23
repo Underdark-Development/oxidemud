@@ -26,7 +26,7 @@ fn on_combat_hit() {
     let chance = (rank * 60) / 100;
     if rand(1, 100) <= chance {
         let attacker_name = world.get_name(hit_ctx.attacker);
-        hit_ctx.abort("You deflect " + attacker_name + "'s attack with a swift parry!");
+        hit_ctx.abort("You parry " + attacker_name + "'s attack!");
     }
 
     return hit_ctx;
