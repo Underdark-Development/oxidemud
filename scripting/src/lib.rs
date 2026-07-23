@@ -249,6 +249,18 @@ impl ScriptEngine {
             })
             .unwrap_or_else(|| "Someone".to_string())
         });
+        engine.register_fn("name", |entity: Entity| -> String {
+            with_current_world(|w| {
+                if let Ok(mut q) = w.query_one::<&oxide_core::Name>(entity) {
+                    q.get()
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "Someone".to_string())
+                } else {
+                    "Someone".to_string()
+                }
+            })
+            .unwrap_or_else(|| "Someone".to_string())
+        });
         engine.register_get("name", |entity: &mut Entity| -> String {
             let ent = *entity;
             with_current_world(|w| {
@@ -1075,11 +1087,16 @@ impl ScriptingBridge for ScriptEngine {
                 scope.push("world", ScriptWorld::new(world));
                 scope.push("hit_ctx", hit_ctx.clone());
 
-                if let Ok(returned_ctx) =
-                    self.engine
-                        .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
+                match self
+                    .engine
+                    .call_fn::<HitContext>(&mut scope, &ast, "on_combat_hit", ())
                 {
-                    hit_ctx = returned_ctx;
+                    Ok(returned_ctx) => {
+                        hit_ctx = returned_ctx;
+                    }
+                    Err(e) => {
+                        println!("on_combat_hit error: {:?}", e);
+                    }
                 }
             }
         }
