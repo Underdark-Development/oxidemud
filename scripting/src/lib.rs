@@ -1879,11 +1879,14 @@ fn test_fail() {
             });
         }
 
-        // 3. With active parrying stance and 100% rank, hit is aborted by parry!
-        let hit_ctx_parried = engine
-            .execute_combat_hit_hook(attacker, defender, false, &mut world)
-            .unwrap();
-        assert!(hit_ctx_parried.is_aborted);
+        // 3. With active parrying stance and 100% rank (60% deflect chance), hit is aborted when parry triggers
+        let parried = (0..50).any(|_| {
+            engine
+                .execute_combat_hit_hook(attacker, defender, false, &mut world)
+                .unwrap()
+                .is_aborted
+        });
+        assert!(parried);
 
         // 4. Transition combat state to NotInCombat -> parrying stance is automatically removed!
         oxide_core::transition_combat_state(&mut world, defender, CombatState::NotInCombat);
