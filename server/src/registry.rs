@@ -55,6 +55,8 @@ impl ConnectionRegistry {
                 let _ = tx.send(bytes.clone());
             }
         }
+    }
+
     pub fn broadcast_to_room_except(
         &self,
         world: &World,
