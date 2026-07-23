@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::simulator::{
+    SimulateCharacterCreationParams, SimulateCombatParams, SimulateSkillUseParams,
+};
 use oxide_core::templates::{
     AffixDef, AreaTemplate, ClassTemplate, DeityTemplate, ExitTemplate, FactionDef, HealthBounds,
     ItemTemplate, LootTable, MobTemplate, PassiveDef, QuestDef, QuestRewards, RaceAttributes,
@@ -190,28 +193,6 @@ struct SimulateLootParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-struct SimulateCombatParams {
-    #[schemars(description = "Optional ID of the attacker mob template")]
-    attacker_template: Option<String>,
-    #[schemars(description = "Optional ID of the weapon template equipped by the attacker")]
-    attacker_weapon: Option<String>,
-    #[schemars(
-        description = "Optional level override for the attacker (defaults to template level or 1)"
-    )]
-    attacker_level: Option<u8>,
-    #[schemars(description = "Optional ID of the defender mob template")]
-    defender_template: Option<String>,
-    #[schemars(
-        description = "Optional level override for the defender (defaults to template level or 1)"
-    )]
-    defender_level: Option<u8>,
-    #[schemars(description = "Optional armor class (AC) override for the defender")]
-    defender_ac_override: Option<i32>,
-    #[schemars(description = "Number of rounds to simulate")]
-    rounds: u32,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 struct SimulateProgressionParams {
     #[schemars(description = "ID of the race template")]
     race_id: String,
@@ -255,27 +236,6 @@ struct SimulateShopTransactionParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[allow(dead_code)]
-struct SimulateCharacterCreationParams {
-    race_id: String,
-    class_id: String,
-    #[schemars(description = "Base strength value (8 to 18)")]
-    strength: u8,
-    #[schemars(description = "Base dexterity value (8 to 18)")]
-    dexterity: u8,
-    #[schemars(description = "Base intelligence value (8 to 18)")]
-    intelligence: u8,
-    #[schemars(description = "Base wisdom value (8 to 18)")]
-    wisdom: u8,
-    #[schemars(description = "Base constitution value (8 to 18)")]
-    constitution: u8,
-    #[schemars(description = "Base charisma value (8 to 18)")]
-    charisma: u8,
-    #[schemars(description = "Optional list of additional selected skill IDs to include")]
-    selected_skills: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-#[allow(dead_code)]
 struct PutItemParams {
     player_name: String,
     item_template_id: String,
@@ -314,36 +274,6 @@ struct SimulateCraftingParams {
     skill_rank: Option<u16>,
     #[schemars(description = "Has required station present in the room (optional, default: true)")]
     has_station: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct SimulateSkillUseParams {
-    #[schemars(description = "ID of the skill template to use")]
-    skill_id: String,
-    #[schemars(description = "Optional real actor name from database to load stats from")]
-    actor_name: Option<String>,
-    #[schemars(description = "Actor level (1 to 100, default: 1)")]
-    actor_level: Option<u8>,
-    #[schemars(description = "Actor class ID (optional)")]
-    actor_class: Option<String>,
-    #[schemars(description = "Actor race ID (optional)")]
-    actor_race: Option<String>,
-    #[schemars(description = "Actor base strength (optional, default: 10)")]
-    strength: Option<u8>,
-    #[schemars(description = "Actor base dexterity (optional, default: 10)")]
-    dexterity: Option<u8>,
-    #[schemars(description = "Actor base intelligence (optional, default: 10)")]
-    intelligence: Option<u8>,
-    #[schemars(description = "Actor base wisdom (optional, default: 10)")]
-    wisdom: Option<u8>,
-    #[schemars(description = "Actor base constitution (optional, default: 10)")]
-    constitution: Option<u8>,
-    #[schemars(description = "Actor base charisma (optional, default: 10)")]
-    charisma: Option<u8>,
-    #[schemars(description = "Mock skill rank for this skill (optional, default: 1)")]
-    skill_rank: Option<u16>,
-    #[schemars(description = "Target level (optional, default: 1)")]
-    target_level: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -2467,16 +2397,7 @@ impl OxideMcpServer {
     fn simulate_combat(&self, params: Parameters<SimulateCombatParams>) -> String {
         let p = params.0;
         let (registry, _) = self.load();
-        match simulator::simulate_combat(
-            &registry,
-            p.attacker_template.as_deref(),
-            p.attacker_weapon.as_deref(),
-            p.attacker_level,
-            p.defender_template.as_deref(),
-            p.defender_level,
-            p.defender_ac_override,
-            p.rounds,
-        ) {
+        match simulator::simulate_combat(&registry, &p) {
             Ok(result) => result,
             Err(e) => format!("Error simulating combat: {e}"),
         }
@@ -2639,18 +2560,21 @@ impl OxideMcpServer {
 
         match simulator::simulate_skill_use(
             &registry,
-            &p.skill_id,
-            actor_level,
-            actor_class.as_deref(),
-            actor_race.as_deref(),
-            strength,
-            dexterity,
-            intelligence,
-            wisdom,
-            constitution,
-            charisma,
-            skill_rank,
-            p.target_level,
+            &crate::simulator::SimulateSkillUseParams {
+                skill_id: p.skill_id,
+                actor_name: None,
+                actor_level: Some(actor_level),
+                actor_class,
+                actor_race,
+                strength,
+                dexterity,
+                intelligence,
+                wisdom,
+                constitution,
+                charisma,
+                skill_rank,
+                target_level: p.target_level,
+            },
         ) {
             Ok(result) => {
                 if !loaded_msg.is_empty() {
@@ -2945,15 +2869,17 @@ impl OxideMcpServer {
         let (registry, _) = self.load();
         match simulator::simulate_character_creation(
             &registry,
-            &p.race_id,
-            &p.class_id,
-            p.strength,
-            p.dexterity,
-            p.intelligence,
-            p.wisdom,
-            p.constitution,
-            p.charisma,
-            &p.selected_skills.unwrap_or_default(),
+            &crate::simulator::SimulateCharacterCreationParams {
+                race_id: p.race_id,
+                class_id: p.class_id,
+                strength: p.strength,
+                dexterity: p.dexterity,
+                intelligence: p.intelligence,
+                wisdom: p.wisdom,
+                constitution: p.constitution,
+                charisma: p.charisma,
+                selected_skills: p.selected_skills,
+            },
         ) {
             Ok(result) => result,
             Err(e) => format!("Error simulating character creation: {e}"),

@@ -38,6 +38,15 @@ static COMMANDS: OnceLock<Arc<CommandDispatch>> = OnceLock::new();
 pub type EntitySpawnedCb =
     dyn Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync;
 
+struct ConnectionContext {
+    world: Arc<Mutex<World>>,
+    registry: Arc<Mutex<ConnectionRegistry>>,
+    commands: Arc<CommandDispatch>,
+    db: Option<Arc<Mutex<oxide_data::Database>>>,
+    templates: Option<Arc<TemplateRegistry>>,
+    on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
+}
+
 fn encode_connection_id(ip: std::net::IpAddr, index: u8) -> String {
     let ip_u32 = match ip {
         std::net::IpAddr::V4(v4) => u32::from(v4),
@@ -362,8 +371,16 @@ impl Server {
                     let on_entity_spawned = self.on_entity_spawned.clone();
                     tokio::spawn(async move {
                         handle_connection(
-                            conn_id, stream, world, registry, commands, db,
-                            templates, on_entity_spawned,
+                            conn_id,
+                            stream,
+                            ConnectionContext {
+                                world,
+                                registry,
+                                commands,
+                                db,
+                                templates,
+                                on_entity_spawned,
+                            },
                         )
                         .await;
                     });
@@ -417,16 +434,15 @@ fn handle_negotiation(conn: &mut TelnetConnection, neg: crate::telnet::codec::Ne
     }
 }
 
-async fn handle_connection(
-    conn_id: String,
-    stream: tokio::net::TcpStream,
-    world: Arc<Mutex<World>>,
-    registry: Arc<Mutex<ConnectionRegistry>>,
-    commands: Arc<CommandDispatch>,
-    db: Option<Arc<Mutex<oxide_data::Database>>>,
-    templates: Option<Arc<TemplateRegistry>>,
-    on_entity_spawned: Option<Arc<EntitySpawnedCb>>,
-) {
+async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: ConnectionContext) {
+    let ConnectionContext {
+        world,
+        registry,
+        commands,
+        db,
+        templates,
+        on_entity_spawned,
+    } = ctx;
     let (reader_half, mut writer_half) = stream.into_split();
 
     let (tx, mut output_rx) = tokio::sync::mpsc::unbounded_channel();

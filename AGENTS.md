@@ -2,7 +2,7 @@
 
 ## Project state
 
-This is a Rust project with working source code across 5 workspace crates + TOML content templates. `ARCHITECTURE.md` (~2000 lines) is the design spec — read it first each session.
+This is a Rust project with working source code across 7 workspace crates + TOML content on disk. `ARCHITECTURE.md` (~1200 lines) is the design spec — read it first each session.
 
 ## Planned stack
 
@@ -16,20 +16,32 @@ This is a Rust project with working source code across 5 workspace crates + TOML
 | Serialization | serde (TOML content files)       |
 | Networking    | Tokio TCP (telnet)               |
 
-## Planned workspace layout
+## Workspace layout
 
-Eight crates under a root `Cargo.toml` workspace (5 exist, 2 planned):
+Seven crates under a root `Cargo.toml` workspace:
 
 ```
 core/       — ECS components, systems, events, resources
 server/     — Network layer (telnet, command dispatch, connection state)
 data/       — Persistence (SQLite schema, type-safe queries)
 scripting/  — Rhai engine setup + Rust↔Rhai bindings
-content/    — Game data (TOML area/mob/item templates + Rhai scripts)
-tui/        — spade: builder TUI & MUD client (ratatui + crossterm) — Phase 5
-mcp/        — MCP server for AI agent world-building — Phase 5
+tui/        — spade: builder TUI & MUD client (ratatui + crossterm)
+mcp/        — MCP server for AI agent world-building
 bin/        — Server binary entrypoint (main.rs)
 ```
+
+`content/` is a **disk directory** for TOML templates and Rhai scripts — NOT a Rust crate. It sits alongside the crates at the workspace root and is loaded at runtime.
+
+## Non-Negotiable Invariants
+
+These rules are absolute. No PR, no matter how small, may violate them.
+
+- **Core-to-Tooling Alignment:** Any change in `core` that alters template types, fields, file format conventions, or validation rules MUST update `tui/` (spade) and `mcp/` in the same session. The core crate defines the content representation; both consumers must stay consistent. Run `cargo test --workspace` after any cross-crate change.
+- **State Machine Event Dispatch:** All major subsystem transitions (Combat, AI, Login, Room) must follow explicit state machine patterns with defined states and valid transitions. Transitions emit a typed `GameEvent` over `tokio::sync::broadcast`. Transitions that fail validation are silently ignored. See ARCHITECTURE.md State Machine Pattern.
+- **Zero Panics in Runtime:** Prohibit `.unwrap()` and `.expect()` in runtime and packet-handling logic. All fallible operations must use `Result<T, EngineError>` with `thiserror`. ECS queries that may fail use `World::query` with pattern matching, not `World::query_one` on potentially absent entities.
+- **CPU Offloading & Lock Safety:** CPU-heavy tasks (e.g., Argon2 password hashing) MUST run via `tokio::task::spawn_blocking`, outside of database locks and `Mutex` guards. Never hold a lock while executing expensive computation.
+- **Zero `unsafe` Code:** No `unsafe` blocks anywhere in the codebase. No exceptions. If you believe `unsafe` is necessary, open a discussion first.
+- **Treat Every Networked Byte as Hostile:** This project is a public-internet game server. Every input byte must be validated, bounded, and never trusted. Pre-auth connections are especially dangerous — enforce line length limits, read timeouts, and strike tracking before any game logic processes input.
 
 ## Key architecture facts
 
@@ -41,6 +53,7 @@ bin/        — Server binary entrypoint (main.rs)
 - **MCP server** — exposes world-editing tools to AI agents (Claude). Works offline
   (direct TOML/DB reads) or online (REST bridge to game server). Tools cover full CRUD
   for areas, rooms, mobs, items, quests, and content validation.
+- **State machine pattern** — subsystems (Combat, AI, Login, Room) use explicit state machines with defined states and valid transitions. Transitions emit a typed `GameEvent` over `tokio::sync::broadcast`. See ARCHITECTURE.md State Machine Pattern.
 
 ## Phases
 
@@ -61,18 +74,19 @@ bin/        — Server binary entrypoint (main.rs)
 - Each workspace crate gets `Cargo.toml`, `src/lib.rs`, and a `src/` subdirectory tree matching the design doc.
 - Test with `cargo test` (per-crate or workspace-wide). No test framework preference specified.
 - Format with `cargo fmt`; lint with `cargo clippy`.
-- No CI, no pre-commit hooks, no release workflow yet.
+- Pre-commit hooks via `lefthook` enforce `cargo fmt` and `cargo clippy` on every commit.
 - **No code examples** — avoid inline code blocks in docs unless the pattern is genuinely non-obvious or easily misused. Prefer concise prose over example code.
 - **Compact sections** — keep sections tight. Omit exhaustive enumerations when the pattern is clear (e.g. "all LoginState variants" → just name the pattern). Summarize feature completeness tables rather than listing every row.
 - **Update spade and MCP when core changes** — the core crate defines template types, fields, file format conventions, and validation rules. Both the TUI builder (`tui/`) and MCP server (`mcp/`) consume these directly. When adding, removing, or modifying anything in `core` that affects content representation (new template categories, new fields, changed serialization, new validation rules, etc.), update `tui/` and `mcp/` in the same session so they stay consistent. Run `cargo test --workspace` after any cross-crate change to catch breakage early.
 
 ## Modular development
 
-- **Dependency DAG** — `core` depends on nothing else. `server` depends on `core` and `data`. `data`, `scripting`, `tui`, `mcp` depend on `core` only. `bin` depends on `core`, `server`, `data`, `scripting`. No circular deps.
+- **Dependency DAG** — `core` depends on nothing else. `data`, `scripting`, `mcp` depend on `core` only. `tui` depends on `core` and `scripting`. `server` depends on `core` and `data`. `bin` depends on `core`, `server`, `data`, and `scripting`. No circular deps.
 - **Minimal `pub`** — prefer `pub(crate)` within a crate; re-export key types at `lib.rs`.
 - **Feature gates** — Cargo features for optional pieces (e.g. `mccp`), not `cfg` checks.
 - **Module tree** — mirror `ARCHITECTURE.md` `src/` layout exactly; one file per component/system type.
 - **No `pub use` dep wildcards** — wrap external types (e.g. hecs `Entity`, `World`) in newtypes or facade functions.
+- **Thin components, fat systems** — components are data-only newtype structs with no logic. All game logic lives in stateless systems that operate on `&mut World`. Encapsulate raw external types behind newtypes.
 - **Commit generated code** — if codegen exists, commit the output and document the generation command.
 
 ## Coding standards
@@ -81,7 +95,7 @@ bin/        — Server binary entrypoint (main.rs)
 
 - Follow idiomatic Rust: prefer `Result`/`Option` over panics, use `thiserror` for error types, use `?` operator for propagation.
 - Adhere to `cargo clippy` — all lints enabled, zero warnings. The pre-commit hook enforces this.
-- No `unsafe` code unless absolutely necessary and documented with `// SAFETY:`.
+- Zero `unsafe` — see Non-Negotiable Invariants. No `unsafe` blocks anywhere in the codebase.
 - Prefer iterator chains over explicit loops where clarity isn't sacrificed.
 
 ### ECS architecture (hecs)
@@ -96,7 +110,7 @@ bin/        — Server binary entrypoint (main.rs)
 - **Single responsibility** — each module, type, and function does one thing. If a function needs "and" in its description, split it.
 - **Minimal `pub`** — start everything `pub(crate)`; make `pub` only when another crate needs it. Re-export the public API at `lib.rs`.
 - **Dependency injection** — pass dependencies as function parameters, not globals. Systems receive `&mut World` and `&Resources`.
-- **No circular dependencies** — the crate DAG (`core → {server, data, scripting, tui, mcp} → bin`) is enforced at build time.
+- **No circular dependencies** — the crate DAG (`core → {data, scripting, mcp} → server → bin`, with `tui` branching from `core` + `scripting`) is enforced at build time.
 - **Strongly prefer code reuse over reimplementation** — when an existing command, system, or function already provides the behavior you need, call it rather than duplicating its logic in a different layer. If the architecture lacks a clean connection point (callback, event, hook), introduce the needed abstraction instead of taking a shortcut.
 - **Strongly prefer clean modular boundaries** — every module, crate, and system has a defined responsibility. A change that spans layers should add a proper bridge, not blur the lines. Best practices over laziness: if doing it right requires a refactor, do the refactor.
 
@@ -189,7 +203,7 @@ This project exposes a networked, multi-user game server to the public internet.
 
 ### Memory safety
 
-- **Zero `unsafe`** — this project uses no `unsafe` code. If you need it, document with `// SAFETY:` and expect scrutiny.
+- **Zero `unsafe`** — this project uses no `unsafe` code. No exceptions.
 - **No heap-leaking user data** — `String` → `Box::leak()` patterns are banned. User-controlled strings live in `Arc<str>` or owned `String`s.
 - **Bounded allocations** — line buffers are reused per-loop (`.clear()`), not reallocated.
 
@@ -198,6 +212,7 @@ This project exposes a networked, multi-user game server to the public internet.
 - **Mutex scoping** — hold `Mutex` locks as briefly as possible. Narrow scopes with blocks (`{ let g = m.lock().await; ... }`).
 - **Cancel safety** — `tokio::select!` branches should handle cancellation gracefully. Prefer `tokio::time::timeout` over raw `select!` for timeouts.
 - **No `tokio::spawn` on untrusted input handlers** — connection handlers are top-level tasks; spawn no further tasks for user input.
+- **CPU offloading** — run Argon2 and other CPU-heavy operations via `tokio::task::spawn_blocking`, never inside a `Mutex` guard or DB transaction.
 
 ### Database
 

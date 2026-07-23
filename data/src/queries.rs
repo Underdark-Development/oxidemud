@@ -1,5 +1,7 @@
 use rusqlite::{params, Connection};
 
+use oxide_core::Appearance;
+
 pub fn insert_entity(conn: &Connection, entity_type: &str) -> Result<i64, rusqlite::Error> {
     conn.execute(
         "INSERT INTO entities (type) VALUES (?1)",
@@ -261,27 +263,32 @@ pub fn get_character_by_name(
     }
 }
 
+pub struct CreateCharacterParams {
+    pub account_id: i64,
+    pub name: String,
+    pub race: String,
+    pub class: String,
+    pub entity_id: i64,
+    pub spawn_key: Option<String>,
+    pub current_room_key: Option<String>,
+}
+
 pub fn create_character(
     conn: &Connection,
-    account_id: i64,
-    name: &str,
-    race: &str,
-    class: &str,
-    entity_id: i64,
-    spawn_key: Option<&str>,
-    current_room_key: Option<&str>,
+    params: &CreateCharacterParams,
 ) -> Result<i64, rusqlite::Error> {
-    if let Some(spawn_key) = spawn_key {
-        conn.execute(
-            "INSERT INTO characters (account_id, name, race, class, entity_id, spawn_key, current_room_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![account_id, name, race, class, entity_id, spawn_key, current_room_key],
-        )?;
-    } else {
-        conn.execute(
-            "INSERT INTO characters (account_id, name, race, class, entity_id, spawn_key, current_room_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![account_id, name, race, class, entity_id, spawn_key, current_room_key],
-        )?;
-    }
+    conn.execute(
+        "INSERT INTO characters (account_id, name, race, class, entity_id, spawn_key, current_room_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            params.account_id,
+            params.name,
+            params.race,
+            params.class,
+            params.entity_id,
+            params.spawn_key,
+            params.current_room_key,
+        ],
+    )?;
     Ok(conn.last_insert_rowid())
 }
 
@@ -631,17 +638,20 @@ pub fn load_health_component(
 pub fn save_appearance_component(
     conn: &Connection,
     entity_id: i64,
-    height: i32,
-    weight: i32,
-    build: &str,
-    hair_color: &str,
-    hair_style: &str,
-    eye_color: &str,
-    skin_tone: &str,
+    appearance: &Appearance,
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
         "INSERT OR REPLACE INTO components_appearance (entity_id, height, weight, build, hair_color, hair_style, eye_color, skin_tone) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![entity_id, height, weight, build, hair_color, hair_style, eye_color, skin_tone],
+        params![
+            entity_id,
+            appearance.height as i32,
+            appearance.weight as i32,
+            appearance.build,
+            appearance.hair_color,
+            appearance.hair_style,
+            appearance.eye_color,
+            appearance.skin_tone,
+        ],
     )?;
     Ok(())
 }
@@ -1540,13 +1550,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
             &conn,
-            account_id,
-            "Aragorn",
-            "human",
-            "warrior",
-            eid,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "Aragorn".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         assert!(char_id > 0);
@@ -1560,13 +1572,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         create_character(
             &conn,
-            account_id,
-            "Legolas",
-            "elf",
-            "ranger",
-            eid,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "Legolas".into(),
+                race: "elf".into(),
+                class: "ranger".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
 
@@ -1595,24 +1609,28 @@ mod tests {
         let eid2 = insert_entity(&conn, "player").unwrap();
         create_character(
             &conn,
-            account_id,
-            "Char1",
-            "human",
-            "warrior",
-            eid1,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "Char1".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid1,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         create_character(
             &conn,
-            account_id,
-            "Char2",
-            "elf",
-            "mage",
-            eid2,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "Char2".into(),
+                race: "elf".into(),
+                class: "mage".into(),
+                entity_id: eid2,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
 
@@ -1637,13 +1655,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         let char_id = create_character(
             &conn,
-            account_id,
-            "DeleteMe",
-            "human",
-            "warrior",
-            eid,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "DeleteMe".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         delete_character(&conn, char_id).unwrap();
@@ -1673,13 +1693,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         let _char_id = create_character(
             &conn,
-            account_id,
-            "CharToDel",
-            "human",
-            "warrior",
-            eid,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "CharToDel".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
 
@@ -1703,24 +1725,28 @@ mod tests {
         let eid2 = insert_entity(&conn, "player").unwrap();
         create_character(
             &conn,
-            account1,
-            "SameName",
-            "human",
-            "warrior",
-            eid1,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id: account1,
+                name: "SameName".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid1,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         let result = create_character(
             &conn,
-            account2,
-            "SameName",
-            "elf",
-            "mage",
-            eid2,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id: account2,
+                name: "SameName".into(),
+                race: "elf".into(),
+                class: "mage".into(),
+                entity_id: eid2,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         );
         assert!(result.is_err());
     }
@@ -1733,13 +1759,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         let _char_id = create_character(
             &conn,
-            account_id,
-            "Leveler",
-            "human",
-            "warrior",
-            eid,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "Leveler".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         update_character_level(&conn, eid, 5, 5000).unwrap();
@@ -1757,13 +1785,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         let _char_id = create_character(
             &conn,
-            account_id,
-            "Wanderer",
-            "human",
-            "warrior",
-            eid,
-            Some("test:room1"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "Wanderer".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room1".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         update_character_current_room_key(&conn, eid, "test:room2").unwrap();
@@ -1780,13 +1810,15 @@ mod tests {
         let eid = insert_entity(&conn, "player").unwrap();
         let _char_id = create_character(
             &conn,
-            account_id,
-            "SeenMe",
-            "human",
-            "warrior",
-            eid,
-            Some("test:room"),
-            None,
+            &CreateCharacterParams {
+                account_id,
+                name: "SeenMe".into(),
+                race: "human".into(),
+                class: "warrior".into(),
+                entity_id: eid,
+                spawn_key: Some("test:room".into()),
+                current_room_key: None,
+            },
         )
         .unwrap();
         assert!(get_character_by_name(&conn, "SeenMe")
@@ -2025,7 +2057,17 @@ mod tests {
 
         // 1. Appearance
         save_appearance_component(
-            &conn, eid, 70, 180, "athletic", "blonde", "spiky", "blue", "tan",
+            &conn,
+            eid,
+            &Appearance {
+                height: 70,
+                weight: 180,
+                build: "athletic".into(),
+                hair_color: "blonde".into(),
+                hair_style: "spiky".into(),
+                eye_color: "blue".into(),
+                skin_tone: "tan".into(),
+            },
         )
         .unwrap();
         let (height, weight, build, hair_color, hair_style, eye_color, skin_tone) =

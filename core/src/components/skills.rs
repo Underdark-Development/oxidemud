@@ -285,7 +285,7 @@ pub struct CommandRestrictions {
 }
 
 /// Contextual command attached to a specific entity (item, room, mob, object).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EntityCommandDef {
     pub command_name: String,
     pub help_text: String,
@@ -427,47 +427,21 @@ impl EntityCommands {
         help_text: impl Into<String>,
         requires_equipped: bool,
     ) {
-        let restr = CommandRestrictions {
-            requires_equipped,
+        self.add_full(EntityCommandDef {
+            command_name: command_name.into(),
+            script: script.into(),
+            help_text: help_text.into(),
+            restrictions: CommandRestrictions {
+                requires_equipped,
+                ..Default::default()
+            },
             ..Default::default()
-        };
-        self.add_full(
-            command_name,
-            script,
-            help_text,
-            restr,
-            None,
-            None,
-            None,
-            None,
-        );
+        });
     }
 
-    pub fn add_full(
-        &mut self,
-        command_name: impl Into<String>,
-        script: impl Into<String>,
-        help_text: impl Into<String>,
-        restrictions: CommandRestrictions,
-        get_message: Option<String>,
-        equip_message: Option<String>,
-        unequip_message: Option<String>,
-        examine_hint: Option<String>,
-    ) {
-        let name = command_name.into();
-        let script = script.into();
-        let help = help_text.into();
-        self.commands.retain(|c| c.command_name != name);
-        self.commands.push(EntityCommandDef {
-            command_name: name,
-            help_text: help,
-            script,
-            restrictions,
-            get_message,
-            equip_message,
-            unequip_message,
-            examine_hint,
-        });
+    pub fn add_full(&mut self, cmd: EntityCommandDef) {
+        self.commands.retain(|c| c.command_name != cmd.command_name);
+        self.commands.push(cmd);
     }
 
     pub fn find(&self, name: &str) -> Option<&EntityCommandDef> {

@@ -460,13 +460,15 @@ mod tests {
             let eid = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
             let cid = oxide_data::create_character(
                 db_guard.conn(),
-                aid,
-                "DelCharName",
-                "human",
-                "warrior",
-                eid,
-                Some("test:room"),
-                None,
+                &oxide_data::CreateCharacterParams {
+                    account_id: aid,
+                    name: "DelCharName".into(),
+                    race: "human".into(),
+                    class: "warrior".into(),
+                    entity_id: eid,
+                    spawn_key: Some("test:room".into()),
+                    current_room_key: None,
+                },
             )
             .unwrap();
             (aid, cid)

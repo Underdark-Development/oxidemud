@@ -8,7 +8,81 @@ use oxide_core::{
     Energy, Equipment, EquipmentSlot, Health, LearnedSkills, Level, Mana, PlayerState, Position,
     Psi, RestState, SetMembership, SetTracker, SkillCooldowns, Stamina, Weapon, World,
 };
+
+use schemars::JsonSchema;
 use serde::Deserialize;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SimulateCombatParams {
+    #[schemars(description = "Optional ID of the attacker mob template")]
+    pub attacker_template: Option<String>,
+    #[schemars(description = "Optional ID of the weapon template equipped by the attacker")]
+    pub attacker_weapon: Option<String>,
+    #[schemars(
+        description = "Optional level override for the attacker (defaults to template level or 1)"
+    )]
+    pub attacker_level: Option<u8>,
+    #[schemars(description = "Optional ID of the defender mob template")]
+    pub defender_template: Option<String>,
+    #[schemars(
+        description = "Optional level override for the defender (defaults to template level or 1)"
+    )]
+    pub defender_level: Option<u8>,
+    #[schemars(description = "Optional armor class (AC) override for the defender")]
+    pub defender_ac_override: Option<i32>,
+    #[schemars(description = "Number of rounds to simulate")]
+    pub rounds: u32,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SimulateCharacterCreationParams {
+    pub race_id: String,
+    pub class_id: String,
+    #[schemars(description = "Base strength value (8 to 18)")]
+    pub strength: u8,
+    #[schemars(description = "Base dexterity value (8 to 18)")]
+    pub dexterity: u8,
+    #[schemars(description = "Base intelligence value (8 to 18)")]
+    pub intelligence: u8,
+    #[schemars(description = "Base wisdom value (8 to 18)")]
+    pub wisdom: u8,
+    #[schemars(description = "Base constitution value (8 to 18)")]
+    pub constitution: u8,
+    #[schemars(description = "Base charisma value (8 to 18)")]
+    pub charisma: u8,
+    #[schemars(description = "Optional list of additional selected skill IDs to include")]
+    pub selected_skills: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SimulateSkillUseParams {
+    #[schemars(description = "ID of the skill template to use")]
+    pub skill_id: String,
+    #[schemars(description = "Optional real actor name from database to load stats from")]
+    pub actor_name: Option<String>,
+    #[schemars(description = "Actor level (1 to 100, default: 1)")]
+    pub actor_level: Option<u8>,
+    #[schemars(description = "Actor class ID (optional)")]
+    pub actor_class: Option<String>,
+    #[schemars(description = "Actor race ID (optional)")]
+    pub actor_race: Option<String>,
+    #[schemars(description = "Actor base strength (optional, default: 10)")]
+    pub strength: Option<u8>,
+    #[schemars(description = "Actor base dexterity (optional, default: 10)")]
+    pub dexterity: Option<u8>,
+    #[schemars(description = "Actor base intelligence (optional, default: 10)")]
+    pub intelligence: Option<u8>,
+    #[schemars(description = "Actor base wisdom (optional, default: 10)")]
+    pub wisdom: Option<u8>,
+    #[schemars(description = "Actor base constitution (optional, default: 10)")]
+    pub constitution: Option<u8>,
+    #[schemars(description = "Actor base charisma (optional, default: 10)")]
+    pub charisma: Option<u8>,
+    #[schemars(description = "Mock skill rank for this skill (optional, default: 1)")]
+    pub skill_rank: Option<u16>,
+    #[schemars(description = "Target level (optional, default: 1)")]
+    pub target_level: Option<u8>,
+}
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -116,25 +190,19 @@ pub fn simulate_loot(
 // --- Combat Simulator ---
 pub fn simulate_combat(
     registry: &TemplateRegistry,
-    attacker_template: Option<&str>,
-    attacker_weapon: Option<&str>,
-    attacker_level: Option<u8>,
-    defender_template: Option<&str>,
-    defender_level: Option<u8>,
-    defender_ac_override: Option<i32>,
-    rounds: u32,
+    params: &SimulateCombatParams,
 ) -> Result<String, String> {
     let mut world = World::new();
     let room = world.spawn(());
 
     // 1. Attacker Setup
-    let (atk_level, atk_attrs) = if let Some(tmpl_id) = attacker_template {
+    let (atk_level, atk_attrs) = if let Some(tmpl_id) = &params.attacker_template {
         let mob = registry
             .mobs
-            .get(tmpl_id)
+            .get(tmpl_id.as_str())
             .ok_or_else(|| format!("Attacker template '{}' not found", tmpl_id))?;
         (
-            attacker_level.unwrap_or(mob.level),
+            params.attacker_level.unwrap_or(mob.level),
             Attributes::new(
                 mob.attributes.strength,
                 mob.attributes.dexterity,
@@ -146,13 +214,13 @@ pub fn simulate_combat(
         )
     } else {
         (
-            attacker_level.unwrap_or(1),
+            params.attacker_level.unwrap_or(1),
             Attributes::new(10, 10, 10, 10, 10, 10),
         )
     };
 
     let mut attacker_eq = Equipment::new();
-    if let Some(wep_id) = attacker_weapon {
+    if let Some(wep_id) = &params.attacker_weapon {
         let wep_tmpl = registry
             .items
             .get(wep_id)
@@ -207,13 +275,13 @@ pub fn simulate_combat(
     ));
 
     // 2. Defender Setup
-    let (def_level, def_attrs, def_armor) = if let Some(tmpl_id) = defender_template {
+    let (def_level, def_attrs, def_armor) = if let Some(tmpl_id) = &params.defender_template {
         let mob = registry
             .mobs
-            .get(tmpl_id)
+            .get(tmpl_id.as_str())
             .ok_or_else(|| format!("Defender template '{}' not found", tmpl_id))?;
         (
-            defender_level.unwrap_or(mob.level),
+            params.defender_level.unwrap_or(mob.level),
             Attributes::new(
                 mob.attributes.strength,
                 mob.attributes.dexterity,
@@ -223,16 +291,16 @@ pub fn simulate_combat(
                 mob.attributes.charisma,
             ),
             Armor {
-                base: defender_ac_override.unwrap_or(mob.armor),
+                base: params.defender_ac_override.unwrap_or(mob.armor),
                 bonus: 0,
             },
         )
     } else {
         (
-            defender_level.unwrap_or(1),
+            params.defender_level.unwrap_or(1),
             Attributes::new(10, 10, 10, 10, 10, 10),
             Armor {
-                base: defender_ac_override.unwrap_or(0),
+                base: params.defender_ac_override.unwrap_or(0),
                 bonus: 0,
             },
         )
@@ -254,7 +322,7 @@ pub fn simulate_combat(
     let mut total_damage = 0;
     let mut log_lines = Vec::new();
 
-    for r in 1..=rounds {
+    for r in 1..=params.rounds {
         let hit_result = calculate_hit(&mut world, attacker, defender, false);
         if hit_result == oxide_core::HitResult::Hit {
             let (mut damage, damage_type) = calculate_damage(&mut world, attacker, defender, false);
@@ -283,22 +351,22 @@ pub fn simulate_combat(
     }
 
     let mut out = "### Combat Simulation Summary\n\n".to_string();
-    out.push_str(&format!("*   **Rounds Simulated**: {}\n", rounds));
+    out.push_str(&format!("*   **Rounds Simulated**: {}\n", params.rounds));
     out.push_str(&format!(
         "*   **Total Hits**: {} ({:.2}%)\n",
         hits + crits,
-        ((hits + crits) as f64 / rounds as f64) * 100.0
+        ((hits + crits) as f64 / params.rounds as f64) * 100.0
     ));
     out.push_str(&format!("*   **Critical Hits**: {}\n", crits));
     out.push_str(&format!(
         "*   **Misses**: {} ({:.2}%)\n",
         misses,
-        (misses as f64 / rounds as f64) * 100.0
+        (misses as f64 / params.rounds as f64) * 100.0
     ));
     out.push_str(&format!("*   **Total Damage**: {}\n", total_damage));
     out.push_str(&format!(
         "*   **Average Damage/Round**: {:.2}\n\n",
-        total_damage as f64 / rounds as f64
+        total_damage as f64 / params.rounds as f64
     ));
 
     out.push_str("#### Combat Log\n\n");
@@ -991,34 +1059,26 @@ pub fn validate_content_dag(content_path: &Path) -> Result<String, String> {
 
 pub fn simulate_character_creation(
     registry: &TemplateRegistry,
-    race_id: &str,
-    class_id: &str,
-    strength: u8,
-    dexterity: u8,
-    intelligence: u8,
-    wisdom: u8,
-    constitution: u8,
-    charisma: u8,
-    selected_skills: &[String],
+    params: &SimulateCharacterCreationParams,
 ) -> Result<String, String> {
     let race = registry
         .races
-        .get(race_id)
-        .ok_or_else(|| format!("Race '{}' not found", race_id))?;
+        .get(params.race_id.as_str())
+        .ok_or_else(|| format!("Race '{}' not found", params.race_id))?;
 
     let class = registry
         .classes
-        .get(class_id)
-        .ok_or_else(|| format!("Class '{}' not found", class_id))?;
+        .get(params.class_id.as_str())
+        .ok_or_else(|| format!("Class '{}' not found", params.class_id))?;
 
     // Validate attributes (Standard Array or Point-Buy)
     let base_attrs = [
-        strength,
-        dexterity,
-        intelligence,
-        wisdom,
-        constitution,
-        charisma,
+        params.strength,
+        params.dexterity,
+        params.intelligence,
+        params.wisdom,
+        params.constitution,
+        params.charisma,
     ];
     let mut sorted_attrs = base_attrs;
     sorted_attrs.sort();
@@ -1071,12 +1131,12 @@ pub fn simulate_character_creation(
     let mod_con = class.attribute_mods.constitution as i16;
     let mod_cha = class.attribute_mods.charisma as i16;
 
-    let final_str = (base_str + mod_str + strength as i16 - 8).clamp(3, 50) as u8;
-    let final_dex = (base_dex + mod_dex + dexterity as i16 - 8).clamp(3, 50) as u8;
-    let final_int = (base_int + mod_int + intelligence as i16 - 8).clamp(3, 50) as u8;
-    let final_wis = (base_wis + mod_wis + wisdom as i16 - 8).clamp(3, 50) as u8;
-    let final_con = (base_con + mod_con + constitution as i16 - 8).clamp(3, 50) as u8;
-    let final_cha = (base_cha + mod_cha + charisma as i16 - 8).clamp(3, 50) as u8;
+    let final_str = (base_str + mod_str + params.strength as i16 - 8).clamp(3, 50) as u8;
+    let final_dex = (base_dex + mod_dex + params.dexterity as i16 - 8).clamp(3, 50) as u8;
+    let final_int = (base_int + mod_int + params.intelligence as i16 - 8).clamp(3, 50) as u8;
+    let final_wis = (base_wis + mod_wis + params.wisdom as i16 - 8).clamp(3, 50) as u8;
+    let final_con = (base_con + mod_con + params.constitution as i16 - 8).clamp(3, 50) as u8;
+    let final_cha = (base_cha + mod_cha + params.charisma as i16 - 8).clamp(3, 50) as u8;
 
     let hp = class.hit_die as i32 + (final_con as i32 - 10) / 2;
     let hp = hp.max(1);
@@ -1091,8 +1151,10 @@ pub fn simulate_character_creation(
     for skill_id in &class.auto_skills {
         auto_skills.insert(skill_id.clone());
     }
-    for skill_id in selected_skills {
-        auto_skills.insert(skill_id.clone());
+    if let Some(ref selected_skills) = params.selected_skills {
+        for skill_id in selected_skills {
+            auto_skills.insert(skill_id.clone());
+        }
     }
 
     let mut auto_skills_sorted: Vec<String> = auto_skills.into_iter().collect();
@@ -1102,12 +1164,17 @@ pub fn simulate_character_creation(
 
     let mut out = format!(
         "### Character Creation Simulation: Race = `{}`, Class = `{}`\n\n",
-        race_id, class_id
+        params.race_id, params.class_id
     );
     out.push_str("#### Base Attributes (Chosen):\n");
     out.push_str(&format!(
         "*   Str: {}, Dex: {}, Int: {}, Wis: {}, Con: {}, Cha: {}\n\n",
-        strength, dexterity, intelligence, wisdom, constitution, charisma
+        params.strength,
+        params.dexterity,
+        params.intelligence,
+        params.wisdom,
+        params.constitution,
+        params.charisma
     ));
     out.push_str("#### Final Attributes:\n");
     out.push_str(&format!(
@@ -1281,42 +1348,31 @@ pub fn simulate_crafting(
 
 pub fn simulate_skill_use(
     registry: &TemplateRegistry,
-    skill_id: &str,
-    actor_level: u8,
-    actor_class: Option<&str>,
-    actor_race: Option<&str>,
-    strength: Option<u8>,
-    dexterity: Option<u8>,
-    intelligence: Option<u8>,
-    wisdom: Option<u8>,
-    constitution: Option<u8>,
-    charisma: Option<u8>,
-    skill_rank: Option<u16>,
-    target_level: Option<u8>,
+    params: &SimulateSkillUseParams,
 ) -> Result<String, String> {
     let skill = registry
         .skills
-        .get(skill_id)
-        .ok_or_else(|| format!("Skill template '{}' not found", skill_id))?;
+        .get(params.skill_id.as_str())
+        .ok_or_else(|| format!("Skill template '{}' not found", params.skill_id))?;
 
     let mut world = World::new();
     let room = world.spawn(());
 
     let actor_attrs = Attributes::new(
-        strength.unwrap_or(10),
-        dexterity.unwrap_or(10),
-        intelligence.unwrap_or(10),
-        wisdom.unwrap_or(10),
-        constitution.unwrap_or(10),
-        charisma.unwrap_or(10),
+        params.strength.unwrap_or(10),
+        params.dexterity.unwrap_or(10),
+        params.intelligence.unwrap_or(10),
+        params.wisdom.unwrap_or(10),
+        params.constitution.unwrap_or(10),
+        params.charisma.unwrap_or(10),
     );
     let mut actor_skills = LearnedSkills::new();
-    let rank = skill_rank.unwrap_or(1);
-    actor_skills.skills.insert(skill_id.to_string(), rank);
+    let rank = params.skill_rank.unwrap_or(1);
+    actor_skills.skills.insert(params.skill_id.clone(), rank);
 
     let actor = world.spawn((
         oxide_core::Name("Actor".to_string()),
-        Level(actor_level),
+        Level(params.actor_level.unwrap_or(1)),
         Health::new(100),
         Mana::new(100),
         Stamina::new(100),
@@ -1332,16 +1388,16 @@ pub fn simulate_skill_use(
         actor_attrs,
     ));
 
-    if let Some(c) = actor_class {
-        let _ = world.insert(actor, (oxide_core::Class(c.to_string()),));
+    if let Some(ref c) = params.actor_class {
+        let _ = world.insert(actor, (oxide_core::Class(c.clone()),));
     }
-    if let Some(r) = actor_race {
-        let _ = world.insert(actor, (oxide_core::Race(r.to_string()),));
+    if let Some(ref r) = params.actor_race {
+        let _ = world.insert(actor, (oxide_core::Race(r.clone()),));
     }
 
     let target = world.spawn((
         oxide_core::Name("Target".to_string()),
-        Level(target_level.unwrap_or(1)),
+        Level(params.target_level.unwrap_or(1)),
         Health::new(100),
         Position::new(room),
     ));
@@ -1915,8 +1971,19 @@ mod tests {
     #[test]
     fn test_simulate_combat() {
         let registry = TemplateRegistry::new();
-        let res =
-            simulate_combat(&registry, None, None, Some(5), None, Some(5), Some(10), 5).unwrap();
+        let res = simulate_combat(
+            &registry,
+            &SimulateCombatParams {
+                attacker_template: None,
+                attacker_weapon: None,
+                attacker_level: Some(5),
+                defender_template: None,
+                defender_level: Some(5),
+                defender_ac_override: Some(10),
+                rounds: 5,
+            },
+        )
+        .unwrap();
         assert!(res.contains("Combat Simulation Summary"));
         assert!(res.contains("Rounds Simulated"));
     }
@@ -2031,15 +2098,17 @@ mod tests {
         // Test with Standard Array: [15, 14, 13, 12, 10, 8]
         let res = simulate_character_creation(
             &registry,
-            "human",
-            "warrior",
-            15, // str
-            14, // dex
-            13, // int
-            12, // wis
-            10, // con
-            8,  // cha
-            &["shield_bash".to_string()],
+            &SimulateCharacterCreationParams {
+                race_id: "human".into(),
+                class_id: "warrior".into(),
+                strength: 15,
+                dexterity: 14,
+                intelligence: 13,
+                wisdom: 12,
+                constitution: 10,
+                charisma: 8,
+                selected_skills: Some(vec!["shield_bash".to_string()]),
+            },
         )
         .unwrap();
 
@@ -2054,8 +2123,20 @@ mod tests {
         assert!(res.contains("Platinum: 1"));
 
         // Test with invalid stats (should fail)
-        let fail_res =
-            simulate_character_creation(&registry, "human", "warrior", 18, 18, 18, 18, 18, 18, &[]);
+        let fail_res = simulate_character_creation(
+            &registry,
+            &SimulateCharacterCreationParams {
+                race_id: "human".into(),
+                class_id: "warrior".into(),
+                strength: 18,
+                dexterity: 18,
+                intelligence: 18,
+                wisdom: 18,
+                constitution: 18,
+                charisma: 18,
+                selected_skills: None,
+            },
+        );
         assert!(fail_res.is_err());
     }
 
@@ -2378,18 +2459,21 @@ mod tests {
 
         let res = simulate_skill_use(
             &registry,
-            "heal",
-            1,
-            None,
-            None,
-            Some(10),
-            Some(10),
-            Some(10),
-            Some(10),
-            Some(10),
-            Some(10),
-            Some(1),
-            Some(1),
+            &SimulateSkillUseParams {
+                skill_id: "heal".into(),
+                actor_name: None,
+                actor_level: Some(1),
+                actor_class: None,
+                actor_race: None,
+                strength: Some(10),
+                dexterity: Some(10),
+                intelligence: Some(10),
+                wisdom: Some(10),
+                constitution: Some(10),
+                charisma: Some(10),
+                skill_rank: Some(1),
+                target_level: Some(1),
+            },
         )
         .unwrap();
 

@@ -1219,3 +1219,288 @@ Online creation commands (@dig/@link/@set/@mob/@area/@item), zone/area managemen
 ### Phase 6 — spade MUD Client & Protocol Expansion
 
 WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints), **spade MUD client mode** (output window, ANSI, scroll, input bar, sidebar, clickable names, connection profiles, session management, split mode, dashboard, script console, TOML preview), **MCP**: imm tools (set_stat, load, gecho, advance, stat, heal, damage, kill, revive, set_alignment, set_faction, purge_room, reboot), advanced simulators (regen, level-up, faction change, quest rewards, practice, XP curve), prompts/guided workflows, MCP resources.
+
+---
+
+## Architectural Debt — P0
+
+Items discovered during architectural review. Each violates an existing invariant, contradicts the
+stated architecture, or represents a shallow module where deepening would yield significant leverage.
+
+### Critical: Unsafe Code in Scripting Crate
+
+**Violates:** Non-Negotiable invariant "Zero `unsafe` Code"
+
+`scripting/src/lib.rs` contains five `unsafe` blocks:
+
+- `ScriptWorld` struct holds `*mut World` and has `unsafe impl Send` / `unsafe impl Sync`
+- `ScriptWorld::as_mut` and `ScriptWorld::as_ref` are `pub unsafe` raw pointer dereference methods
+- `with_current_world` dereferences the raw pointer from the thread-local `ScriptExecContext`
+
+A parallel raw pointer lives in `ScriptExecContext` (also `*mut World`), stored in the
+`CURRENT_SCRIPT_CONTEXT` thread-local. Two raw pointers to the same `World` are simultaneously
+alive and dereferenced through two separate paths. The safety argument ("scripts run under the
+world lock") is a runtime convention, not enforced by the type system.
+
+**Fix:** Eliminate raw pointers. Options: (a) lifetime-bound wrapper that ties World access to the
+lock guard scope, (b) channel-based message passing to the game loop, or (c) a `SafeWorld` type
+that wraps the pointer behind an API that only compiles inside a verified execution context.
+
+### Critical: Panics in Runtime Code
+
+**Violates:** Non-Negotiable invariant "Zero Panics in Runtime"
+
+Runtime `unwrap()` calls that can cascade-poison locks or crash the server:
+
+- `scripting/src/lib.rs`: `ast_cache.read().unwrap()` and `ast_cache.write().unwrap()` in
+  `ScriptEngine` methods — a single panic in any thread poisons the RwLock, causing every
+  subsequent script execution to panic
+- `scripting/src/lib.rs`: `hecs::Entity::from_bits(0).unwrap()` in the `spawn_mob` Rhai binding
+  fallback paths — panics if the entity bits are somehow invalid
+- `core/src/scripting.rs`: `registry.read().unwrap()` in `with_dynamic_skills` — called by 5+
+  call sites across server and bin crates
+- `core/src/templates.rs`: `unwrap()` calls in `spawn_mob_from_template` — panics if world insert
+  fails
+- `core/src/content.rs`: `fs::read_dir(dir).unwrap()` in `load_dir` — panics if content directory
+  is missing
+- `core/src/systems/crafting.rs`: `templates.recipes.get(recipe_id).unwrap()` — panics on unknown
+  recipe ID
+- `scripting/src/lib.rs`: `println!("on_combat_hit error: {:?}", e)` in
+  `execute_combat_hit_hook` — bypasses tracing infrastructure
+
+**Fix:** Replace all runtime `unwrap()` with `?` propagation, `.unwrap_or_else()` with
+`tracing::error!`/`tracing::warn!`, or explicit `match` with graceful degradation. Replace
+`println!` with `tracing::error!`.
+
+### High: Scripting Crate Monolith
+
+**Problem:** `scripting/src/lib.rs` is a single 2000+ line file with six distinct responsibilities,
+making it a **shallow module** — the interface is nearly as large as the implementation.
+
+Responsibilities packed into one file:
+
+- Thread-local context machinery (`ScriptWorld`, `ScriptExecContext`, `push_script_context`,
+  `with_current_world`)
+- ~800 lines of Rhai binding registrations in a single `new()` constructor, organized by neither
+  domain nor concern
+- `ScriptEngine` struct with AST caching, eval, and test runner
+- `ScriptingBridge` trait implementation (10 bridge methods)
+- Test infrastructure (`parse_test_blocks`, `construct_test_script`, `strip_tests`)
+- Unit tests (~460 lines)
+
+**Fix:** Split into domain-grouped modules:
+
+- `context.rs` — `ScriptWorld`, `ScriptExecContext`, thread-local, `push_script_context`,
+  `with_current_world`
+- `bindings/` — subdirectory with domain-grouped registration functions (combat, world, messaging,
+  quests, effects, equipment, entity commands)
+- `engine.rs` — `ScriptEngine` struct, AST caching, eval
+- `bridge.rs` — `ScriptingBridge` trait implementation
+- `tests/` — test infrastructure and test modules
+
+**Leverage:** Adding a new binding means editing one domain file, not scrolling through 950 lines
+of `new()`. Finding where a function is registered becomes a file-system lookup, not a text search.
+
+### High: Game Logic Leaking into Scripting Layer
+
+**Problem:** The scripting crate re-implements game logic that belongs in core systems, violating
+the driver/content separation principle.
+
+Specific violations:
+
+- `execute_combat_hit_hook` hardcodes knowledge of the parry skill: checks the `LearnedSkills`
+  component for `has("parry")`, then fetches the script at `"skills/parry.rhai"` by path. The
+  combat system should decide whether to invoke a parry hook; the scripting crate should only
+  execute whatever script it's given.
+- `execute_say_hook` contains entity-type-aware dispatch logic: it queries `Npc`, `Room`, and
+  `ItemTriggers` components to discover which scripts to run. This is a core system's
+  responsibility — the scripting crate should receive a list of scripts to execute, not discover
+  them itself.
+- `apply_script_effect_full` hand-parses `EffectExpireCondition` variant strings
+  (`"exit_combat"`, `"change_stance"`, `"timer"`) inside a Rhai binding closure. This parsing
+  logic is a core concern that leaked into the scripting layer.
+
+**Fix:** Move parry/say-dispatch/effect-parsing logic into core systems or a new
+`core/src/script_dispatch.rs` module. The scripting crate's bridge methods should accept a list of
+script paths + parameters, not query the ECS world to discover them.
+
+### High: Thread-Local Dual-Path World Access
+
+**Problem:** Two independent mechanisms exist for Rhai bindings to access the ECS `World`, but only
+one is actually used.
+
+- `ScriptWorld` is pushed into every Rhai scope (e.g. `scope.push("world", ScriptWorld::new(world))`)
+  but its `as_mut`/`as_ref` methods are never called from any Rhai script or binding.
+- Every binding closure accesses `World` through the `CURRENT_SCRIPT_CONTEXT` thread-local via
+  `with_current_world()`.
+
+`ScriptWorld` is a red herring — it exists only as a type registration so Rhai can accept it as a
+parameter, but no code path actually reads it. A reader must discover the thread-local to
+understand how bindings work.
+
+**Fix:** Remove one path. Either (a) remove `ScriptWorld` from Rhai scope entirely (it's unused),
+or (b) remove the thread-local and pass `World` through `ScriptWorld` methods called from bindings.
+Pick one; having both is pure confusion.
+
+### High: Dead Event Bus
+
+**Problem:** `core/src/events.rs` declares `GameEvent` (19 variants) and the architecture doc
+(section "Event Bus") promises "transitions emit a typed `GameEvent` over `tokio::sync::broadcast`."
+Neither `GameEvent` nor `EventQueue` is used anywhere in the codebase.
+
+Instead, systems return data to the caller:
+
+- Combat returns `Vec<CombatOutcome>` — dispatched inline in `game_loop.rs`
+- Quest functions return `Vec<String>` — sent via `ConnectionRegistry`
+- Faction functions return `Vec<String>` — sent via `ConnectionRegistry`
+- Player state transitions return `Vec<(Entity, PlayerState, PlayerState)>` — processed inline
+
+The game loop must know every system's return type and manually iterate outcomes. Adding a new
+cross-system communication path means editing `game_loop.rs` to handle yet another return type.
+
+**Fix:** Two options — pick one and update the doc to match reality:
+
+1. **Implement the event bus:** Systems emit `GameEvent` variants via broadcast channel. The game
+   loop subscribes and dispatches. This creates a deep seam: each system emits through one
+   interface, the game loop consumes without knowing system internals.
+2. **Remove the dead declarations:** Delete `GameEvent`, `TriggerType`, and `EventQueue`. Update
+   the "Event Bus" section to describe the actual return-value pattern. Simpler, but loses the
+   future extensibility the event bus was designed for.
+
+### High: Templates God Module
+
+**Problem:** `core/src/templates.rs` is 2300+ lines with five distinct responsibilities crammed
+into one file, making it a **shallow module**.
+
+Responsibilities:
+
+- Global singleton (`GLOBAL_TEMPLATES`, `register_global_templates`, `get_global_templates`)
+- 15+ template struct definitions with serde derives (~1350 lines): `RaceTemplate`,
+  `ClassTemplate`, `ItemTemplate`, `MobTemplate`, `StanceDef`, `SetDef`, `AffixDef`,
+  `PassiveDef`, `ShopTemplate`, `DeityTemplate`, `QuestDef`, `FactionDef`, `RecipeDef`, and more
+- `TemplateRegistry` struct with 15 `HashMap` fields, ~400-line `validate()` function, and
+  `build_indices()`
+- Entity spawning logic (`spawn_mob_from_template`) that couples template data to ECS mutation
+- Utility type (`DiceString` custom serde helper)
+
+Adding a new template type requires editing this file in three places: the struct definition, the
+`TemplateRegistry` fields, and the `validate()` function.
+
+**Fix:** Split into a `templates/` directory:
+
+- `templates/defs.rs` — all template struct definitions and serde derives
+- `templates/registry.rs` — `TemplateRegistry`, validation, index building
+- `templates/spawn.rs` — entity spawning from templates
+- `templates/global.rs` — singleton registration and access
+
+**Leverage:** Each submodule becomes **deep** — small interface, concentrated implementation.
+Adding a template type touches `defs.rs` and `registry.rs` only, not a 2300-line monolith.
+
+### High: Game Loop Orchestration Sprawl
+
+**Problem:** `server/src/game_loop.rs` is 880+ lines with inline orchestration that duplicates
+logic from other systems.
+
+Specific issues:
+
+- Combat outcome dispatch (the `combat_tick` arm) manually iterates `Vec<CombatOutcome>` for quest
+  events, faction adjustments, XP calculation, group XP splitting, corpse spawning, DB saves, and
+  prompt sending — all inline in a 100-line block. This duplicates logic already handled inside
+  `combat.rs` (`apply_damage` processes kills, spawns corpses, awards XP).
+- `save_player_progress` is a 330-line function with 20 numbered sections, each manually querying
+  a component and calling a data function. Adding a new component that needs saving requires
+  editing this numbered list.
+- Lock acquisition (`world.lock().await` + `registry.lock().await`) is repeated in every
+  `tokio::select!` arm with no shared helper.
+
+**Fix:**
+
+- Extract combat outcome dispatch into a `server/src/dispatch.rs` module that processes outcomes
+  once (eliminating the dual-path processing).
+- Replace the numbered `save_player_progress` sections with a component-registration pattern:
+  systems register their save functions, and the flush iterates registered savers.
+- Extract a lock-acquisition helper or restructure the select loop to reduce repetition.
+
+### High: Login Character Creation God Object
+
+**Problem:** `server/src/login/handlers/creation.rs` is 3100+ lines with 24 handler functions,
+all mutating a single `LoginState` struct. This is a **God Object** — a struct that knows too
+much and does too much.
+
+- `LoginState` has 30+ fields including `db: Arc<Db>`, `templates: Arc<Templates>`, and every
+  piece of state needed across the entire login and creation flow.
+- `CharacterCreateSubstate` has 20+ variants — one per creation step.
+- All 24 handlers take `&mut LoginState` and mutate it freely. Testing any handler requires
+  constructing a full `LoginState` with mocked DB, templates, and connection.
+- Shared logic (validation, error formatting, state transitions) is duplicated across handlers
+  rather than extracted into helpers.
+
+**Fix:**
+
+- Decompose `LoginState` into smaller focused contexts: `AuthContext` (DB, templates, strikes)
+  and `CreationContext` (all creation wizard state).
+- Extract shared helpers for common patterns (validation, state transition, error message
+  formatting).
+- Consider a step-based pipeline where each creation step is a function
+  `(CreationContext) -> Result<CreationContext, CreationError>` rather than 24 free functions
+  mutating a shared mutable reference.
+
+### High: Manual Persistence Column Mapping
+
+**Problem:** `data/src/queries.rs` is 2100+ lines of hand-written save/load functions using
+positional `row.get(N)` calls with no compile-time guarantees.
+
+Every component has a manual `save_*` and `load_*` function with listed column names and
+positional indexing: `save_health_component`, `save_mana_component`, `save_stamina_component`,
+`save_golds_component`, `save_attributes_component`, `save_level_component`,
+`save_experience_component`, `save_combat_stats_component`, `save_player_component`,
+`save_alignment_component`, `save_description_component`, `save_appearance_component`,
+`save_age_component`, `save_deity_component`, `save_quest_log_component`,
+`save_faction_standing_component`, `save_learned_recipes_component`,
+`save_multiclass_component`. The pattern repeats with mirror-image `load_*` functions.
+
+Adding a column to any component requires editing three places: the schema, the save function, and
+the load function — all with positional indexing that must stay in sync by hand. There is no
+compile-time check that save and load agree on column order.
+
+`save_player_progress` in `game_loop.rs` calls these in a numbered sequence, creating a fourth
+place to update.
+
+**Fix:** Options include (a) derive macros that generate save/load from struct field definitions,
+(b) a column-name-to-index mapping struct generated alongside the schema, or (c) at minimum, a
+shared const array of column names used by both save and load to eliminate positional drift.
+
+### Medium: Global Singletons
+
+**Problem:** Four separate `OnceLock` global singleton patterns in `core`:
+
+| Singleton          | Location       | Pattern                                   |
+| ------------------ | -------------- | ----------------------------------------- |
+| `GLOBAL_TEMPLATES` | `templates.rs` | `OnceLock<RwLock<Arc<TemplateRegistry>>>` |
+| `SCRIPTING_BRIDGE` | `scripting.rs` | `OnceLock<Box<dyn ScriptingBridge>>`      |
+| `MESSAGE_BRIDGE`   | `scripting.rs` | `OnceLock<Box<dyn MessageOutputBridge>>`  |
+| `DYNAMIC_SKILLS`   | `scripting.rs` | `OnceLock<RwLock<DynamicSkillRegistry>>`  |
+
+Each test that touches templates or scripting must call `register_*` to initialize globals, and
+tests cannot run in parallel. The four singletons use inconsistent patterns (`Arc<T>` vs
+`Box<dyn Trait>` vs `RwLock<T>`).
+
+**Fix:** Replace globals with a `Resources` struct passed explicitly through the call chain, or at
+minimum unify the pattern (all `Arc<RwLock<T>>` or all `Box<dyn Trait>` behind a consistent
+accessor API).
+
+### Medium: Glob Re-exports and Flat Public API
+
+**Problem:** `core/src/lib.rs` uses `#![allow(ambiguous_glob_reexports)]` to suppress name
+collisions from three glob re-exports (`pub use components::*`, `pub use events::*`,
+`pub use resources::*`) plus 30+ selective re-exports. `components.rs` adds 11 more glob
+re-exports from submodules.
+
+The public API surface of `oxide_core` is the union of every `pub` item across 11 component files,
+17 system files, 4 resource files, plus templates, events, scripting, util, and content — hundreds
+of types exported flat. Consumer crates cannot tell which submodule a type came from without reading
+source. Name collisions exist but are silenced by the `allow` annotation.
+
+**Fix:** Replace glob re-exports with explicit re-exports. Remove
+`#![allow(ambiguous_glob_reexports)]`. Each submodule should re-export only the types its
+consumers actually need.

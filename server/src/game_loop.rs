@@ -784,17 +784,7 @@ pub(crate) fn save_player_progress(world: &mut World, player: Entity, db: &oxide
         .ok()
         .and_then(|mut q| q.get().cloned())
     {
-        let _ = oxide_data::save_appearance_component(
-            conn,
-            db_id,
-            appearance.height as i32,
-            appearance.weight as i32,
-            &appearance.build,
-            &appearance.hair_color,
-            &appearance.hair_style,
-            &appearance.eye_color,
-            &appearance.skin_tone,
-        );
+        let _ = oxide_data::save_appearance_component(conn, db_id, &appearance);
     }
 
     // 15. Age

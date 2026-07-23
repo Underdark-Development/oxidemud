@@ -1948,45 +1948,37 @@ async fn finalize_character(
         return lines;
     }
 
-    let height = flow.create_buffer.appearance_height.unwrap_or(66) as i32;
-    let weight = flow.create_buffer.appearance_weight.unwrap_or(160) as i32;
-    let build = flow
-        .create_buffer
-        .appearance_build
-        .clone()
-        .unwrap_or_else(|| "average".into());
-    let hair_style = flow
-        .create_buffer
-        .appearance_hair_style
-        .clone()
-        .unwrap_or_else(|| "straight".into());
-    let hair_color = flow
-        .create_buffer
-        .appearance_hair_color
-        .clone()
-        .unwrap_or_else(|| "brown".into());
-    let eye_color = flow
-        .create_buffer
-        .appearance_eye_color
-        .clone()
-        .unwrap_or_else(|| "brown".into());
-    let skin_tone = flow
-        .create_buffer
-        .appearance_skin_tone
-        .clone()
-        .unwrap_or_else(|| "fair".into());
+    let appearance = oxide_core::Appearance {
+        height: flow.create_buffer.appearance_height.unwrap_or(66),
+        weight: flow.create_buffer.appearance_weight.unwrap_or(160),
+        build: flow
+            .create_buffer
+            .appearance_build
+            .clone()
+            .unwrap_or_else(|| "average".into()),
+        hair_color: flow
+            .create_buffer
+            .appearance_hair_color
+            .clone()
+            .unwrap_or_else(|| "brown".into()),
+        hair_style: flow
+            .create_buffer
+            .appearance_hair_style
+            .clone()
+            .unwrap_or_else(|| "straight".into()),
+        eye_color: flow
+            .create_buffer
+            .appearance_eye_color
+            .clone()
+            .unwrap_or_else(|| "brown".into()),
+        skin_tone: flow
+            .create_buffer
+            .appearance_skin_tone
+            .clone()
+            .unwrap_or_else(|| "fair".into()),
+    };
 
-    if let Err(e) = oxide_data::save_appearance_component(
-        conn_db,
-        entity_id,
-        height,
-        weight,
-        &build,
-        &hair_color,
-        &hair_style,
-        &eye_color,
-        &skin_tone,
-    ) {
+    if let Err(e) = oxide_data::save_appearance_component(conn_db, entity_id, &appearance) {
         lines.push(format!("Error saving appearance: {e}"));
         return lines;
     }
@@ -2006,13 +1998,15 @@ async fn finalize_character(
 
     let char_id = match oxide_data::create_character(
         conn_db,
-        account_id,
-        &name,
-        &race_id,
-        &class_id,
-        entity_id,
-        Some(&spawn_key),
-        None, // new character hasn't saved a position yet
+        &oxide_data::CreateCharacterParams {
+            account_id,
+            name: name.clone(),
+            race: race_id.clone(),
+            class: class_id.clone(),
+            entity_id,
+            spawn_key: Some(spawn_key.clone()),
+            current_room_key: None,
+        },
     ) {
         Ok(id) => id,
         Err(e) => {
@@ -2098,15 +2092,6 @@ async fn finalize_character(
         let _ = world.insert(player, (oxide_core::Immortal,));
     }
 
-    let appearance = oxide_core::Appearance {
-        height: height as u8,
-        weight: weight as u16,
-        build,
-        hair_color,
-        hair_style,
-        eye_color,
-        skin_tone,
-    };
     let age_comp = oxide_core::Age(age as u16);
     let deity_comp = oxide_core::Deity(flow.create_buffer.deity.clone());
     let mut multiclass_info = oxide_core::MultiClassInfo::default();
@@ -2899,13 +2884,15 @@ mod tests {
             let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
             oxide_data::create_character(
                 db_guard.conn(),
-                account_id,
-                "TestChar",
-                "human",
-                "warrior",
-                entity_id,
-                Some("starting_vale:town_square"),
-                Some("starting_vale:town_square"),
+                &oxide_data::CreateCharacterParams {
+                    account_id,
+                    name: "TestChar".into(),
+                    race: "human".into(),
+                    class: "warrior".into(),
+                    entity_id,
+                    spawn_key: Some("starting_vale:town_square".into()),
+                    current_room_key: Some("starting_vale:town_square".into()),
+                },
             )
             .unwrap()
         };
@@ -3097,13 +3084,15 @@ mod tests {
             let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
             oxide_data::create_character(
                 db_guard.conn(),
-                account_id,
-                "FallbackChar",
-                "human",
-                "warrior",
-                entity_id,
-                Some("deleted_room:3"),
-                Some("deleted_room:3"),
+                &oxide_data::CreateCharacterParams {
+                    account_id,
+                    name: "FallbackChar".into(),
+                    race: "human".into(),
+                    class: "warrior".into(),
+                    entity_id,
+                    spawn_key: Some("deleted_room:3".into()),
+                    current_room_key: Some("deleted_room:3".into()),
+                },
             )
             .unwrap()
         };
