@@ -392,12 +392,6 @@ pub fn transition_combat_state(world: &mut World, entity: Entity, new_state: Com
             // Automatically expire any active script effects configured to expire on ExitCombat
             expire_effects_by_condition(world, entity, crate::EffectExpireCondition::ExitCombat);
         }
-
-        let _event = crate::GameEvent::CombatStateChanged {
-            entity,
-            from: old_state,
-            to: new_state,
-        };
     }
 }
 

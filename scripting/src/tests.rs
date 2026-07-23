@@ -289,7 +289,9 @@ fn test_fail() {
     #[test]
     fn test_quest_chaining_and_rewards_scripting() {
         use oxide_core::templates::{QuestDef, QuestRewards, TemplateRegistry};
-        use oxide_core::{Equipment, Experience, Inventory, Level, QuestLog, ScriptingBridge, Wallet};
+        use oxide_core::{
+            Equipment, Experience, Inventory, Level, QuestLog, ScriptingBridge, Wallet,
+        };
 
         let engine = ScriptEngine::default();
         let mut world = World::new();

@@ -623,11 +623,6 @@ pub fn complete_quest(
         messages.extend(faction_msgs);
     }
 
-    let _event = crate::GameEvent::QuestCompleted {
-        player,
-        quest_id: quest_id.to_string(),
-    };
-
     if let Some(scripts) = &quest_def.scripts {
         run_quest_script(world, player, quest_id, scripts.on_complete.as_ref());
     }
@@ -770,12 +765,6 @@ fn process_quest_updates(
     messages: &mut Vec<String>,
 ) {
     for (quest_id, auto_complete) in updated_quests {
-        // Emit QuestUpdated event
-        let _event = crate::GameEvent::QuestUpdated {
-            player,
-            quest_id: quest_id.clone(),
-        };
-
         // Run scripting hook
         if let Some(quest_def) = templates.quests.get(&quest_id) {
             if let Some(scripts) = &quest_def.scripts {

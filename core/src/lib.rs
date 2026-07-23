@@ -1,9 +1,6 @@
-#![allow(ambiguous_glob_reexports)]
-
 mod components;
 pub mod content;
 pub mod dice;
-mod events;
 pub mod format;
 pub mod prompt;
 pub mod regen;
@@ -16,7 +13,6 @@ pub mod trie;
 pub mod util;
 
 pub use components::*;
-pub use events::*;
 pub use prompt::PromptVars;
 pub use resources::*;
 pub use scripting::{

@@ -54,8 +54,7 @@ pub fn collect_say_scripts(
 
 /// Collect skill script paths for an entity's learned skills.
 pub fn collect_learned_skill_scripts(world: &World, entity: Entity) -> Vec<String> {
-    let learned_skills: Vec<String> = if let Ok(mut q) = world.query_one::<&LearnedSkills>(entity)
-    {
+    let learned_skills: Vec<String> = if let Ok(mut q) = world.query_one::<&LearnedSkills>(entity) {
         q.get()
             .map(|s| s.skills.keys().cloned().collect())
             .unwrap_or_default()

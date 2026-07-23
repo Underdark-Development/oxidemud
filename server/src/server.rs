@@ -197,7 +197,6 @@ pub fn spawn_hot_reload_processor(
                     match swap_res {
                         Ok(_) => {
                             tracing::info!("Hot-reloaded content templates");
-                            let _event = oxide_core::GameEvent::ContentReloaded;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -1255,13 +1254,6 @@ pub fn award_xp(world: &mut World, entity: Entity) -> Vec<String> {
                 let _ = world.insert(entity, (new_combat_stats,));
             }
         }
-
-        // Emit PlayerLeveled event
-        let _event = oxide_core::GameEvent::PlayerLeveled {
-            entity,
-            old_level: current_level,
-            new_level,
-        };
 
         let _ = world.insert(entity, (oxide_core::Dirty,));
 

@@ -4,7 +4,6 @@ use oxide_core::script_dispatch::{collect_learned_skill_scripts, collect_say_scr
 use oxide_core::{DamageType, Entity, HitContext, ScriptingBridge, World};
 use rhai::Scope;
 
-
 fn notify_script_error(entity: Entity, script: &str, err: &str) {
     if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
         bridge.send_to_entity(entity, &format!("[Script Error in '{}']: {}", script, err));

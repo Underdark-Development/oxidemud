@@ -26,16 +26,14 @@ pub fn register(engine: &mut Engine) {
 
     // Scoped current room messaging (0 arguments needed)
     engine.register_fn("echo", |msg: String| {
-        if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room))
-        {
+        if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room)) {
             if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
                 bridge.echo_to_room(room, &msg);
             }
         }
     });
     engine.register_fn("echo_except", |msg: String, exclude: rhai::Array| {
-        if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room))
-        {
+        if let Some(room) = CURRENT_SCRIPT_CONTEXT.with(|c| c.borrow().and_then(|ctx| ctx.room)) {
             if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
                 let excluded_entities: Vec<Entity> = exclude
                     .into_iter()

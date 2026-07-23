@@ -155,13 +155,6 @@ pub fn try_transition_player_state(
 
     if new_state != current_state {
         let _ = world.insert(entity, (new_state.clone(), crate::Dirty));
-
-        // Emit transition event
-        let _event = crate::GameEvent::PlayerStateChanged {
-            entity,
-            from: current_state,
-            to: new_state.clone(),
-        };
     }
 
     Ok(new_state)

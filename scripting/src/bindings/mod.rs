@@ -1,6 +1,6 @@
 pub mod combat;
-pub mod entity_commands;
 pub mod effects;
+pub mod entity_commands;
 pub mod equipment;
 pub mod messaging;
 pub mod quests;

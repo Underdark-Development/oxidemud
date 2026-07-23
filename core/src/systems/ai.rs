@@ -127,11 +127,6 @@ pub fn run_ai_pulse(world: &mut World) {
         let new_state = tick_ai(state, &combat_state, &npc, world, entity);
 
         if new_state != old_state {
-            let _event = crate::GameEvent::AiStateChanged {
-                entity,
-                from: old_state.clone(),
-                to: new_state.clone(),
-            };
             let _ = world.insert(entity, (new_state,));
         }
     }

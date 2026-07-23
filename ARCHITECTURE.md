@@ -104,13 +104,15 @@ OxideMUD enforces strict architectural decoupling between core Rust engine syste
 
 ---
 
-## Event Bus
+## System Outcomes & Dispatches
 
-Events dispatch over `tokio::sync::broadcast` channel. Each event carries `EventEnvelope` with `id`, `tag`, `timestamp`, and a `GameEvent` payload.
+System execution follows a tick outcome return-value pattern rather than an asynchronous event bus:
 
-**Event tags:** `PlayerSaid | PlayerMoved | PlayerAttacked | PlayerDied | PlayerLeveled | MobDied | MobKilled | ItemPickedUp | ItemDropped | ItemWorn | ItemRemoved | SkillUsed | SkillTrained | RoomEntered | QuestUpdated | QuestCompleted | FactionChanged | SetBonusChanged | CorpseDecayed | ContentReloaded | AiStateChanged | CombatStateChanged | PlayerDisconnected | ScriptTrigger | Pulse(Phase)`
-
-Systems declare interest via `subscribed_events()`. Dispatched in priority order; `handle_event()` returning `true` consumes the event. Default is in-band (synchronous under World lock); out-of-band (spawned tokio task) opt-in for logging/analytics.
+- **Combat System**: Returns `Vec<CombatOutcome>` to the tick loop for message generation, target switching, and corpse spawning.
+- **Quest System**: Returns `Vec<String>` output messages directly to the caller/connection registry.
+- **Faction System**: Returns `Vec<String>` standing adjustment feedback messages.
+- **Player State Machine**: Returns `Result<PlayerState, ...>` and marks mutated entities with `Dirty` components.
+- **AI System**: Ticks NPC state machines inline during system pulses and updates component state directly in `World`.
 
 ---
 
@@ -1226,31 +1228,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
-
-### High: Dead Event Bus
-
-**Problem:** `core/src/events.rs` declares `GameEvent` (19 variants) and the architecture doc
-(section "Event Bus") promises "transitions emit a typed `GameEvent` over `tokio::sync::broadcast`."
-Neither `GameEvent` nor `EventQueue` is used anywhere in the codebase.
-
-Instead, systems return data to the caller:
-
-- Combat returns `Vec<CombatOutcome>` — dispatched inline in `game_loop.rs`
-- Quest functions return `Vec<String>` — sent via `ConnectionRegistry`
-- Faction functions return `Vec<String>` — sent via `ConnectionRegistry`
-- Player state transitions return `Vec<(Entity, PlayerState, PlayerState)>` — processed inline
-
-The game loop must know every system's return type and manually iterate outcomes. Adding a new
-cross-system communication path means editing `game_loop.rs` to handle yet another return type.
-
-**Fix:** Two options — pick one and update the doc to match reality:
-
-1. **Implement the event bus:** Systems emit `GameEvent` variants via broadcast channel. The game
-   loop subscribes and dispatches. This creates a deep seam: each system emits through one
-   interface, the game loop consumes without knowing system internals.
-2. **Remove the dead declarations:** Delete `GameEvent`, `TriggerType`, and `EventQueue`. Update
-   the "Event Bus" section to describe the actual return-value pattern. Simpler, but loses the
-   future extensibility the event bus was designed for.
 
 ### High: Templates God Module
 
