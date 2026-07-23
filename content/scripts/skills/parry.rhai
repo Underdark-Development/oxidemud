@@ -1,33 +1,33 @@
 // content/scripts/skills/parry.rhai
-// Parry skill script. Usage restrictions (allowed_classes: ["warrior"]) are enforced
-// automatically by the engine's built-in CommandRestrictions prior to script execution.
+// Parry skill script.
+// Restrictions (allowed_classes: ["warrior"]) are enforced automatically by engine CommandRestrictions.
+// Deflect success rate scales with practice level (max 60% success chance at 100% practice level).
 
 fn on_use() {
-    if is_on_cooldown(world, actor, "parry") {
-        actor.send("You must wait before parrying again.");
+    let rank = world.get_skill_rank(actor, "parry");
+    if rank == 0 {
+        actor.send("You have not practiced the art of parrying.");
         return;
     }
 
-    actor.send("You adopt a tight defensive stance, preparing to parry incoming blows!");
+    let chance = (rank * 60) / 100;
+    actor.send("You focus on parrying incoming attacks! (Parry Rank: " + rank + "%, Deflect Chance: " + chance + "%)");
     let room = actor.room();
-    room.echo(actor.name() + " readies their weapon in a defensive stance.");
+    room.echo(actor.name() + " readies their weapon, watching for incoming strikes.");
+}
 
-    // Apply temporary defensive parry effect for 12 seconds
-    apply_script_effect_full(
-        world,
-        actor,
-        "parrying",
-        "Parrying Stance",
-        "Parry",
-        12,
-        "Ready to parry incoming attacks (+4 Armor Class)",
-        "",
-        "",
-        "",
-        "is holding a tight parrying guard.",
-        "Your parrying guard drops.",
-        #{}
-    );
+fn on_combat_hit() {
+    let rank = world.get_skill_rank(hit_ctx.target, "parry");
+    if rank == 0 {
+        return hit_ctx;
+    }
 
-    set_cooldown(world, actor, "parry", 15);
+    // Success rate depends on practice level: max 60% chance at 100% practice
+    let chance = (rank * 60) / 100;
+    if rand(1, 100) <= chance {
+        let attacker_name = world.get_name(hit_ctx.attacker);
+        hit_ctx.abort("You deflect " + attacker_name + "'s attack with a swift parry!");
+    }
+
+    return hit_ctx;
 }
