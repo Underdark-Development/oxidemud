@@ -2,13 +2,13 @@ pre-commit:
   parallel: false
   commands:
     fmt:
-      run: just fmt
-    fmt-check:
-      run: just fmt-check
+      run: |
+        just fmt
+        git add {staged_files}
     clippy:
       run: just lint
     test:
-      run: just test
+      run: just test-staged {staged_files}
 
 commit-msg:
   commands:

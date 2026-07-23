@@ -90,6 +90,30 @@ fmt-check:
 test:
     cargo test --workspace
 
+# Run tests only for crates with staged source changes
+test-staged *files:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dirs=""
+    for f in {{files}}; do
+        case "$f" in
+            */src/*.rs|*/Cargo.toml)
+                dir=$(echo "$f" | cut -d'/' -f1)
+                dirs="$dirs $dir"
+                ;;
+        esac
+    done
+    dirs=$(echo "$dirs" | tr ' ' '\n' | sort -u | grep -v '^$' || true)
+    if [ -z "$dirs" ]; then
+        echo "No Rust files staged, skipping tests."
+        exit 0
+    fi
+    for dir in $dirs; do
+        pkg=$(grep '^name' "$dir/Cargo.toml" | head -1 | sed 's/name = "\(.*\)"/\1/')
+        echo "Testing crate: $pkg"
+        cargo test -p "$pkg" || exit 1
+    done
+
 # ─── DB ─────────────────────────────────────────────────────────────
 
 # Remove local database file(s)

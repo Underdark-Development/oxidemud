@@ -1229,35 +1229,6 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 Items discovered during architectural review. Each violates an existing invariant, contradicts the
 stated architecture, or represents a shallow module where deepening would yield significant leverage.
 
-### High: Templates God Module
-
-**Problem:** `core/src/templates.rs` is 2300+ lines with five distinct responsibilities crammed
-into one file, making it a **shallow module**.
-
-Responsibilities:
-
-- Global singleton (`GLOBAL_TEMPLATES`, `register_global_templates`, `get_global_templates`)
-- 15+ template struct definitions with serde derives (~1350 lines): `RaceTemplate`,
-  `ClassTemplate`, `ItemTemplate`, `MobTemplate`, `StanceDef`, `SetDef`, `AffixDef`,
-  `PassiveDef`, `ShopTemplate`, `DeityTemplate`, `QuestDef`, `FactionDef`, `RecipeDef`, and more
-- `TemplateRegistry` struct with 15 `HashMap` fields, ~400-line `validate()` function, and
-  `build_indices()`
-- Entity spawning logic (`spawn_mob_from_template`) that couples template data to ECS mutation
-- Utility type (`DiceString` custom serde helper)
-
-Adding a new template type requires editing this file in three places: the struct definition, the
-`TemplateRegistry` fields, and the `validate()` function.
-
-**Fix:** Split into a `templates/` directory:
-
-- `templates/defs.rs` — all template struct definitions and serde derives
-- `templates/registry.rs` — `TemplateRegistry`, validation, index building
-- `templates/spawn.rs` — entity spawning from templates
-- `templates/global.rs` — singleton registration and access
-
-**Leverage:** Each submodule becomes **deep** — small interface, concentrated implementation.
-Adding a template type touches `defs.rs` and `registry.rs` only, not a 2300-line monolith.
-
 ### High: Game Loop Orchestration Sprawl
 
 **Problem:** `server/src/game_loop.rs` is 880+ lines with inline orchestration that duplicates
