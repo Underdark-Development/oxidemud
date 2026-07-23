@@ -19,7 +19,8 @@ pub use events::*;
 pub use prompt::PromptVars;
 pub use resources::*;
 pub use scripting::{
-    get_message_bridge, get_scripting_bridge, HitContext, MessageOutputBridge, ScriptingBridge,
+    get_message_bridge, get_scripting_bridge, register_dynamic_skill, with_dynamic_skills,
+    DynamicSkillRegistry, HitContext, MessageOutputBridge, ScriptSkill, ScriptingBridge,
 };
 pub use systems::ai::AiState;
 pub use systems::combat::HitResult;

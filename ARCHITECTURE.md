@@ -177,6 +177,18 @@ Configurable template in `Player.prompt`. Variables: `%h/%H` (HP), `%m/%M` (Mana
 - `SetTracker { active_sets }` — map of active item set bonuses
 - `ItemTriggers { on_hit, on_wear, on_remove, on_use }` — trigger skill executions per event
 - `TriggerEffect { chance, skill_id, target }`, `TriggerTarget`: Self, Attacker, Room, Random
+- `EntityCommands { commands: Vec<EntityCommandDef> }` — contextual item/room/mob commands with parameter restrictions and bestowal messages
+- `ActiveScriptEffects { effects: Vec<ActiveScriptEffect> }` — temporary script buffs/debuffs/auras, short desc overrides, and TTL decay
+- `PermanentItemAffects { affects: Vec<PermanentAffectDef> }` — permanent passive affects bestowed by equipped items or set thresholds
+
+### Command Resolution Order
+
+When a player submits a command, the server resolves it in the following order:
+
+1. **Contextual Entity Commands (`EntityCommands`):** Checks actor's current room, entities/mobs in room, and inventory/equipped items. Evaluates `CommandRestrictions` (level, class, race, deity, equipped status, script predicates).
+2. **Dynamic Script Skills (`DynamicSkillRegistry`):** Checks globally registered direct script commands (e.g. `parry`).
+3. **Static Server Commands (`CommandDispatch`):** Evaluates built-in Rust command handlers (e.g. `look`, `score`, `cast`).
+   - Note: For `cast <spell>`, `cmd_cast` checks `DynamicSkillRegistry` for dynamic script spells before checking static template spells.
 
 ### Flexible / OLC
 

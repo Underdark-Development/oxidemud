@@ -475,6 +475,17 @@ fn look_at_target(
             } else {
                 conn.send_line("You see nothing special.");
             }
+            if let Ok(mut q) = world.query_one::<&core::ActiveScriptEffects>(target) {
+                if let Some(active) = q.get() {
+                    for effect in &active.effects {
+                        if effect.visible_on_look {
+                            if let Some(ref aura) = effect.look_aura {
+                                conn.send_line(&format!("Active Aura: {}", aura));
+                            }
+                        }
+                    }
+                }
+            }
         }
         TargetKind::Player => {
             if let Some(name) = get_name(world, target) {

@@ -681,10 +681,10 @@ mod tests {
 
     #[test]
     fn test_database_backup_and_pruning() {
-        // Create a temporary directory in workspace for backups
-        let temp_dir = std::env::current_dir().unwrap().join("temp_backups_test");
+        // Create a temporary directory for backups
+        let temp_dir = std::env::temp_dir().join("temp_backups_test");
         if temp_dir.exists() {
-            std::fs::remove_dir_all(&temp_dir).unwrap();
+            let _ = std::fs::remove_dir_all(&temp_dir);
         }
         std::fs::create_dir_all(&temp_dir).unwrap();
 

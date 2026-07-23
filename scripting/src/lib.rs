@@ -464,6 +464,225 @@ impl ScriptEngine {
             },
         );
 
+        engine.register_fn(
+            "register_skill",
+            |id: String, name: String, command: String, script: String, help_text: String| {
+                oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
+                    id,
+                    name,
+                    command: Some(command),
+                    is_spell: false,
+                    topic: "Skills".to_string(),
+                    help_text,
+                    script,
+                    restrictions: oxide_core::CommandRestrictions::default(),
+                });
+            },
+        );
+
+        engine.register_fn(
+            "register_spell",
+            |id: String, name: String, spell_name: String, script: String, help_text: String| {
+                oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
+                    id,
+                    name,
+                    command: Some(spell_name),
+                    is_spell: true,
+                    topic: "Spells".to_string(),
+                    help_text,
+                    script,
+                    restrictions: oxide_core::CommandRestrictions::default(),
+                });
+            },
+        );
+
+        engine.register_fn(
+            "register_entity_command",
+            |world: ScriptWorld,
+             entity: Entity,
+             command_name: String,
+             script: String,
+             help_text: String| {
+                unsafe {
+                    let w = world.as_mut();
+                    if let Ok(mut q) = w.query_one::<&mut oxide_core::EntityCommands>(entity) {
+                        if let Some(ec) = q.get() {
+                            ec.add(command_name, script, help_text);
+                            return;
+                        }
+                    }
+                    let mut ec = oxide_core::EntityCommands::new();
+                    ec.add(command_name, script, help_text);
+                    let _ = w.insert(entity, (ec,));
+                }
+            },
+        );
+
+        engine.register_fn(
+            "apply_script_effect",
+            |world: ScriptWorld,
+             target: Entity,
+             id: String,
+             source: String,
+             duration_secs: i64,
+             affects_display: String,
+             expire_msg: String| {
+                unsafe {
+                    let w = world.as_mut();
+                    let effect = oxide_core::ActiveScriptEffect {
+                        id: id.clone(),
+                        display_name: source.clone(),
+                        source: source.clone(),
+                        description: affects_display.clone(),
+                        remaining_secs: duration_secs.max(0) as u32,
+                        expire_message: if expire_msg.is_empty() {
+                            None
+                        } else {
+                            Some(expire_msg)
+                        },
+                        affects_display: if affects_display.is_empty() {
+                            None
+                        } else {
+                            Some(affects_display)
+                        },
+                        show_remaining_time: true,
+                        visible_in_affects: true,
+                        name_prefix: None,
+                        name_suffix: None,
+                        short_desc_override: None,
+                        visible_on_look: false,
+                        look_aura: None,
+                        params: HashMap::new(),
+                    };
+                    if let Ok(mut q) = w.query_one::<&mut oxide_core::ActiveScriptEffects>(target) {
+                        if let Some(active) = q.get() {
+                            active.effects.retain(|e| e.id != id);
+                            active.effects.push(effect);
+                            return;
+                        }
+                    }
+                    let mut active = oxide_core::ActiveScriptEffects::default();
+                    active.effects.push(effect);
+                    let _ = w.insert(target, (active,));
+                }
+            },
+        );
+
+        engine.register_fn(
+            "apply_script_effect_full",
+            |world: ScriptWorld,
+             target: Entity,
+             id: String,
+             display_name: String,
+             source: String,
+             duration_secs: i64,
+             affects_display: String,
+             name_prefix: String,
+             name_suffix: String,
+             short_desc_override: String,
+             look_aura: String,
+             expire_msg: String| {
+                unsafe {
+                    let w = world.as_mut();
+                    let effect = oxide_core::ActiveScriptEffect {
+                        id: id.clone(),
+                        display_name: display_name.clone(),
+                        source,
+                        description: affects_display.clone(),
+                        remaining_secs: duration_secs.max(0) as u32,
+                        expire_message: if expire_msg.is_empty() {
+                            None
+                        } else {
+                            Some(expire_msg)
+                        },
+                        affects_display: if affects_display.is_empty() {
+                            None
+                        } else {
+                            Some(affects_display)
+                        },
+                        show_remaining_time: true,
+                        visible_in_affects: true,
+                        name_prefix: if name_prefix.is_empty() {
+                            None
+                        } else {
+                            Some(name_prefix)
+                        },
+                        name_suffix: if name_suffix.is_empty() {
+                            None
+                        } else {
+                            Some(name_suffix)
+                        },
+                        short_desc_override: if short_desc_override.is_empty() {
+                            None
+                        } else {
+                            Some(short_desc_override)
+                        },
+                        visible_on_look: !look_aura.is_empty(),
+                        look_aura: if look_aura.is_empty() {
+                            None
+                        } else {
+                            Some(look_aura)
+                        },
+                        params: HashMap::new(),
+                    };
+                    if let Ok(mut q) = w.query_one::<&mut oxide_core::ActiveScriptEffects>(target) {
+                        if let Some(active) = q.get() {
+                            active.effects.retain(|e| e.id != id);
+                            active.effects.push(effect);
+                            return;
+                        }
+                    }
+                    let mut active = oxide_core::ActiveScriptEffects::default();
+                    active.effects.push(effect);
+                    let _ = w.insert(target, (active,));
+                }
+            },
+        );
+
+        engine.register_fn(
+            "remove_script_effect",
+            |world: ScriptWorld, target: Entity, id: String| -> bool {
+                unsafe {
+                    let w = world.as_mut();
+                    if let Ok(mut q) = w.query_one::<&mut oxide_core::ActiveScriptEffects>(target) {
+                        if let Some(active) = q.get() {
+                            let len_before = active.effects.len();
+                            active.effects.retain(|e| e.id != id);
+                            return active.effects.len() < len_before;
+                        }
+                    }
+                    false
+                }
+            },
+        );
+
+        engine.register_fn(
+            "has_script_effect",
+            |world: ScriptWorld, target: Entity, id: String| -> bool {
+                unsafe {
+                    let w = world.as_ref();
+                    if let Ok(mut q) = w.query_one::<&oxide_core::ActiveScriptEffects>(target) {
+                        if let Some(active) = q.get() {
+                            return active.effects.iter().any(|e| e.id == id);
+                        }
+                    }
+                    false
+                }
+            },
+        );
+
+        engine.register_fn("is_equipped", |world: ScriptWorld, item: Entity| -> bool {
+            unsafe {
+                let w = world.as_ref();
+                for (_, eq) in w.query::<&oxide_core::Equipment>().iter() {
+                    if eq.slots.iter().any(|(_, e)| *e == item) {
+                        return true;
+                    }
+                }
+                false
+            }
+        });
+
         ScriptEngine {
             engine,
             script_dir: script_dir.into(),
@@ -832,6 +1051,94 @@ impl ScriptingBridge for ScriptEngine {
         self.engine
             .run_ast_with_scope(&mut scope, &ast)
             .map_err(|e| e.to_string())
+    }
+
+    fn execute_script_skill(
+        &self,
+        script: &str,
+        actor: Entity,
+        args: &str,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("actor", actor);
+        scope.push("args", args.to_string());
+        scope.push("world", ScriptWorld::new(world));
+
+        if self
+            .engine
+            .call_fn::<()>(&mut scope, &ast, "on_use", ())
+            .is_err()
+        {
+            if self
+                .engine
+                .call_fn::<()>(&mut scope, &ast, "on_cast", ())
+                .is_err()
+            {
+                if self
+                    .engine
+                    .call_fn::<()>(&mut scope, &ast, "main", ())
+                    .is_err()
+                {
+                    let _ = self.engine.run_ast_with_scope(&mut scope, &ast);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn execute_entity_command(
+        &self,
+        entity: Entity,
+        script: &str,
+        actor: Entity,
+        args: &str,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("self", entity);
+        scope.push("actor", actor);
+        scope.push("args", args.to_string());
+        scope.push("world", ScriptWorld::new(world));
+
+        if self
+            .engine
+            .call_fn::<()>(&mut scope, &ast, "on_command", ())
+            .is_err()
+        {
+            if self
+                .engine
+                .call_fn::<()>(&mut scope, &ast, "main", ())
+                .is_err()
+            {
+                let _ = self.engine.run_ast_with_scope(&mut scope, &ast);
+            }
+        }
+        Ok(())
+    }
+
+    fn evaluate_script_predicate(
+        &self,
+        script: &str,
+        actor: Entity,
+        target_entity: Option<Entity>,
+        world: &mut World,
+    ) -> Result<bool, String> {
+        let ast = self.get_ast(script)?;
+        let mut scope = Scope::new();
+        scope.push("actor", actor);
+        scope.push("target", target_entity);
+        scope.push("world", ScriptWorld::new(world));
+
+        if let Ok(res) = self.engine.call_fn::<bool>(&mut scope, &ast, "can_use", ()) {
+            Ok(res)
+        } else {
+            self.engine
+                .eval_ast_with_scope::<bool>(&mut scope, &ast)
+                .map_err(|e| e.to_string())
+        }
     }
 
     fn reload_script(&self, rel_path: &str) -> Result<(), String> {
@@ -1210,9 +1517,9 @@ fn test_fail() {
 
     #[test]
     fn test_reload_script() {
-        let temp_dir = std::env::current_dir().unwrap().join("temp_scripts_test");
+        let temp_dir = std::env::temp_dir().join("temp_scripts_test");
         if temp_dir.exists() {
-            std::fs::remove_dir_all(&temp_dir).unwrap();
+            let _ = std::fs::remove_dir_all(&temp_dir);
         }
         std::fs::create_dir_all(&temp_dir).unwrap();
 

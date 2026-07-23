@@ -26,6 +26,14 @@ Example:
 
 pub fn register(server: &mut Server) {
     server.register_command(
+        "affects",
+        &["effects", "spells"],
+        AccessLevel::Player,
+        "Character",
+        "Display active spells, temporary effects, and permanent passives",
+        cmd_affects,
+    );
+    server.register_command(
         "score",
         &["stats"],
         AccessLevel::Player,
@@ -2456,6 +2464,92 @@ pub fn cmd_prestige(
         next_level, class_template.name
     ));
     conn.send_line(&format!("You gained {} max HP.", hp_gain));
+}
+
+pub fn cmd_affects(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    _args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    conn.send_line("");
+    conn.send_line("Active Spells & Temporary Effects:");
+
+    let mut temp_count = 0;
+    if let Ok(mut q) = world.query_one::<&core::ActiveScriptEffects>(entity) {
+        if let Some(active) = q.get() {
+            for effect in &active.effects {
+                if !effect.visible_in_affects {
+                    continue;
+                }
+                temp_count += 1;
+                let display = if let Some(ref custom) = effect.affects_display {
+                    if effect.show_remaining_time && effect.remaining_secs > 0 {
+                        format!("  {} ({}s remaining)", custom, effect.remaining_secs)
+                    } else {
+                        format!("  {}", custom)
+                    }
+                } else if effect.show_remaining_time && effect.remaining_secs > 0 {
+                    format!(
+                        "  [{}] {} ({}s remaining)",
+                        effect.display_name, effect.description, effect.remaining_secs
+                    )
+                } else {
+                    format!("  [{}] {}", effect.display_name, effect.description)
+                };
+                conn.send_line(&display);
+            }
+        }
+    }
+
+    if temp_count == 0 {
+        conn.send_line("  None");
+    }
+
+    conn.send_line("");
+    conn.send_line("Permanent Passives & Blessings:");
+    let mut perm_count = 0;
+
+    let mut equipment_items = Vec::new();
+    if let Ok(mut q) = world.query_one::<&core::Equipment>(entity) {
+        if let Some(eq) = q.get() {
+            for (_slot, item_entity) in &eq.slots {
+                equipment_items.push(*item_entity);
+            }
+        }
+    }
+
+    for item_entity in equipment_items {
+        if let Ok(mut q) = world.query_one::<&core::PermanentItemAffects>(item_entity) {
+            if let Some(perm) = q.get() {
+                let item_name =
+                    core::get_short_desc(world, item_entity).unwrap_or_else(|| "Item".to_string());
+                for affect in &perm.affects {
+                    perm_count += 1;
+                    let display = if let Some(ref custom) = affect.affects_display {
+                        format!("  [{item_name}] {custom}")
+                    } else {
+                        format!("  [{item_name}] {} ({:+})", affect.name, affect.amount)
+                    };
+                    conn.send_line(&display);
+                }
+            }
+        }
+    }
+
+    if perm_count == 0 {
+        conn.send_line("  None");
+    }
+    conn.send_line("");
 }
 
 #[cfg(test)]

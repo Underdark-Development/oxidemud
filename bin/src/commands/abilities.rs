@@ -261,6 +261,17 @@ pub fn cmd_cast(
             return;
         }
     };
+    let remaining_args = args[skill_input.len()..].trim();
+
+    let dynamic_spell = core::with_dynamic_skills(|reg| reg.find_spell(skill_input).cloned());
+    if let Some(spell) = dynamic_spell {
+        if let Some(entity) = conn.entity() {
+            if let Some(bridge) = core::get_scripting_bridge() {
+                let _ = bridge.execute_script_skill(&spell.script, entity, remaining_args, world);
+                return;
+            }
+        }
+    }
 
     let skill_id = match templates.resolve_skill(skill_input, None) {
         Ok(id) => id,

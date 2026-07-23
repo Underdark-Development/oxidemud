@@ -506,6 +506,50 @@ pub fn run_temporary_effect_decay(
         let _ = world.insert(entity, (crate::Dirty,));
     }
 
+    // Decay ActiveScriptEffects
+    let mut script_updates = Vec::new();
+    for (raw_entity, active_effects) in world.query::<&crate::ActiveScriptEffects>().iter() {
+        let entity = crate::Entity::from(raw_entity);
+        let mut new_effects = active_effects.effects.clone();
+        let mut changed = false;
+
+        for idx in (0..new_effects.len()).rev() {
+            let effect = &mut new_effects[idx];
+            if effect.remaining_secs > 0 {
+                effect.remaining_secs = effect.remaining_secs.saturating_sub(elapsed_secs);
+                changed = true;
+            }
+
+            if effect.remaining_secs == 0 {
+                let exp = new_effects.remove(idx);
+                if let Some(msg) = exp.expire_message {
+                    if let Some(msg_bridge) = crate::get_message_bridge() {
+                        msg_bridge.send_to_entity(entity, &msg);
+                    }
+                }
+                expired.push((entity, exp.source, exp.display_name));
+                changed = true;
+            }
+        }
+
+        if changed {
+            script_updates.push((entity, new_effects));
+        }
+    }
+
+    for (entity, new_effects) in script_updates {
+        if new_effects.is_empty() {
+            let _ = world.remove_one::<crate::ActiveScriptEffects>(entity);
+        } else {
+            let _ = world.insert(
+                entity,
+                (crate::ActiveScriptEffects {
+                    effects: new_effects,
+                },),
+            );
+        }
+    }
+
     expired
 }
 

@@ -160,19 +160,27 @@ pub fn cmd_help(
     let mut topics = std::collections::BTreeSet::new();
     for cmd in &dispatch.commands {
         if conn_access >= cmd.access {
-            topics.insert(cmd.topic);
+            topics.insert(cmd.topic.to_string());
         }
     }
+    core::with_dynamic_skills(|reg| {
+        for t in reg.topics() {
+            topics.insert(t);
+        }
+    });
 
     let query = args.trim();
 
     if !query.is_empty() {
         let query_lower = query.to_lowercase();
-        let matched_topic = topics.iter().find(|t| t.to_lowercase() == query_lower);
+        let matched_topic = topics
+            .iter()
+            .find(|t| t.to_lowercase() == query_lower)
+            .cloned();
         if let Some(topic) = matched_topic {
             let mut cmds = Vec::new();
             for cmd in &dispatch.commands {
-                if cmd.topic == *topic && conn_access >= cmd.access {
+                if cmd.topic == topic && conn_access >= cmd.access {
                     let name_col = if cmd.aliases.is_empty() {
                         cmd.name.to_string()
                     } else {
@@ -181,6 +189,21 @@ pub fn cmd_help(
                     cmds.push(name_col);
                 }
             }
+            core::with_dynamic_skills(|reg| {
+                for skill in reg.skills_for_topic(&topic) {
+                    let display_name = if let Some(cmd) = &skill.command {
+                        if skill.is_spell {
+                            format!("cast {} ({})", cmd, skill.name)
+                        } else {
+                            format!("{} ({})", cmd, skill.name)
+                        }
+                    } else {
+                        skill.name.clone()
+                    };
+                    cmds.push(display_name);
+                }
+            });
+
             cmds.sort();
             let width = if conn.screen_width() > 0 {
                 conn.screen_width() as usize
@@ -197,6 +220,50 @@ pub fn cmd_help(
             return;
         }
 
+        // 1. Check dynamic skills / spells
+        let dynamic_skill =
+            core::with_dynamic_skills(|reg| reg.find_by_name_or_command(query).cloned());
+        if let Some(skill) = dynamic_skill {
+            conn.send_line("");
+            let header = if let Some(cmd) = &skill.command {
+                if skill.is_spell {
+                    format!("cast {} - {}", cmd, skill.name)
+                } else {
+                    format!("{} - {}", cmd, skill.name)
+                }
+            } else {
+                skill.name.clone()
+            };
+            conn.send_line(&format!("  {header}"));
+            conn.send_line("");
+            for line in skill.help_text.lines() {
+                conn.send_line(&format!("  {line}"));
+            }
+            conn.send_line("");
+            return;
+        }
+
+        // 2. Check contextual entity commands on room / actor
+        if let Some(entity) = conn.entity() {
+            if let Some(room) = core::get_pos_room(_world, entity) {
+                if let Ok(mut q) = _world.query_one::<&core::EntityCommands>(room) {
+                    if let Some(cmds) = q.get() {
+                        if let Some(cmd) = cmds.find(query) {
+                            conn.send_line("");
+                            conn.send_line(&format!("  {} (Room Command)", cmd.command_name));
+                            conn.send_line("");
+                            for line in cmd.help_text.lines() {
+                                conn.send_line(&format!("  {line}"));
+                            }
+                            conn.send_line("");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Check static commands
         if let Some(cmd) = dispatch.find(query) {
             if conn_access >= cmd.access {
                 conn.send_line("");

@@ -246,3 +246,187 @@ impl SkillCap {
             .collect()
     }
 }
+
+fn default_true() -> bool {
+    true
+}
+
+/// Parameterized usage restrictions for dynamic skills, spells, and entity commands.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CommandRestrictions {
+    #[serde(default)]
+    pub allowed_classes: Vec<String>,
+    #[serde(default)]
+    pub allowed_races: Vec<String>,
+    #[serde(default)]
+    pub min_level: u8,
+    #[serde(default)]
+    pub required_deity: Option<String>,
+    #[serde(default)]
+    pub requires_equipped: bool,
+    #[serde(default)]
+    pub script_predicate: Option<String>,
+    #[serde(default)]
+    pub rejection_message: Option<String>,
+}
+
+/// Contextual command attached to a specific entity (item, room, mob, object).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityCommandDef {
+    pub command_name: String,
+    pub help_text: String,
+    pub script: String,
+    #[serde(default)]
+    pub restrictions: CommandRestrictions,
+    #[serde(default)]
+    pub get_message: Option<String>,
+    #[serde(default)]
+    pub equip_message: Option<String>,
+    #[serde(default)]
+    pub unequip_message: Option<String>,
+    #[serde(default)]
+    pub examine_hint: Option<String>,
+}
+
+/// Active script effect (buff, debuff, aura, temporary weapon enchant).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveScriptEffect {
+    pub id: String,
+    pub display_name: String,
+    pub source: String,
+    pub description: String,
+    pub remaining_secs: u32,
+    #[serde(default)]
+    pub expire_message: Option<String>,
+    #[serde(default)]
+    pub affects_display: Option<String>,
+    #[serde(default = "default_true")]
+    pub show_remaining_time: bool,
+    #[serde(default = "default_true")]
+    pub visible_in_affects: bool,
+    #[serde(default)]
+    pub name_prefix: Option<String>,
+    #[serde(default)]
+    pub name_suffix: Option<String>,
+    #[serde(default)]
+    pub short_desc_override: Option<String>,
+    #[serde(default)]
+    pub visible_on_look: bool,
+    #[serde(default)]
+    pub look_aura: Option<String>,
+    #[serde(default)]
+    pub params: HashMap<String, String>,
+}
+
+/// Component storing active temporary script effects on an entity or item.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActiveScriptEffects {
+    pub effects: Vec<ActiveScriptEffect>,
+}
+
+/// Conditions for permanent passive affects on items or entities.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum PassiveCondition {
+    None,
+    RequiresSet { set_id: String, count: u8 },
+    RequiresClass { classes: Vec<String> },
+    RequiresRace { races: Vec<String> },
+    ScriptCondition { script: String },
+}
+
+/// Permanent passive affect bestowed by an item, equipment set, or entity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermanentAffectDef {
+    pub id: String,
+    pub name: String,
+    pub stat: String,
+    pub amount: i32,
+    pub condition: PassiveCondition,
+    #[serde(default)]
+    pub affects_display: Option<String>,
+}
+
+/// Component attached to items or entities holding permanent passive affects.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PermanentItemAffects {
+    pub affects: Vec<PermanentAffectDef>,
+}
+
+/// Component attached to items, rooms, or entities holding custom contextual commands.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EntityCommands {
+    pub commands: Vec<EntityCommandDef>,
+}
+
+impl EntityCommands {
+    pub fn new() -> Self {
+        EntityCommands {
+            commands: Vec::new(),
+        }
+    }
+
+    pub fn add(
+        &mut self,
+        command_name: impl Into<String>,
+        script: impl Into<String>,
+        help_text: impl Into<String>,
+    ) {
+        self.add_with_req(command_name, script, help_text, false);
+    }
+
+    pub fn add_with_req(
+        &mut self,
+        command_name: impl Into<String>,
+        script: impl Into<String>,
+        help_text: impl Into<String>,
+        requires_equipped: bool,
+    ) {
+        let mut restr = CommandRestrictions::default();
+        restr.requires_equipped = requires_equipped;
+        self.add_full(
+            command_name,
+            script,
+            help_text,
+            restr,
+            None,
+            None,
+            None,
+            None,
+        );
+    }
+
+    pub fn add_full(
+        &mut self,
+        command_name: impl Into<String>,
+        script: impl Into<String>,
+        help_text: impl Into<String>,
+        restrictions: CommandRestrictions,
+        get_message: Option<String>,
+        equip_message: Option<String>,
+        unequip_message: Option<String>,
+        examine_hint: Option<String>,
+    ) {
+        let name = command_name.into();
+        let script = script.into();
+        let help = help_text.into();
+        self.commands.retain(|c| c.command_name != name);
+        self.commands.push(EntityCommandDef {
+            command_name: name,
+            help_text: help,
+            script,
+            restrictions,
+            get_message,
+            equip_message,
+            unequip_message,
+            examine_hint,
+        });
+    }
+
+    pub fn find(&self, name: &str) -> Option<&EntityCommandDef> {
+        let name_lower = name.to_lowercase();
+        self.commands
+            .iter()
+            .find(|c| c.command_name.to_lowercase() == name_lower)
+    }
+}

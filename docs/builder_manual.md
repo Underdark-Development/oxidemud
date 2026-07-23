@@ -328,6 +328,25 @@ target = "target"
 [set]
 id = "leather_set"
 piece_type = "gloves"
+
+# Contextual item commands & bestowal messages
+[[commands]]
+name = "ignite"
+script = "scripts/ignite_sword.rhai"
+help = "Ignites the blade with holy fire."
+requires_equipped = true
+equip_message = "Equipping the sword bestows the ability 'ignite'."
+unequip_message = "Unequipping the sword removes the ability 'ignite'."
+examine_hint = "You feel a faint warmth radiating from the hilt."
+
+# Permanent passive affects bestowed while equipped
+[[permanent_affects]]
+id = "keen_edge"
+name = "+1 to Hit"
+stat = "to_hit"
+amount = 1
+condition = "none"  # "none", set requirements, or race/class gated
+affects_display = "The keen blade grants +1 to attack rolls."
 ```
 
 #### Core Schema Fields

@@ -392,6 +392,45 @@ pub fn cmd_wear(
     for trigger in core::systems::trigger::process_triggers(world, entity, "on_wear") {
         conn.send_line(&trigger_message(&trigger, world));
     }
+    notify_equip_commands(world, conn, item);
+}
+
+fn notify_equip_commands(world: &World, conn: &mut dyn Connection, item: core::Entity) {
+    if let Ok(mut q) = world.query_one::<&core::EntityCommands>(item) {
+        if let Some(cmds) = q.get() {
+            for cmd in &cmds.commands {
+                if cmd.restrictions.requires_equipped {
+                    if let Some(ref msg) = cmd.equip_message {
+                        conn.send_line(msg);
+                    } else {
+                        conn.send_line(&format!(
+                            "Equipping this item bestows the ability to '{}'.",
+                            cmd.command_name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn notify_unequip_commands(world: &World, conn: &mut dyn Connection, item: core::Entity) {
+    if let Ok(mut q) = world.query_one::<&core::EntityCommands>(item) {
+        if let Some(cmds) = q.get() {
+            for cmd in &cmds.commands {
+                if cmd.restrictions.requires_equipped {
+                    if let Some(ref msg) = cmd.unequip_message {
+                        conn.send_line(msg);
+                    } else {
+                        conn.send_line(&format!(
+                            "Unequipping this item removes the ability to '{}'.",
+                            cmd.command_name
+                        ));
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub fn cmd_wield(
@@ -510,6 +549,7 @@ pub fn cmd_wield(
     for trigger in core::systems::trigger::process_triggers(world, entity, "on_wear") {
         conn.send_line(&trigger_message(&trigger, world));
     }
+    notify_equip_commands(world, conn, item);
 }
 
 pub fn cmd_remove(
@@ -561,6 +601,7 @@ pub fn cmd_remove(
                     }
                 }
                 conn.send_line("You remove it.");
+                notify_unequip_commands(world, conn, item);
             } else {
                 conn.send_line("You aren't wearing anything there.");
             }
@@ -696,6 +737,33 @@ pub fn cmd_examine(
             conn.send_line(&format!("Durability: {}/{}", dur.current, dur.max));
         }
     }
+
+    if let Ok(mut q) = world.query_one::<&core::ActiveScriptEffects>(item) {
+        if let Some(active) = q.get() {
+            for effect in &active.effects {
+                if effect.visible_on_look {
+                    if let Some(ref aura) = effect.look_aura {
+                        conn.send_line(&format!("Active Aura: {}", aura));
+                    } else {
+                        conn.send_line(&format!(
+                            "Active Effect: [{}] {}",
+                            effect.display_name, effect.description
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&core::EntityCommands>(item) {
+        if let Some(cmds) = q.get() {
+            for cmd in &cmds.commands {
+                if let Some(ref hint) = cmd.examine_hint {
+                    conn.send_line(&format!("  Hint: {}", hint));
+                }
+            }
+        }
+    }
 }
 
 pub fn cmd_get(
@@ -781,6 +849,22 @@ pub fn cmd_get(
         if let Some(inv) = q.get() {
             inv.0.push(item);
             conn.send_line("You pick it up.");
+            if let Ok(mut cmd_q) = world.query_one::<&core::EntityCommands>(item) {
+                if let Some(cmds) = cmd_q.get() {
+                    for cmd in &cmds.commands {
+                        if !cmd.restrictions.requires_equipped {
+                            if let Some(ref msg) = cmd.get_message {
+                                conn.send_line(msg);
+                            } else {
+                                conn.send_line(&format!(
+                                    "Holding this item bestows the ability to '{}'.",
+                                    cmd.command_name
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

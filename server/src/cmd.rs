@@ -90,6 +90,31 @@ impl CommandDispatch {
             }
         }
 
+        if let Some(entity) = conn.entity() {
+            if check_entity_command(world, entity, name, args) {
+                return;
+            }
+        }
+
+        let dynamic_skill =
+            oxide_core::with_dynamic_skills(|reg| reg.find_direct_command(name).cloned());
+        if let Some(skill) = dynamic_skill {
+            if let Some(entity) = conn.entity() {
+                match check_command_restrictions(world, entity, None, false, &skill.restrictions) {
+                    Ok(()) => {
+                        if let Some(bridge) = oxide_core::get_scripting_bridge() {
+                            let _ = bridge.execute_script_skill(&skill.script, entity, args, world);
+                            return;
+                        }
+                    }
+                    Err(msg) => {
+                        conn.send_line(&msg);
+                        return;
+                    }
+                }
+            }
+        }
+
         if let Some(cmd) = self.find(name) {
             if conn.access_level() < cmd.access {
                 conn.send_line("Huh? Type 'help' for a list of commands.");
@@ -138,6 +163,217 @@ impl Default for CommandDispatch {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn check_command_restrictions(
+    world: &mut World,
+    actor: oxide_core::Entity,
+    target_entity: Option<oxide_core::Entity>,
+    is_equipped: bool,
+    restr: &oxide_core::CommandRestrictions,
+) -> Result<(), String> {
+    if restr.requires_equipped && !is_equipped {
+        return Err(restr
+            .rejection_message
+            .clone()
+            .unwrap_or_else(|| "You must equip that item to use that ability.".to_string()));
+    }
+
+    if restr.min_level > 0 {
+        let level = world
+            .query_one::<&oxide_core::Level>(actor)
+            .ok()
+            .and_then(|mut q| q.get().map(|l| l.0))
+            .unwrap_or(1);
+        if level < restr.min_level {
+            return Err(restr.rejection_message.clone().unwrap_or_else(|| {
+                "You are not experienced enough to use that ability.".to_string()
+            }));
+        }
+    }
+
+    if !restr.allowed_classes.is_empty() {
+        let actor_class = world
+            .query_one::<&oxide_core::Class>(actor)
+            .ok()
+            .and_then(|mut q| q.get().map(|c| c.0.clone()));
+        let allowed = actor_class.as_ref().is_some_and(|ac| {
+            restr
+                .allowed_classes
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(ac))
+        });
+        if !allowed {
+            return Err(restr.rejection_message.clone().unwrap_or_else(|| {
+                let required = restr.allowed_classes.join(" or ");
+                format!("Only a {required} can use that ability.")
+            }));
+        }
+    }
+
+    if !restr.allowed_races.is_empty() {
+        let actor_race = world
+            .query_one::<&oxide_core::Race>(actor)
+            .ok()
+            .and_then(|mut q| q.get().map(|r| r.0.clone()));
+        let allowed = actor_race.as_ref().is_some_and(|ar| {
+            restr
+                .allowed_races
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(ar))
+        });
+        if !allowed {
+            return Err(restr.rejection_message.clone().unwrap_or_else(|| {
+                let required = restr.allowed_races.join(" or ");
+                format!("Only {required}s possess the ability to perform that.")
+            }));
+        }
+    }
+
+    if let Some(ref req_deity) = restr.required_deity {
+        let actor_deity = world
+            .query_one::<&oxide_core::Deity>(actor)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .and_then(|d| d.0);
+        let allowed = actor_deity
+            .as_deref()
+            .is_some_and(|ad| ad.eq_ignore_ascii_case(req_deity));
+        if !allowed {
+            return Err(restr.rejection_message.clone().unwrap_or_else(|| {
+                format!("Only devout followers of {req_deity} can invoke that ability.")
+            }));
+        }
+    }
+
+    if let Some(ref pred_script) = restr.script_predicate {
+        if let Some(bridge) = oxide_core::get_scripting_bridge() {
+            let res = bridge.evaluate_script_predicate(pred_script, actor, target_entity, world);
+            if let Ok(false) = res {
+                return Err(restr
+                    .rejection_message
+                    .clone()
+                    .unwrap_or_else(|| "You cannot use that ability right now.".to_string()));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn check_entity_command(
+    world: &mut World,
+    actor: oxide_core::Entity,
+    name: &str,
+    args: &str,
+) -> bool {
+    let bridge = match oxide_core::get_scripting_bridge() {
+        Some(b) => b,
+        None => return false,
+    };
+
+    // 1. Room command
+    if let Some(room) = oxide_core::get_pos_room(world, actor) {
+        let room_cmd = {
+            if let Ok(mut q) = world.query_one::<&oxide_core::EntityCommands>(room) {
+                q.get()
+                    .and_then(|cmds| cmds.find(name))
+                    .map(|c| (c.script.clone(), c.restrictions.clone()))
+            } else {
+                None
+            }
+        };
+        if let Some((script, restr)) = room_cmd {
+            match check_command_restrictions(world, actor, Some(room), false, &restr) {
+                Ok(()) => {
+                    let _ = bridge.execute_entity_command(room, &script, actor, args, world);
+                }
+                Err(msg) => {
+                    if let Some(msg_bridge) = oxide_core::get_message_bridge() {
+                        msg_bridge.send_to_entity(actor, &msg);
+                    }
+                }
+            }
+            return true;
+        }
+
+        // 2. Room objects / mobs
+        let entities = oxide_core::entities_in_room(world, room);
+        for target in entities {
+            if target == actor {
+                continue;
+            }
+            let target_cmd = {
+                if let Ok(mut q) = world.query_one::<&oxide_core::EntityCommands>(target) {
+                    q.get()
+                        .and_then(|cmds| cmds.find(name))
+                        .map(|c| (c.script.clone(), c.restrictions.clone()))
+                } else {
+                    None
+                }
+            };
+            if let Some((script, restr)) = target_cmd {
+                match check_command_restrictions(world, actor, Some(target), false, &restr) {
+                    Ok(()) => {
+                        let _ = bridge.execute_entity_command(target, &script, actor, args, world);
+                    }
+                    Err(msg) => {
+                        if let Some(msg_bridge) = oxide_core::get_message_bridge() {
+                            msg_bridge.send_to_entity(actor, &msg);
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+    }
+
+    // 3. Inventory / Equipment items on actor
+    let mut actor_items: Vec<(oxide_core::Entity, bool)> = Vec::new();
+
+    if let Ok(mut q) = world.query_one::<&oxide_core::Equipment>(actor) {
+        if let Some(eq) = q.get() {
+            for (_, e) in &eq.slots {
+                actor_items.push((*e, true));
+            }
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&oxide_core::Inventory>(actor) {
+        if let Some(inv) = q.get() {
+            for item in &inv.0 {
+                if !actor_items.iter().any(|(e, _)| e == item) {
+                    actor_items.push((*item, false));
+                }
+            }
+        }
+    }
+
+    for (item_entity, is_equipped) in actor_items {
+        let item_cmd = {
+            if let Ok(mut q) = world.query_one::<&oxide_core::EntityCommands>(item_entity) {
+                q.get()
+                    .and_then(|cmds| cmds.find(name))
+                    .map(|c| (c.script.clone(), c.restrictions.clone()))
+            } else {
+                None
+            }
+        };
+        if let Some((script, restr)) = item_cmd {
+            match check_command_restrictions(world, actor, Some(item_entity), is_equipped, &restr) {
+                Ok(()) => {
+                    let _ = bridge.execute_entity_command(item_entity, &script, actor, args, world);
+                }
+                Err(msg) => {
+                    if let Some(msg_bridge) = oxide_core::get_message_bridge() {
+                        msg_bridge.send_to_entity(actor, &msg);
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -339,5 +575,99 @@ mod tests {
             let msg = String::from_utf8_lossy(&bytes);
             assert!(!msg.contains("Huh? Type 'help' for a list of commands."));
         }
+    }
+
+    #[test]
+    fn test_dynamic_skill_and_entity_command_registration() {
+        let skill = oxide_core::ScriptSkill {
+            id: "parry_skill".to_string(),
+            name: "Parry".to_string(),
+            command: Some("parry".to_string()),
+            is_spell: false,
+            topic: "Skills".to_string(),
+            help_text: "Parry an incoming attack.".to_string(),
+            script: "skills/parry.rhai".to_string(),
+            restrictions: oxide_core::CommandRestrictions::default(),
+        };
+        oxide_core::register_dynamic_skill(skill);
+
+        let found_skill =
+            oxide_core::with_dynamic_skills(|reg| reg.find_direct_command("parry").cloned());
+        assert!(found_skill.is_some());
+        assert_eq!(found_skill.unwrap().name, "Parry");
+
+        let spell = oxide_core::ScriptSkill {
+            id: "fireball_spell".to_string(),
+            name: "Fireball".to_string(),
+            command: Some("fireball".to_string()),
+            is_spell: true,
+            topic: "Spells".to_string(),
+            help_text: "Cast a ball of fire.".to_string(),
+            script: "spells/fireball.rhai".to_string(),
+            restrictions: oxide_core::CommandRestrictions::default(),
+        };
+        oxide_core::register_dynamic_skill(spell);
+
+        let found_spell =
+            oxide_core::with_dynamic_skills(|reg| reg.find_spell("fireball").cloned());
+        assert!(found_spell.is_some());
+        assert_eq!(found_spell.unwrap().name, "Fireball");
+
+        let mut ec = oxide_core::EntityCommands::new();
+        ec.add(
+            "pull",
+            "scripts/pull_lever.rhai",
+            "Pull the mysterious lever.",
+        );
+        assert!(ec.find("pull").is_some());
+        assert_eq!(ec.find("pull").unwrap().script, "scripts/pull_lever.rhai");
+    }
+
+    #[test]
+    fn test_command_restrictions_evaluation() {
+        let mut world = World::new();
+        let actor = world.spawn((
+            oxide_core::Level(5),
+            oxide_core::Class("Mage".to_string()),
+            oxide_core::Race("Elf".to_string()),
+            oxide_core::Deity(Some("Elona".to_string())),
+        ));
+
+        let mut restr = oxide_core::CommandRestrictions::default();
+        restr.min_level = 10;
+        assert_eq!(
+            check_command_restrictions(&mut world, actor, None, false, &restr).unwrap_err(),
+            "You are not experienced enough to use that ability."
+        );
+
+        restr.min_level = 5;
+        restr.allowed_classes = vec!["Fighter".to_string()];
+        assert_eq!(
+            check_command_restrictions(&mut world, actor, None, false, &restr).unwrap_err(),
+            "Only a Fighter can use that ability."
+        );
+
+        restr.allowed_classes = vec!["Mage".to_string()];
+        restr.allowed_races = vec!["Dwarf".to_string()];
+        assert_eq!(
+            check_command_restrictions(&mut world, actor, None, false, &restr).unwrap_err(),
+            "Only Dwarfs possess the ability to perform that."
+        );
+
+        restr.allowed_races = vec!["Elf".to_string()];
+        restr.required_deity = Some("Thor".to_string());
+        assert_eq!(
+            check_command_restrictions(&mut world, actor, None, false, &restr).unwrap_err(),
+            "Only devout followers of Thor can invoke that ability."
+        );
+
+        restr.required_deity = Some("Elona".to_string());
+        restr.requires_equipped = true;
+        assert_eq!(
+            check_command_restrictions(&mut world, actor, None, false, &restr).unwrap_err(),
+            "You must equip that item to use that ability."
+        );
+
+        assert!(check_command_restrictions(&mut world, actor, None, true, &restr).is_ok());
     }
 }

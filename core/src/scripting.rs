@@ -85,6 +85,53 @@ pub trait ScriptingBridge: Send + Sync {
         Ok(())
     }
 
+    /// Execute a dynamic skill/spell script.
+    fn execute_script_skill(
+        &self,
+        script: &str,
+        actor: Entity,
+        args: &str,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let _ = script;
+        let _ = actor;
+        let _ = args;
+        let _ = world;
+        Ok(())
+    }
+
+    /// Execute an entity command script.
+    fn execute_entity_command(
+        &self,
+        entity: Entity,
+        script: &str,
+        actor: Entity,
+        args: &str,
+        world: &mut World,
+    ) -> Result<(), String> {
+        let _ = entity;
+        let _ = script;
+        let _ = actor;
+        let _ = args;
+        let _ = world;
+        Ok(())
+    }
+
+    /// Evaluate a script predicate returning boolean result.
+    fn evaluate_script_predicate(
+        &self,
+        script: &str,
+        actor: Entity,
+        target_entity: Option<Entity>,
+        world: &mut World,
+    ) -> Result<bool, String> {
+        let _ = script;
+        let _ = actor;
+        let _ = target_entity;
+        let _ = world;
+        Ok(true)
+    }
+
     /// Reload a script AST cache, compiling or removing it.
     fn reload_script(&self, _rel_path: &str) -> Result<(), String> {
         Ok(())
@@ -121,4 +168,118 @@ pub fn get_scripting_bridge() -> Option<&'static dyn ScriptingBridge> {
 /// Retrieve the active messaging implementation.
 pub fn get_message_bridge() -> Option<&'static dyn MessageOutputBridge> {
     MESSAGE_BRIDGE.get().map(|b| b.as_ref())
+}
+
+use crate::components::CommandRestrictions;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::RwLock;
+
+/// Dynamic skill or spell registered by a script.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScriptSkill {
+    pub id: String,
+    pub name: String,
+    pub command: Option<String>,
+    pub is_spell: bool,
+    pub topic: String,
+    pub help_text: String,
+    pub script: String,
+    #[serde(default)]
+    pub restrictions: CommandRestrictions,
+}
+
+/// Thread-safe registry for dynamically registered skills and spells.
+#[derive(Debug, Clone, Default)]
+pub struct DynamicSkillRegistry {
+    pub skills: HashMap<String, ScriptSkill>,
+    pub direct_commands: HashMap<String, String>, // lowercase command name -> skill id
+    pub spells: HashMap<String, String>,          // lowercase spell name -> skill id
+}
+
+impl DynamicSkillRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn register(&mut self, skill: ScriptSkill) {
+        let id = skill.id.clone();
+        if let Some(cmd) = &skill.command {
+            let cmd_lower = cmd.to_lowercase();
+            if skill.is_spell {
+                self.spells.insert(cmd_lower, id.clone());
+            } else {
+                self.direct_commands.insert(cmd_lower, id.clone());
+            }
+        }
+        self.skills.insert(id, skill);
+    }
+
+    pub fn find_direct_command(&self, name: &str) -> Option<&ScriptSkill> {
+        let name_lower = name.to_lowercase();
+        if let Some(id) = self.direct_commands.get(&name_lower) {
+            return self.skills.get(id);
+        }
+        for (cmd, id) in &self.direct_commands {
+            if cmd.starts_with(&name_lower) {
+                return self.skills.get(id);
+            }
+        }
+        None
+    }
+
+    pub fn find_spell(&self, name: &str) -> Option<&ScriptSkill> {
+        let name_lower = name.to_lowercase();
+        if let Some(id) = self.spells.get(&name_lower) {
+            return self.skills.get(id);
+        }
+        for (spell, id) in &self.spells {
+            if spell.starts_with(&name_lower) {
+                return self.skills.get(id);
+            }
+        }
+        None
+    }
+
+    pub fn find_by_name_or_command(&self, query: &str) -> Option<&ScriptSkill> {
+        let q_lower = query.to_lowercase();
+        if let Some(s) = self.find_direct_command(&q_lower) {
+            return Some(s);
+        }
+        if let Some(s) = self.find_spell(&q_lower) {
+            return Some(s);
+        }
+        self.skills
+            .values()
+            .find(|s| s.id.to_lowercase() == q_lower || s.name.to_lowercase() == q_lower)
+    }
+
+    pub fn topics(&self) -> Vec<String> {
+        let mut t: Vec<String> = self.skills.values().map(|s| s.topic.clone()).collect();
+        t.sort();
+        t.dedup();
+        t
+    }
+
+    pub fn skills_for_topic(&self, topic: &str) -> Vec<&ScriptSkill> {
+        self.skills
+            .values()
+            .filter(|s| s.topic.eq_ignore_ascii_case(topic))
+            .collect()
+    }
+}
+
+static DYNAMIC_SKILLS: OnceLock<RwLock<DynamicSkillRegistry>> = OnceLock::new();
+
+pub fn register_dynamic_skill(skill: ScriptSkill) {
+    let registry = DYNAMIC_SKILLS.get_or_init(|| RwLock::new(DynamicSkillRegistry::new()));
+    if let Ok(mut writer) = registry.write() {
+        writer.register(skill);
+    }
+}
+
+pub fn with_dynamic_skills<R>(f: impl FnOnce(&DynamicSkillRegistry) -> R) -> R {
+    let registry = DYNAMIC_SKILLS.get_or_init(|| RwLock::new(DynamicSkillRegistry::new()));
+    let reader = registry.read().unwrap();
+    f(&reader)
 }

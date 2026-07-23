@@ -47,17 +47,53 @@ pub fn get_entity_name(world: &World, entity: Entity) -> Option<String> {
 }
 
 pub fn get_short_desc(world: &World, entity: Entity) -> Option<String> {
-    let sd = world
-        .query_one::<&crate::ShortDesc>(entity)
-        .ok()
-        .and_then(|mut q| q.get().map(|s| s.0.clone()));
-    if sd.as_ref().is_some_and(|s| !s.is_empty()) {
-        return sd;
+    let base_sd = {
+        let sd = world
+            .query_one::<&crate::ShortDesc>(entity)
+            .ok()
+            .and_then(|mut q| q.get().map(|s| s.0.clone()));
+        if sd.as_ref().is_some_and(|s| !s.is_empty()) {
+            sd
+        } else {
+            world
+                .query_one::<&crate::Name>(entity)
+                .ok()
+                .and_then(|mut q| q.get().map(|n| n.0.clone()))
+        }
+    };
+
+    let base = match base_sd {
+        Some(s) => s,
+        None => return None,
+    };
+
+    if let Ok(mut q) = world.query_one::<&crate::ActiveScriptEffects>(entity) {
+        if let Some(active) = q.get() {
+            for effect in &active.effects {
+                if let Some(ref override_desc) = effect.short_desc_override {
+                    return Some(override_desc.clone());
+                }
+            }
+            let mut result = base.clone();
+            for effect in &active.effects {
+                if let Some(ref prefix) = effect.name_prefix {
+                    if result.to_lowercase().starts_with("a ") {
+                        result = format!("{}{}", prefix, &result[2..]);
+                    } else if result.to_lowercase().starts_with("an ") {
+                        result = format!("{}{}", prefix, &result[3..]);
+                    } else {
+                        result = format!("{}{}", prefix, result);
+                    }
+                }
+                if let Some(ref suffix) = effect.name_suffix {
+                    result.push_str(suffix);
+                }
+            }
+            return Some(result);
+        }
     }
-    world
-        .query_one::<&crate::Name>(entity)
-        .ok()
-        .and_then(|mut q| q.get().map(|n| n.0.clone()))
+
+    Some(base)
 }
 
 pub fn is_void_room(world: &World, room: Entity) -> bool {

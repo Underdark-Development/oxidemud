@@ -112,6 +112,48 @@ let completed = world.has_completed_quest(actor, "save_the_sheep");
 world.grant_recipe(actor, "iron_shortsword");
 ```
 
+### Dynamic Skills, Spells, and Entity Commands
+
+Scripts can dynamically register global skills/spells, as well as contextual commands bound to specific rooms, items, or NPCs:
+
+```rust
+// Register a global player skill (e.g. direct command "parry")
+register_skill("parry", "Parry", "parry", "skills/parry.rhai", "Parry incoming melee attacks.");
+
+// Register a spell accessible via the `cast` command (e.g. `cast fireball`)
+register_spell("fireball", "Fireball", "fireball", "spells/fireball.rhai", "Hurl a ball of fire at your target.");
+
+// Register a contextual entity command (on an item, room, or mob)
+register_entity_command(world, item_entity, "ignite", "scripts/ignite_sword.rhai", "Ignite your sword with elemental fire.");
+```
+
+### Script Effects & Visual Auras
+
+Scripts can apply temporary status effects, buffs, debuffs, visual auras, and short description overrides:
+
+```rust
+// Apply a temporary script effect with full inspection & short description overrides
+apply_script_effect_full(
+    world,
+    actor,
+    "ignited_weapon",                     // Effect ID
+    "Ignited",                             // Display Name
+    "Ignite Sword",                        // Source
+    120,                                   // Duration in seconds
+    "Your blade burns with holy flame.",   // Custom 'affects' line
+    "a flaming ",                          // Name prefix override (replaces 'a ')
+    "",                                    // Name suffix
+    "a steel longsword wreathed in fire",  // Short desc override
+    "is blazing with holy fire.",          // Visual aura shown on 'look' / 'examine'
+    "Your sword stops burning."            // Expiration message broadcast when TTL reaches 0
+);
+
+// Check or remove active script effects
+if has_script_effect(world, actor, "ignited_weapon") {
+    remove_script_effect(world, actor, "ignited_weapon");
+}
+```
+
 ---
 
 ## Example Script Trigger (on_say / Dialogue Trigger)
