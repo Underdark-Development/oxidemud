@@ -53,4 +53,20 @@ impl oxide_core::MessageOutputBridge for ServerMessageBridge {
             }
         }
     }
+
+    fn echo_to_room_except(&self, room: Entity, message: &str, exclude: &[Entity]) {
+        if let Some(registry_lock) = get_registry() {
+            if let Ok(reg) = registry_lock.try_lock() {
+                if let Some(world_lock) = get_world() {
+                    if let Ok(world) = world_lock.try_lock() {
+                        let mut formatted = message.to_string();
+                        if !formatted.ends_with('\n') {
+                            formatted.push_str("\r\n");
+                        }
+                        reg.broadcast_to_room_except(&world, room, &formatted, exclude);
+                    }
+                }
+            }
+        }
+    }
 }

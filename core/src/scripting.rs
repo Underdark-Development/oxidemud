@@ -145,6 +145,9 @@ pub trait MessageOutputBridge: Send + Sync {
 
     /// Echo a message line to all occupants of a specific room.
     fn echo_to_room(&self, room: Entity, message: &str);
+
+    /// Echo a message line to occupants of a specific room, excluding specified entities.
+    fn echo_to_room_except(&self, room: Entity, message: &str, exclude: &[Entity]);
 }
 
 pub static SCRIPTING_BRIDGE: OnceLock<Box<dyn ScriptingBridge>> = OnceLock::new();

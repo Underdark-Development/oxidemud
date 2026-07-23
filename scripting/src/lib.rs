@@ -211,6 +211,25 @@ impl ScriptEngine {
                 }
             },
         );
+        engine.register_fn(
+            "echo_room_except",
+            |world: ScriptWorld, entity: Entity, msg: String, exclude: rhai::Array| unsafe {
+                let w = world.as_ref();
+                let room = w
+                    .query_one::<&oxide_core::Position>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().map(|p| p.room));
+                if let Some(r) = room {
+                    if let Some(bridge) = oxide_core::scripting::get_message_bridge() {
+                        let excluded_entities: Vec<Entity> = exclude
+                            .into_iter()
+                            .filter_map(|v| v.try_cast::<Entity>())
+                            .collect();
+                        bridge.echo_to_room_except(r, &msg, &excluded_entities);
+                    }
+                }
+            },
+        );
 
         // Follower control
         engine.register_fn(

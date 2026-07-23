@@ -55,9 +55,28 @@ impl ConnectionRegistry {
                 let _ = tx.send(bytes.clone());
             }
         }
+    pub fn broadcast_to_room_except(
+        &self,
+        world: &World,
+        room: Entity,
+        message: &str,
+        exclude: &[Entity],
+    ) {
+        let mut q = world.query::<(&oxide_core::Position,)>();
+        let bytes = message.as_bytes().to_vec();
+        for (raw, (pos,)) in q.iter() {
+            let entity = Entity::from(raw);
+            if pos.room != room {
+                continue;
+            }
+            if exclude.contains(&entity) {
+                continue;
+            }
+            if let Some(tx) = self.map.get(&entity) {
+                let _ = tx.send(bytes.clone());
+            }
+        }
     }
-
-    /// Return all connected player entities.
     pub fn connected_entities(&self) -> Vec<Entity> {
         self.map.keys().copied().collect()
     }
