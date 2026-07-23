@@ -85,28 +85,36 @@ let room = actor.room();
 | **`echo_to_except`** | `echo_to_except(room, "A lightning strike shakes the area!", [actor]);` | Remote broadcast to any explicit room entity, excluding specified entities. |
 
 
-### `WorldHandle`
+### Clean Execution Context (Zero `world` & Zero `room` Parameters)
 
-Provides system-level control to spawn or manipulate world state.
+All script functions automatically resolve `world`, `actor`, `self`, and current `room` from the execution context. **Scripts never need to receive or pass `world` or `room` pointers for standard game operations.**
 
 ```rust
-// Spawn a mobile template into the world
-let mob = world.spawn_mob("goblin_scout", actor.room());
+// Character & Room Querying (World inferred implicitly)
+let rank = get_skill_rank(actor, "parry");
+let name = actor.name();
+let room = actor.room();
 
-// Despawn an entity
-world.remove_entity(target);
+// Cooldown & Effect Management (World inferred implicitly)
+set_cooldown(actor, "chain_lightning", 10);
+if is_on_cooldown(actor, "chain_lightning") { ... }
 
-// Grant experience points and check for level ups
-world.award_xp(actor);
+apply_script_effect_full(
+    target,
+    "serpent_poison",
+    "Poisoned",
+    "Serpent Venom",
+    2,
+    "Suffering from deadly serpent poison",
+    "", " (poisoned)", "", "looks pale and shivering",
+    "The poison leaves your veins.",
+    #{}
+);
 
-// Quest Management
-world.accept_quest(actor, "save_the_sheep");
-world.complete_quest(actor, "save_the_sheep");
-let active = world.is_on_quest(actor, "save_the_sheep");
-let completed = world.has_completed_quest(actor, "save_the_sheep");
-
-// Learn a crafting recipe
-world.grant_recipe(actor, "iron_shortsword");
+// Messaging (Current Room & Actor inferred implicitly)
+send("You focus on parrying incoming attacks!");
+echo(actor.name() + " readies their weapon.");
+echo_except(def + " parries " + atk + "'s attack!", [actor, target]);
 ```
 
 ### Dynamic Skills, Spells, and Entity Commands

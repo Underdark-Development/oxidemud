@@ -1,15 +1,12 @@
 // content/scripts/items/poison_proc.rhai
-// Proc trigger script when attacking with poison_dagger
+// Weapon on_hit proc trigger script for Venomous Serpent Dagger.
 
 fn on_trigger() {
     if target.is_alive() {
         target.send("You feel a burning poison enter your bloodstream!");
-        let room = target.room();
-        room.echo(target.name() + " gasps as venom enters their wounds!");
+        echo_except(target.name() + " gasps as venom enters their wounds!", [target]);
 
-        // Apply 2-second (2 round) poison status effect
         apply_script_effect_full(
-            world,
             target,
             "serpent_poison",
             "Poisoned",

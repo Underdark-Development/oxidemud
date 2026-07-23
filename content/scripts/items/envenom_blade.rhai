@@ -1,18 +1,16 @@
 // content/scripts/items/envenom_blade.rhai
-// Action command granted by poison_dagger item when equipped
+// Custom item command script for "envenom" on the Venomous Serpent Dagger.
 
 fn on_command() {
-    if is_on_cooldown(world, actor, "envenom") {
-        actor.send("The blade is already glistening with fresh venom.");
+    if is_on_cooldown(actor, "envenom") {
+        send("The blade is already glistening with fresh venom.");
         return;
     }
 
-    actor.send("You apply fresh venom to the serpent blade!");
-    let room = actor.room();
-    room.echo(actor.name() + " runs a vial of dark green venom along their blade.");
+    send("You apply fresh venom to the serpent blade!");
+    echo(actor.name() + " runs a vial of dark green venom along their blade.");
 
     apply_script_effect_full(
-        world,
         self,
         "envenomed_blade",
         "Envenomed",
@@ -27,5 +25,5 @@ fn on_command() {
         #{}
     );
 
-    set_cooldown(world, actor, "envenom", 45);
+    set_cooldown(actor, "envenom", 45);
 }

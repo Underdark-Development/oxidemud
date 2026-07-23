@@ -4,9 +4,9 @@
 // Deflect success rate scales with practice level (max 60% success chance at 100% practice level).
 
 fn on_use() {
-    let rank = world.get_skill_rank(actor, "parry");
+    let rank = get_skill_rank(actor, "parry");
     if rank == 0 {
-        actor.send("You have not practiced the art of parrying.");
+        send("You have not practiced the art of parrying.");
         return;
     }
 
@@ -16,7 +16,7 @@ fn on_use() {
 }
 
 fn on_combat_hit() {
-    let rank = world.get_skill_rank(hit_ctx.target, "parry");
+    let rank = get_skill_rank(hit_ctx.target, "parry");
     if rank == 0 {
         return hit_ctx;
     }
@@ -24,14 +24,14 @@ fn on_combat_hit() {
     // Success rate depends on practice level: max 60% chance at 100% practice
     let chance = (rank * 60) / 100;
     if rand(1, 100) <= chance {
-        let defender_name = world.get_name(hit_ctx.target);
-        let attacker_name = world.get_name(hit_ctx.attacker);
+        let defender_name = hit_ctx.target.name();
+        let attacker_name = hit_ctx.attacker.name();
 
-        // Send direct targeted messages to defender and attacker
+        // Direct messages to defender and attacker
         hit_ctx.target.send("You parry " + attacker_name + "'s attack!");
         hit_ctx.attacker.send(defender_name + " parries your attack!");
 
-        // Broadcast to third-party room spectators automatically in current room, excluding defender and attacker
+        // Scoped room broadcast excluding defender and attacker (no room entity parameter needed)
         echo_except(defender_name + " parries " + attacker_name + "'s attack!", [hit_ctx.target, hit_ctx.attacker]);
 
         hit_ctx.abort("");

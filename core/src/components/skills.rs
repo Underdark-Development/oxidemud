@@ -112,6 +112,20 @@ pub struct SkillCooldowns {
     pub cooldowns: HashMap<String, u32>,
 }
 
+impl SkillCooldowns {
+    pub fn set_cooldown(&mut self, skill_id: String, secs: u32) {
+        if secs == 0 {
+            self.cooldowns.remove(&skill_id);
+        } else {
+            self.cooldowns.insert(skill_id, secs);
+        }
+    }
+
+    pub fn is_on_cooldown(&self, skill_id: &str) -> bool {
+        self.cooldowns.get(skill_id).copied().unwrap_or(0) > 0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
     pub id: String,
