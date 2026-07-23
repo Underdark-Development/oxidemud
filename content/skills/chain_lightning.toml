@@ -1,0 +1,12 @@
+id = "chain_lightning"
+name = "Chain Lightning"
+description = "Unleash a bolt of electric energy that arcs to multiple targets."
+skill_type = "magic"
+max_rank = 100
+level_requirement = 3
+script = "spells/chain_lightning.rhai"
+allowed_classes = ["mage", "wizard"]
+use_while_fighting = true
+use_while_sitting = false
+must_train = true
+trainer_types = ["magic"]

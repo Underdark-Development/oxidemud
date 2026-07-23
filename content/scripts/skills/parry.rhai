@@ -1,13 +1,8 @@
 // content/scripts/skills/parry.rhai
-// Parry skill script restricted to Warrior class
+// Parry skill script. Usage restrictions (allowed_classes: ["warrior"]) are enforced
+// automatically by the engine's built-in CommandRestrictions prior to script execution.
 
 fn on_use() {
-    let class_name = actor.class();
-    if class_name != "Warrior" && class_name != "warrior" {
-        actor.send("Only Warriors possess the discipline to parry attacks!");
-        return;
-    }
-
     if is_on_cooldown(world, actor, "parry") {
         actor.send("You must wait before parrying again.");
         return;

@@ -481,6 +481,33 @@ impl ScriptEngine {
         );
 
         engine.register_fn(
+            "register_skill",
+            |id: String,
+             name: String,
+             command: String,
+             script: String,
+             help_text: String,
+             allowed_classes: rhai::Array| {
+                let classes = allowed_classes
+                    .into_iter()
+                    .filter_map(|v| v.into_string().ok())
+                    .collect();
+                let mut restrictions = oxide_core::CommandRestrictions::default();
+                restrictions.allowed_classes = classes;
+                oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
+                    id,
+                    name,
+                    command: Some(command),
+                    is_spell: false,
+                    topic: "Skills".to_string(),
+                    help_text,
+                    script,
+                    restrictions,
+                });
+            },
+        );
+
+        engine.register_fn(
             "register_spell",
             |id: String, name: String, spell_name: String, script: String, help_text: String| {
                 oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
@@ -492,6 +519,33 @@ impl ScriptEngine {
                     help_text,
                     script,
                     restrictions: oxide_core::CommandRestrictions::default(),
+                });
+            },
+        );
+
+        engine.register_fn(
+            "register_spell",
+            |id: String,
+             name: String,
+             spell_name: String,
+             script: String,
+             help_text: String,
+             allowed_classes: rhai::Array| {
+                let classes = allowed_classes
+                    .into_iter()
+                    .filter_map(|v| v.into_string().ok())
+                    .collect();
+                let mut restrictions = oxide_core::CommandRestrictions::default();
+                restrictions.allowed_classes = classes;
+                oxide_core::register_dynamic_skill(oxide_core::ScriptSkill {
+                    id,
+                    name,
+                    command: Some(spell_name),
+                    is_spell: true,
+                    topic: "Spells".to_string(),
+                    help_text,
+                    script,
+                    restrictions,
                 });
             },
         );

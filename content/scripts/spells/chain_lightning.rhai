@@ -1,13 +1,8 @@
 // content/scripts/spells/chain_lightning.rhai
-// Chain Lightning spell script restricted to Mage class
+// Chain Lightning spell script. Usage restrictions (allowed_classes: ["mage", "wizard"]) are
+// enforced automatically by the engine's built-in CommandRestrictions prior to script execution.
 
 fn on_cast() {
-    let class_name = actor.class();
-    if class_name != "Mage" && class_name != "mage" && class_name != "Wizard" && class_name != "wizard" {
-        actor.send("Only a Mage can harness the volatile power of Chain Lightning!");
-        return;
-    }
-
     if is_on_cooldown(world, actor, "chain_lightning") {
         actor.send("Your hands are still tingling from the last spell cast.");
         return;
