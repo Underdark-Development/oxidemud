@@ -42,6 +42,7 @@ These rules are absolute. No PR, no matter how small, may violate them.
 - **CPU Offloading & Lock Safety:** CPU-heavy tasks (e.g., Argon2 password hashing) MUST run via `tokio::task::spawn_blocking`, outside of database locks and `Mutex` guards. Never hold a lock while executing expensive computation.
 - **Zero `unsafe` Code:** No `unsafe` blocks anywhere in the codebase. No exceptions. If you believe `unsafe` is necessary, open a discussion first.
 - **Treat Every Networked Byte as Hostile:** This project is a public-internet game server. Every input byte must be validated, bounded, and never trusted. Pre-auth connections are especially dangerous — enforce line length limits, read timeouts, and strike tracking before any game logic processes input.
+- **Documentation Synchronization:** Whenever implementing a new feature or modifying an existing system, you MUST update the corresponding human-facing documentation in `docs/` in the same session. Keeping documentation accurate and up-to-date as implementation evolves is mandatory.
 
 ## Key architecture facts
 
@@ -66,6 +67,8 @@ These rules are absolute. No PR, no matter how small, may violate them.
 - **No code examples** — avoid inline code blocks in docs unless the pattern is genuinely non-obvious or easily misused. Prefer concise prose over example code.
 - **Compact sections** — keep sections tight. Omit exhaustive enumerations when the pattern is clear (e.g. "all LoginState variants" → just name the pattern). Summarize feature completeness tables rather than listing every row.
 - **Update spade and MCP when core changes** — the core crate defines template types, fields, file format conventions, and validation rules. Both the TUI builder (`tui/`) and MCP server (`mcp/`) consume these directly. When adding, removing, or modifying anything in `core` that affects content representation (new template categories, new fields, changed serialization, new validation rules, etc.), update `tui/` and `mcp/` in the same session so they stay consistent. Run `cargo test --workspace` after any cross-crate change to catch breakage early.
+- **Source of Truth vs. Human Reference Docs** — Rust source code and `content/` TOML templates are the sole single source of truth for all implementation details. Files in `docs/` (e.g. `docs/game_mechanics.md`, `docs/builder_manual.md`) are secondary human reference guides for MUD builders and admins, NOT implementation specifications.
+- **Human-Facing Presentation Style** — write `docs/` content specifically for human MUD creators. Explain game mechanics, builder workflows, and content template formats conceptually and accessibly. Do NOT pollute human documentation in `docs/` with low-level Rust implementation details (e.g., Rust struct/enum names, memory channels, Tokio primitives, or internal trait hierarchies). Keep code-level technical details in Rust code comments and `ARCHITECTURE.md`.
 
 ## Modular development
 
