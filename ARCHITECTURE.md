@@ -1536,13 +1536,13 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 - [x] SQLite `world_time` table + save/load queries
 - [x] `%t` prompt variable in `core/src/prompt.rs`
 
-### Phase 2 — Weather System Core (pending)
+### Phase 2 — Weather System Core ✓
 
-- [ ] `WeatherState` component (`base: Option<String>`, `modifier: Option<String>`)
-- [ ] `core/src/systems/weather.rs` — `resolve_weather_weights()`, `roll_weather()`, `roll_modifier()`
-- [ ] Resolution chain: global season → area zone/matrix → room exclude/additional → roll
-- [ ] Weather tick (300s) in `game_loop.rs` — per-zone roll, update `WeatherState`, broadcast severe
-- [ ] SQLite `weather_states` table + save/load queries
+- [x] `WeatherState` component (`base: Option<String>`, `modifier: Option<String>`)
+- [x] `core/src/systems/weather.rs` — `resolve_weather_weights()`, `roll_weather()`, `roll_modifier()`
+- [x] Resolution chain: global season → area zone/matrix → room exclude/additional → roll
+- [x] Weather tick (300s) in `game_loop.rs` — per-zone roll, update `WeatherState`, broadcast severe
+- [x] SQLite `weather_states` table + save/load queries
 
 ### Phase 3 — ECS Integration (pending)
 

@@ -406,7 +406,8 @@ impl Server {
             let mut w = world.lock().await;
             crate::persistence::save_online_players(&mut w, &db_guard, true);
             crate::persistence::save_world_time(&w, &db_guard);
-            tracing::info!("Online player state and world time saved");
+            crate::persistence::save_weather_states(&w, &db_guard);
+            tracing::info!("Online player state, world time, and weather states saved");
         }
 
         shutdown_complete.notify_one();

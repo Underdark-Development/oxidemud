@@ -16,3 +16,4 @@ pub mod skill_use;
 pub mod stance;
 pub mod time;
 pub mod trigger;
+pub mod weather;

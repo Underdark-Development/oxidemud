@@ -426,3 +426,23 @@ pub fn load_or_init_world_time(
     let gt = oxide_core::GameTime::new(config.start_hour, 1, season, 1);
     world.spawn((gt,))
 }
+
+pub fn save_weather_states(world: &World, db: &oxide_data::Database) {
+    let mut zone_states: std::collections::HashMap<String, (Option<String>, Option<String>)> =
+        std::collections::HashMap::new();
+
+    for (_, (rk, ws)) in world
+        .query::<(&oxide_core::RoomKey, &oxide_core::WeatherState)>()
+        .iter()
+    {
+        if let Some(area_id) = rk.0.split(':').next() {
+            if !area_id.is_empty() {
+                zone_states.insert(area_id.to_string(), (ws.base.clone(), ws.modifier.clone()));
+            }
+        }
+    }
+
+    for (zone_id, (base, modifier)) in zone_states {
+        let _ = db.save_weather_state(&zone_id, base.as_deref(), modifier.as_deref());
+    }
+}

@@ -142,6 +142,42 @@ pub fn load_world_time(conn: &Connection) -> Result<Option<WorldTimeRecord>, rus
     }
 }
 
+pub type WeatherStateRecord = (String, Option<String>, Option<String>);
+
+pub fn save_weather_state(
+    conn: &Connection,
+    zone_id: &str,
+    base: Option<&str>,
+    modifier: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO weather_states (zone_id, base, modifier)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(zone_id) DO UPDATE SET
+           base = excluded.base,
+           modifier = excluded.modifier",
+        params![zone_id, base, modifier],
+    )?;
+    Ok(())
+}
+
+pub fn load_weather_states(conn: &Connection) -> Result<Vec<WeatherStateRecord>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT zone_id, base, modifier FROM weather_states")?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r?);
+    }
+    Ok(results)
+}
+
 pub fn revoke_api_key(conn: &Connection, key: &str) -> Result<u32, rusqlite::Error> {
     let rows = conn.execute("DELETE FROM api_keys WHERE key = ?1", params![key])?;
     Ok(rows as u32)

@@ -36,6 +36,7 @@ pub fn spawn_game_loop(
         let mut last_backup = Instant::now();
         let real_mins = crate::config::get().time.real_minutes_per_game_hour.max(1);
         let mut time_tick = interval(Duration::from_secs(real_mins));
+        let mut weather_tick = interval(Duration::from_secs(300));
 
         loop {
             tokio::select! {
@@ -43,6 +44,90 @@ pub fn spawn_game_loop(
                 _ = shutdown.changed() => {
                     tracing::info!("Game loop preparing for shutdown");
                     break;
+                }
+                _ = weather_tick.tick() => {
+                    let mut w = world.lock().await;
+                    let reg = registry.lock().await;
+
+                    let current_season = {
+                        let mut q = w.query::<&oxide_core::GameTime>();
+                        q.into_iter().next().map(|(_, gt)| gt.season).unwrap_or(oxide_core::Season::Spring)
+                    };
+
+                    if let Some(templates) = crate::get_templates() {
+                        if let Some(ref weather_config) = templates.weather {
+                            let room_keys: Vec<(oxide_core::Entity, String)> = w
+                                .query::<&oxide_core::RoomKey>()
+                                .iter()
+                                .map(|(e, rk)| (oxide_core::Entity::from(e), rk.0.clone()))
+                                .collect();
+
+                            let empty_map = std::collections::HashMap::new();
+
+                            for (room_ent, room_key_str) in room_keys {
+                                let mut parts = room_key_str.split(':');
+                                let area_id = parts.next().unwrap_or("");
+                                let room_id = parts.next().unwrap_or("");
+
+                                let area_tmpl = templates.areas.get(area_id);
+                                let room_tmpl = area_tmpl.and_then(|a| a.rooms.get(room_id));
+
+                                let (room_no_weather, room_exclude, room_add) = if let Some(rt) = room_tmpl {
+                                    (rt.no_weather, rt.exclude_weather.as_slice(), &rt.additional_weather)
+                                } else {
+                                    (false, [].as_slice(), &empty_map)
+                                };
+
+                                let (area_no_weather, area_zone, area_matrix) = if let Some(at) = area_tmpl {
+                                    (
+                                        at.no_weather,
+                                        at.weather_zone.as_deref(),
+                                        if at.weather_matrix.is_empty() {
+                                            None
+                                        } else {
+                                            Some(&at.weather_matrix)
+                                        },
+                                    )
+                                } else {
+                                    (false, None, None)
+                                };
+
+                                let params = oxide_core::ResolutionParams {
+                                    season: current_season,
+                                    area_no_weather,
+                                    area_weather_zone: area_zone,
+                                    area_weather_matrix: area_matrix,
+                                    room_no_weather,
+                                    room_exclude_weather: room_exclude,
+                                    room_additional_weather: room_add,
+                                };
+
+                                let base_weights = oxide_core::resolve_weather_weights(&params, weather_config, oxide_core::templates::weather::ConditionType::Base);
+                                let mod_weights = oxide_core::resolve_weather_weights(&params, weather_config, oxide_core::templates::weather::ConditionType::Modifier);
+
+                                let rolled_base = oxide_core::roll_weather(&base_weights);
+                                let rolled_mod = oxide_core::roll_modifier(&mod_weights);
+
+                                let old_state = w.query_one::<&oxide_core::WeatherState>(room_ent)
+                                    .ok()
+                                    .and_then(|mut q| q.get().cloned())
+                                    .unwrap_or_default();
+
+                                let new_state = oxide_core::WeatherState::new(Some(rolled_base.clone()), rolled_mod.clone());
+
+                                if old_state != new_state {
+                                    let _ = w.insert(room_ent, (new_state.clone(),));
+
+                                    if let Some(def) = weather_config.conditions.get(&rolled_base) {
+                                        if def.severity == oxide_core::templates::weather::WeatherSeverity::Severe {
+                                            let broadcast_msg = format!("\r\n[Weather] {}\r\n", def.description);
+                                            reg.broadcast_to_room(&w, room_ent, &broadcast_msg, None);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 _ = time_tick.tick() => {
                     let w = world.lock().await;

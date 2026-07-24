@@ -468,6 +468,21 @@ impl Database {
             )?;
         }
 
+        if current < 27 {
+            // Migration 27: add weather_states table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS weather_states (
+                    zone_id TEXT PRIMARY KEY NOT NULL,
+                    base TEXT,
+                    modifier TEXT
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (27)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -593,6 +608,19 @@ impl Database {
 
     pub fn load_world_time(&self) -> Result<Option<WorldTimeRecord>, rusqlite::Error> {
         queries::load_world_time(&self.conn)
+    }
+
+    pub fn save_weather_state(
+        &self,
+        zone_id: &str,
+        base: Option<&str>,
+        modifier: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        queries::save_weather_state(&self.conn, zone_id, base, modifier)
+    }
+
+    pub fn load_weather_states(&self) -> Result<Vec<WeatherStateRecord>, rusqlite::Error> {
+        queries::load_weather_states(&self.conn)
     }
 
     pub fn conn_mut(&mut self) -> &mut Connection {

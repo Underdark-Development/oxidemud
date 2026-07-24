@@ -271,9 +271,15 @@ CREATE TABLE IF NOT EXISTS world_time (
     season TEXT NOT NULL DEFAULT 'spring',
     year INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS weather_states (
+    zone_id TEXT PRIMARY KEY NOT NULL,
+    base TEXT,
+    modifier TEXT
+);
 ";
 
-pub const VERSION: i64 = 26;
+pub const VERSION: i64 = 27;
 
 #[cfg(test)]
 mod tests {
@@ -335,6 +341,7 @@ mod tests {
             "components_weapon",
             "entities",
             "schema_version",
+            "weather_states",
             "world_time",
         ];
         for name in &expected {
