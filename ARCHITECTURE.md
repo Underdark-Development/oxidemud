@@ -1499,7 +1499,7 @@ Health/Damage components, combat system (attack/damage rolls), damage types with
 
 ### Phase 4 — Advanced Gameplay
 
-Crafting, quests, factions, prestige classes, multi-classing, spells, shop & economy, resource pools + regeneration ✓, resource cost system, optional PvP flagging.
+Crafting, quests, factions, prestige classes, multi-classing, spells, shop & economy, resource pools + regeneration ✓, resource cost system, optional PvP flagging, time & weather system ✓.
 
 ### Phase 5 — OLC & Tooling
 
@@ -1508,68 +1508,6 @@ Online creation commands (@dig/@link/@set/@mob/@area/@item), zone/area managemen
 ### Phase 6 — spade MUD Client & Protocol Expansion
 
 WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints), **spade MUD client mode** (output window, ANSI, scroll, input bar, sidebar, clickable names, connection profiles, session management, split mode, dashboard, script console, TOML preview), **MCP**: imm tools (set_stat, load, gecho, advance, stat, heal, damage, kill, revive, set_alignment, set_faction, purge_room, reboot), advanced simulators (regen, level-up, faction change, quest rewards, practice, XP curve), prompts/guided workflows, MCP resources.
-
----
-
-## Weather & Time System — Implementation Tasks
-
-### Phase 0 — Config & Content Types ✓
-
-- [x] Create `core/src/templates/weather.rs` — `WeatherConfig`, `WeatherConditionDef`, `WeatherEffects`, severity/type enums
-- [x] Extend `RoomTemplate` with `no_weather`, `exclude_weather`, `additional_weather`
-- [x] Extend `AreaTemplate` with `no_weather`, `weather_matrix`
-- [x] Add `weather: Option<WeatherConfig>` to `TemplateRegistry`
-- [x] Update `core/src/content.rs` to load standalone `weather.toml`
-- [x] Create `content/weather.toml` — conditions, seasons, zone matrices
-- [x] Add `TimeConfig` to `core/src/systems/time.rs` and `ServerConfig`
-- [x] Add `[time]` section to `content/server.toml`
-- [x] Update all TUI/MCP/bin construction sites for new fields
-
-### Phase 1 — Time System ✓
-
-- [x] `GameTime` component (`hour`, `minute`, `day`, `season`, `year`)
-- [x] `Season` and `TimePeriod` enums with hour-range mapping
-- [x] `core/src/systems/time.rs` — `advance_time()`, `period_from_hour()`, `TimeEvent` enum
-- [x] Time tick interval in `server/src/game_loop.rs` (configurable via `real_minutes_per_game_hour`)
-- [x] Spawn `GameTime` on startup from DB or config defaults
-- [x] `cmd_time()` — query `GameTime`, format period/day/season/year
-- [x] SQLite `world_time` table + save/load queries
-- [x] `%t` prompt variable in `core/src/prompt.rs`
-
-### Phase 2 — Weather System Core ✓
-
-- [x] `WeatherState` component (`base: Option<String>`, `modifier: Option<String>`)
-- [x] `core/src/systems/weather.rs` — `resolve_weather_weights()`, `roll_weather()`, `roll_modifier()`
-- [x] Resolution chain: global season → area zone/matrix → room exclude/additional → roll
-- [x] Weather tick (300s) in `game_loop.rs` — per-zone roll, update `WeatherState`, broadcast severe
-- [x] SQLite `weather_states` table + save/load queries
-
-### Phase 3 — ECS Integration ✓
-
-- [x] Spawn `WeatherState` on room entities during world load
-- [x] `%w` prompt variable — query room's `WeatherState`, format description
-- [x] `cmd_weather()` — query `WeatherState`, look up condition descriptions
-- [x] Append weather flavor text to `look` room descriptions on movement
-
-### Phase 4 — Gameplay Effects ✓
-
-- [x] Combat: apply `damage_fire`, `damage_lightning`, `ranged_accuracy`, `ranged_attack` modifiers from room weather
-- [x] Attributes: apply `dexterity` modifier from weather on DEX-based checks
-- [x] Weather condition descriptions in room `look` output
-
-### Phase 5 — Tests ✓
-
-- [x] `time.rs` — `period_from_hour`, `advance_time` day/season/year rollover, edge cases
-- [x] `weather.rs` — resolution chain, `no_weather` short-circuit, weight normalization, modifier rolling
-- [x] `weather.rs` deserialization — `content/weather.toml` parses cleanly
-- [x] `prompt.rs` — `%t` and `%w` render correctly
-
-### Phase 6 — Documentation ✓
-
-- [x] `docs/game_mechanics.md` lines 488-495 — replace stub with reference to ARCHITECTURE.md sections
-- [x] `ARCHITECTURE.md` Development Phases — mark time/weather as implemented
-- [x] `docs/builder_manual.md` — verify weather field docs match implementation
-- [x] `AGENTS.md` — update Phases table
 
 ---
 
