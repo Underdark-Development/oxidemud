@@ -2,7 +2,7 @@
 
 ## Project state
 
-This is a Rust project with working source code across 7 workspace crates + TOML content on disk. `ARCHITECTURE.md` (~1200 lines) is the design spec — read it first each session.
+This is a Rust project with working source code across 7 workspace crates + TOML content on disk. All architectural specifications, system designs, implementation details, feature phase roadmaps, and task tracking can be found exclusively in [`ARCHITECTURE.md`](file:///Users/therealklanni/Projects/oxide/oxidemud/ARCHITECTURE.md) — read it first each session.
 
 ## Planned stack
 
@@ -54,18 +54,6 @@ These rules are absolute. No PR, no matter how small, may violate them.
   (direct TOML/DB reads) or online (REST bridge to game server). Tools cover full CRUD
   for areas, rooms, mobs, items, quests, and content validation.
 - **State machine pattern** — subsystems (Combat, AI, Login, Room) use explicit state machines with defined states and valid transitions. Transitions emit a typed `GameEvent` over `tokio::sync::broadcast`. See ARCHITECTURE.md State Machine Pattern.
-
-## Phases
-
-| Phase | Focus |
-|---|---|---|
-| 0 | Cargo workspace, core types, TCP listener, basic ECS, raw I/O |
-| 1 | Room graph, movement, `look`/`say`/directional commands, ANSI color |
-| 2 | Account login, SQLite persistence, character creation, attributes/levels/XP |
-| 3 | Combat, damage, equipment, NPC AI |
-| 4 | Crafting, quests, spells, factions, PvP |
-| 5 | OLC commands, Rhai scripting, hot-reload content, **spade offline builder**, **MCP server (offline)** |
-| 6 | WebSocket, MCCP/GMCP/MXP/MSSP, REST API, **spade MUD client**, **MCP (online/prompts)**, profiling |
 
 ## Conventions
 
