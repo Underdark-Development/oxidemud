@@ -53,6 +53,7 @@ pub fn spawn_area(
             oxide_core::RoomKey(key.clone()),
             oxide_core::ScriptParams(room_tpl.params.clone()),
             oxide_core::RoomTags::new(room_tpl.flags.clone()),
+            oxide_core::WeatherState::default(),
         ));
         world.insert(entity, (Position::new(entity),)).unwrap();
         if room_tpl.allow_revive {

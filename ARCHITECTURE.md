@@ -1544,12 +1544,12 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 - [x] Weather tick (300s) in `game_loop.rs` — per-zone roll, update `WeatherState`, broadcast severe
 - [x] SQLite `weather_states` table + save/load queries
 
-### Phase 3 — ECS Integration (pending)
+### Phase 3 — ECS Integration ✓
 
-- [ ] Spawn `WeatherState` on room entities during world load
-- [ ] `%w` prompt variable — query room's `WeatherState`, format description
-- [ ] `cmd_weather()` — query `WeatherState`, look up condition descriptions
-- [ ] Append weather flavor text to `look` room descriptions on movement
+- [x] Spawn `WeatherState` on room entities during world load
+- [x] `%w` prompt variable — query room's `WeatherState`, format description
+- [x] `cmd_weather()` — query `WeatherState`, look up condition descriptions
+- [x] Append weather flavor text to `look` room descriptions on movement
 
 ### Phase 4 — Gameplay Effects (pending)
 

@@ -27,6 +27,7 @@ pub struct PromptVars {
     pub rest_state: String,
     pub combat_state: String,
     pub time: String,
+    pub weather: String,
 }
 
 pub fn build_vars(world: &World, entity: Entity) -> PromptVars {
@@ -192,6 +193,41 @@ pub fn build_vars(world: &World, entity: Entity) -> PromptVars {
             .next()
             .map(|(_, gt)| gt.period().name().to_string())
             .unwrap_or_else(|| "Dawn".to_string()),
+        weather: pos
+            .as_ref()
+            .and_then(|p| {
+                world
+                    .query_one::<&crate::WeatherState>(p.room)
+                    .ok()
+                    .and_then(|mut q| q.get().cloned())
+            })
+            .map(|ws| {
+                let mut parts = Vec::new();
+                if let Some(b) = &ws.base {
+                    if !b.eq_ignore_ascii_case("clear") {
+                        let mut c = b.chars();
+                        let cap = match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                        };
+                        parts.push(cap);
+                    }
+                }
+                if let Some(m) = &ws.modifier {
+                    let mut c = m.chars();
+                    let cap = match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+                    };
+                    parts.push(cap);
+                }
+                if parts.is_empty() {
+                    "Clear".to_string()
+                } else {
+                    parts.join(", ")
+                }
+            })
+            .unwrap_or_else(|| "Clear".to_string()),
     }
 }
 
@@ -223,7 +259,8 @@ pub fn render_prompt(template: &str, vars: &PromptVars) -> String {
             Some('s') => result.push_str(&vars.strength),
             Some('d') => result.push_str(&vars.dexterity),
             Some('i') => result.push_str(&vars.intelligence),
-            Some('w') => result.push_str(&vars.wisdom),
+            Some('w') => result.push_str(&vars.weather),
+            Some('W') => result.push_str(&vars.wisdom),
             Some('o') => result.push_str(&vars.constitution),
             Some('u') => result.push_str(&vars.charisma),
             Some('R') => result.push_str(&vars.rest_state),
@@ -272,8 +309,10 @@ mod tests {
             rest_state: "Standing".into(),
             combat_state: "Not In Combat".into(),
             time: "Dawn".into(),
+            weather: "Rain, Fog".into(),
         };
 
         assert_eq!(render_prompt("<%t>", &vars), "<Dawn>");
+        assert_eq!(render_prompt("<%w>", &vars), "<Rain, Fog>");
     }
 }

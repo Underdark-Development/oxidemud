@@ -272,6 +272,33 @@ pub fn cmd_look(
     conn.send_line("");
     send_formatted(conn, &core::format::parse_tags(&room_desc));
 
+    let weather_state = world
+        .query_one::<&core::WeatherState>(room)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    if let Some(templates) = oxide_server::get_templates() {
+        if let Some(ref weather_config) = templates.weather {
+            let mut weather_descs = Vec::new();
+            if let Some(ref base_id) = weather_state.base {
+                if !base_id.eq_ignore_ascii_case("clear") {
+                    if let Some(def) = weather_config.conditions.get(base_id) {
+                        weather_descs.push(def.description.clone());
+                    }
+                }
+            }
+            if let Some(ref mod_id) = weather_state.modifier {
+                if let Some(def) = weather_config.conditions.get(mod_id) {
+                    weather_descs.push(def.description.clone());
+                }
+            }
+            if !weather_descs.is_empty() {
+                send_formatted(conn, &core::format::parse_tags(&weather_descs.join(" ")));
+            }
+        }
+    }
+
     // Exits
     let exits = get_exits(world, room);
     if !exits.is_empty() {

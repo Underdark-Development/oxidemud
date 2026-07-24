@@ -460,11 +460,62 @@ pub fn cmd_time(
 }
 
 pub fn cmd_weather(
-    _world: &mut World,
+    world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
     _args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    conn.send_line("The sky is clear and a gentle breeze blows from the east.");
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let pos = match world
+        .query_one::<&oxide_core::Position>(entity)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        Some(p) => p,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let weather_state = world
+        .query_one::<&oxide_core::WeatherState>(pos.room)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    if let Some(templates) = oxide_server::get_templates() {
+        if let Some(ref weather_config) = templates.weather {
+            let mut descriptions = Vec::new();
+
+            if let Some(ref base_id) = weather_state.base {
+                if let Some(def) = weather_config.conditions.get(base_id) {
+                    descriptions.push(def.description.clone());
+                }
+            }
+
+            if let Some(ref mod_id) = weather_state.modifier {
+                if let Some(def) = weather_config.conditions.get(mod_id) {
+                    descriptions.push(def.description.clone());
+                }
+            }
+
+            if descriptions.is_empty() {
+                conn.send_line("The sky is clear and pleasant.");
+            } else {
+                conn.send_line(&descriptions.join(" "));
+            }
+            return;
+        }
+    }
+
+    conn.send_line("The sky is clear and pleasant.");
 }
