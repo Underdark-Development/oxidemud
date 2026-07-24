@@ -1525,16 +1525,16 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 - [x] Add `[time]` section to `content/server.toml`
 - [x] Update all TUI/MCP/bin construction sites for new fields
 
-### Phase 1 — Time System (pending)
+### Phase 1 — Time System ✓
 
-- [ ] `GameTime` component (`hour`, `minute`, `day`, `season`, `year`)
-- [ ] `Season` and `TimePeriod` enums with hour-range mapping
-- [ ] `core/src/systems/time.rs` — `advance_time()`, `period_from_hour()`, `TimeEvent` enum
-- [ ] Time tick interval in `server/src/game_loop.rs` (configurable via `real_minutes_per_game_hour`)
-- [ ] Spawn `GameTime` on startup from DB or config defaults
-- [ ] `cmd_time()` — query `GameTime`, format period/day/season/year
-- [ ] SQLite `world_time` table + save/load queries
-- [ ] `%t` prompt variable in `core/src/prompt.rs`
+- [x] `GameTime` component (`hour`, `minute`, `day`, `season`, `year`)
+- [x] `Season` and `TimePeriod` enums with hour-range mapping
+- [x] `core/src/systems/time.rs` — `advance_time()`, `period_from_hour()`, `TimeEvent` enum
+- [x] Time tick interval in `server/src/game_loop.rs` (configurable via `real_minutes_per_game_hour`)
+- [x] Spawn `GameTime` on startup from DB or config defaults
+- [x] `cmd_time()` — query `GameTime`, format period/day/season/year
+- [x] SQLite `world_time` table + save/load queries
+- [x] `%t` prompt variable in `core/src/prompt.rs`
 
 ### Phase 2 — Weather System Core (pending)
 

@@ -262,9 +262,18 @@ CREATE TABLE IF NOT EXISTS components_multiclass (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     multiclass_json TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS world_time (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    hour INTEGER NOT NULL DEFAULT 6,
+    minute INTEGER NOT NULL DEFAULT 0,
+    day INTEGER NOT NULL DEFAULT 1,
+    season TEXT NOT NULL DEFAULT 'spring',
+    year INTEGER NOT NULL DEFAULT 1
+);
 ";
 
-pub const VERSION: i64 = 25;
+pub const VERSION: i64 = 26;
 
 #[cfg(test)]
 mod tests {
@@ -326,6 +335,7 @@ mod tests {
             "components_weapon",
             "entities",
             "schema_version",
+            "world_time",
         ];
         for name in &expected {
             assert!(tables.iter().any(|t| t == name), "missing table: {name}");

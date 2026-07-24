@@ -450,6 +450,24 @@ impl Database {
             )?;
         }
 
+        if current < 26 {
+            // Migration 26: add world_time table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS world_time (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    hour INTEGER NOT NULL DEFAULT 6,
+                    minute INTEGER NOT NULL DEFAULT 0,
+                    day INTEGER NOT NULL DEFAULT 1,
+                    season TEXT NOT NULL DEFAULT 'spring',
+                    year INTEGER NOT NULL DEFAULT 1
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (26)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 
@@ -560,6 +578,21 @@ impl Database {
 
     pub fn conn(&self) -> &Connection {
         &self.conn
+    }
+
+    pub fn save_world_time(
+        &self,
+        hour: u8,
+        minute: u8,
+        day: u32,
+        season: &str,
+        year: u32,
+    ) -> Result<(), rusqlite::Error> {
+        queries::save_world_time(&self.conn, hour, minute, day, season, year)
+    }
+
+    pub fn load_world_time(&self) -> Result<Option<WorldTimeRecord>, rusqlite::Error> {
+        queries::load_world_time(&self.conn)
     }
 
     pub fn conn_mut(&mut self) -> &mut Connection {

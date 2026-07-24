@@ -444,13 +444,19 @@ pub fn cmd_prompt(
 }
 
 pub fn cmd_time(
-    _world: &mut World,
+    world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
     _args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    conn.send_line("It is currently 10:00 AM in the morning.");
+    let mut q = world.query::<&oxide_core::GameTime>();
+    let time_str = q
+        .into_iter()
+        .next()
+        .map(|(_, gt)| gt.format_time_cmd())
+        .unwrap_or_else(|| "It is Dawn on the 1st day of Spring, Year 1.".to_string());
+    conn.send_line(&time_str);
 }
 
 pub fn cmd_weather(

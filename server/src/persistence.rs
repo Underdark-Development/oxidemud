@@ -384,3 +384,45 @@ pub fn save_player_positions(world: &mut World, db: &oxide_data::Database) {
         }
     }
 }
+
+pub fn save_world_time(world: &World, db: &oxide_data::Database) {
+    let mut q = world.query::<&oxide_core::GameTime>();
+    if let Some((_, gt)) = q.into_iter().next() {
+        let _ = db.save_world_time(gt.hour, gt.minute, gt.day, gt.season.name(), gt.year);
+    }
+}
+
+pub fn load_or_init_world_time(
+    world: &mut World,
+    db: Option<&oxide_data::Database>,
+    config: &oxide_core::TimeConfig,
+) -> Entity {
+    // Check if GameTime is already spawned in world
+    let existing: Vec<Entity> = world
+        .query::<&oxide_core::GameTime>()
+        .iter()
+        .map(|(e, _)| Entity::from(e))
+        .collect();
+
+    if let Some(&ent) = existing.first() {
+        return ent;
+    }
+
+    if let Some(db) = db {
+        if let Ok(Some((hour, minute, day, season_str, year))) = db.load_world_time() {
+            let season = season_str
+                .parse::<oxide_core::Season>()
+                .unwrap_or(oxide_core::Season::Spring);
+            let mut gt = oxide_core::GameTime::new(hour, day, season, year);
+            gt.minute = minute;
+            return world.spawn((gt,));
+        }
+    }
+
+    let season = config
+        .start_season
+        .parse::<oxide_core::Season>()
+        .unwrap_or(oxide_core::Season::Spring);
+    let gt = oxide_core::GameTime::new(config.start_hour, 1, season, 1);
+    world.spawn((gt,))
+}

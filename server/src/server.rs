@@ -283,6 +283,18 @@ impl Server {
         let _ = WORLD.set(world.clone());
         let _ = REGISTRY.set(registry.clone());
 
+        // Initialize or load world time
+        {
+            let mut w = world.lock().await;
+            let time_config = crate::config::get().time.clone();
+            if let Some(ref db_mutex) = db {
+                let db_guard = db_mutex.lock().await;
+                crate::persistence::load_or_init_world_time(&mut w, Some(&db_guard), &time_config);
+            } else {
+                crate::persistence::load_or_init_world_time(&mut w, None, &time_config);
+            }
+        }
+
         // Spawn the game loop for combat/AI/corpse pulses
         let server_shutdown_rx = shutdown.clone();
         spawn_game_loop(
@@ -393,7 +405,8 @@ impl Server {
             let db_guard = db.lock().await;
             let mut w = world.lock().await;
             crate::persistence::save_online_players(&mut w, &db_guard, true);
-            tracing::info!("Online player state saved");
+            crate::persistence::save_world_time(&w, &db_guard);
+            tracing::info!("Online player state and world time saved");
         }
 
         shutdown_complete.notify_one();

@@ -34,6 +34,8 @@ pub fn spawn_game_loop(
         let mut last_player_state_tick = Instant::now();
         let mut skill_decay_tick = interval(Duration::from_secs(1));
         let mut last_backup = Instant::now();
+        let real_mins = crate::config::get().time.real_minutes_per_game_hour.max(1);
+        let mut time_tick = interval(Duration::from_secs(real_mins));
 
         loop {
             tokio::select! {
@@ -41,6 +43,30 @@ pub fn spawn_game_loop(
                 _ = shutdown.changed() => {
                     tracing::info!("Game loop preparing for shutdown");
                     break;
+                }
+                _ = time_tick.tick() => {
+                    let w = world.lock().await;
+                    let time_config = crate::config::get().time.clone();
+                    let events = {
+                        let mut q = w.query::<&mut oxide_core::GameTime>();
+                        if let Some((_, gt)) = q.into_iter().next() {
+                            oxide_core::advance_time(gt, 1, &time_config)
+                        } else {
+                            Vec::new()
+                        }
+                    };
+
+                    for event in events {
+                        match event {
+                            oxide_core::TimeEvent::PeriodChanged { old_period, new_period } => {
+                                tracing::info!("Time period changed from {} to {}", old_period.name(), new_period.name());
+                            }
+                            oxide_core::TimeEvent::SeasonChanged { old_season, new_season } => {
+                                tracing::info!("Season changed from {} to {}", old_season.name(), new_season.name());
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 _ = combat_tick.tick() => {
                     let mut w = world.lock().await;

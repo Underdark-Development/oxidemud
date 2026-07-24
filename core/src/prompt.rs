@@ -26,6 +26,7 @@ pub struct PromptVars {
     pub charisma: String,
     pub rest_state: String,
     pub combat_state: String,
+    pub time: String,
 }
 
 pub fn build_vars(world: &World, entity: Entity) -> PromptVars {
@@ -185,6 +186,12 @@ pub fn build_vars(world: &World, entity: Entity) -> PromptVars {
                 }
             })
             .unwrap_or_else(|| "Not In Combat".to_string()),
+        time: world
+            .query::<&crate::GameTime>()
+            .into_iter()
+            .next()
+            .map(|(_, gt)| gt.period().name().to_string())
+            .unwrap_or_else(|| "Dawn".to_string()),
     }
 }
 
@@ -221,6 +228,7 @@ pub fn render_prompt(template: &str, vars: &PromptVars) -> String {
             Some('u') => result.push_str(&vars.charisma),
             Some('R') => result.push_str(&vars.rest_state),
             Some('C') => result.push_str(&vars.combat_state),
+            Some('t') => result.push_str(&vars.time),
             Some('c') => result.push_str("\r\n"),
             Some('%') => result.push('%'),
             Some(c) => {
@@ -232,4 +240,40 @@ pub fn render_prompt(template: &str, vars: &PromptVars) -> String {
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_prompt_time() {
+        let vars = PromptVars {
+            hp: "100".into(),
+            max_hp: "100".into(),
+            mana: "50".into(),
+            max_mana: "50".into(),
+            stamina: "100".into(),
+            max_stamina: "100".into(),
+            level: "1".into(),
+            xp: "0".into(),
+            xp_next: "1000".into(),
+            name: "Hero".into(),
+            gold: "10".into(),
+            alignment: "Neutral".into(),
+            room_name: "Town Square".into(),
+            exits: "n s".into(),
+            strength: "10".into(),
+            dexterity: "10".into(),
+            intelligence: "10".into(),
+            wisdom: "10".into(),
+            constitution: "10".into(),
+            charisma: "10".into(),
+            rest_state: "Standing".into(),
+            combat_state: "Not In Combat".into(),
+            time: "Dawn".into(),
+        };
+
+        assert_eq!(render_prompt("<%t>", &vars), "<Dawn>");
+    }
 }

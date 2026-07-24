@@ -102,6 +102,46 @@ pub fn remove_api_key_scope(
     Ok(())
 }
 
+pub fn save_world_time(
+    conn: &Connection,
+    hour: u8,
+    minute: u8,
+    day: u32,
+    season: &str,
+    year: u32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO world_time (id, hour, minute, day, season, year)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(id) DO UPDATE SET
+           hour = excluded.hour,
+           minute = excluded.minute,
+           day = excluded.day,
+           season = excluded.season,
+           year = excluded.year",
+        params![hour, minute, day, season, year],
+    )?;
+    Ok(())
+}
+
+pub type WorldTimeRecord = (u8, u8, u32, String, u32);
+
+pub fn load_world_time(conn: &Connection) -> Result<Option<WorldTimeRecord>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT hour, minute, day, season, year FROM world_time WHERE id = 1")?;
+    let mut rows = stmt.query([])?;
+    if let Some(row) = rows.next()? {
+        let hour: u8 = row.get(0)?;
+        let minute: u8 = row.get(1)?;
+        let day: u32 = row.get(2)?;
+        let season: String = row.get(3)?;
+        let year: u32 = row.get(4)?;
+        Ok(Some((hour, minute, day, season, year)))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn revoke_api_key(conn: &Connection, key: &str) -> Result<u32, rusqlite::Error> {
     let rows = conn.execute("DELETE FROM api_keys WHERE key = ?1", params![key])?;
     Ok(rows as u32)
