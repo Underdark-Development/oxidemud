@@ -699,6 +699,22 @@ pub fn get_modified_attributes(world: &World, entity: Entity) -> crate::componen
         }
     }
 
+    // 3. Apply WeatherState dexterity modifier from room
+    if let Ok(mut q_pos) = world.query_one::<&crate::Position>(entity) {
+        if let Some(pos) = q_pos.get() {
+            if let Ok(mut q_ws) = world.query_one::<&crate::WeatherState>(pos.room) {
+                if let Some(ws) = q_ws.get() {
+                    if let Some(dex_mod) = ws.effects.dexterity {
+                        attrs.dexterity = (attrs.dexterity as i32 + dex_mod).clamp(
+                            crate::components::Attributes::MIN as i32,
+                            crate::components::Attributes::MAX as i32,
+                        ) as u8;
+                    }
+                }
+            }
+        }
+    }
+
     attrs
 }
 

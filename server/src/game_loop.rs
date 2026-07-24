@@ -113,7 +113,8 @@ pub fn spawn_game_loop(
                                     .and_then(|mut q| q.get().cloned())
                                     .unwrap_or_default();
 
-                                let new_state = oxide_core::WeatherState::new(Some(rolled_base.clone()), rolled_mod.clone());
+                                let mut new_state = oxide_core::WeatherState::new(Some(rolled_base.clone()), rolled_mod.clone());
+                                new_state.effects = oxide_core::get_effective_weather_effects(&new_state, weather_config);
 
                                 if old_state != new_state {
                                     let _ = w.insert(room_ent, (new_state.clone(),));

@@ -1551,11 +1551,11 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 - [x] `cmd_weather()` — query `WeatherState`, look up condition descriptions
 - [x] Append weather flavor text to `look` room descriptions on movement
 
-### Phase 4 — Gameplay Effects (pending)
+### Phase 4 — Gameplay Effects ✓
 
-- [ ] Combat: apply `damage_fire`, `damage_lightning`, `ranged_accuracy`, `ranged_attack` modifiers from room weather
-- [ ] Attributes: apply `dexterity` modifier from weather on DEX-based checks
-- [ ] Weather condition descriptions in room `look` output
+- [x] Combat: apply `damage_fire`, `damage_lightning`, `ranged_accuracy`, `ranged_attack` modifiers from room weather
+- [x] Attributes: apply `dexterity` modifier from weather on DEX-based checks
+- [x] Weather condition descriptions in room `look` output
 
 ### Phase 5 — Tests (pending)
 

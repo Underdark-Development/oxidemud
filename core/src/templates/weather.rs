@@ -57,7 +57,7 @@ pub enum ConditionType {
 // Effects — gameplay modifiers applied while a weather condition is active
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WeatherEffects {
     #[serde(default)]
     pub damage_fire: Option<i32>,
@@ -71,6 +71,29 @@ pub struct WeatherEffects {
     pub ranged_attack: Option<i32>,
     #[serde(default)]
     pub dexterity: Option<i32>,
+}
+
+impl WeatherEffects {
+    pub fn combine(&mut self, other: &WeatherEffects) {
+        if let Some(val) = other.damage_fire {
+            *self.damage_fire.get_or_insert(0) += val;
+        }
+        if let Some(val) = other.damage_lightning {
+            *self.damage_lightning.get_or_insert(0) += val;
+        }
+        if let Some(val) = other.ranged_accuracy {
+            *self.ranged_accuracy.get_or_insert(0) += val;
+        }
+        if let Some(val) = other.ranged_accuracy_pct {
+            *self.ranged_accuracy_pct.get_or_insert(0) += val;
+        }
+        if let Some(val) = other.ranged_attack {
+            *self.ranged_attack.get_or_insert(0) += val;
+        }
+        if let Some(val) = other.dexterity {
+            *self.dexterity.get_or_insert(0) += val;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

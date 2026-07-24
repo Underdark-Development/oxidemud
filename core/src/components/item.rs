@@ -153,6 +153,10 @@ impl Weapon {
         self.hands == WeaponHands::TwoHand
     }
 
+    pub fn is_ranged(&self) -> bool {
+        matches!(self.range, WeaponRange::Ranged | WeaponRange::Thrown)
+    }
+
     pub fn effective_speed(&self) -> f32 {
         if self.is_two_handed() {
             self.speed * 1.2

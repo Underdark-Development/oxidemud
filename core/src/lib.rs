@@ -48,7 +48,8 @@ pub use systems::time::{
 };
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use systems::weather::{
-    resolve_weather_weights, roll_modifier, roll_weather, ResolutionParams, WeatherState,
+    get_effective_weather_effects, get_room_weather_effects, resolve_weather_weights,
+    roll_modifier, roll_weather, ResolutionParams, WeatherState,
 };
 pub use templates::{
     ExitTemplate, FactionDef, FactionRank, PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult,

@@ -184,7 +184,7 @@ pub fn calculate_damage(
 
     let weapon_damage = get_weapon_data(world, attacker, slot);
 
-    let (mut final_dmg, mut final_type) = if let Some((_, wep)) = weapon_damage {
+    let (mut final_dmg, mut final_type) = if let Some((_, ref wep)) = weapon_damage {
         let dice_damage = wep.damage_dice.roll();
         let str_bonus = if wep.is_two_handed() {
             // Two-handed: 1.5x str mod
@@ -225,6 +225,37 @@ pub fn calculate_damage(
             }
         }
     }
+
+    // Weather damage modifiers (damage_fire, damage_lightning, ranged_attack)
+    let room_opt = world
+        .query_one::<&Position>(attacker)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room));
+
+    if let Some(room) = room_opt {
+        if let Ok(mut q_ws) = world.query_one::<&crate::WeatherState>(room) {
+            if let Some(ws) = q_ws.get() {
+                if final_type == DamageType::Fire {
+                    if let Some(val) = ws.effects.damage_fire {
+                        dmg_modifier += val;
+                    }
+                } else if final_type == DamageType::Lightning {
+                    if let Some(val) = ws.effects.damage_lightning {
+                        dmg_modifier += val;
+                    }
+                }
+
+                if let Some((_, ref wep)) = weapon_damage {
+                    if wep.is_ranged() {
+                        if let Some(val) = ws.effects.ranged_attack {
+                            dmg_modifier += val;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     final_dmg = (final_dmg + dmg_modifier).max(1);
 
     (final_dmg, final_type)
@@ -320,6 +351,36 @@ pub fn calculate_hit(
                 if let (Some(stat), Some(amount)) = (&effect.stat, effect.amount) {
                     if stat.eq_ignore_ascii_case("attack") || stat.eq_ignore_ascii_case("hit") {
                         atk_modifier += amount;
+                    }
+                }
+            }
+        }
+    }
+
+    // Weather ranged accuracy modifiers
+    let room_opt = world
+        .query_one::<&Position>(attacker)
+        .ok()
+        .and_then(|mut q| q.get().map(|p| p.room));
+
+    if let Some(room) = room_opt {
+        if let Ok(mut q_ws) = world.query_one::<&crate::WeatherState>(room) {
+            if let Some(ws) = q_ws.get() {
+                let slot = if is_offhand {
+                    EquipmentSlot::Shield
+                } else {
+                    EquipmentSlot::Weapon
+                };
+                let is_ranged_wep = get_weapon_data(world, attacker, slot)
+                    .map(|(_, w)| w.is_ranged())
+                    .unwrap_or(false);
+
+                if is_ranged_wep {
+                    if let Some(val) = ws.effects.ranged_accuracy {
+                        atk_modifier += val;
+                    }
+                    if let Some(pct) = ws.effects.ranged_accuracy_pct {
+                        atk_modifier += (roll * pct) / 100;
                     }
                 }
             }

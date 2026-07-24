@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::templates::weather::{ConditionType, WeatherConfig};
+use crate::templates::weather::{ConditionType, WeatherConfig, WeatherEffects};
 use crate::Season;
 
 /// Component attached to room entities tracking active per-room weather state.
@@ -9,6 +9,8 @@ use crate::Season;
 pub struct WeatherState {
     pub base: Option<String>,
     pub modifier: Option<String>,
+    #[serde(default)]
+    pub effects: WeatherEffects,
 }
 
 impl WeatherState {
@@ -16,6 +18,7 @@ impl WeatherState {
         Self {
             base: base.map(Into::into),
             modifier: modifier.map(Into::into),
+            effects: WeatherEffects::default(),
         }
     }
 
@@ -141,6 +144,44 @@ pub fn roll_modifier(weights: &HashMap<String, u32>) -> Option<String> {
     roll_from_weights(weights)
 }
 
+/// Evaluates active base and modifier weather conditions in `weather_state` against `config`
+/// and returns the combined active `WeatherEffects`.
+pub fn get_effective_weather_effects(
+    weather_state: &WeatherState,
+    config: &WeatherConfig,
+) -> crate::templates::weather::WeatherEffects {
+    let mut combined = crate::templates::weather::WeatherEffects::default();
+
+    if let Some(ref base_id) = weather_state.base {
+        if let Some(def) = config.conditions.get(base_id) {
+            combined.combine(&def.effects);
+        }
+    }
+
+    if let Some(ref mod_id) = weather_state.modifier {
+        if let Some(def) = config.conditions.get(mod_id) {
+            combined.combine(&def.effects);
+        }
+    }
+
+    combined
+}
+
+/// Helper function to retrieve the combined active `WeatherEffects` for a room entity in `world`.
+pub fn get_room_weather_effects(
+    world: &crate::World,
+    room: crate::Entity,
+    config: &WeatherConfig,
+) -> crate::templates::weather::WeatherEffects {
+    let weather_state = world
+        .query_one::<&WeatherState>(room)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+        .unwrap_or_default();
+
+    get_effective_weather_effects(&weather_state, config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,5 +280,50 @@ mod tests {
         let weights = resolve_weather_weights(&params, &config, ConditionType::Base);
         assert!(weights.is_empty());
         assert_eq!(roll_weather(&weights), "clear");
+    }
+
+    #[test]
+    fn test_effective_weather_effects_combination() {
+        let mut config = WeatherConfig::default();
+        config.conditions.insert(
+            "rain".into(),
+            WeatherConditionDef {
+                name: "Rain".into(),
+                description: "Rain falls.".into(),
+                severity: crate::templates::weather::WeatherSeverity::Minor,
+                condition_type: ConditionType::Base,
+                effects: WeatherEffects {
+                    damage_fire: Some(-2),
+                    damage_lightning: Some(2),
+                    ..Default::default()
+                },
+            },
+        );
+        config.conditions.insert(
+            "fog".into(),
+            WeatherConditionDef {
+                name: "Fog".into(),
+                description: "Thick fog.".into(),
+                severity: crate::templates::weather::WeatherSeverity::Minor,
+                condition_type: ConditionType::Modifier,
+                effects: WeatherEffects {
+                    ranged_accuracy: Some(-2),
+                    dexterity: Some(-1),
+                    ..Default::default()
+                },
+            },
+        );
+
+        let state = WeatherState {
+            base: Some("rain".into()),
+            modifier: Some("fog".into()),
+            effects: Default::default(),
+        };
+
+        let eff = get_effective_weather_effects(&state, &config);
+        assert_eq!(eff.damage_fire, Some(-2));
+        assert_eq!(eff.damage_lightning, Some(2));
+        assert_eq!(eff.ranged_accuracy, Some(-2));
+        assert_eq!(eff.dexterity, Some(-1));
     }
 }
