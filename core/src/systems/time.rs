@@ -324,4 +324,30 @@ mod tests {
             "It is Dawn on the 14th day of Spring, Year 1."
         );
     }
+
+    #[test]
+    fn test_ordinal_suffix_edge_cases() {
+        assert_eq!(ordinal_suffix(1), "1st");
+        assert_eq!(ordinal_suffix(2), "2nd");
+        assert_eq!(ordinal_suffix(3), "3rd");
+        assert_eq!(ordinal_suffix(4), "4th");
+        assert_eq!(ordinal_suffix(11), "11th");
+        assert_eq!(ordinal_suffix(12), "12th");
+        assert_eq!(ordinal_suffix(13), "13th");
+        assert_eq!(ordinal_suffix(21), "21st");
+        assert_eq!(ordinal_suffix(22), "22nd");
+        assert_eq!(ordinal_suffix(23), "23rd");
+        assert_eq!(ordinal_suffix(30), "30th");
+    }
+
+    #[test]
+    fn test_advance_time_multi_hours() {
+        let mut gt = GameTime::new(22, 0, Season::Spring, 1);
+        let config = TimeConfig::default();
+        let events = advance_time(&mut gt, 180, &config); // 3 hours
+
+        assert_eq!(gt.hour, 1);
+        assert_eq!(gt.day, 2);
+        assert_eq!(events.len(), 5); // 3 HourPassed, 1 DayPassed, 1 PeriodChanged
+    }
 }

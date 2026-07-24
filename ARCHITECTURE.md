@@ -1557,12 +1557,12 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 - [x] Attributes: apply `dexterity` modifier from weather on DEX-based checks
 - [x] Weather condition descriptions in room `look` output
 
-### Phase 5 — Tests (pending)
+### Phase 5 — Tests ✓
 
-- [ ] `time.rs` — `period_from_hour`, `advance_time` day/season/year rollover, edge cases
-- [ ] `weather.rs` — resolution chain, `no_weather` short-circuit, weight normalization, modifier rolling
-- [ ] `weather.rs` deserialization — `content/weather.toml` parses cleanly
-- [ ] `prompt.rs` — `%t` and `%w` render correctly
+- [x] `time.rs` — `period_from_hour`, `advance_time` day/season/year rollover, edge cases
+- [x] `weather.rs` — resolution chain, `no_weather` short-circuit, weight normalization, modifier rolling
+- [x] `weather.rs` deserialization — `content/weather.toml` parses cleanly
+- [x] `prompt.rs` — `%t` and `%w` render correctly
 
 ### Phase 6 — Documentation (pending)
 

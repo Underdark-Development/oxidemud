@@ -344,4 +344,29 @@ mod tests {
         assert_eq!(eff.get_damage_modifier("acid"), -1);
         assert_eq!(eff.get_damage_modifier("slash"), 0);
     }
+
+    #[test]
+    fn test_weather_toml_deserialization() {
+        let content_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("content")
+            .join("weather.toml");
+
+        if content_path.exists() {
+            let toml_str =
+                std::fs::read_to_string(&content_path).expect("Failed to read weather.toml");
+            let config: WeatherConfig =
+                toml::from_str(&toml_str).expect("Failed to parse weather.toml");
+
+            assert!(
+                !config.conditions.is_empty(),
+                "Conditions should not be empty"
+            );
+            assert!(config.conditions.contains_key("clear"));
+            assert!(config.conditions.contains_key("rain"));
+            assert!(config.seasons.contains_key("spring"));
+            assert!(config.zones.contains_key("temperate"));
+        }
+    }
 }
