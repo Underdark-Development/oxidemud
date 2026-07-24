@@ -199,3 +199,129 @@ impl MobTemplate {
         npc
     }
 }
+
+impl super::defs::ItemTemplate {
+    pub fn spawn(&self, world: &mut crate::World) -> Entity {
+        let item = world.spawn((
+            crate::components::Name::new(&self.name),
+            crate::components::Item::new(&self.id),
+        ));
+
+        if let Some(weapon_def) = &self.weapon {
+            if let Ok(weapon_dice) = weapon_def.damage.0.parse::<crate::dice::DiceRoll>() {
+                if let Ok(dt) = crate::components::DamageType::from_str(&weapon_def.damage_type) {
+                    let range = match weapon_def.range.to_lowercase().as_str() {
+                        "ranged" => crate::components::WeaponRange::Ranged,
+                        "reach" => crate::components::WeaponRange::Reach,
+                        "thrown" => crate::components::WeaponRange::Thrown,
+                        _ => crate::components::WeaponRange::Melee,
+                    };
+                    let hands = match weapon_def.hands.to_lowercase().as_str() {
+                        "twohand" | "twohanded" | "two_hand" | "two_handed" => {
+                            crate::components::WeaponHands::TwoHand
+                        }
+                        _ => crate::components::WeaponHands::OneHand,
+                    };
+                    let weapon = crate::components::Weapon {
+                        damage_dice: weapon_dice,
+                        damage_type: dt,
+                        speed: weapon_def.speed,
+                        range,
+                        hands,
+                    };
+                    let _ = world.insert(item, (weapon,));
+                }
+            }
+        }
+
+        if let Some(ref set) = self.set {
+            let membership = crate::components::SetMembership::from(set.clone());
+            let _ = world.insert(item, (membership,));
+        }
+
+        if !self.triggers.is_empty() {
+            let _ = world.insert(item, (crate::ItemTriggers(self.triggers.clone()),));
+        }
+
+        if let Some(ref req) = self.requires_skill {
+            let _ = world.insert(
+                item,
+                (crate::components::ItemSkillRequirement {
+                    id: req.id.clone(),
+                    level: req.level,
+                },),
+            );
+        }
+
+        if let Some(ref c) = self.consumable {
+            let kind = match c.kind.to_lowercase().as_str() {
+                "potion" => crate::components::ConsumableKind::Potion,
+                "scroll" => crate::components::ConsumableKind::Scroll,
+                "wand" => crate::components::ConsumableKind::Wand,
+                "food" => crate::components::ConsumableKind::Food,
+                "drink" => crate::components::ConsumableKind::Drink,
+                other => crate::components::ConsumableKind::Other(other.to_string()),
+            };
+            let _ = world.insert(
+                item,
+                (crate::components::Consumable {
+                    kind,
+                    charges: c.charges,
+                    max_charges: c.max_charges,
+                    effect_script: c.effect_script.clone(),
+                    restore_health: c.restore_health,
+                    restore_mana: c.restore_mana,
+                    restore_stamina: c.restore_stamina,
+                    depleted_template: c.depleted_template.clone(),
+                    replenishable: c.replenishable,
+                    liquid_type: c.liquid_type.clone(),
+                },),
+            );
+        }
+
+        if let Some(ref cont) = self.container {
+            let _ = world.insert(
+                item,
+                (crate::components::ItemContainer::new(
+                    cont.capacity_weight,
+                    cont.max_items,
+                    cont.weight_reduction_pct,
+                    cont.is_closed,
+                    cont.is_locked,
+                    cont.key_template_id.clone(),
+                ),),
+            );
+            if cont.is_drink_container {
+                let _ = world.insert(
+                    item,
+                    (crate::components::DrinkContainer {
+                        liquid_type: cont
+                            .liquid_type
+                            .clone()
+                            .unwrap_or_else(|| "water".to_string()),
+                        charges: cont.liquid_charges,
+                        max_charges: cont.max_liquid_charges,
+                        replenishable: true,
+                    },),
+                );
+            }
+        }
+
+        if let Some(ref d) = self.durability {
+            let mut dur = crate::components::Durability::new(d.max);
+            dur.decay_rate = d.decay_rate;
+            let _ = world.insert(item, (dur,));
+        }
+
+        let is_fixed = self.flags.iter().any(|f| f == "fixed" || f == "!gettable");
+        let _ = world.insert(
+            item,
+            (crate::components::ItemFlags {
+                fixed: is_fixed,
+                flags: self.flags.clone(),
+            },),
+        );
+
+        item
+    }
+}

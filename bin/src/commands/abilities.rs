@@ -38,6 +38,72 @@ pub fn register(server: &mut Server) {
         },
         handler: cmd_cast,
     });
+    server.register_command(Command {
+        name: "quaff",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Drink a potion",
+            body: None,
+        },
+        handler: cmd_quaff,
+    });
+    server.register_command(Command {
+        name: "recite",
+        aliases: &["read"],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Recite a magical scroll",
+            body: None,
+        },
+        handler: cmd_recite,
+    });
+    server.register_command(Command {
+        name: "zap",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Zap a magic wand",
+            body: None,
+        },
+        handler: cmd_zap,
+    });
+    server.register_command(Command {
+        name: "eat",
+        aliases: &["consume"],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Eat a food item",
+            body: None,
+        },
+        handler: cmd_eat,
+    });
+    server.register_command(Command {
+        name: "drink",
+        aliases: &["sip"],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Drink from a waterskin or fluid source",
+            body: None,
+        },
+        handler: cmd_drink,
+    });
+    server.register_command(Command {
+        name: "fill",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Abilities",
+        help: CommandHelp {
+            short: "Fill a waterskin or drink container",
+            body: None,
+        },
+        handler: cmd_fill,
+    });
 }
 
 pub fn cmd_craft(
@@ -312,6 +378,503 @@ pub fn cmd_cast(
     }
 
     cmd_use(world, conn, name, args, registry);
+}
+
+pub fn cmd_quaff(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Quaff what potion?");
+        return;
+    }
+
+    let item = match super::common::find_item_in_inventory(world, entity, item_name) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that potion.");
+            return;
+        }
+    };
+
+    let item_display_name =
+        core::get_entity_name(world, item).unwrap_or_else(|| "potion".to_string());
+
+    let mut consumable = match world.query_one::<&mut core::components::Consumable>(item) {
+        Ok(mut q) => match q.get() {
+            Some(c) => c.clone(),
+            None => {
+                conn.send_line(&format!("You cannot quaff the {item_display_name}."));
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line(&format!("You cannot quaff the {item_display_name}."));
+            return;
+        }
+    };
+
+    if consumable.kind != core::components::ConsumableKind::Potion
+        && !matches!(consumable.kind, core::components::ConsumableKind::Other(_))
+    {
+        conn.send_line(&format!("The {item_display_name} is not a potion."));
+        return;
+    }
+
+    if consumable.is_empty() {
+        conn.send_line(&format!("The {item_display_name} is empty."));
+        return;
+    }
+
+    consumable.charges = consumable.charges.saturating_sub(1);
+
+    if consumable.restore_health > 0 {
+        if let Ok(mut q) = world.query_one::<&mut core::Health>(entity) {
+            if let Some(hp) = q.get() {
+                hp.current = (hp.current + consumable.restore_health).min(hp.max);
+                conn.send_line(&format!(
+                    "You feel a wave of healing energy (+{} HP).",
+                    consumable.restore_health
+                ));
+            }
+        }
+    }
+    if consumable.restore_mana > 0 {
+        if let Ok(mut q) = world.query_one::<&mut core::Mana>(entity) {
+            if let Some(mp) = q.get() {
+                mp.current = (mp.current + consumable.restore_mana as u16).min(mp.max);
+                conn.send_line(&format!(
+                    "Your mind clears and mana restores (+{} MP).",
+                    consumable.restore_mana
+                ));
+            }
+        }
+    }
+    if consumable.restore_stamina > 0 {
+        if let Ok(mut q) = world.query_one::<&mut core::Stamina>(entity) {
+            if let Some(st) = q.get() {
+                st.current = (st.current + consumable.restore_stamina as u16).min(st.max);
+                conn.send_line(&format!(
+                    "Vigor returns to your limbs (+{} Stamina).",
+                    consumable.restore_stamina
+                ));
+            }
+        }
+    }
+
+    conn.send_line(&format!("You quaff the {item_display_name}."));
+
+    if consumable.is_empty() {
+        if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+            if let Some(inv) = q.get() {
+                inv.0.retain(|&e| e != item);
+            }
+        }
+        if let Some(dep_tmpl_id) = &consumable.depleted_template {
+            if let Some(templates) = oxide_server::get_templates() {
+                if let Some(tmpl) = templates.items.get(dep_tmpl_id) {
+                    let vial = tmpl.spawn(world);
+                    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+                        if let Some(inv) = q.get() {
+                            inv.0.push(vial);
+                            conn.send_line("You are left holding an empty vial.");
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        let _ = world.insert(item, (consumable,));
+    }
+}
+
+pub fn cmd_recite(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    if input.is_empty() {
+        conn.send_line("Recite what scroll?");
+        return;
+    }
+
+    let item = match super::common::find_item_in_inventory(world, entity, input) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that scroll.");
+            return;
+        }
+    };
+
+    let item_display_name =
+        core::get_entity_name(world, item).unwrap_or_else(|| "scroll".to_string());
+
+    let mut consumable = match world.query_one::<&mut core::components::Consumable>(item) {
+        Ok(mut q) => match q.get() {
+            Some(c) => c.clone(),
+            None => {
+                conn.send_line(&format!("You cannot recite the {item_display_name}."));
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line(&format!("You cannot recite the {item_display_name}."));
+            return;
+        }
+    };
+
+    if consumable.kind != core::components::ConsumableKind::Scroll {
+        conn.send_line(&format!("The {item_display_name} is not a scroll."));
+        return;
+    }
+
+    if consumable.is_empty() {
+        conn.send_line(&format!("The {item_display_name} has no magic left."));
+        return;
+    }
+
+    consumable.charges = consumable.charges.saturating_sub(1);
+    conn.send_line(&format!("You recite the mystic words upon the {item_display_name}. As you finish, the parchment bursts into glowing ash!"));
+
+    if consumable.is_empty() {
+        if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+            if let Some(inv) = q.get() {
+                inv.0.retain(|&e| e != item);
+            }
+        }
+    } else {
+        let _ = world.insert(item, (consumable,));
+    }
+}
+
+pub fn cmd_zap(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    if input.is_empty() {
+        conn.send_line("Zap what wand?");
+        return;
+    }
+
+    let item = match super::common::find_item_in_inventory(world, entity, input) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that wand.");
+            return;
+        }
+    };
+
+    let item_display_name =
+        core::get_entity_name(world, item).unwrap_or_else(|| "wand".to_string());
+
+    let mut consumable = match world.query_one::<&mut core::components::Consumable>(item) {
+        Ok(mut q) => match q.get() {
+            Some(c) => c.clone(),
+            None => {
+                conn.send_line(&format!("You cannot zap the {item_display_name}."));
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line(&format!("You cannot zap the {item_display_name}."));
+            return;
+        }
+    };
+
+    if consumable.kind != core::components::ConsumableKind::Wand {
+        conn.send_line(&format!("The {item_display_name} is not a wand."));
+        return;
+    }
+
+    if consumable.is_empty() {
+        conn.send_line("The wand sputters with a faint whisper of smoke and does nothing.");
+        return;
+    }
+
+    consumable.charges = consumable.charges.saturating_sub(1);
+    conn.send_line(&format!("You point the {item_display_name} and zap it! A streak of arcane energy shoots forth! ({}/{} charges remaining)", consumable.charges, consumable.max_charges));
+
+    let _ = world.insert(item, (consumable,));
+}
+
+pub fn cmd_eat(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    if input.is_empty() {
+        conn.send_line("Eat what?");
+        return;
+    }
+
+    let item = match super::common::find_item_in_inventory(world, entity, input) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that food.");
+            return;
+        }
+    };
+
+    let item_display_name =
+        core::get_entity_name(world, item).unwrap_or_else(|| "food".to_string());
+
+    let mut consumable = match world.query_one::<&mut core::components::Consumable>(item) {
+        Ok(mut q) => match q.get() {
+            Some(c) => c.clone(),
+            None => {
+                conn.send_line(&format!("You cannot eat the {item_display_name}."));
+                return;
+            }
+        },
+        Err(_) => {
+            conn.send_line(&format!("You cannot eat the {item_display_name}."));
+            return;
+        }
+    };
+
+    if consumable.kind != core::components::ConsumableKind::Food {
+        conn.send_line(&format!("The {item_display_name} is not edible."));
+        return;
+    }
+
+    if consumable.is_empty() {
+        conn.send_line(&format!("The {item_display_name} is completely consumed."));
+        return;
+    }
+
+    consumable.charges = consumable.charges.saturating_sub(1);
+
+    if let Ok(mut q) = world.query_one::<&mut core::Stamina>(entity) {
+        if let Some(st) = q.get() {
+            let gain = if consumable.restore_stamina > 0 {
+                consumable.restore_stamina as u16
+            } else {
+                15u16
+            };
+            st.current = (st.current + gain).min(st.max);
+            conn.send_line(&format!(
+                "You eat the {item_display_name} and feel nourished (+{} Stamina).",
+                gain
+            ));
+        }
+    } else {
+        conn.send_line(&format!("You eat the {item_display_name}."));
+    }
+
+    if consumable.is_empty() {
+        if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+            if let Some(inv) = q.get() {
+                inv.0.retain(|&e| e != item);
+            }
+        }
+    } else {
+        let _ = world.insert(item, (consumable,));
+    }
+}
+
+pub fn cmd_drink(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let target_item = if input.is_empty() {
+        super::common::find_item_in_inventory(world, entity, "waterskin")
+            .or_else(|| super::common::find_item_in_room(world, room, "fountain"))
+    } else {
+        super::common::find_item_in_inv_or_room(world, entity, room, input)
+    };
+
+    let item = match target_item {
+        Some(i) => i,
+        None => {
+            conn.send_line("Drink from what?");
+            return;
+        }
+    };
+
+    let item_name = core::get_entity_name(world, item).unwrap_or_else(|| "source".to_string());
+
+    if let Ok(mut q) = world.query_one::<&mut core::components::DrinkContainer>(item) {
+        if let Some(dc) = q.get() {
+            if dc.charges == 0 {
+                conn.send_line(&format!("The {item_name} is empty."));
+                return;
+            }
+            dc.charges = dc.charges.saturating_sub(1);
+            let liquid = dc.liquid_type.clone();
+            conn.send_line(&format!("You drink a refreshing draught of {liquid} from the {item_name}. ({}/{} charges remaining)", dc.charges, dc.max_charges));
+            return;
+        }
+    }
+
+    if let Ok(mut q) = world.query_one::<&mut core::components::Consumable>(item) {
+        if let Some(c) = q.get() {
+            if c.kind == core::components::ConsumableKind::Drink {
+                if c.is_empty() {
+                    conn.send_line(&format!("The {item_name} is empty."));
+                    return;
+                }
+                c.charges = c.charges.saturating_sub(1);
+                let liquid = c.liquid_type.as_deref().unwrap_or("beverage");
+                conn.send_line(&format!("You drink the {liquid} from the {item_name}."));
+                if c.is_empty() {
+                    if let Ok(mut inv_q) = world.query_one::<&mut core::Inventory>(entity) {
+                        if let Some(inv) = inv_q.get() {
+                            inv.0.retain(|&e| e != item);
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    conn.send_line(&format!("You cannot drink from the {item_name}."));
+}
+
+pub fn cmd_fill(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    if input.is_empty() {
+        conn.send_line("Fill what container?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let pos = input.to_lowercase().find(" from ");
+    let (cont_query, source_query) = match pos {
+        Some(p) => (input[..p].trim(), Some(input[p + 6..].trim())),
+        None => (input, None),
+    };
+
+    let container_item = match super::common::find_item_in_inventory(world, entity, cont_query) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that container in your inventory.");
+            return;
+        }
+    };
+
+    let container_name =
+        core::get_entity_name(world, container_item).unwrap_or_else(|| "container".to_string());
+
+    let source_item = if let Some(sq) = source_query {
+        super::common::find_item_in_room(world, room, sq)
+    } else {
+        super::common::find_item_in_room(world, room, "fountain")
+            .or_else(|| super::common::find_item_in_room(world, room, "well"))
+            .or_else(|| super::common::find_item_in_room(world, room, "water"))
+    };
+
+    let source_item = match source_item {
+        Some(s) => s,
+        None => {
+            conn.send_line("There is no fluid source here to fill from.");
+            return;
+        }
+    };
+
+    let source_name =
+        core::get_entity_name(world, source_item).unwrap_or_else(|| "fluid source".to_string());
+
+    if let Ok(mut q) = world.query_one::<&mut core::components::DrinkContainer>(container_item) {
+        if let Some(dc) = q.get() {
+            if dc.charges >= dc.max_charges {
+                conn.send_line(&format!("The {container_name} is already completely full."));
+                return;
+            }
+            dc.charges = dc.max_charges;
+            conn.send_line(&format!("You submerge the {container_name} into the {source_name} and fill it to the brim with clear water!"));
+            return;
+        }
+    }
+
+    conn.send_line(&format!("The {container_name} cannot be refilled."));
 }
 
 #[cfg(test)]

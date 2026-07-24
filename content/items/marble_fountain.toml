@@ -1,0 +1,17 @@
+id = "marble_fountain"
+name = "Marble Fountain"
+description = "A carved white marble basin bubbling with clear, cool spring water."
+item_type = "container"
+quality = "uncommon"
+weight = 500.0
+value = 0
+flags = ["fixed"]
+
+[container]
+capacity_weight = 0.0
+max_items = 0
+weight_reduction_pct = 0
+is_drink_container = true
+liquid_type = "water"
+liquid_charges = 9999
+max_liquid_charges = 9999

@@ -1,0 +1,16 @@
+id = "leather_waterskin"
+name = "Leather Waterskin"
+description = "A supple cured-hide waterskin fitted with a brass stopper."
+item_type = "container"
+quality = "common"
+weight = 1.5
+value = 15
+
+[container]
+capacity_weight = 5.0
+max_items = 0
+weight_reduction_pct = 0
+is_drink_container = true
+liquid_type = "water"
+liquid_charges = 5
+max_liquid_charges = 5

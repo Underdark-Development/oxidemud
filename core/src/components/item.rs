@@ -262,3 +262,85 @@ pub struct AffixMod {
     pub stat: String,
     pub amount: i32,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsumableKind {
+    Potion,
+    Scroll,
+    Wand,
+    Food,
+    Drink,
+    Other(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct Consumable {
+    pub kind: ConsumableKind,
+    pub charges: u16,
+    pub max_charges: u16,
+    pub effect_script: Option<String>,
+    pub restore_health: i32,
+    pub restore_mana: i32,
+    pub restore_stamina: i32,
+    pub depleted_template: Option<String>,
+    pub replenishable: bool,
+    pub liquid_type: Option<String>,
+}
+
+impl Consumable {
+    pub fn is_empty(&self) -> bool {
+        self.charges == 0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ItemContainer {
+    pub contents: Vec<Entity>,
+    pub capacity_weight: f32,
+    pub max_items: u16,
+    pub weight_reduction_pct: u8,
+    pub is_closed: bool,
+    pub is_locked: bool,
+    pub key_template_id: Option<String>,
+}
+
+impl ItemContainer {
+    pub fn new(
+        capacity_weight: f32,
+        max_items: u16,
+        weight_reduction_pct: u8,
+        is_closed: bool,
+        is_locked: bool,
+        key_template_id: Option<String>,
+    ) -> Self {
+        ItemContainer {
+            contents: Vec::new(),
+            capacity_weight,
+            max_items,
+            weight_reduction_pct: weight_reduction_pct.min(100),
+            is_closed,
+            is_locked,
+            key_template_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DrinkContainer {
+    pub liquid_type: String,
+    pub charges: u16,
+    pub max_charges: u16,
+    pub replenishable: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ItemFlags {
+    pub fixed: bool,
+    pub flags: Vec<String>,
+}
+
+impl ItemFlags {
+    pub fn is_gettable(&self) -> bool {
+        !self.fixed && !self.flags.iter().any(|f| f == "fixed" || f == "!gettable")
+    }
+}

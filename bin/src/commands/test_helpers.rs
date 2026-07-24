@@ -195,6 +195,7 @@ pub fn init_test_templates() -> std::sync::MutexGuard<'static, ()> {
         set: None,
         triggers: vec![],
         params: std::collections::HashMap::new(),
+        ..Default::default()
     };
     registry
         .items
@@ -223,6 +224,7 @@ pub fn init_test_templates() -> std::sync::MutexGuard<'static, ()> {
         set: None,
         triggers: vec![],
         params: std::collections::HashMap::new(),
+        ..Default::default()
     };
     registry
         .items

@@ -418,9 +418,12 @@ affects_display = "The keen blade grants +1 to attack rolls."
 | `weapon`             | Section      | Defines weapon performance stats (see below).                                                                                                       |
 | `equipment`          | Section      | Defines wear slot/equipment info (see below).                                                                                                       |
 | `set`                | Section      | Associates the item with an item set (see below).                                                                                                   |
+| `consumable`         | Section      | Defines potion, scroll, wand, food, or drink consumable properties.                                                                                 |
+| `container`          | Section      | Defines portable container or stationary fluid source properties.                                                                                   |
+| `durability`         | Section      | Defines maximum durability and combat decay rate.                                                                                                   |
 | `triggers`           | Array        | Triggers that fire spell-like effects on events.                                                                                                    |
 
-#### Weapon & Equipment Sections
+#### Weapon, Equipment, Consumable & Container Sections
 
 - **`[weapon]` Section**:
   - `damage`: Fenced string in `XdY+Z` dice notation.
@@ -429,6 +432,24 @@ affects_display = "The keen blade grants +1 to attack rolls."
   - `range`: String specifying attack reach: `melee`, `ranged`, `reach`, `thrown`.
 - **`[equipment]` Section**:
   - `slot`: String matching equipped slot location: `head`, `neck`, `torso`, `arms`, `hands`, `finger`, `legs`, `feet`, `weapon`, `shield`, `ammo`, `back`, `waist`.
+- **`[consumable]` Section**:
+  - `kind`: String (`potion`, `scroll`, `wand`, `food`, `drink`).
+  - `charges`: Initial usage charges (default `1`).
+  - `max_charges`: Maximum usage charges.
+  - `restore_health` / `restore_mana` / `restore_stamina`: Stat amounts restored on consumption.
+  - `effect_script`: Rhai script path triggered on use/recite/zap.
+  - `depleted_template`: Template ID to leave behind when empty (e.g. `"empty_vial"`).
+- **`[container]` Section**:
+  - `capacity_weight`: Max combined weight of items stored inside.
+  - `max_items`: Maximum count of items inside.
+  - `weight_reduction_pct`: Percentage weight reduction applied to contained items (0–100%).
+  - `is_drink_container`: Boolean indicating if container holds liquid charges.
+  - `liquid_type`: String (`water`, `ale`, `wine`).
+  - `is_closed` / `is_locked`: Boolean flags for container doors/latches.
+  - `key_template_id`: Template ID required to unlock.
+- **`[durability]` Section**:
+  - `max`: Maximum item durability integer.
+  - `decay_rate`: Float specifying durability degradation multiplier.
 
 ---
 

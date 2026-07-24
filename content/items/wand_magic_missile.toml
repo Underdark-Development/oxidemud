@@ -1,0 +1,14 @@
+id = "wand_magic_missile"
+name = "Wand of Magic Missiles"
+description = "A slender ebony baton tipped with a glowing violet crystal."
+item_type = "wand"
+quality = "rare"
+weight = 1.0
+value = 150
+flags = ["consumable"]
+
+[consumable]
+kind = "wand"
+charges = 10
+max_charges = 10
+effect_script = "spells/magic_missile.rhai"

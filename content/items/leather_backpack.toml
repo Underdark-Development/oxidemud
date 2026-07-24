@@ -1,0 +1,14 @@
+id = "leather_backpack"
+name = "Leather Backpack"
+description = "A sturdy traveler's backpack crafted from tough boiled leather with iron buckles."
+item_type = "container"
+quality = "common"
+weight = 3.0
+value = 40
+
+[container]
+capacity_weight = 50.0
+max_items = 20
+weight_reduction_pct = 50
+is_closed = false
+is_locked = false

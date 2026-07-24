@@ -1,0 +1,16 @@
+id = "sturdy_chest"
+name = "Sturdy Wooden Chest"
+description = "A heavy oak chest reinforced with iron bands and a massive keyhole."
+item_type = "container"
+quality = "uncommon"
+weight = 80.0
+value = 100
+flags = ["fixed"]
+
+[container]
+capacity_weight = 200.0
+max_items = 50
+weight_reduction_pct = 0
+is_closed = true
+is_locked = true
+key_template_id = "iron_key"

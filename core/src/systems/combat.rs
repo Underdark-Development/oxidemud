@@ -98,12 +98,50 @@ fn is_dual_wielding(world: &World, entity: Entity) -> bool {
 fn get_weapon_data(world: &World, entity: Entity, slot: EquipmentSlot) -> Option<(Entity, Weapon)> {
     let mut eq = world.query_one::<&Equipment>(entity).ok()?;
     let weapon_entity = *eq.get()?.equipped(&slot)?;
+    if let Ok(mut dq) = world.query_one::<&crate::components::Durability>(weapon_entity) {
+        if let Some(dur) = dq.get() {
+            if dur.is_broken() {
+                return None;
+            }
+        }
+    }
     let weapon = world
         .query_one::<&Weapon>(weapon_entity)
         .ok()?
         .get()?
         .clone();
     Some((weapon_entity, weapon))
+}
+
+pub fn degrade_combat_durability(world: &mut World, attacker: Entity, target: Entity) {
+    if let Some((weapon_ent, _)) = get_weapon_data(world, attacker, EquipmentSlot::Weapon) {
+        if let Ok(mut q) = world.query_one::<&mut crate::components::Durability>(weapon_ent) {
+            if let Some(dur) = q.get() {
+                dur.damage(1);
+            }
+        }
+    }
+    if let Ok(mut eq_q) = world.query_one::<&Equipment>(target) {
+        if let Some(eq) = eq_q.get() {
+            for slot in &[
+                EquipmentSlot::Torso,
+                EquipmentSlot::Head,
+                EquipmentSlot::Shield,
+                EquipmentSlot::Legs,
+            ] {
+                if let Some(&armor_ent) = eq.equipped(slot) {
+                    if let Ok(mut dur_q) =
+                        world.query_one::<&mut crate::components::Durability>(armor_ent)
+                    {
+                        if let Some(dur) = dur_q.get() {
+                            dur.damage(1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Calculate AC for an entity.

@@ -1,0 +1,14 @@
+id = "scroll_fireball"
+name = "Scroll of Fireball"
+description = "A yellowed parchment scroll inscribed with fiery runes that thrum with heat."
+item_type = "scroll"
+quality = "uncommon"
+weight = 0.2
+value = 75
+flags = ["consumable"]
+
+[consumable]
+kind = "scroll"
+charges = 1
+max_charges = 1
+effect_script = "spells/fireball.rhai"

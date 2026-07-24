@@ -671,6 +671,69 @@ pub struct SetMembership {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsumableDef {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default = "default_one_u16")]
+    pub charges: u16,
+    #[serde(default = "default_one_u16")]
+    pub max_charges: u16,
+    #[serde(default)]
+    pub effect_script: Option<String>,
+    #[serde(default)]
+    pub restore_health: i32,
+    #[serde(default)]
+    pub restore_mana: i32,
+    #[serde(default)]
+    pub restore_stamina: i32,
+    #[serde(default)]
+    pub depleted_template: Option<String>,
+    #[serde(default)]
+    pub replenishable: bool,
+    #[serde(default)]
+    pub liquid_type: Option<String>,
+}
+
+fn default_one_u16() -> u16 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerDef {
+    #[serde(default)]
+    pub capacity_weight: f32,
+    #[serde(default)]
+    pub max_items: u16,
+    #[serde(default)]
+    pub weight_reduction_pct: u8,
+    #[serde(default)]
+    pub is_drink_container: bool,
+    #[serde(default)]
+    pub liquid_type: Option<String>,
+    #[serde(default)]
+    pub liquid_charges: u16,
+    #[serde(default)]
+    pub max_liquid_charges: u16,
+    #[serde(default)]
+    pub is_closed: bool,
+    #[serde(default)]
+    pub is_locked: bool,
+    #[serde(default)]
+    pub key_template_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DurabilityDef {
+    pub max: u16,
+    #[serde(default = "default_decay_rate")]
+    pub decay_rate: f32,
+}
+
+fn default_decay_rate() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ItemTemplate {
     pub id: String,
     pub name: String,
@@ -702,6 +765,12 @@ pub struct ItemTemplate {
     pub equipment: Option<EquipmentDef>,
     #[serde(default)]
     pub set: Option<SetMembership>,
+    #[serde(default)]
+    pub consumable: Option<ConsumableDef>,
+    #[serde(default)]
+    pub container: Option<ContainerDef>,
+    #[serde(default)]
+    pub durability: Option<DurabilityDef>,
     #[serde(default)]
     pub triggers: Vec<TriggerDef>,
     #[serde(default)]

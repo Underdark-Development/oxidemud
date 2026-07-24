@@ -92,3 +92,56 @@ pub fn format_ghost_text(text: &str) -> String {
     out.push_str("{/}");
     out
 }
+
+pub fn find_item_in_inventory(
+    world: &core::World,
+    player: core::Entity,
+    query: &str,
+) -> Option<core::Entity> {
+    let inv_items = world
+        .query_one::<&core::Inventory>(player)
+        .ok()?
+        .get()?
+        .0
+        .clone();
+    let candidates: Vec<(String, core::Entity)> = inv_items
+        .iter()
+        .filter_map(|&e| core::get_name(world, e).map(|n| (n.0.clone(), e)))
+        .collect();
+    match core::trie::trie_match(query, candidates) {
+        core::trie::TrieMatch::One(e) => Some(e),
+        core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+        core::trie::TrieMatch::None => None,
+    }
+}
+
+pub fn find_item_in_room(
+    world: &core::World,
+    room: core::Entity,
+    query: &str,
+) -> Option<core::Entity> {
+    let floor_items = world
+        .query_one::<&core::FloorItems>(room)
+        .ok()?
+        .get()?
+        .0
+        .clone();
+    let candidates: Vec<(String, core::Entity)> = floor_items
+        .iter()
+        .filter_map(|&e| core::get_name(world, e).map(|n| (n.0.clone(), e)))
+        .collect();
+    match core::trie::trie_match(query, candidates) {
+        core::trie::TrieMatch::One(e) => Some(e),
+        core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+        core::trie::TrieMatch::None => None,
+    }
+}
+
+pub fn find_item_in_inv_or_room(
+    world: &core::World,
+    player: core::Entity,
+    room: core::Entity,
+    query: &str,
+) -> Option<core::Entity> {
+    find_item_in_inventory(world, player, query).or_else(|| find_item_in_room(world, room, query))
+}

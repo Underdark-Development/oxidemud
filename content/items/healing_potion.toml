@@ -1,0 +1,15 @@
+id = "healing_potion"
+name = "Healing Potion"
+description = "A small glass vial filled with glowing crimson liquid that smells faintly of cinnamon."
+item_type = "potion"
+quality = "common"
+weight = 0.5
+value = 50
+flags = ["consumable"]
+
+[consumable]
+kind = "potion"
+charges = 1
+max_charges = 1
+restore_health = 25
+depleted_template = "empty_vial"

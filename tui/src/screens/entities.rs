@@ -656,6 +656,7 @@ fn generate_default_content(
             set: None,
             triggers: Vec::new(),
             params: HashMap::new(),
+            ..Default::default()
         })?,
         "mobs" => toml::to_string_pretty(&MobTemplate {
             id: id.to_string(),

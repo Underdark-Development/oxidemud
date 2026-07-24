@@ -25,9 +25,9 @@ pub use group::{
     Formation, Group, GroupInvite, GroupManager, GroupMember, GroupMemberInfo, GroupRole, LootMode,
 };
 pub use item::{
-    ActiveEffect, AffixMod, AffixModifiers, AffixNames, Durability, Equipment, EquipmentSlot,
-    Inventory, Item, ItemSkillRequirement, SetMembership, SetTracker, Weapon, WeaponHands,
-    WeaponRange,
+    ActiveEffect, AffixMod, AffixModifiers, AffixNames, Consumable, ConsumableKind, DrinkContainer,
+    Durability, Equipment, EquipmentSlot, Inventory, Item, ItemContainer, ItemFlags,
+    ItemSkillRequirement, SetMembership, SetTracker, Weapon, WeaponHands, WeaponRange,
 };
 pub use persistence::{DbId, Dirty};
 pub use quest::{ObjectiveProgress, QuestLog, QuestProgress};

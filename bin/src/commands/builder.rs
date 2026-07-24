@@ -1837,6 +1837,7 @@ pub fn cmd_item(
                         set: None,
                         triggers: Vec::new(),
                         params: std::collections::HashMap::new(),
+                        ..Default::default()
                     },
                 );
             });

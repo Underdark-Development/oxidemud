@@ -138,6 +138,17 @@ pub fn register(server: &mut Server) {
         },
         handler: cmd_loot,
     });
+    server.register_command(Command {
+        name: "repair",
+        aliases: &["fix"],
+        access: AccessLevel::Player,
+        topic: "Items",
+        help: CommandHelp {
+            short: "Repair damaged equipment at a blacksmith",
+            body: None,
+        },
+        handler: cmd_repair,
+    });
 }
 
 pub fn cmd_inventory(
@@ -825,8 +836,8 @@ pub fn cmd_get(
         return;
     }
 
-    let item_name = args.trim();
-    if item_name.is_empty() {
+    let input = args.trim();
+    if input.is_empty() {
         conn.send_line("Get what?");
         return;
     }
@@ -839,32 +850,101 @@ pub fn cmd_get(
         }
     };
 
+    if let Some(pos) = input.to_lowercase().find(" from ") {
+        let item_query = input[..pos].trim();
+        let container_query = input[pos + 6..].trim();
+
+        if item_query.is_empty() || container_query.is_empty() {
+            conn.send_line("Get what from what?");
+            return;
+        }
+
+        let container_ent =
+            match super::common::find_item_in_inv_or_room(world, entity, room, container_query) {
+                Some(c) => c,
+                None => {
+                    conn.send_line("You don't see that container.");
+                    return;
+                }
+            };
+
+        let container_name =
+            get_entity_name(world, container_ent).unwrap_or_else(|| "container".to_string());
+
+        let mut item_container =
+            match world.query_one::<&mut core::components::ItemContainer>(container_ent) {
+                Ok(mut q) => match q.get() {
+                    Some(c) => c.clone(),
+                    None => {
+                        conn.send_line("That is not a container.");
+                        return;
+                    }
+                },
+                Err(_) => {
+                    conn.send_line("That is not a container.");
+                    return;
+                }
+            };
+
+        if item_container.is_closed {
+            conn.send_line(&format!("The {container_name} is closed."));
+            return;
+        }
+
+        let items_to_get: Vec<core::Entity> = {
+            let candidates: Vec<(String, core::Entity)> = item_container
+                .contents
+                .iter()
+                .filter_map(|&e| get_entity_name(world, e).map(|n| (n, e)))
+                .collect();
+            match core::trie::trie_match(item_query, candidates) {
+                core::trie::TrieMatch::One(e) => vec![e],
+                core::trie::TrieMatch::Many(es) => es,
+                core::trie::TrieMatch::None => Vec::new(),
+            }
+        };
+
+        if items_to_get.is_empty() {
+            conn.send_line(&format!("You don't find that in the {container_name}."));
+            return;
+        }
+
+        {
+            if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+                if let Some(inv) = q.get() {
+                    for item_ent in &items_to_get {
+                        item_container.contents.retain(|e| e != item_ent);
+                        inv.0.push(*item_ent);
+                        let iname =
+                            get_entity_name(world, *item_ent).unwrap_or_else(|| "item".to_string());
+                        conn.send_line(&format!("You get {iname} from the {container_name}."));
+                    }
+                }
+            }
+        }
+
+        let _ = world.insert(container_ent, (item_container,));
+        return;
+    }
+
     let item = {
         let mut q = world.query_one::<&mut core::FloorItems>(room);
         match q.as_mut().ok().and_then(|q| q.get()) {
             Some(floor) => {
-                if let Ok(n) = item_name.parse::<usize>() {
-                    if n > 0 && n <= floor.0.len() {
-                        Some(floor.0.remove(n - 1))
-                    } else {
-                        None
-                    }
-                } else {
-                    let candidates: Vec<(String, core::Entity)> = floor
-                        .0
-                        .iter()
-                        .filter_map(|&e| get_entity_name(world, e).map(|name| (name, e)))
-                        .collect();
-                    let matched = match core::trie::trie_match(item_name, candidates) {
-                        core::trie::TrieMatch::One(e) => Some(e),
-                        core::trie::TrieMatch::Many(items) => items.into_iter().next(),
-                        core::trie::TrieMatch::None => None,
-                    };
-                    matched.and_then(|m| {
-                        let idx = floor.0.iter().position(|&e| e == m)?;
-                        Some(floor.0.remove(idx))
-                    })
-                }
+                let candidates: Vec<(String, core::Entity)> = floor
+                    .0
+                    .iter()
+                    .filter_map(|&e| get_entity_name(world, e).map(|name| (name, e)))
+                    .collect();
+                let matched = match core::trie::trie_match(input, candidates) {
+                    core::trie::TrieMatch::One(e) => Some(e),
+                    core::trie::TrieMatch::Many(items) => items.into_iter().next(),
+                    core::trie::TrieMatch::None => None,
+                };
+                matched.and_then(|m| {
+                    let idx = floor.0.iter().position(|&e| e == m)?;
+                    Some(floor.0.remove(idx))
+                })
             }
             None => None,
         }
@@ -878,26 +958,30 @@ pub fn cmd_get(
         }
     };
 
+    let is_gettable = if let Ok(mut q) = world.query_one::<&core::components::ItemFlags>(item) {
+        q.get().map(|f| f.is_gettable()).unwrap_or(true)
+    } else {
+        true
+    };
+
+    if !is_gettable {
+        let iname = get_entity_name(world, item).unwrap_or_else(|| "item".to_string());
+        conn.send_line(&format!(
+            "The {iname} is fixed in place and cannot be taken."
+        ));
+        if let Ok(mut q) = world.query_one::<&mut core::FloorItems>(room) {
+            if let Some(floor) = q.get() {
+                floor.0.push(item);
+            }
+        }
+        return;
+    }
+
     if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
         if let Some(inv) = q.get() {
             inv.0.push(item);
-            conn.send_line("You pick it up.");
-            if let Ok(mut cmd_q) = world.query_one::<&core::EntityCommands>(item) {
-                if let Some(cmds) = cmd_q.get() {
-                    for cmd in &cmds.commands {
-                        if !cmd.restrictions.requires_equipped {
-                            if let Some(ref msg) = cmd.get_message {
-                                conn.send_line(msg);
-                            } else {
-                                conn.send_line(&format!(
-                                    "Holding this item bestows the ability to '{}'.",
-                                    cmd.command_name
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
+            let iname = get_entity_name(world, item).unwrap_or_else(|| "item".to_string());
+            conn.send_line(&format!("You pick up {iname}."));
         }
     }
 
@@ -930,7 +1014,7 @@ pub fn cmd_drop(
         return;
     }
 
-    let item = match find_item_in_inventory(world, entity, item_name) {
+    let item = match super::common::find_item_in_inventory(world, entity, item_name) {
         Some(i) => i,
         None => {
             conn.send_line("You don't have that item.");
@@ -968,23 +1052,315 @@ pub fn cmd_drop(
 }
 
 pub fn cmd_put(
-    _world: &mut World,
+    world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
-    _args: &str,
+    args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    conn.send_line("Containers are not yet implemented.");
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    let pos = match input
+        .to_lowercase()
+        .find(" in ")
+        .or_else(|| input.to_lowercase().find(" into "))
+    {
+        Some(p) => p,
+        None => {
+            conn.send_line("Put what into what? (Syntax: put <item> in <container>)");
+            return;
+        }
+    };
+
+    let sep_len = if input[pos..].to_lowercase().starts_with(" into ") {
+        6
+    } else {
+        4
+    };
+    let item_query = input[..pos].trim();
+    let container_query = input[pos + sep_len..].trim();
+
+    if item_query.is_empty() || container_query.is_empty() {
+        conn.send_line("Put what into what?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let container_ent =
+        match super::common::find_item_in_inv_or_room(world, entity, room, container_query) {
+            Some(c) => c,
+            None => {
+                conn.send_line("You don't see that container.");
+                return;
+            }
+        };
+
+    let container_name =
+        get_entity_name(world, container_ent).unwrap_or_else(|| "container".to_string());
+
+    let mut item_container =
+        match world.query_one::<&mut core::components::ItemContainer>(container_ent) {
+            Ok(mut q) => match q.get() {
+                Some(c) => c.clone(),
+                None => {
+                    conn.send_line("That is not a container.");
+                    return;
+                }
+            },
+            Err(_) => {
+                conn.send_line("That is not a container.");
+                return;
+            }
+        };
+
+    if item_container.is_closed {
+        conn.send_line(&format!("The {container_name} is closed."));
+        return;
+    }
+
+    let player_inv = match world.query_one::<&core::Inventory>(entity) {
+        Ok(mut q) => match q.get() {
+            Some(inv) => inv.clone(),
+            None => return,
+        },
+        Err(_) => return,
+    };
+
+    let candidates: Vec<(String, core::Entity)> = player_inv
+        .0
+        .iter()
+        .filter(|&&e| e != container_ent)
+        .filter_map(|&e| get_entity_name(world, e).map(|n| (n, e)))
+        .collect();
+
+    let items_to_put: Vec<core::Entity> = match core::trie::trie_match(item_query, candidates) {
+        core::trie::TrieMatch::One(e) => vec![e],
+        core::trie::TrieMatch::Many(es) => es,
+        core::trie::TrieMatch::None => Vec::new(),
+    };
+
+    if items_to_put.is_empty() {
+        conn.send_line("You don't have that item to put away.");
+        return;
+    }
+
+    {
+        let mut inv_q = world.query_one::<&mut core::Inventory>(entity).unwrap();
+        if let Some(inv) = inv_q.get() {
+            for item_ent in items_to_put {
+                if item_container.max_items > 0
+                    && item_container.contents.len() as u16 >= item_container.max_items
+                {
+                    conn.send_line(&format!("The {container_name} is full."));
+                    break;
+                }
+                inv.0.retain(|&e| e != item_ent);
+                item_container.contents.push(item_ent);
+                let iname = get_entity_name(world, item_ent).unwrap_or_else(|| "item".to_string());
+                conn.send_line(&format!("You put {iname} into the {container_name}."));
+            }
+        }
+    }
+
+    let _ = world.insert(container_ent, (item_container,));
 }
 
 pub fn cmd_give(
-    _world: &mut World,
+    world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
-    _args: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let input = args.trim();
+    let pos = match input.to_lowercase().find(" to ") {
+        Some(p) => p,
+        None => {
+            conn.send_line("Give what to whom? (Syntax: give <item> to <player>)");
+            return;
+        }
+    };
+
+    let item_query = input[..pos].trim();
+    let target_query = input[pos + 4..].trim();
+
+    if item_query.is_empty() || target_query.is_empty() {
+        conn.send_line("Give what to whom?");
+        return;
+    }
+
+    let target_ent = match super::common::find_online_player(world, registry, target_query) {
+        Some(p) => p,
+        None => {
+            conn.send_line("You don't see that person online.");
+            return;
+        }
+    };
+
+    if target_ent == entity {
+        conn.send_line("You cannot give items to yourself.");
+        return;
+    }
+
+    let item_ent = match super::common::find_item_in_inventory(world, entity, item_query) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that item.");
+            return;
+        }
+    };
+
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(entity) {
+        if let Some(inv) = q.get() {
+            inv.0.retain(|&e| e != item_ent);
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&mut core::Inventory>(target_ent) {
+        if let Some(inv) = q.get() {
+            inv.0.push(item_ent);
+        }
+    }
+
+    let item_name = get_entity_name(world, item_ent).unwrap_or_else(|| "item".to_string());
+    let giver_name = core::get_name(world, entity)
+        .map(|n| n.0.clone())
+        .unwrap_or_else(|| "Someone".to_string());
+    let recipient_name = core::get_name(world, target_ent)
+        .map(|n| n.0.clone())
+        .unwrap_or_else(|| "Someone".to_string());
+
+    conn.send_line(&format!("You give {item_name} to {recipient_name}."));
+    super::common::send_to_online_player(
+        registry,
+        target_ent,
+        &format!("{giver_name} gives you {item_name}."),
+    );
+}
+
+pub fn cmd_repair(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
     _registry: &ConnectionRegistry,
 ) {
-    conn.send_line("Giving items is not yet implemented.");
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => {
+            conn.send_line("You have no form.");
+            return;
+        }
+    };
+
+    let item_name = args.trim();
+    if item_name.is_empty() {
+        conn.send_line("Repair what item?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    let has_blacksmith = {
+        let mut npcs = world.query::<(&core::Npc, &core::Position)>();
+        npcs.iter().any(|(_, (npc, pos))| {
+            pos.room == room
+                && (npc.template_id.contains("blacksmith") || npc.template_id.contains("smith"))
+        })
+    };
+
+    if !has_blacksmith {
+        conn.send_line("There is no blacksmith or forge here to repair your equipment.");
+        return;
+    }
+
+    let item_ent = match super::common::find_item_in_inventory(world, entity, item_name) {
+        Some(i) => i,
+        None => {
+            conn.send_line("You don't have that item in your inventory.");
+            return;
+        }
+    };
+
+    let item_display_name = get_entity_name(world, item_ent).unwrap_or_else(|| "item".to_string());
+
+    let missing_durability = {
+        if let Ok(mut q) = world.query_one::<&core::components::Durability>(item_ent) {
+            if let Some(dur) = q.get() {
+                if dur.current >= dur.max {
+                    conn.send_line(&format!(
+                        "Your {item_display_name} is already in pristine condition."
+                    ));
+                    return;
+                }
+                dur.max - dur.current
+            } else {
+                conn.send_line("That item does not have durability.");
+                return;
+            }
+        } else {
+            conn.send_line("That item does not have durability.");
+            return;
+        }
+    };
+
+    let repair_cost_gold = (missing_durability as u64) * 2;
+
+    let mut wallet = match world.query_one::<&mut core::Wallet>(entity) {
+        Ok(mut q) => match q.get() {
+            Some(w) => w.clone(),
+            None => return,
+        },
+        Err(_) => return,
+    };
+
+    if wallet.gold < repair_cost_gold {
+        conn.send_line(&format!(
+            "Repairing your {item_display_name} costs {repair_cost_gold} gold, but you only have {} gold.",
+            wallet.gold
+        ));
+        return;
+    }
+
+    wallet.gold -= repair_cost_gold;
+    let _ = world.insert(entity, (wallet,));
+
+    if let Ok(mut q) = world.query_one::<&mut core::components::Durability>(item_ent) {
+        if let Some(dur) = q.get() {
+            dur.repair(dur.max);
+        }
+    }
+
+    conn.send_line(&format!(
+        "The blacksmith repairs your {item_display_name} for {repair_cost_gold} gold. It is now good as new!"
+    ));
 }
 
 pub fn cmd_loot(

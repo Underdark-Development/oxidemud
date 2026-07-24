@@ -1260,6 +1260,7 @@ impl OxideMcpServer {
             set: None,
             triggers: Vec::new(),
             params: HashMap::new(),
+            ..Default::default()
         };
         match toml::to_string_pretty(&item) {
             Ok(content) => {

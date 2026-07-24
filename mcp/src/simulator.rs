@@ -2205,6 +2205,7 @@ mod tests {
             set: None,
             triggers: vec![],
             params: HashMap::new(),
+            ..Default::default()
         };
         registry.races.insert("human".to_string(), race);
         registry.classes.insert("warrior".to_string(), class);
@@ -2349,11 +2350,10 @@ mod tests {
             allowed_races: vec![],
             allowed_alignments: vec![],
             requires_skill: None,
-            weapon: None,
-            equipment: None,
             set: None,
             triggers: vec![],
             params: HashMap::new(),
+            ..Default::default()
         };
         registry.shops.insert("shop".to_string(), shop);
         registry.items.insert("sword".to_string(), item);
@@ -2437,6 +2437,7 @@ mod tests {
             set: None,
             triggers: vec![],
             params: HashMap::new(),
+            ..Default::default()
         };
         registry.recipes.insert("potion".to_string(), recipe);
         registry.items.insert("red_potion".to_string(), item);
