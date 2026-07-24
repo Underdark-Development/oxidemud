@@ -81,7 +81,7 @@ docker exec -it oxide-server /app/bin/oxide-server --version
 
 ### 3. Ansible Automation Deployment
 
-For automated remote deployments from a local administrator machine, the distribution package includes an Ansible playbook ([deploy.yml](file:///Users/therealklanni/Projects/oxidemud/ansible/deploy.yml)). This playbook targets the precompiled binaries and assets contained within the unpacked package.
+For automated remote deployments from a local administrator machine, the distribution package includes an Ansible playbook ([deploy.yml](../ansible/deploy.yml)). This playbook targets the precompiled binaries and assets contained within the unpacked package.
 
 > [!NOTE]
 > **Direct Host Deployments**: The Ansible playbook is designed to push deployment files from a local machine to a remote VPS. If the distribution archive is already uploaded and extracted directly on the target host VPS, you should **not** use the Ansible playbook. Instead, directly invoke `docker-compose up -d --build` (for Docker) or execute `./install.sh` (for host systemd) directly on the host VPS.

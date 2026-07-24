@@ -159,12 +159,12 @@ Clickable links, entities, and status gauges formatted as XML tags (`<send>`, `<
 - JSON MMCC frames over WebSocket: `{ type: "command"|"output", payload: { text, html } }`.
 - Interfaces via `Connection` trait with server-side ANSI-to-HTML conversion.
 
-#### REST API (Phase 6)
+#### REST API (Phase 5/6)
 
-Lightweight HTTP management endpoints:
+HTTP management and AI bridge endpoints (implemented via `axum` in `server/src/api.rs`):
 
-- `GET /api/who`, `GET /api/characters`, `GET /api/characters/:id`, `GET /api/characters/:id/inventory`.
-- Authenticated via session tokens or API keys.
+- Player & Character info: `GET /api/players`, `GET /api/character/:name`, `POST /api/character/simulate`.
+- Immortal actions (bearer token authenticated, `immortal`+ role required): `POST /api/imm/put_item`, `POST /api/imm/teleport`, `POST /api/imm/force_command`.
 
 #### Protocol Feature Matrix
 
@@ -178,44 +178,54 @@ Lightweight HTTP management endpoints:
 | MCCP              | 6     | Telnet        | Planned     |
 | MXP               | 6     | Telnet + lock | Planned     |
 | WebSocket         | 6     | HTTP server   | Planned     |
-| REST API          | 6     | HTTP server   | Planned     |
+| REST API          | 5/6   | HTTP server   | Implemented |
 | MSSP              | 6     | Telnet        | Planned     |
 
 ---
 
-### 3. MCP Server — Planned Imm Tools & Simulators (Phase 6)
+### 3. MCP Server — Imm Tools & Simulators
 
-#### Planned Imm Online Tools (Requires `--url` + `--key`)
+#### Imm Online Tools (Requires `--url` + `--key`)
 
-Requires immortal+ access API key and REST connection to running server. Destructive actions require an explicit `confirm: true` parameter.
+Requires immortal+ access API key and REST connection to running server (`server/src/api.rs`). Destructive actions require an explicit `confirm: true` parameter.
 
-| Tool                | REST Endpoint                 | Description                                                           |
-| ------------------- | ----------------------------- | --------------------------------------------------------------------- |
-| `imm_set_stat`      | `POST /api/imm/set_stat`      | Modify attributes/HP/mana/stamina/level/XP (explicit params per stat) |
-| `imm_load_mob`      | `POST /api/imm/load_mob`      | Spawn mob from template into room                                     |
-| `imm_load_item`     | `POST /api/imm/load_item`     | Spawn item into room                                                  |
-| `imm_gecho`         | `POST /api/imm/gecho`         | Global echo to all players                                            |
-| `imm_advance`       | `POST /api/imm/advance`       | Level up a player                                                     |
-| `imm_stat`          | `POST /api/imm/stat`          | Inspect ECS components on target                                      |
-| `imm_heal`          | `POST /api/imm/heal`          | Full heal (HP/mana/stamina)                                           |
-| `imm_damage`        | `POST /api/imm/damage`        | Deal damage to target                                                 |
-| `imm_kill`          | `POST /api/imm/kill`          | Instantly kill target (requires confirmation)                         |
-| `imm_revive`        | `POST /api/imm/revive`        | Revive dead/ghost player                                              |
-| `imm_set_alignment` | `POST /api/imm/set_alignment` | Change alignment                                                      |
-| `imm_set_faction`   | `POST /api/imm/set_faction`   | Adjust faction standing                                               |
-| `imm_purge_room`    | `POST /api/imm/purge_room`    | Remove all NPCs/items from room (requires confirmation)               |
-| `imm_reboot`        | `POST /api/imm/reboot`        | Graceful server reboot (requires confirmation)                        |
+| Tool                | REST Endpoint                 | Description                                                           | Status      |
+| ------------------- | ----------------------------- | --------------------------------------------------------------------- | ----------- |
+| `imm_put_item`      | `POST /api/imm/put_item`      | Give item to online player                                            | Implemented |
+| `imm_teleport`      | `POST /api/imm/teleport`      | Teleport online player to room                                        | Implemented |
+| `imm_force_command` | `POST /api/imm/force_command` | Force player to execute verb command (requires confirmation)          | Implemented |
+| `imm_set_stat`      | `POST /api/imm/set_stat`      | Modify attributes/HP/mana/stamina/level/XP (explicit params per stat) | Planned     |
+| `imm_load_mob`      | `POST /api/imm/load_mob`      | Spawn mob from template into room                                     | Planned     |
+| `imm_load_item`     | `POST /api/imm/load_item`     | Spawn item into room                                                  | Planned     |
+| `imm_gecho`         | `POST /api/imm/gecho`         | Global echo to all players                                            | Planned     |
+| `imm_advance`       | `POST /api/imm/advance`       | Level up a player                                                     | Planned     |
+| `imm_stat`          | `POST /api/imm/stat`          | Inspect ECS components on target                                      | Planned     |
+| `imm_heal`          | `POST /api/imm/heal`          | Full heal (HP/mana/stamina)                                           | Planned     |
+| `imm_damage`        | `POST /api/imm/damage`        | Deal damage to target                                                 | Planned     |
+| `imm_kill`          | `POST /api/imm/kill`          | Instantly kill target (requires confirmation)                         | Planned     |
+| `imm_revive`        | `POST /api/imm/revive`        | Revive dead/ghost player                                              | Planned     |
+| `imm_set_alignment` | `POST /api/imm/set_alignment` | Change alignment                                                      | Planned     |
+| `imm_set_faction`   | `POST /api/imm/set_faction`   | Adjust faction standing                                               | Planned     |
+| `imm_purge_room`    | `POST /api/imm/purge_room`    | Remove all NPCs/items from room (requires confirmation)               | Planned     |
+| `imm_reboot`        | `POST /api/imm/reboot`        | Graceful server reboot (requires confirmation)                        | Planned     |
 
-#### Planned Simulators (Phase 6)
+#### Implemented Simulators (`mcp/src/simulator.rs`)
 
-| Tool                      | Core Hook                               | Description                                                             |
-| ------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| `simulate_regen`          | `systems::regen`                        | HP/mana/stamina regen per tick across rest states                       |
-| `simulate_level_up`       | `award_xp` logic                        | Detailed level-up breakdown (HP die, skill points, mana/stamina recalc) |
-| `simulate_faction_change` | `systems::faction::handle_faction_kill` | Faction standing changes from killing a mob                             |
-| `simulate_quest_rewards`  | `QuestDef.rewards`                      | Quest reward breakdown                                                  |
-| `simulate_practice`       | `cmd_train`/`cmd_practice`              | Skill training costs and practice point allocation                      |
-| `simulate_xp_curve`       | `Experience::for_level`                 | XP thresholds across all levels                                         |
+| Tool                            | Core System / Module            | Description                                                          |
+| ------------------------------- | ------------------------------- | -------------------------------------------------------------------- |
+| `simulate_loot`                 | `systems::loot`                 | Rolls mob loot drops across iterations and calculates drop rates     |
+| `simulate_combat`               | `systems::combat`               | Round-by-round combat simulation between templates/players           |
+| `simulate_progression`          | Level progression               | Level-by-level stat progression for race/class combo                 |
+| `simulate_gear_loadout`         | `systems::set_bonus`, equipment | Final character stats given an equipped item set                     |
+| `simulate_ai_wander`            | `systems::ai`                   | NPC wander path and room visit frequency across ticks                |
+| `simulate_shop_transaction`     | Shop pricing                    | Dynamic buy/sell pricing across reputation tiers                     |
+| `simulate_character_creation`   | Character creation              | Simulates starting attributes, pools, and auto-learned skills        |
+| `simulate_crafting`             | `systems::crafting`             | Crafting success probability, station checks, and output quality     |
+| `simulate_skill_use`            | `systems::skill_use`            | Resource cost, cooldowns, and skill success checks                   |
+| `simulate_prayer`               | Deity & Prayer                  | Prayer buff duration, cooldowns, and deity alignment compatibility   |
+| `simulate_prestige_eligibility` | `systems::multi_class`          | Gate prerequisite and prerequisite skill checks for prestige classes |
+| `simulate_group_formation`      | `systems::group`                | Formation stat modifiers, front/back line allocations                |
+| `simulate_death_penalty`        | `systems::player_state`         | XP loss calculations, ghost state transition, and corpse spawn       |
 
 ---
 
@@ -255,6 +265,6 @@ Outline for an offline transpiler and runner architecture (`lpc-to-oxide`) to co
 ### 5. Development Roadmap Summary
 
 - **Phase 0–3 (Core Engine & Content Baseline) ✓:** Cargo workspace, ECS, TCP/Telnet, Login/Char creation, combat, items, mobs, skills, races, classes, durability baseline.
-- **Phase 4 (Advanced Gameplay):** Crafting, quests, factions, prestige, multi-classing, spells, economy, regeneration, time & weather. _(In progress / partially complete)_
-- **Phase 5 (OLC & Tooling):** Online `@` commands, zone management, schema migrations, hot backup, Rhai hot-reload, spade offline builder, MCP server baseline. _(In progress / partially complete)_
-- **Phase 6 (Protocol Expansion & spade MUD Client):** WebSocket, GMCP, MXP, REST API expansions, spade MUD client mode, advanced MCP imm tools & simulators. _(Planned)_
+- **Phase 4 (Advanced Gameplay) ✓:** Crafting, quests, factions, prestige, multi-classing, spells, economy, regeneration, time & weather.
+- **Phase 5 (OLC, Tooling & REST API) ✓:** Online `@` commands, zone management, schema migrations, hot backup, Rhai hot-reload, spade offline builder, REST API server baseline, MCP server baseline with 13 simulators & online IMM tools.
+- **Phase 6 (Protocol Expansion & spade MUD Client):** WebSocket, GMCP, MXP, spade MUD client mode, remaining IMM online endpoints. _(Planned)_

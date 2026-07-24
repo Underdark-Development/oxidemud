@@ -2,27 +2,20 @@
 
 ## Project state
 
-This is a Rust project with working source code across 7 workspace crates + TOML content on disk. All architectural specifications, system designs, implementation details, feature phase roadmaps, and task tracking can be found exclusively in [`ARCHITECTURE.md`](file:///Users/therealklanni/Projects/oxide/oxidemud/ARCHITECTURE.md) — read it first each session.
+This is a Rust project with working source code across workspace crates + TOML content on disk.
 
-## Planned stack
-
-| Layer         | Choice                           |
-| ------------- | -------------------------------- |
-| Language      | Rust (latest stable)             |
-| Async runtime | Tokio                            |
-| ECS           | `hecs`                           |
-| Database      | SQLite via `rusqlite` (WAL mode) |
-| Scripting     | Rhai (embedded)                  |
-| Serialization | serde (TOML content files)       |
-| Networking    | Tokio TCP (telnet)               |
+> **Single Source of Truth for Architecture & Implementation Specifications:**
+> All architectural specifications, tech stack choices, system designs, crate dependency DAGs, concurrency models, state machine patterns, subsystem mechanics, feature phase roadmaps, and implementation details can be found **exclusively in [`ARCHITECTURE.md`](ARCHITECTURE.md)** — read it first each session.
+>
+> `AGENTS.md` is strictly reserved for agent invariants, developer workflow conventions, coding standards, commit rules, and security mindset guidelines. Do NOT add architectural or feature design specifications to `AGENTS.md`.
 
 ## Workspace layout
 
-Seven crates under a root `Cargo.toml` workspace:
+See [`ARCHITECTURE.md`](ARCHITECTURE.md#cargo-workspace) for full Cargo workspace crate descriptions and dependency DAG.
 
 ```
 core/       — ECS components, systems, events, resources
-server/     — Network layer (telnet, command dispatch, connection state)
+server/     — Network layer (telnet, command dispatch, connection state, REST API)
 data/       — Persistence (SQLite schema, type-safe queries)
 scripting/  — Rhai engine setup + Rust↔Rhai bindings
 tui/        — spade: builder TUI & MUD client (ratatui + crossterm)
@@ -44,18 +37,6 @@ These rules are absolute. No PR, no matter how small, may violate them.
 - **Treat Every Networked Byte as Hostile:** This project is a public-internet game server. Every input byte must be validated, bounded, and never trusted. Pre-auth connections are especially dangerous — enforce line length limits, read timeouts, and strike tracking before any game logic processes input.
 - **Documentation Synchronization:** Whenever implementing a new feature or modifying an existing system, you MUST update the corresponding human-facing documentation in `docs/` in the same session. Keeping documentation accurate and up-to-date as implementation evolves is mandatory.
 
-## Key architecture facts
-
-- **Event-driven game loop** — no fixed tick. Uses `tokio::select!` over player input, scheduler pulses, and event bus. Systems register for intervals (combat 2s, regen 6s, weather 5m).
-- **Driver/mudlib separation** — engine provides networking, ECS, persistence, scripting. Game content (combat, spells, quests) lives in data files and scripts, not engine code.
-- **Two-tier persistence** — in-memory ECS world + SQLite on disk. Dirty tracking (`Dirty` marker component), background flush every 5s, full flush + WAL checkpoint on shutdown.
-- **Command dispatch** — linear `Vec<Command>` prefix search (trie planned). Commands are `fn(&mut World, &mut Connection, &str)` with access levels.
-- **Connection trait** — abstracts telnet, WebSocket, REST. Transport-agnostic command layer. Login state machine runs in `server/src/login/` as a standalone `LoginFlow` struct (not on the connection).
-- **MCP server** — exposes world-editing tools to AI agents (Claude). Works offline
-  (direct TOML/DB reads) or online (REST bridge to game server). Tools cover full CRUD
-  for areas, rooms, mobs, items, quests, and content validation.
-- **State machine pattern** — subsystems (Combat, AI, Login, Room) use explicit state machines with defined states and valid transitions. Transitions emit a typed `GameEvent` over `tokio::sync::broadcast`. See ARCHITECTURE.md State Machine Pattern.
-
 ## Conventions
 
 - Follow `ARCHITECTURE.md` for component/event/command designs. If it's undefined there, default to idiomatic Rust + the crate's stated responsibility.
@@ -72,7 +53,7 @@ These rules are absolute. No PR, no matter how small, may violate them.
 
 ## Modular development
 
-- **Dependency DAG** — `core` depends on nothing else. `data`, `scripting`, `mcp` depend on `core` only. `tui` depends on `core` and `scripting`. `server` depends on `core` and `data`. `bin` depends on `core`, `server`, `data`, and `scripting`. No circular deps.
+- **Dependency DAG** — See [`ARCHITECTURE.md`](ARCHITECTURE.md#dependency-dag) for the crate DAG and layering rules. No circular dependencies.
 - **Minimal `pub`** — prefer `pub(crate)` within a crate; re-export key types at `lib.rs`.
 - **Feature gates** — Cargo features for optional pieces (e.g. `mccp`), not `cfg` checks.
 - **Module tree** — mirror `ARCHITECTURE.md` `src/` layout exactly; one file per component/system type.

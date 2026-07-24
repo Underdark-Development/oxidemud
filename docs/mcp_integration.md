@@ -79,6 +79,21 @@ AI agents can execute the following tools via JSON-RPC calls:
 - `simulate_progression <race_id> <class_id> <start_level> <end_level>` — Simulates character level-by-level stat progression and returns the stat table.
 - `simulate_gear_loadout <race_id> <class_id> <level> [items...]` — Simulates a character's final stats with a given set of equipped items.
 - `simulate_shop_transaction <shop_id> <item_id>` — Simulates buy/sell pricing across reputation levels.
+- `simulate_character_creation` — Simulates starting stats, pool calculations, and auto-learned skills for race and class combinations.
+- `simulate_crafting` — Simulates crafting success probabilities, required stations, and recipe quality outputs.
+- `simulate_skill_use` — Simulates skill usage checks, resource costs, and success rates.
+- `simulate_prayer` — Simulates prayer buff effects, duration, cooldowns, and deity alignment checks.
+- `simulate_prestige_eligibility` — Evaluates character stats/skills against prestige class prerequisites.
+- `simulate_group_formation` — Simulates group formation positioning and tactical stat bonuses.
+- `simulate_death_penalty` — Simulates XP loss, corpse creation, and ghost state transitions upon death.
+
+### Online Immortal Tools (REST API Required)
+
+When configured with `--url` and `--key`, the MCP server connects to a live server via the REST API bridge:
+
+- `imm_put_item` — Spawns an item template directly into an online player's inventory.
+- `imm_teleport` — Teleports an online player to a target room key.
+- `imm_force_command` — Forces an online player entity to execute a command string (requires `confirm: true`).
 
 ---
 
