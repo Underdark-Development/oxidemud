@@ -281,6 +281,7 @@ fn test_fail() {
         {
             let cache = engine.ast_cache.read().unwrap();
             assert!(!cache.contains_key("test_script.rhai"));
+        }
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
