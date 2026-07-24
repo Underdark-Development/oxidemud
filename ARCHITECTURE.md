@@ -194,20 +194,20 @@ Requires immortal+ access API key and REST connection to running server (`server
 | `imm_put_item`      | `POST /api/imm/put_item`      | Give item to online player                                            | Implemented |
 | `imm_teleport`      | `POST /api/imm/teleport`      | Teleport online player to room                                        | Implemented |
 | `imm_force_command` | `POST /api/imm/force_command` | Force player to execute verb command (requires confirmation)          | Implemented |
-| `imm_set_stat`      | `POST /api/imm/set_stat`      | Modify attributes/HP/mana/stamina/level/XP (explicit params per stat) | Planned     |
-| `imm_load_mob`      | `POST /api/imm/load_mob`      | Spawn mob from template into room                                     | Planned     |
-| `imm_load_item`     | `POST /api/imm/load_item`     | Spawn item into room                                                  | Planned     |
-| `imm_gecho`         | `POST /api/imm/gecho`         | Global echo to all players                                            | Planned     |
-| `imm_advance`       | `POST /api/imm/advance`       | Level up a player                                                     | Planned     |
-| `imm_stat`          | `POST /api/imm/stat`          | Inspect ECS components on target                                      | Planned     |
-| `imm_heal`          | `POST /api/imm/heal`          | Full heal (HP/mana/stamina)                                           | Planned     |
-| `imm_damage`        | `POST /api/imm/damage`        | Deal damage to target                                                 | Planned     |
-| `imm_kill`          | `POST /api/imm/kill`          | Instantly kill target (requires confirmation)                         | Planned     |
-| `imm_revive`        | `POST /api/imm/revive`        | Revive dead/ghost player                                              | Planned     |
-| `imm_set_alignment` | `POST /api/imm/set_alignment` | Change alignment                                                      | Planned     |
-| `imm_set_faction`   | `POST /api/imm/set_faction`   | Adjust faction standing                                               | Planned     |
-| `imm_purge_room`    | `POST /api/imm/purge_room`    | Remove all NPCs/items from room (requires confirmation)               | Planned     |
-| `imm_reboot`        | `POST /api/imm/reboot`        | Graceful server reboot (requires confirmation)                        | Planned     |
+| `imm_set_stat`      | `POST /api/imm/set_stat`      | Modify attributes/HP/mana/stamina/level/XP (explicit params per stat) | Implemented |
+| `imm_load_mob`      | `POST /api/imm/load_mob`      | Spawn mob from template into room                                     | Implemented |
+| `imm_load_item`     | `POST /api/imm/load_item`     | Spawn item into room                                                  | Implemented |
+| `imm_gecho`         | `POST /api/imm/gecho`         | Global echo to all players                                            | Implemented |
+| `imm_advance`       | `POST /api/imm/advance`       | Level up a player                                                     | Implemented |
+| `imm_stat`          | `POST /api/imm/stat`          | Inspect ECS components on target                                      | Implemented |
+| `imm_heal`          | `POST /api/imm/heal`          | Full heal (HP/mana/stamina)                                           | Implemented |
+| `imm_damage`        | `POST /api/imm/damage`        | Deal damage to target                                                 | Implemented |
+| `imm_kill`          | `POST /api/imm/kill`          | Instantly kill target (requires confirmation)                         | Implemented |
+| `imm_revive`        | `POST /api/imm/revive`        | Revive dead/ghost player                                              | Implemented |
+| `imm_set_alignment` | `POST /api/imm/set_alignment` | Change alignment                                                      | Implemented |
+| `imm_set_faction`   | `POST /api/imm/set_faction`   | Adjust faction standing                                               | Implemented |
+| `imm_purge_room`    | `POST /api/imm/purge_room`    | Remove all NPCs/items from room (requires confirmation)               | Implemented |
+| `imm_reboot`        | `POST /api/imm/reboot`        | Graceful server reboot (requires confirmation)                        | Implemented |
 
 #### Implemented Simulators (`mcp/src/simulator.rs`)
 
@@ -267,4 +267,4 @@ Outline for an offline transpiler and runner architecture (`lpc-to-oxide`) to co
 - **Phase 0–3 (Core Engine & Content Baseline) ✓:** Cargo workspace, ECS, TCP/Telnet, Login/Char creation, combat, items, mobs, skills, races, classes, durability baseline.
 - **Phase 4 (Advanced Gameplay) ✓:** Crafting, quests, factions, prestige, multi-classing, spells, economy, regeneration, time & weather.
 - **Phase 5 (OLC, Tooling & REST API) ✓:** Online `@` commands, zone management, schema migrations, hot backup, Rhai hot-reload, spade offline builder, REST API server baseline, MCP server baseline with 13 simulators & online IMM tools.
-- **Phase 6 (Protocol Expansion & spade MUD Client):** WebSocket, GMCP, MXP, spade MUD client mode, remaining IMM online endpoints. _(Planned)_
+- **Phase 6 (Protocol Expansion & spade MUD Client):** WebSocket, GMCP, MXP, spade MUD client mode. _(Planned)_

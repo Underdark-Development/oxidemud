@@ -70,6 +70,101 @@ struct ForceCommandParams {
     confirm: bool,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct SetStatParams {
+    player_name: String,
+    strength: Option<u8>,
+    dexterity: Option<u8>,
+    intelligence: Option<u8>,
+    wisdom: Option<u8>,
+    constitution: Option<u8>,
+    charisma: Option<u8>,
+    hp: Option<i32>,
+    mana: Option<u16>,
+    stamina: Option<u16>,
+    level: Option<u8>,
+    xp: Option<u64>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LoadMobParams {
+    room_key: String,
+    mob_template_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct LoadItemParams {
+    room_key: String,
+    item_template_id: String,
+    count: Option<u32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GechoParams {
+    message: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct AdvanceParams {
+    player_name: String,
+    target_level: u8,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct StatParams {
+    target_name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct HealParams {
+    target_name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DamageParams {
+    target_name: String,
+    amount: i32,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct KillParams {
+    target_name: String,
+    #[serde(default)]
+    confirm: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ReviveParams {
+    target_name: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SetAlignmentParams {
+    player_name: String,
+    alignment: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SetFactionParams {
+    player_name: String,
+    faction_id: String,
+    standing: i32,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PurgeRoomParams {
+    room_key: String,
+    #[serde(default)]
+    confirm: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RebootParams {
+    #[serde(default)]
+    confirm: bool,
+    delay_secs: Option<u64>,
+}
+
 pub async fn start_api_server(
     config: ApiConfig,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -98,6 +193,20 @@ pub async fn start_api_server(
         .route("/api/imm/put_item", post(imm_put_item))
         .route("/api/imm/teleport", post(imm_teleport))
         .route("/api/imm/force_command", post(imm_force_command))
+        .route("/api/imm/set_stat", post(imm_set_stat))
+        .route("/api/imm/load_mob", post(imm_load_mob))
+        .route("/api/imm/load_item", post(imm_load_item))
+        .route("/api/imm/gecho", post(imm_gecho))
+        .route("/api/imm/advance", post(imm_advance))
+        .route("/api/imm/stat", post(imm_stat))
+        .route("/api/imm/heal", post(imm_heal))
+        .route("/api/imm/damage", post(imm_damage))
+        .route("/api/imm/kill", post(imm_kill))
+        .route("/api/imm/revive", post(imm_revive))
+        .route("/api/imm/set_alignment", post(imm_set_alignment))
+        .route("/api/imm/set_faction", post(imm_set_faction))
+        .route("/api/imm/purge_room", post(imm_purge_room))
+        .route("/api/imm/reboot", post(imm_reboot))
         .layer(middleware::from_fn(auth_middleware));
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -739,6 +848,653 @@ async fn imm_force_command(
     Ok(Json(serde_json::json!({
         "success": true,
         "message": format!("Forced {} to run command '{}'.", params.player_name, params.command)
+    })))
+}
+
+async fn imm_set_stat(
+    Json(params): Json<SetStatParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut player_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.player_name.to_lowercase() {
+            player_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = player_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Player '{}' not found", params.player_name),
+    ))?;
+
+    let mut updated = Vec::new();
+
+    if params.strength.is_some()
+        || params.dexterity.is_some()
+        || params.intelligence.is_some()
+        || params.wisdom.is_some()
+        || params.constitution.is_some()
+        || params.charisma.is_some()
+    {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Attributes>(entity) {
+            if let Some(attrs) = q.get() {
+                if let Some(val) = params.strength {
+                    attrs.strength = val;
+                    updated.push(format!("strength: {}", val));
+                }
+                if let Some(val) = params.dexterity {
+                    attrs.dexterity = val;
+                    updated.push(format!("dexterity: {}", val));
+                }
+                if let Some(val) = params.intelligence {
+                    attrs.intelligence = val;
+                    updated.push(format!("intelligence: {}", val));
+                }
+                if let Some(val) = params.wisdom {
+                    attrs.wisdom = val;
+                    updated.push(format!("wisdom: {}", val));
+                }
+                if let Some(val) = params.constitution {
+                    attrs.constitution = val;
+                    updated.push(format!("constitution: {}", val));
+                }
+                if let Some(val) = params.charisma {
+                    attrs.charisma = val;
+                    updated.push(format!("charisma: {}", val));
+                }
+            }
+        }
+    }
+
+    if let Some(hp) = params.hp {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
+            if let Some(h) = q.get() {
+                h.current = hp;
+                updated.push(format!("hp: {}", hp));
+            }
+        }
+    }
+
+    if let Some(mana) = params.mana {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Mana>(entity) {
+            if let Some(m) = q.get() {
+                m.current = mana;
+                updated.push(format!("mana: {}", mana));
+            }
+        }
+    }
+
+    if let Some(stamina) = params.stamina {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Stamina>(entity) {
+            if let Some(s) = q.get() {
+                s.current = stamina;
+                updated.push(format!("stamina: {}", stamina));
+            }
+        }
+    }
+
+    if let Some(lvl) = params.level {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Level>(entity) {
+            if let Some(l) = q.get() {
+                l.0 = lvl;
+                updated.push(format!("level: {}", lvl));
+            }
+        }
+    }
+
+    if let Some(xp) = params.xp {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Experience>(entity) {
+            if let Some(x) = q.get() {
+                x.0 = xp;
+                updated.push(format!("xp: {}", xp));
+            }
+        }
+    }
+
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Updated stats for {}: {}", params.player_name, updated.join(", "))
+    })))
+}
+
+async fn imm_load_mob(
+    Json(params): Json<LoadMobParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let templates = crate::get_templates().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Templates registry unavailable".to_string(),
+    ))?;
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let target_room = templates
+        .find_room_by_key(&world, &params.room_key)
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            format!("Room key '{}' not found", params.room_key),
+        ))?;
+
+    let mob_tpl = templates.mobs.get(&params.mob_template_id).ok_or((
+        StatusCode::BAD_REQUEST,
+        format!("Mob template '{}' not found", params.mob_template_id),
+    ))?;
+
+    let mob_entity = mob_tpl.spawn(&mut world, target_room, &templates);
+    let _ = world.insert(mob_entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Spawned mob '{}' in room '{}'.", mob_tpl.name, params.room_key)
+    })))
+}
+
+async fn imm_load_item(
+    Json(params): Json<LoadItemParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let templates = crate::get_templates().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Templates registry unavailable".to_string(),
+    ))?;
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let target_room = templates
+        .find_room_by_key(&world, &params.room_key)
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            format!("Room key '{}' not found", params.room_key),
+        ))?;
+
+    let item_def = templates.items.get(&params.item_template_id).ok_or((
+        StatusCode::BAD_REQUEST,
+        format!("Item template '{}' not found", params.item_template_id),
+    ))?;
+
+    let count = params.count.unwrap_or(1) as u8;
+    let spawn = oxide_core::systems::loot::ItemSpawn {
+        template_id: params.item_template_id.clone(),
+        count,
+        quality: oxide_core::systems::loot::QualityTier::Common,
+        prefix_ids: vec![],
+        suffix_ids: vec![],
+    };
+
+    let item_entity = oxide_core::systems::loot::spawn_loot_item(&mut world, &spawn, &templates)
+        .ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to spawn item entity".to_string(),
+        ))?;
+
+    let _ = world.insert(item_entity, (oxide_core::Position::new(target_room),));
+    let _ = world.insert(item_entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Spawned item '{}' (x{}) in room '{}'.", item_def.name, count, params.room_key)
+    })))
+}
+
+async fn imm_gecho(
+    Json(params): Json<GechoParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let registry_lock = crate::get_registry().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Connection registry unavailable".to_string(),
+    ))?;
+
+    let reg = registry_lock.lock().await;
+    let formatted_msg = format!("\r\n\x1b[1;33m[GLOBAL ECHO] {}\x1b[0m\r\n", params.message);
+    reg.broadcast_all(&formatted_msg);
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Broadcasted global echo: '{}'", params.message)
+    })))
+}
+
+async fn imm_advance(
+    Json(params): Json<AdvanceParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut player_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.player_name.to_lowercase() {
+            player_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = player_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Player '{}' not found", params.player_name),
+    ))?;
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Level>(entity) {
+        if let Some(lvl) = q.get() {
+            lvl.0 = params.target_level;
+        }
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Advanced {} to level {}.", params.player_name, params.target_level)
+    })))
+}
+
+async fn imm_stat(
+    Json(params): Json<StatParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let world = world_lock.lock().await;
+
+    let mut target_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.target_name.to_lowercase() {
+            target_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = target_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Target '{}' not found", params.target_name),
+    ))?;
+
+    let name = world
+        .query_one::<&oxide_core::Name>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|n| n.0.clone()))
+        .unwrap_or_default();
+    let level = world
+        .query_one::<&oxide_core::Level>(entity)
+        .ok()
+        .and_then(|mut q| q.get().map(|l| l.0))
+        .unwrap_or(1);
+    let health = world
+        .query_one::<&oxide_core::Health>(entity)
+        .ok()
+        .and_then(|mut q| {
+            q.get()
+                .map(|h| serde_json::json!({"current": h.current, "max": h.max}))
+        });
+    let mana = world
+        .query_one::<&oxide_core::Mana>(entity)
+        .ok()
+        .and_then(|mut q| {
+            q.get()
+                .map(|m| serde_json::json!({"current": m.current, "max": m.max}))
+        });
+    let stamina = world
+        .query_one::<&oxide_core::Stamina>(entity)
+        .ok()
+        .and_then(|mut q| {
+            q.get()
+                .map(|s| serde_json::json!({"current": s.current, "max": s.max}))
+        });
+    let attrs = world
+        .query_one::<&oxide_core::Attributes>(entity)
+        .ok()
+        .and_then(|mut q| {
+            q.get().map(|a| {
+                serde_json::json!({
+                    "strength": a.strength, "dexterity": a.dexterity, "intelligence": a.intelligence,
+                    "wisdom": a.wisdom, "constitution": a.constitution, "charisma": a.charisma
+                })
+            })
+        });
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "target": name,
+        "level": level,
+        "health": health,
+        "mana": mana,
+        "stamina": stamina,
+        "attributes": attrs
+    })))
+}
+
+async fn imm_heal(
+    Json(params): Json<HealParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut target_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.target_name.to_lowercase() {
+            target_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = target_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Target '{}' not found", params.target_name),
+    ))?;
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
+        if let Some(h) = q.get() {
+            h.current = h.max;
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Mana>(entity) {
+        if let Some(m) = q.get() {
+            m.current = m.max;
+        }
+    }
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Stamina>(entity) {
+        if let Some(s) = q.get() {
+            s.current = s.max;
+        }
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Fully healed target '{}'.", params.target_name)
+    })))
+}
+
+async fn imm_damage(
+    Json(params): Json<DamageParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut target_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.target_name.to_lowercase() {
+            target_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = target_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Target '{}' not found", params.target_name),
+    ))?;
+
+    let mut new_hp = 0;
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
+        if let Some(h) = q.get() {
+            h.current = (h.current - params.amount).max(0);
+            new_hp = h.current;
+        }
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Dealt {} damage to {}. Remaining HP: {}.", params.amount, params.target_name, new_hp)
+    })))
+}
+
+async fn imm_kill(
+    Json(params): Json<KillParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !params.confirm {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "This is a destructive operation. Set `confirm` to true to proceed.".to_string(),
+        ));
+    }
+
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut target_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.target_name.to_lowercase() {
+            target_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = target_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Target '{}' not found", params.target_name),
+    ))?;
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
+        if let Some(h) = q.get() {
+            h.current = 0;
+        }
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Instantly killed target '{}'.", params.target_name)
+    })))
+}
+
+async fn imm_revive(
+    Json(params): Json<ReviveParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut target_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.target_name.to_lowercase() {
+            target_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = target_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Target '{}' not found", params.target_name),
+    ))?;
+
+    if let Ok(mut q) = world.query_one::<&mut oxide_core::Health>(entity) {
+        if let Some(h) = q.get() {
+            h.current = h.max.max(1);
+        }
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Revived target '{}'.", params.target_name)
+    })))
+}
+
+async fn imm_set_alignment(
+    Json(params): Json<SetAlignmentParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut player_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.player_name.to_lowercase() {
+            player_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = player_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Player '{}' not found", params.player_name),
+    ))?;
+
+    if !oxide_core::Alignment::is_valid(&params.alignment) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Invalid alignment '{}'. Valid alignments are: {:?}",
+                params.alignment,
+                oxide_core::Alignment::ALL
+            ),
+        ));
+    }
+
+    let align = oxide_core::Alignment(params.alignment.clone());
+    let mut updated_existing = false;
+    {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::Alignment>(entity) {
+            if let Some(a) = q.get() {
+                *a = align.clone();
+                updated_existing = true;
+            }
+        }
+    }
+    if !updated_existing {
+        let _ = world.insert(entity, (align,));
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Set alignment of {} to '{}'.", params.player_name, params.alignment)
+    })))
+}
+
+async fn imm_set_faction(
+    Json(params): Json<SetFactionParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let mut player_entity = None;
+    for (entity, (name_comp,)) in world.query::<(&oxide_core::Name,)>().iter() {
+        if name_comp.0.to_lowercase() == params.player_name.to_lowercase() {
+            player_entity = Some(entity);
+            break;
+        }
+    }
+    let entity = player_entity.ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Player '{}' not found", params.player_name),
+    ))?;
+
+    let mut updated_existing = false;
+    {
+        if let Ok(mut q) = world.query_one::<&mut oxide_core::FactionStanding>(entity) {
+            if let Some(standings) = q.get() {
+                standings.set_standing(&params.faction_id, params.standing);
+                updated_existing = true;
+            }
+        }
+    }
+    if !updated_existing {
+        let mut standings = oxide_core::FactionStanding::new();
+        standings.set_standing(&params.faction_id, params.standing);
+        let _ = world.insert(entity, (standings,));
+    }
+    let _ = world.insert(entity, (oxide_core::Dirty,));
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Set {}'s faction standing with '{}' to {}.", params.player_name, params.faction_id, params.standing)
+    })))
+}
+
+async fn imm_purge_room(
+    Json(params): Json<PurgeRoomParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !params.confirm {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "This is a destructive operation. Set `confirm` to true to proceed.".to_string(),
+        ));
+    }
+
+    let templates = crate::get_templates().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "Templates registry unavailable".to_string(),
+    ))?;
+    let world_lock = crate::get_world().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "World unavailable".to_string(),
+    ))?;
+    let mut world = world_lock.lock().await;
+
+    let room_entity = templates
+        .find_room_by_key(&world, &params.room_key)
+        .ok_or((
+            StatusCode::BAD_REQUEST,
+            format!("Room key '{}' not found", params.room_key),
+        ))?;
+
+    let mut to_despawn = Vec::new();
+    for (entity, (pos, _npc)) in world
+        .query::<(&oxide_core::Position, &oxide_core::Npc)>()
+        .iter()
+    {
+        if pos.room == room_entity {
+            to_despawn.push(entity);
+        }
+    }
+    let count = to_despawn.len();
+    for e in to_despawn {
+        let _ = world.despawn(e);
+    }
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Purged {} NPC(s) from room '{}'.", count, params.room_key)
+    })))
+}
+
+async fn imm_reboot(
+    Json(params): Json<RebootParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !params.confirm {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "This is a destructive operation. Set `confirm` to true to proceed.".to_string(),
+        ));
+    }
+
+    let delay = params.delay_secs.unwrap_or(0);
+    tracing::info!("Server reboot initiated via REST API in {} seconds", delay);
+
+    tokio::spawn(async move {
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
+        std::process::exit(0);
+    });
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "message": format!("Server reboot initiated in {} second(s).", delay)
     })))
 }
 

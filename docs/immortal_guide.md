@@ -18,6 +18,8 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 
 > [!IMPORTANT]
 > Command execution checks permission levels dynamically: `connection.access_level() >= command.access`. If a staff member attempts to run a command above their access level, the system rejects it.
+>
+> **Remote & AI Agent Immortal Access**: Immortal operations (`set_stat`, `load_mob`, `load_item`, `gecho`, `advance`, `stat`, `heal`, `damage`, `kill`, `revive`, `set_alignment`, `set_faction`, `purge_room`, `reboot`) are also available via the REST API (`/api/imm/*`) and MCP tools (`imm_*`) when authenticated with an API bearer key having `immortal`+ authority. See [mcp_integration.md](mcp_integration.md).
 
 ---
 

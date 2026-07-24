@@ -258,6 +258,115 @@ struct ForceCommandParams {
     confirm: bool,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct SetStatParams {
+    player_name: String,
+    strength: Option<u8>,
+    dexterity: Option<u8>,
+    intelligence: Option<u8>,
+    wisdom: Option<u8>,
+    constitution: Option<u8>,
+    charisma: Option<u8>,
+    hp: Option<i32>,
+    mana: Option<u16>,
+    stamina: Option<u16>,
+    level: Option<u8>,
+    xp: Option<u64>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct LoadMobParams {
+    room_key: String,
+    mob_template_id: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct LoadItemParams {
+    room_key: String,
+    item_template_id: String,
+    count: Option<u32>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct GechoParams {
+    message: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct AdvanceParams {
+    player_name: String,
+    target_level: u8,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct StatParams {
+    target_name: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct HealParams {
+    target_name: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct DamageParams {
+    target_name: String,
+    amount: i32,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct KillParams {
+    target_name: String,
+    #[schemars(description = "Must be true to confirm this destructive operation")]
+    confirm: bool,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct ReviveParams {
+    target_name: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct SetAlignmentParams {
+    player_name: String,
+    alignment: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct SetFactionParams {
+    player_name: String,
+    faction_id: String,
+    standing: i32,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct PurgeRoomParams {
+    room_key: String,
+    #[schemars(description = "Must be true to confirm this destructive operation")]
+    confirm: bool,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[allow(dead_code)]
+struct RebootParams {
+    #[schemars(description = "Must be true to confirm this destructive operation")]
+    confirm: bool,
+    delay_secs: Option<u64>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SimulateCraftingParams {
     #[schemars(description = "ID of the recipe template")]
@@ -3075,6 +3184,629 @@ impl OxideMcpServer {
                         Ok(err_text) => format!("Error from server: {err_text}"),
                         Err(_) => format!("Server returned error status: {}", status),
                     }
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Set character attributes, pools, level, or XP (Online Only)")]
+    async fn imm_set_stat(&self, params: Parameters<SetStatParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/set_stat", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "strength": p.strength,
+            "dexterity": p.dexterity,
+            "intelligence": p.intelligence,
+            "wisdom": p.wisdom,
+            "constitution": p.constitution,
+            "charisma": p.charisma,
+            "hp": p.hp,
+            "mana": p.mana,
+            "stamina": p.stamina,
+            "level": p.level,
+            "xp": p.xp
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Spawn an NPC from a template into a specific room (Online Only)")]
+    async fn imm_load_mob(&self, params: Parameters<LoadMobParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/load_mob", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "room_key": p.room_key,
+            "mob_template_id": p.mob_template_id
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Spawn an item from a template into a specific room (Online Only)")]
+    async fn imm_load_item(&self, params: Parameters<LoadItemParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/load_item", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "room_key": p.room_key,
+            "item_template_id": p.item_template_id,
+            "count": p.count
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Broadcast a global echo message to all players (Online Only)")]
+    async fn imm_gecho(&self, params: Parameters<GechoParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/gecho", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "message": p.message
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Advance a player to a specific level (Online Only)")]
+    async fn imm_advance(&self, params: Parameters<AdvanceParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/advance", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "target_level": p.target_level
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(
+        description = "Inspect ECS stats and components of a target character or NPC (Online Only)"
+    )]
+    async fn imm_stat(&self, params: Parameters<StatParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/stat", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "target_name": p.target_name
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.text().await {
+                        Ok(t) => t,
+                        Err(e) => format!("Failed to read response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Fully heal a target's HP, mana, and stamina (Online Only)")]
+    async fn imm_heal(&self, params: Parameters<HealParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/heal", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "target_name": p.target_name
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Deal direct damage to a target entity (Online Only)")]
+    async fn imm_damage(&self, params: Parameters<DamageParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/damage", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "target_name": p.target_name,
+            "amount": p.amount
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Instantly kill a target entity (Online Only)")]
+    async fn imm_kill(&self, params: Parameters<KillParams>) -> String {
+        let p = params.0;
+        if !p.confirm {
+            return "Error: This is a destructive operation. Set `confirm` to true to proceed."
+                .to_string();
+        }
+
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/kill", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "target_name": p.target_name,
+            "confirm": p.confirm
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Revive a dead or ghost target entity (Online Only)")]
+    async fn imm_revive(&self, params: Parameters<ReviveParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/revive", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "target_name": p.target_name
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Set character alignment (Online Only)")]
+    async fn imm_set_alignment(&self, params: Parameters<SetAlignmentParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/set_alignment", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "alignment": p.alignment
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Adjust character faction standing (Online Only)")]
+    async fn imm_set_faction(&self, params: Parameters<SetFactionParams>) -> String {
+        let p = params.0;
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/set_faction", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "player_name": p.player_name,
+            "faction_id": p.faction_id,
+            "standing": p.standing
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Purge all NPCs and items from a room (Online Only)")]
+    async fn imm_purge_room(&self, params: Parameters<PurgeRoomParams>) -> String {
+        let p = params.0;
+        if !p.confirm {
+            return "Error: This is a destructive operation. Set `confirm` to true to proceed."
+                .to_string();
+        }
+
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/purge_room", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "room_key": p.room_key,
+            "confirm": p.confirm
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
+                }
+            }
+            Err(e) => format!("Failed to connect to MUD server: {e}"),
+        }
+    }
+
+    #[tool(description = "Initiate a graceful server reboot (Online Only)")]
+    async fn imm_reboot(&self, params: Parameters<RebootParams>) -> String {
+        let p = params.0;
+        if !p.confirm {
+            return "Error: This is a destructive operation. Set `confirm` to true to proceed."
+                .to_string();
+        }
+
+        let (url, key) = match (&self.api_url, &self.api_key) {
+            (Some(u), Some(k)) => (u, k),
+            _ => return "Error: This tool is only available in online mode. Please configure --url and --key to connect to the MUD server.".to_string(),
+        };
+
+        let client = reqwest::Client::new();
+        let req_url = format!("{}/api/imm/reboot", url.trim_end_matches('/'));
+        let payload = serde_json::json!({
+            "confirm": p.confirm,
+            "delay_secs": p.delay_secs
+        });
+
+        match client
+            .post(&req_url)
+            .header("Authorization", format!("Bearer {}", key))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(res) => res
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Success")
+                            .to_string(),
+                        Err(e) => format!("Failed to parse response: {e}"),
+                    }
+                } else {
+                    resp.text()
+                        .await
+                        .unwrap_or_else(|_| format!("Error status: {status}"))
                 }
             }
             Err(e) => format!("Failed to connect to MUD server: {e}"),

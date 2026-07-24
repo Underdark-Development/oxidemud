@@ -89,11 +89,25 @@ AI agents can execute the following tools via JSON-RPC calls:
 
 ### Online Immortal Tools (REST API Required)
 
-When configured with `--url` and `--key`, the MCP server connects to a live server via the REST API bridge:
+When configured with `--url` and `--key`, the MCP server connects to a live server via the REST API bridge (`/api/imm/*`):
 
 - `imm_put_item` — Spawns an item template directly into an online player's inventory.
 - `imm_teleport` — Teleports an online player to a target room key.
 - `imm_force_command` — Forces an online player entity to execute a command string (requires `confirm: true`).
+- `imm_set_stat` — Sets character attributes, HP/mana/stamina pools, level, or XP.
+- `imm_load_mob` — Spawns an NPC template directly into a specified room.
+- `imm_load_item` — Spawns an item template directly into a specified room.
+- `imm_gecho` — Broadcasts a global echo message to all online players.
+- `imm_advance` — Advances a player to a target level.
+- `imm_stat` — Inspects ECS components and stats of a player or NPC entity.
+- `imm_heal` — Fully restores a target's HP, mana, and stamina.
+- `imm_damage` — Deals direct damage to a target entity.
+- `imm_kill` — Instantly kills a target entity (requires `confirm: true`).
+- `imm_revive` — Revives a dead or ghost target entity.
+- `imm_set_alignment` — Modifies a player's alignment.
+- `imm_set_faction` — Adjusts a player's standing with a faction.
+- `imm_purge_room` — Purges all NPCs and items from a room (requires `confirm: true`).
+- `imm_reboot` — Initiates a graceful server reboot (requires `confirm: true`).
 
 ---
 

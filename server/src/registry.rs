@@ -33,6 +33,14 @@ impl ConnectionRegistry {
         self.map.get(&entity)
     }
 
+    /// Broadcast a message to all connected player entities across all rooms.
+    pub fn broadcast_all(&self, message: &str) {
+        let bytes = message.as_bytes().to_vec();
+        for tx in self.map.values() {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+
     /// Broadcast a message to all players in the given room, optionally excluding one entity.
     pub fn broadcast_to_room(
         &self,
