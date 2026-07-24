@@ -714,10 +714,15 @@ mod tests {
 
     #[test]
     fn test_database_backup_and_pruning() {
-        let temp_dir = std::env::current_dir()
-            .unwrap()
-            .join("target")
-            .join("temp_backups_test");
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let temp_dir = std::env::temp_dir().join(format!(
+            "temp_backups_test_{}_{}",
+            std::process::id(),
+            nanos
+        ));
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
