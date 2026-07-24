@@ -235,15 +235,8 @@ pub fn calculate_damage(
     if let Some(room) = room_opt {
         if let Ok(mut q_ws) = world.query_one::<&crate::WeatherState>(room) {
             if let Some(ws) = q_ws.get() {
-                if final_type == DamageType::Fire {
-                    if let Some(val) = ws.effects.damage_fire {
-                        dmg_modifier += val;
-                    }
-                } else if final_type == DamageType::Lightning {
-                    if let Some(val) = ws.effects.damage_lightning {
-                        dmg_modifier += val;
-                    }
-                }
+                let weather_dmg_mod = ws.effects.get_damage_modifier(final_type.as_str());
+                dmg_modifier += weather_dmg_mod;
 
                 if let Some((_, ref wep)) = weapon_damage {
                     if wep.is_ranged() {

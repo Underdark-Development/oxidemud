@@ -123,6 +123,23 @@ pub enum DamageType {
     True,
 }
 
+impl DamageType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DamageType::Slash => "slash",
+            DamageType::Pierce => "pierce",
+            DamageType::Bludgeon => "bludgeon",
+            DamageType::Fire => "fire",
+            DamageType::Cold => "cold",
+            DamageType::Lightning => "lightning",
+            DamageType::Acid => "acid",
+            DamageType::Poison => "poison",
+            DamageType::Magic => "magic",
+            DamageType::True => "true",
+        }
+    }
+}
+
 impl FromStr for DamageType {
     type Err = ();
 

@@ -71,9 +71,25 @@ pub struct WeatherEffects {
     pub ranged_attack: Option<i32>,
     #[serde(default)]
     pub dexterity: Option<i32>,
+    #[serde(flatten, default)]
+    pub extra_effects: HashMap<String, i32>,
 }
 
 impl WeatherEffects {
+    pub fn get_damage_modifier(&self, damage_type: &str) -> i32 {
+        let key = format!("damage_{}", damage_type.to_lowercase());
+        let mut total = 0;
+        if let Some(&val) = self.extra_effects.get(&key) {
+            total += val;
+        }
+        match damage_type.to_lowercase().as_str() {
+            "fire" => total += self.damage_fire.unwrap_or(0),
+            "lightning" => total += self.damage_lightning.unwrap_or(0),
+            _ => {}
+        }
+        total
+    }
+
     pub fn combine(&mut self, other: &WeatherEffects) {
         if let Some(val) = other.damage_fire {
             *self.damage_fire.get_or_insert(0) += val;
@@ -92,6 +108,9 @@ impl WeatherEffects {
         }
         if let Some(val) = other.dexterity {
             *self.dexterity.get_or_insert(0) += val;
+        }
+        for (k, v) in &other.extra_effects {
+            *self.extra_effects.entry(k.clone()).or_insert(0) += v;
         }
     }
 }

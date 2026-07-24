@@ -321,9 +321,27 @@ mod tests {
         };
 
         let eff = get_effective_weather_effects(&state, &config);
-        assert_eq!(eff.damage_fire, Some(-2));
-        assert_eq!(eff.damage_lightning, Some(2));
+        assert_eq!(eff.get_damage_modifier("fire"), -2);
+        assert_eq!(eff.get_damage_modifier("lightning"), 2);
         assert_eq!(eff.ranged_accuracy, Some(-2));
         assert_eq!(eff.dexterity, Some(-1));
+    }
+
+    #[test]
+    fn test_dynamic_damage_type_modifiers() {
+        let mut extra = HashMap::new();
+        extra.insert("damage_cold".to_string(), 4);
+        extra.insert("damage_acid".to_string(), -1);
+
+        let eff = WeatherEffects {
+            damage_fire: Some(-3),
+            extra_effects: extra,
+            ..Default::default()
+        };
+
+        assert_eq!(eff.get_damage_modifier("fire"), -3);
+        assert_eq!(eff.get_damage_modifier("cold"), 4);
+        assert_eq!(eff.get_damage_modifier("acid"), -1);
+        assert_eq!(eff.get_damage_modifier("slash"), 0);
     }
 }
