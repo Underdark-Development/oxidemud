@@ -159,73 +159,23 @@ Clickable links, entities, and status gauges formatted as XML tags (`<send>`, `<
 - JSON MMCC frames over WebSocket: `{ type: "command"|"output", payload: { text, html } }`.
 - Interfaces via `Connection` trait with server-side ANSI-to-HTML conversion.
 
-#### REST API (Phase 5/6)
+#### REST API & Status (Phase 5/6)
 
-HTTP management and AI bridge endpoints (implemented via `axum` in `server/src/api.rs`):
+Implemented via `axum` in `server/src/api.rs`. Provides HTTP endpoints for character querying, simulation, and immortal administration (authenticated via bearer tokens). Refer to `server/src/api.rs` for endpoint definitions.
 
-- Player & Character info: `GET /api/players`, `GET /api/character/:name`, `POST /api/character/simulate`.
-- Immortal actions (bearer token authenticated, `immortal`+ role required): `POST /api/imm/put_item`, `POST /api/imm/teleport`, `POST /api/imm/force_command`.
+#### Protocol Feature Status
 
-#### Protocol Feature Matrix
-
-| Feature           | Phase | Requires      | Status      |
-| ----------------- | ----- | ------------- | ----------- |
-| ANSI 16-color     | 0     | —             | Implemented |
-| NAWS              | 1     | Telnet        | Implemented |
-| UTF-8             | 1     | Telnet        | Implemented |
-| 256-color         | 2     | MTTS          | Implemented |
-| GMCP (Room, Char) | 6     | Telnet        | Planned     |
-| MCCP              | 6     | Telnet        | Planned     |
-| MXP               | 6     | Telnet + lock | Planned     |
-| WebSocket         | 6     | HTTP server   | Planned     |
-| REST API          | 5/6   | HTTP server   | Implemented |
-| MSSP              | 6     | Telnet        | Planned     |
+- **Implemented:** Telnet (line mode), ANSI 16-color, NAWS, UTF-8, 256-color (MTTS), REST API.
+- **Planned (Phase 6 Specs Below):** GMCP, MXP, WebSocket bridge, MCCP, MSSP.
 
 ---
 
-### 3. MCP Server — Imm Tools & Simulators
+### 3. MCP Server Guidance — Imm Tools & Simulators
 
-#### Imm Online Tools (Requires `--url` + `--key`)
+The MCP crate (`mcp/`) bridges AI agent operations with OxideMUD:
 
-Requires immortal+ access API key and REST connection to running server (`server/src/api.rs`). Destructive actions require an explicit `confirm: true` parameter.
-
-| Tool                | REST Endpoint                 | Description                                                           | Status      |
-| ------------------- | ----------------------------- | --------------------------------------------------------------------- | ----------- |
-| `imm_put_item`      | `POST /api/imm/put_item`      | Give item to online player                                            | Implemented |
-| `imm_teleport`      | `POST /api/imm/teleport`      | Teleport online player to room                                        | Implemented |
-| `imm_force_command` | `POST /api/imm/force_command` | Force player to execute verb command (requires confirmation)          | Implemented |
-| `imm_set_stat`      | `POST /api/imm/set_stat`      | Modify attributes/HP/mana/stamina/level/XP (explicit params per stat) | Implemented |
-| `imm_load_mob`      | `POST /api/imm/load_mob`      | Spawn mob from template into room                                     | Implemented |
-| `imm_load_item`     | `POST /api/imm/load_item`     | Spawn item into room                                                  | Implemented |
-| `imm_gecho`         | `POST /api/imm/gecho`         | Global echo to all players                                            | Implemented |
-| `imm_advance`       | `POST /api/imm/advance`       | Level up a player                                                     | Implemented |
-| `imm_stat`          | `POST /api/imm/stat`          | Inspect ECS components on target                                      | Implemented |
-| `imm_heal`          | `POST /api/imm/heal`          | Full heal (HP/mana/stamina)                                           | Implemented |
-| `imm_damage`        | `POST /api/imm/damage`        | Deal damage to target                                                 | Implemented |
-| `imm_kill`          | `POST /api/imm/kill`          | Instantly kill target (requires confirmation)                         | Implemented |
-| `imm_revive`        | `POST /api/imm/revive`        | Revive dead/ghost player                                              | Implemented |
-| `imm_set_alignment` | `POST /api/imm/set_alignment` | Change alignment                                                      | Implemented |
-| `imm_set_faction`   | `POST /api/imm/set_faction`   | Adjust faction standing                                               | Implemented |
-| `imm_purge_room`    | `POST /api/imm/purge_room`    | Remove all NPCs/items from room (requires confirmation)               | Implemented |
-| `imm_reboot`        | `POST /api/imm/reboot`        | Graceful server reboot (requires confirmation)                        | Implemented |
-
-#### Implemented Simulators (`mcp/src/simulator.rs`)
-
-| Tool                            | Core System / Module            | Description                                                          |
-| ------------------------------- | ------------------------------- | -------------------------------------------------------------------- |
-| `simulate_loot`                 | `systems::loot`                 | Rolls mob loot drops across iterations and calculates drop rates     |
-| `simulate_combat`               | `systems::combat`               | Round-by-round combat simulation between templates/players           |
-| `simulate_progression`          | Level progression               | Level-by-level stat progression for race/class combo                 |
-| `simulate_gear_loadout`         | `systems::set_bonus`, equipment | Final character stats given an equipped item set                     |
-| `simulate_ai_wander`            | `systems::ai`                   | NPC wander path and room visit frequency across ticks                |
-| `simulate_shop_transaction`     | Shop pricing                    | Dynamic buy/sell pricing across reputation tiers                     |
-| `simulate_character_creation`   | Character creation              | Simulates starting attributes, pools, and auto-learned skills        |
-| `simulate_crafting`             | `systems::crafting`             | Crafting success probability, station checks, and output quality     |
-| `simulate_skill_use`            | `systems::skill_use`            | Resource cost, cooldowns, and skill success checks                   |
-| `simulate_prayer`               | Deity & Prayer                  | Prayer buff duration, cooldowns, and deity alignment compatibility   |
-| `simulate_prestige_eligibility` | `systems::multi_class`          | Gate prerequisite and prerequisite skill checks for prestige classes |
-| `simulate_group_formation`      | `systems::group`                | Formation stat modifiers, front/back line allocations                |
-| `simulate_death_penalty`        | `systems::player_state`         | XP loss calculations, ghost state transition, and corpse spawn       |
+- **Immortal Online Tools (`mcp/src/server.rs`):** Connects to a running game server via the REST API (`server/src/api.rs`). Enforces immortal+ role authentication via API tokens. Destructive operations require an explicit `confirm: true` parameter. Refer directly to `mcp/src/server.rs` for tool registrations.
+- **Gameplay Simulators (`mcp/src/simulator.rs`):** Local/offline simulation functions that hook into core game modules (loot, combat, progression, gear loadouts, AI wander, shops, crafting, skill use, prayer, group formation, death penalty) to perform balance analysis. Refer directly to `mcp/src/simulator.rs` for function signatures and simulation models.
 
 ---
 
