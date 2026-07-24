@@ -252,7 +252,7 @@ fn test_fail() {
         let temp_dir = std::env::current_dir()
             .unwrap()
             .join("target")
-            .join("temp_scripts_test");
+            .join(format!("temp_scripts_test_{}", std::process::id()));
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -275,15 +275,13 @@ fn test_fail() {
             .unwrap();
         assert!(!res);
 
-        std::fs::remove_file(&script_file).unwrap();
+        let _ = std::fs::remove_file(&script_file);
         engine.reload_script("test_script.rhai").unwrap();
 
         {
             let cache = engine.ast_cache.read().unwrap();
             assert!(!cache.contains_key("test_script.rhai"));
-        }
-
-        std::fs::remove_dir_all(&temp_dir).unwrap();
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]

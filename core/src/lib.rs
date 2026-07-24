@@ -1,10 +1,10 @@
-mod components;
+pub mod components;
 pub mod content;
 pub mod dice;
 pub mod format;
 pub mod prompt;
 pub mod regen;
-mod resources;
+pub mod resources;
 pub mod script_dispatch;
 pub mod scripting;
 pub mod systems;
@@ -12,9 +12,28 @@ pub mod templates;
 pub mod trie;
 pub mod util;
 
-pub use components::*;
+pub use _hecs::Entity;
+
+pub use components::{
+    AccessLevel, ActiveEffect, ActiveScriptEffect, ActiveScriptEffects, ActiveStance, AffixMod,
+    AffixModifiers, AffixNames, Age, Alignment, Appearance, Armor, Attributes, Class, CombatState,
+    CombatStats, CommandRestrictions, Corpse, DamageType, DbId, Deity, Description, Direction,
+    Dirty, Durability, EffectExpireCondition, EffectTemplate, EntityCommands, Equipment,
+    EquipmentSlot, Exit, ExitFlags, Experience, FactionMember, FactionStanding, FloorItems,
+    Following, Formation, Friendly, Gender, Group, GroupInvite, GroupManager, GroupMember,
+    GroupMemberInfo, GroupRole, Health, HolyLight, Immortal, Inventory, Item, ItemSkillRequirement,
+    LastMessenger, LearnedRecipes, LearnedSkills, Level, LootMode, LootRule, MultiClassInfo, Name,
+    Npc, ObjectiveProgress, PatrolRoute, PermanentItemAffects, Player, PlayerState, PortalExit,
+    Position, PracticePoints, PrayerCooldown, QuestLog, QuestProgress, Race, RecallRoom,
+    Resistance, ResourceCost, RestState, Room, RoomAllowRevive, RoomExits, RoomFlagBits, RoomFlags,
+    RoomKey, RoomPortals, RoomTags, ScriptParams, SetMembership, SetTracker, ShortDesc,
+    SkillCooldowns, SkillDef, SkillType, Switched, Targeting, TemporaryEffect, Trainer, VoidRoom,
+    Wallet, WanderBounds, Weapon, WeaponHands, WeaponRange, Wizin, EXIT_IS_CLOSED, EXIT_IS_DOOR,
+    EXIT_IS_LOCKED, PORTAL_HIDDEN, ROOM_NO_TELEPORT_IN, ROOM_NO_TELEPORT_OUT, ROOM_PORTAL_IN,
+    ROOM_PORTAL_OUT,
+};
 pub use prompt::PromptVars;
-pub use resources::*;
+pub use resources::{Energy, Mana, Psi, Stamina, WorldName};
 pub use scripting::{
     get_message_bridge, get_scripting_bridge, register_dynamic_skill, with_dynamic_skills,
     DynamicSkillRegistry, HitContext, MessageOutputBridge, ScriptSkill, ScriptingBridge,
@@ -43,13 +62,11 @@ pub use systems::skill_use::{
     apply_skill_effect, can_use_skill, deduct_resource_cost, get_modified_attributes,
     run_cooldown_decay, run_temporary_effect_decay,
 };
-pub use systems::time::{
-    advance_time, period_from_hour, GameTime, Season, TimeConfig, TimeEvent, TimePeriod,
-};
+pub use systems::time::{advance_time, GameTime, Season, TimeConfig, TimeEvent};
 pub use systems::trigger::{ItemTriggers, TriggeredEffect};
 pub use systems::weather::{
-    get_effective_weather_effects, get_room_weather_effects, resolve_weather_weights,
-    roll_modifier, roll_weather, ResolutionParams, WeatherState,
+    get_effective_weather_effects, resolve_weather_weights, roll_modifier, roll_weather,
+    ResolutionParams, WeatherState,
 };
 pub use templates::{
     ExitTemplate, FactionDef, FactionRank, PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult,
@@ -66,69 +83,88 @@ pub struct World {
     inner: _hecs::World,
 }
 
-impl World {
-    pub fn new() -> Self {
-        World {
-            inner: _hecs::World::new(),
-        }
-    }
-
-    pub fn spawn(&mut self, bundle: impl _hecs::DynamicBundle) -> Entity {
-        Entity(self.inner.spawn(bundle))
-    }
-
-    pub fn despawn(&mut self, entity: Entity) -> Result<(), _hecs::NoSuchEntity> {
-        self.inner.despawn(entity.0)
-    }
-
-    pub fn query<T: _hecs::Query>(&self) -> _hecs::QueryBorrow<'_, T> {
-        self.inner.query::<T>()
-    }
-
-    pub fn query_one<T: _hecs::Query>(
-        &self,
-        entity: Entity,
-    ) -> Result<_hecs::QueryOne<'_, T>, _hecs::NoSuchEntity> {
-        self.inner.query_one::<T>(entity.0)
-    }
-
-    pub fn insert<T: _hecs::DynamicBundle>(
-        &mut self,
-        entity: Entity,
-        bundle: T,
-    ) -> Result<(), _hecs::NoSuchEntity> {
-        self.inner.insert(entity.0, bundle)
-    }
-
-    pub fn remove_one<T: _hecs::Component>(
-        &mut self,
-        entity: Entity,
-    ) -> Result<T, _hecs::ComponentError> {
-        self.inner.remove_one::<T>(entity.0)
-    }
-
-    pub fn clear(&mut self) {
-        self.inner.clear();
-    }
-}
-
 impl Default for World {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Entity(_hecs::Entity);
-
-impl Entity {
-    pub fn id(&self) -> u32 {
-        self.0.id()
+impl World {
+    pub fn new() -> Self {
+        Self {
+            inner: _hecs::World::new(),
+        }
     }
-}
 
-impl From<_hecs::Entity> for Entity {
-    fn from(e: _hecs::Entity) -> Self {
-        Entity(e)
+    pub fn spawn(&mut self, components: impl _hecs::DynamicBundle) -> Entity {
+        self.inner.spawn(components)
+    }
+
+    pub fn deserialized_spawn(
+        &mut self,
+        entity_id: u32,
+        components: impl _hecs::DynamicBundle,
+    ) -> Entity {
+        let entity = _hecs::Entity::from_bits(entity_id as u64 | (1 << 32)).unwrap();
+        self.inner.spawn_at(entity, components);
+        entity
+    }
+
+    pub fn deserialized_spawn_at(&mut self, entity: Entity, components: impl _hecs::DynamicBundle) {
+        self.inner.spawn_at(entity, components);
+    }
+
+    pub fn reserve_entity(&self) -> Entity {
+        self.inner.reserve_entity()
+    }
+
+    pub fn spawn_at(&mut self, entity: Entity, components: impl _hecs::DynamicBundle) {
+        self.inner.spawn_at(entity, components);
+    }
+
+    pub fn despawn(&mut self, entity: Entity) -> Result<(), _hecs::NoSuchEntity> {
+        self.inner.despawn(entity)
+    }
+
+    pub fn contains(&self, entity: Entity) -> bool {
+        self.inner.contains(entity)
+    }
+
+    pub fn insert(
+        &mut self,
+        entity: Entity,
+        components: impl _hecs::DynamicBundle,
+    ) -> Result<(), _hecs::NoSuchEntity> {
+        self.inner.insert(entity, components)
+    }
+
+    pub fn remove_one<T: _hecs::Component>(
+        &mut self,
+        entity: Entity,
+    ) -> Result<T, _hecs::ComponentError> {
+        self.inner.remove_one::<T>(entity)
+    }
+
+    pub fn query<Q: _hecs::Query>(&self) -> _hecs::QueryBorrow<'_, Q> {
+        self.inner.query::<Q>()
+    }
+
+    pub fn query_one<Q: _hecs::Query>(
+        &self,
+        entity: Entity,
+    ) -> Result<_hecs::QueryOne<'_, Q>, _hecs::NoSuchEntity> {
+        self.inner.query_one::<Q>(entity)
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    pub fn len(&self) -> u32 {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 }

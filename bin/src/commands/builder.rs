@@ -298,7 +298,7 @@ fn find_player_by_name(world: &World, name: &str) -> Option<core::Entity> {
     let mut q = world.query::<(&core::Name, &core::Player)>();
     for (entity, (n, _)) in q.iter() {
         if n.0.to_lowercase() == name_lower {
-            return Some(core::Entity::from(entity));
+            return Some(entity);
         }
     }
     None
@@ -685,25 +685,21 @@ pub fn cmd_olocate(
 
             let mut q_inv = world.query::<(&core::Inventory, &core::Name)>();
             for (_, (inv, owner_name)) in q_inv.iter() {
-                if inv.0.contains(&core::Entity::from(entity)) {
+                if inv.0.contains(&entity) {
                     holder_info = format!("In inventory of {}", owner_name.0);
                 }
             }
 
             let mut q_eq = world.query::<(&core::Equipment, &core::Name)>();
             for (_, (eq, owner_name)) in q_eq.iter() {
-                if eq
-                    .slots
-                    .iter()
-                    .any(|(_, item_ent)| *item_ent == core::Entity::from(entity))
-                {
+                if eq.slots.iter().any(|(_, item_ent)| *item_ent == entity) {
                     holder_info = format!("Equipped on {}", owner_name.0);
                 }
             }
 
             let mut q_floor = world.query::<(&core::FloorItems, &core::Name)>();
             for (_, (floor, room_name)) in q_floor.iter() {
-                if floor.0.contains(&core::Entity::from(entity)) {
+                if floor.0.contains(&entity) {
                     holder_info = format!("On floor of room '{}'", room_name.0);
                 }
             }
@@ -1417,7 +1413,7 @@ pub fn cmd_room(
                 if world.query_one::<&core::Player>(occ).is_ok() {
                     let void_room = {
                         let mut q_void = world.query::<(&core::VoidRoom,)>();
-                        q_void.iter().next().map(|(e, _)| core::Entity::from(e))
+                        q_void.iter().next().map(|(e, _)| e)
                     };
                     if let Some(vr) = void_room {
                         if let Ok(mut q_pos) = world.query_one::<&mut core::Position>(occ) {
@@ -2240,7 +2236,7 @@ pub fn cmd_area(
 
             let mut room_entities = Vec::new();
             for (r, _) in world.query::<&core::RoomKey>().iter() {
-                let ent = core::Entity::from(r);
+                let ent = r;
                 if let Ok(mut q) = world.query_one::<&core::RoomKey>(ent) {
                     if let Some(key) = q.get() {
                         if key.0.starts_with(&format!("{area_id}:")) {

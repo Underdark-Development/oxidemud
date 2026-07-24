@@ -174,7 +174,7 @@ pub fn run_player_state_decay(
     {
         let mut q = world.query::<&PlayerState>();
         for (raw, state) in q.iter() {
-            let entity = Entity::from(raw);
+            let entity = raw;
             match state {
                 PlayerState::Stunned { remaining_ms } => {
                     targets.push((entity, state.clone(), *remaining_ms));

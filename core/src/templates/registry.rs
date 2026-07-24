@@ -703,7 +703,7 @@ impl TemplateRegistry {
         let mut query = world.query::<(&RoomKey,)>();
         for (e, (sk,)) in query.iter() {
             if sk.0 == key {
-                return Some(crate::Entity::from(e));
+                return Some(e);
             }
         }
         None

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 fn find_player_by_name(world: &World, name: &str) -> Option<Entity> {
     for (ent, (n_comp, _player_comp)) in world.query::<(&Name, &Player)>().iter() {
         if n_comp.as_str().eq_ignore_ascii_case(name) {
-            return Some(Entity::from(ent));
+            return Some(ent);
         }
     }
     None
@@ -18,7 +18,7 @@ pub fn get_or_create_group_manager(world: &mut World) -> Entity {
         .query::<&GroupManager>()
         .iter()
         .next()
-        .map(|(ent, _)| Entity::from(ent));
+        .map(|(ent, _)| ent);
     if let Some(e) = gm_entity {
         e
     } else {
@@ -628,7 +628,7 @@ pub fn handle_player_login_group(
                 .any(|mem| mem.entity.is_some() && mem.entity == Some(group.leader));
             let is_leader = !leader_active;
 
-            join_opt = Some((Entity::from(group_ent), is_leader));
+            join_opt = Some((group_ent, is_leader));
             break;
         }
     }
@@ -662,7 +662,7 @@ pub fn run_group_cleanup(world: &mut World, current_time: Instant) {
     let mut groups_to_disband = Vec::new();
 
     for (group_ent, group) in world.query::<&Group>().iter() {
-        let group_entity = Entity::from(group_ent);
+        let group_entity = group_ent;
         let mut members = group.members.clone();
         let old_len = members.len();
 
@@ -871,7 +871,7 @@ pub fn run_formation_effects(world: &mut World) {
     // We do this by clearing all "formation" effects and then adding new ones.
     let mut all_entities_to_clear = Vec::new();
     for (ent, _effs) in world.query::<&Vec<ActiveEffect>>().iter() {
-        all_entities_to_clear.push(Entity::from(ent));
+        all_entities_to_clear.push(ent);
     }
 
     for ent in all_entities_to_clear {

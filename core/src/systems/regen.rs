@@ -16,7 +16,7 @@ pub fn run_regen_pulse(
         let mut q = world.query::<(&Health, &Attributes)>();
         q.iter()
             .map(|(raw, (hp, attr))| {
-                let entity = crate::Entity::from(raw);
+                let entity = raw;
                 if hp.is_unconscious() {
                     // Bleeding out: lose 1 HP
                     (entity, -1, true)
@@ -104,7 +104,7 @@ fn regen_pool<T: PoolRegen + Send + Sync + 'static>(world: &mut World, tick_dura
         let mut q = world.query::<&T>();
         q.iter()
             .map(|(raw, pool)| {
-                let entity = crate::Entity::from(raw);
+                let entity = raw;
                 let rest_mult = world
                     .query_one::<&PlayerState>(entity)
                     .ok()

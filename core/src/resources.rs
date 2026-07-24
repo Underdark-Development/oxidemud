@@ -1,12 +1,12 @@
-mod energy;
-mod mana;
-mod psi;
-mod stamina;
+pub mod energy;
+pub mod mana;
+pub mod psi;
+pub mod stamina;
 
-pub use energy::*;
-pub use mana::*;
-pub use psi::*;
-pub use stamina::*;
+pub use energy::Energy;
+pub use mana::Mana;
+pub use psi::Psi;
+pub use stamina::Stamina;
 
 #[derive(Debug, Clone)]
 pub struct WorldName(pub String);

@@ -1,23 +1,45 @@
-mod character;
-mod combat;
-mod crafting;
-mod faction;
-mod group;
-mod item;
-mod persistence;
-mod quest;
-mod room;
-mod script_params;
-mod skills;
+pub mod character;
+pub mod combat;
+pub mod crafting;
+pub mod faction;
+pub mod group;
+pub mod item;
+pub mod persistence;
+pub mod quest;
+pub mod room;
+pub mod script_params;
+pub mod skills;
 
-pub use character::*;
-pub use combat::*;
-pub use crafting::*;
-pub use faction::*;
-pub use group::*;
-pub use item::*;
-pub use persistence::*;
-pub use quest::*;
-pub use room::*;
-pub use script_params::*;
-pub use skills::*;
+pub use character::{
+    AccessLevel, Age, Alignment, Appearance, Attributes, Class, Deity, Description, Experience,
+    Following, Friendly, Gender, HolyLight, Immortal, LastMessenger, Level, MultiClassInfo, Name,
+    Npc, PatrolRoute, Player, PlayerState, PracticePoints, PrayerCooldown, Race, RecallRoom,
+    RestState, ShortDesc, Switched, Wallet, WanderBounds, Wizin,
+};
+pub use combat::{
+    ActiveStance, Armor, CombatState, CombatStats, Corpse, DamageType, Health, LootRule, Resistance,
+};
+pub use crafting::{LearnedRecipes, RoomTags};
+pub use faction::{FactionMember, FactionStanding};
+pub use group::{
+    Formation, Group, GroupInvite, GroupManager, GroupMember, GroupMemberInfo, GroupRole, LootMode,
+};
+pub use item::{
+    ActiveEffect, AffixMod, AffixModifiers, AffixNames, Durability, Equipment, EquipmentSlot,
+    Inventory, Item, ItemSkillRequirement, SetMembership, SetTracker, Weapon, WeaponHands,
+    WeaponRange,
+};
+pub use persistence::{DbId, Dirty};
+pub use quest::{ObjectiveProgress, QuestLog, QuestProgress};
+pub use room::{
+    Direction, Exit, ExitFlags, FloorItems, PortalExit, Position, Room, RoomAllowRevive, RoomExits,
+    RoomFlagBits, RoomFlags, RoomKey, RoomPortals, VoidRoom, EXIT_IS_CLOSED, EXIT_IS_DOOR,
+    EXIT_IS_LOCKED, PORTAL_HIDDEN, ROOM_NO_TELEPORT_IN, ROOM_NO_TELEPORT_OUT, ROOM_PORTAL_IN,
+    ROOM_PORTAL_OUT,
+};
+pub use script_params::ScriptParams;
+pub use skills::{
+    ActiveScriptEffect, ActiveScriptEffects, CommandRestrictions, EffectExpireCondition,
+    EffectTemplate, EntityCommands, LearnedSkills, PermanentItemAffects, ResourceCost,
+    SkillCooldowns, SkillDef, SkillType, Targeting, TemporaryEffect, Trainer,
+};

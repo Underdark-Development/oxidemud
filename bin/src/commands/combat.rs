@@ -124,10 +124,10 @@ pub fn cmd_kill(
         let candidates: Vec<(String, core::Entity)> = q
             .iter()
             .filter(|(raw, (_, pos, _))| {
-                let e = core::Entity::from(*raw);
+                let e = *raw;
                 pos.room == room && e != entity
             })
-            .map(|(raw, (name, _, _))| (name.as_str().to_lowercase(), core::Entity::from(raw)))
+            .map(|(raw, (name, _, _))| (name.as_str().to_lowercase(), raw))
             .collect();
         match core::trie::trie_match(args.trim(), candidates) {
             core::trie::TrieMatch::One(e) => Some(e),
@@ -394,7 +394,7 @@ pub fn cmd_group(
                 world.query::<(&core::Name, &core::Player)>().iter()
             {
                 if n_comp.as_str().eq_ignore_ascii_case(target_name) {
-                    target_entity = Some(core::Entity::from(ent));
+                    target_entity = Some(ent);
                     break;
                 }
             }

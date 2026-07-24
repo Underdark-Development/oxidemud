@@ -385,7 +385,7 @@ pub fn apply_skill_effect(
             let mut resolved_room = None;
             for (raw_entity, r_key) in world.query::<&crate::components::RoomKey>().iter() {
                 if r_key.0 == *room {
-                    resolved_room = Some(crate::Entity::from(raw_entity));
+                    resolved_room = Some(raw_entity);
                     break;
                 }
             }
@@ -437,7 +437,7 @@ pub fn run_cooldown_decay(world: &mut World, elapsed_secs: u32) {
     let mut updates = Vec::new();
 
     for (raw_entity, cd) in world.query::<&SkillCooldowns>().iter() {
-        let entity = crate::Entity::from(raw_entity);
+        let entity = raw_entity;
         let mut new_cds = cd.cooldowns.clone();
         let mut changed = false;
 
@@ -469,7 +469,7 @@ pub fn run_temporary_effect_decay(
     let mut expired = Vec::new();
 
     for (raw_entity, effects) in world.query::<&Vec<TemporaryEffect>>().iter() {
-        let entity = crate::Entity::from(raw_entity);
+        let entity = raw_entity;
         let mut new_effects = effects.clone();
         let mut changed = false;
 
@@ -509,7 +509,7 @@ pub fn run_temporary_effect_decay(
     // Decay ActiveScriptEffects
     let mut script_updates = Vec::new();
     for (raw_entity, active_effects) in world.query::<&crate::ActiveScriptEffects>().iter() {
-        let entity = crate::Entity::from(raw_entity);
+        let entity = raw_entity;
         let mut new_effects = active_effects.effects.clone();
         let mut changed = false;
 

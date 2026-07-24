@@ -1021,7 +1021,7 @@ pub fn cmd_loot(
         let candidates: Vec<(String, core::Entity)> = q
             .iter()
             .filter(|(_, (_, pos, _))| pos.room == room)
-            .map(|(raw, (_, _, name))| (name.as_str().to_lowercase(), core::Entity::from(raw)))
+            .map(|(raw, (_, _, name))| (name.as_str().to_lowercase(), raw))
             .collect();
         match core::trie::trie_match(corpse_name, candidates) {
             core::trie::TrieMatch::One(e) => Some(e),

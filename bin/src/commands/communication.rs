@@ -140,7 +140,7 @@ pub fn cmd_say(
 
         for (item_eid, (pos, _item)) in world.query::<(&core::Position, &core::Item)>().iter() {
             if pos.room == room {
-                targets.push(core::Entity::from(item_eid));
+                targets.push(item_eid);
             }
         }
 

@@ -5,7 +5,7 @@ pub fn entities_in_room(world: &World, room: Entity) -> Vec<Entity> {
     world
         .query::<(&Position,)>()
         .iter()
-        .map(|(raw, (pos,))| (Entity::from(raw), pos))
+        .map(|(raw, (pos,))| (raw, pos))
         .filter(|(_, pos)| pos.room == room)
         .map(|(entity, _)| entity)
         .collect()

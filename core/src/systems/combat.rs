@@ -456,7 +456,7 @@ pub fn run_combat_pulse(world: &mut World) -> Vec<CombatOutcome> {
         let mut q = world.query::<(&CombatState, &Health, &Position)>();
         q.iter()
             .map(|(raw, (state, _health, pos))| {
-                let attacker = crate::Entity::from(raw);
+                let attacker = raw;
                 (attacker, state.clone(), pos.room)
             })
             .collect()
@@ -1102,7 +1102,7 @@ pub fn handle_combatant_down(world: &mut World, victim: Entity) {
     {
         let mut q = world.query::<(&CombatState, &Position)>();
         for (e, (state, pos)) in q.iter() {
-            let entity = Entity::from(e);
+            let entity = e;
             if pos.room == room && state.target() == Some(victim) {
                 attackers.push(entity);
             }
@@ -1114,7 +1114,7 @@ pub fn handle_combatant_down(world: &mut World, victim: Entity) {
         {
             let mut q = world.query::<(&CombatState, &Position, &Health)>();
             for (e, (state, pos, health)) in q.iter() {
-                let potential_target = Entity::from(e);
+                let potential_target = e;
                 if pos.room == room
                     && potential_target != victim
                     && health.is_conscious()

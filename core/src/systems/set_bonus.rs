@@ -159,7 +159,7 @@ pub fn reconcile_all_set_bonuses(world: &mut World, set_defs: &HashMap<String, S
     let entities: Vec<Entity> = world
         .query::<&Equipment>()
         .into_iter()
-        .map(|(e, _eq)| Entity::from(e))
+        .map(|(e, _eq)| e)
         .collect();
 
     for entity in entities {

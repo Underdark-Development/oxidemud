@@ -10,13 +10,13 @@ pub fn save_online_players(world: &mut World, db: &oxide_data::Database, force: 
         world
             .query::<(&Player, &DbId)>()
             .iter()
-            .map(|(raw, _)| Entity::from(raw))
+            .map(|(raw, _)| raw)
             .collect()
     } else {
         world
             .query::<(&Player, &DbId, &oxide_core::Dirty)>()
             .iter()
-            .map(|(raw, _)| Entity::from(raw))
+            .map(|(raw, _)| raw)
             .collect()
     };
 
@@ -401,7 +401,7 @@ pub fn load_or_init_world_time(
     let existing: Vec<Entity> = world
         .query::<&oxide_core::GameTime>()
         .iter()
-        .map(|(e, _)| Entity::from(e))
+        .map(|(e, _)| e)
         .collect();
 
     if let Some(&ent) = existing.first() {

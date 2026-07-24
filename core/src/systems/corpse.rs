@@ -11,7 +11,7 @@ pub fn run_corpse_pulse(world: &mut World) {
             .filter_map(|(raw, (corpse, pos))| {
                 let elapsed = now.duration_since(corpse.created_at).as_secs();
                 if elapsed >= corpse.decay_secs {
-                    Some((crate::Entity::from(raw), pos.room))
+                    Some((raw, pos.room))
                 } else {
                     None
                 }

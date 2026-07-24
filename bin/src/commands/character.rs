@@ -1428,9 +1428,9 @@ pub fn cmd_reclaim(
                     let is_owner = corpse.owner == Some(entity)
                         || (player_db_id.is_some() && corpse.owner_db_id == player_db_id);
                     if is_owner {
-                        found = Some(core::Entity::from(raw));
+                        found = Some(raw);
                         if corpse.owner != Some(entity) {
-                            to_update = Some(core::Entity::from(raw));
+                            to_update = Some(raw);
                         }
                         break;
                     }
@@ -1551,7 +1551,7 @@ pub fn cmd_revive(
                 let is_owner = corpse.owner == Some(entity)
                     || (player_db_id.is_some() && corpse.owner_db_id == player_db_id);
                 if is_owner {
-                    found = Some(core::Entity::from(raw));
+                    found = Some(raw);
                     break;
                 }
             }

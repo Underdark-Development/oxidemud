@@ -2334,9 +2334,9 @@ pub async fn load_character(
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
         .or_else(|| {
-            use oxide_core::{Entity, RoomKey};
+            use oxide_core::RoomKey;
             let mut query = world.query::<(&RoomKey,)>();
-            query.iter().next().map(|(e, _)| Entity::from(e))
+            query.iter().next().map(|(e, _)| e)
         })
         .expect("Must find at least one room in the world");
 
@@ -2350,9 +2350,9 @@ pub async fn load_character(
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
         .or_else(|| {
-            use oxide_core::{Entity, RoomKey};
+            use oxide_core::RoomKey;
             let mut query = world.query::<(&RoomKey,)>();
-            query.iter().next().map(|(e, _)| Entity::from(e))
+            query.iter().next().map(|(e, _)| e)
         })
         .expect("Must find at least one room in the world");
 

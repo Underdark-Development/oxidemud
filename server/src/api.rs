@@ -558,7 +558,7 @@ async fn imm_put_item(
         StatusCode::NOT_FOUND,
         format!("Player '{}' not found", params.player_name),
     ))?;
-    let player_entity = oxide_core::Entity::from(player_raw_entity);
+    let player_entity = player_raw_entity;
 
     // Spawn item using spawn_loot_item
     let spawn = oxide_core::systems::loot::ItemSpawn {
@@ -637,7 +637,7 @@ async fn imm_teleport(
         StatusCode::NOT_FOUND,
         format!("Player '{}' not found", params.player_name),
     ))?;
-    let player_entity = oxide_core::Entity::from(player_raw_entity);
+    let player_entity = player_raw_entity;
 
     // Find room entity
     let target_room = templates
@@ -729,7 +729,7 @@ async fn imm_force_command(
         StatusCode::NOT_FOUND,
         format!("Player '{}' not found", params.player_name),
     ))?;
-    let player_entity = oxide_core::Entity::from(player_raw_entity);
+    let player_entity = player_raw_entity;
     drop(world);
 
     execute_forced_command(player_entity, &params.command)

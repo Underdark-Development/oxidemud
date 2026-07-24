@@ -33,7 +33,7 @@ pub enum AiState {
 pub fn run_ai_pulse(world: &mut World) {
     let entities: Vec<Entity> = {
         let mut q = world.query::<&Npc>();
-        q.iter().map(|(raw, _)| crate::Entity::from(raw)).collect()
+        q.iter().map(|(raw, _)| raw).collect()
     };
 
     for entity in entities {
@@ -398,7 +398,7 @@ fn check_aggro(world: &mut World, entity: Entity, npc: &Npc) -> bool {
     let targets: Vec<Entity> = {
         let mut q = world.query::<(&Position, &Health)>();
         q.iter()
-            .map(|(raw, (pos, _))| (crate::Entity::from(raw), pos))
+            .map(|(raw, (pos, _))| (raw, pos))
             .filter(|(e, pos)| pos.room == room && *e != entity)
             .map(|(e, _)| e)
             .collect()

@@ -5,7 +5,7 @@ use crate::{Entity, Equipment, EquipmentSlot, ItemSkillRequirement, LearnedSkill
 pub fn run_skill_gate_pulse(world: &mut World) {
     let entities: Vec<Entity> = {
         let mut q = world.query::<(&Equipment, &LearnedSkills)>();
-        q.iter().map(|(raw, _)| crate::Entity::from(raw)).collect()
+        q.iter().map(|(raw, _)| raw).collect()
     };
 
     for entity in entities {

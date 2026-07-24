@@ -564,7 +564,7 @@ async fn cmd_account_set_access(username: &str, level: &str) {
                         _ => oxide_core::AccessLevel::Player,
                     };
                     *access_level = parsed_level;
-                    target_entity = Some(oxide_core::Entity::from(entity));
+                    target_entity = Some(entity);
                     break;
                 }
             }
@@ -1109,7 +1109,7 @@ async fn cmd_online() {
     let mut query = world.query::<(&Player, &Name, &Position, &AccessLevel)>();
     let mut players = Vec::new();
     for (entity, (player, name, position, access_level)) in query.iter() {
-        let entity_wrapped: oxide_core::Entity = entity.into();
+        let entity_wrapped: oxide_core::Entity = entity;
         let username = match oxide_data::get_account_by_id(conn.conn(), player.account_id) {
             Ok(Some(a)) => a.username,
             _ => "unknown".to_string(),
@@ -1191,7 +1191,7 @@ async fn cmd_kick(args: &str) {
         let mut query = world.query::<(&Name, &Player)>();
         for (entity, (name, _player)) in query.iter() {
             if name.as_str().eq_ignore_ascii_case(target) {
-                target_entity = Some(entity.into());
+                target_entity = Some(entity);
                 target_char_name = name.as_str().to_string();
                 break;
             }
@@ -1214,7 +1214,7 @@ async fn cmd_kick(args: &str) {
                 let mut query = world.query::<(&Name, &Player)>();
                 for (entity, (name, player)) in query.iter() {
                     if player.account_id == account.id {
-                        found_entity = Some((entity.into(), name.as_str().to_string()));
+                        found_entity = Some((entity, name.as_str().to_string()));
                         break;
                     }
                 }

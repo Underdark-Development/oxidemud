@@ -59,7 +59,7 @@ pub fn spawn_game_loop(
                             let room_keys: Vec<(oxide_core::Entity, String)> = w
                                 .query::<&oxide_core::RoomKey>()
                                 .iter()
-                                .map(|(e, rk)| (oxide_core::Entity::from(e), rk.0.clone()))
+                                .map(|(e, rk)| (e, rk.0.clone()))
                                 .collect();
 
                             let empty_map = std::collections::HashMap::new();

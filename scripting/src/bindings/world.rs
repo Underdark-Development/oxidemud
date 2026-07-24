@@ -250,15 +250,15 @@ pub fn register(engine: &mut Engine) {
             with_current_world(|w| {
                 let templates = match oxide_core::templates::get_global_templates() {
                     Some(t) => t,
-                    None => return Entity::from(hecs::Entity::DANGLING),
+                    None => return hecs::Entity::DANGLING,
                 };
                 if let Some(mob_tpl) = templates.mobs.get(&template_id) {
                     mob_tpl.spawn(w, room_entity, &templates)
                 } else {
-                    Entity::from(hecs::Entity::DANGLING)
+                    hecs::Entity::DANGLING
                 }
             })
-            .unwrap_or_else(|| Entity::from(hecs::Entity::DANGLING))
+            .unwrap_or(hecs::Entity::DANGLING)
         },
     );
 }

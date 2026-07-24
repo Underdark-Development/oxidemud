@@ -44,7 +44,7 @@ impl ConnectionRegistry {
         let mut q = world.query::<(&oxide_core::Position,)>();
         let bytes = message.as_bytes().to_vec();
         for (raw, (pos,)) in q.iter() {
-            let entity = Entity::from(raw);
+            let entity = raw;
             if pos.room != room {
                 continue;
             }
@@ -67,7 +67,7 @@ impl ConnectionRegistry {
         let mut q = world.query::<(&oxide_core::Position,)>();
         let bytes = message.as_bytes().to_vec();
         for (raw, (pos,)) in q.iter() {
-            let entity = Entity::from(raw);
+            let entity = raw;
             if pos.room != room {
                 continue;
             }
@@ -92,7 +92,7 @@ impl ConnectionRegistry {
     pub fn occupants(&self, world: &World, room: Entity) -> Vec<Entity> {
         let mut q = world.query::<(&oxide_core::Position,)>();
         q.iter()
-            .map(|(raw, (pos,))| (Entity::from(raw), pos))
+            .map(|(raw, (pos,))| (raw, pos))
             .filter(|(entity, pos)| pos.room == room && self.map.contains_key(entity))
             .map(|(entity, _)| entity)
             .collect()

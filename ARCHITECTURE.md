@@ -1508,26 +1508,3 @@ Online creation commands (@dig/@link/@set/@mob/@area/@item), zone/area managemen
 ### Phase 6 — spade MUD Client & Protocol Expansion
 
 WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints), **spade MUD client mode** (output window, ANSI, scroll, input bar, sidebar, clickable names, connection profiles, session management, split mode, dashboard, script console, TOML preview), **MCP**: imm tools (set_stat, load, gecho, advance, stat, heal, damage, kill, revive, set_alignment, set_faction, purge_room, reboot), advanced simulators (regen, level-up, faction change, quest rewards, practice, XP curve), prompts/guided workflows, MCP resources.
-
----
-
-## Architectural Debt — P0
-
-Items discovered during architectural review. Each violates an existing invariant, contradicts the
-stated architecture, or represents a shallow module where deepening would yield significant leverage.
-
-### Medium: Glob Re-exports and Flat Public API
-
-**Problem:** `core/src/lib.rs` uses `#![allow(ambiguous_glob_reexports)]` to suppress name
-collisions from three glob re-exports (`pub use components::*`, `pub use events::*`,
-`pub use resources::*`) plus 30+ selective re-exports. `components.rs` adds 11 more glob
-re-exports from submodules.
-
-The public API surface of `oxide_core` is the union of every `pub` item across 11 component files,
-17 system files, 4 resource files, plus templates, events, scripting, util, and content — hundreds
-of types exported flat. Consumer crates cannot tell which submodule a type came from without reading
-source. Name collisions exist but are silenced by the `allow` annotation.
-
-**Fix:** Replace glob re-exports with explicit re-exports. Remove
-`#![allow(ambiguous_glob_reexports)]`. Each submodule should re-export only the types its
-consumers actually need.

@@ -330,7 +330,7 @@ pub fn cmd_look(
         let mut q = world.query::<(&Position, &Npc)>();
         q.iter()
             .filter(|(_, (pos, _))| pos.room == room)
-            .map(|(raw, _)| core::Entity::from(raw))
+            .map(|(raw, _)| raw)
             .filter(|&e| e != entity)
             .collect()
     };
@@ -339,7 +339,7 @@ pub fn cmd_look(
         let mut q = world.query::<(&Position, &Npc, &core::Friendly)>();
         q.iter()
             .filter(|(_, (pos, _, _))| pos.room == room)
-            .map(|(raw, _)| core::Entity::from(raw))
+            .map(|(raw, _)| raw)
             .filter(|&e| e != entity)
             .collect()
     };
@@ -354,7 +354,7 @@ pub fn cmd_look(
         let mut q = world.query::<(&Position, &core::Corpse)>();
         q.iter()
             .filter(|(_, (pos, _))| pos.room == room)
-            .map(|(raw, _)| core::Entity::from(raw))
+            .map(|(raw, _)| raw)
             .collect()
     };
 
@@ -442,7 +442,7 @@ fn find_target_in_room(
         if pos.room != room {
             continue;
         }
-        let e = core::Entity::from(raw);
+        let e = raw;
         if e == player_entity {
             continue;
         }
@@ -456,7 +456,7 @@ fn find_target_in_room(
         if pos.room != room {
             continue;
         }
-        let e = core::Entity::from(raw);
+        let e = raw;
         if e == player_entity {
             continue;
         }
@@ -484,10 +484,7 @@ fn find_target_in_room(
     let mut corpse_q = world.query::<(&core::Corpse, &Position, &Name)>();
     for (raw, (_, pos, name)) in corpse_q.iter() {
         if pos.room == room {
-            candidates.push((
-                name.as_str().to_lowercase(),
-                (TargetKind::Corpse, raw.into()),
-            ));
+            candidates.push((name.as_str().to_lowercase(), (TargetKind::Corpse, raw)));
         }
     }
 
@@ -913,7 +910,7 @@ fn trigger_follow(
     let mut followers = Vec::new();
     for (f_eid, (pos, following)) in world.query::<(&core::Position, &core::Following)>().iter() {
         if pos.room == room && following.target == entity {
-            followers.push(core::Entity::from(f_eid));
+            followers.push(f_eid);
         }
     }
 
