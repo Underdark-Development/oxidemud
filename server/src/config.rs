@@ -69,6 +69,8 @@ pub struct ServerConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub api: ApiConfig,
+    #[serde(default)]
+    pub time: oxide_core::TimeConfig,
 }
 
 fn default_prompt() -> String {
@@ -96,6 +98,7 @@ pub fn init(path: &Path) {
             default_prompt: default_prompt(),
             logging: LoggingConfig::default(),
             api: ApiConfig::default(),
+            time: oxide_core::TimeConfig::default(),
         }
     } else {
         toml::from_str(&content).unwrap_or_else(|e| {
@@ -111,6 +114,7 @@ pub fn init(path: &Path) {
                 default_prompt: default_prompt(),
                 logging: LoggingConfig::default(),
                 api: ApiConfig::default(),
+                time: oxide_core::TimeConfig::default(),
             }
         })
     };

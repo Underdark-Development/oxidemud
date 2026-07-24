@@ -1,5 +1,5 @@
 pre-commit:
-  parallel: false
+  parallel: true
   commands:
     fmt:
       run: |

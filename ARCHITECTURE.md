@@ -66,14 +66,16 @@ The server architecture splits concurrent execution into two main loop layers us
 
 The background loop fires independent system intervals within a central `tokio::select!` block:
 
-| Tick         | Interval        | Phase/Function      | Description                                         |
-| ------------ | --------------- | ------------------- | --------------------------------------------------- |
-| Player State | 250ms           | `player_state_tick` | Decrements player casting and stun timers           |
-| Skill Decay  | 1s              | `skill_decay_tick`  | Decrements cooldowns and temporary buff durations   |
-| Combat Pulse | 2s              | `combat_tick`       | Runs combat rounds, stance systems, and AI ticks    |
-| Maintenance  | 5s              | `maintenance_tick`  | Flushes dirty stats, saves positions, cleans groups |
-| Set Bonus    | 10s             | `set_bonus_tick`    | Re-evaluates equipment set bonus thresholds         |
-| Big Tick     | 30–90s (random) | `big_tick`          | Restores HP/MP/SP, broadcasts prompts to players    |
+| Tick         | Interval        | Phase/Function      | Description                                            |
+| ------------ | --------------- | ------------------- | ------------------------------------------------------ |
+| Player State | 250ms           | `player_state_tick` | Decrements player casting and stun timers              |
+| Skill Decay  | 1s              | `skill_decay_tick`  | Decrements cooldowns and temporary buff durations      |
+| Combat Pulse | 2s              | `combat_tick`       | Runs combat rounds, stance systems, and AI ticks       |
+| Maintenance  | 5s              | `maintenance_tick`  | Flushes dirty stats, saves positions, cleans groups    |
+| Set Bonus    | 10s             | `set_bonus_tick`    | Re-evaluates equipment set bonus thresholds            |
+| Weather      | 5min            | `weather_tick`      | Rolls weather transitions per zone, broadcasts changes |
+| Time Advance | configurable    | `time_tick`         | Advances in-game clock, emits period/season events     |
+| Big Tick     | 30–90s (random) | `big_tick`          | Restores HP/MP/SP, broadcasts prompts to players       |
 
 ---
 
@@ -93,6 +95,8 @@ Game logic is organized into isolated, concurrent modules executed inside the ba
 - **Skill Gate System:** Continually re-evaluates gear skill requirements to auto-remove items.
 - **Group Cleanup System:** Automatically removes offline or disconnected players from groups.
 - **Database Backup System:** Spawns a background thread to run hot backups of the SQLite database.
+- **Time System:** Advances in-game clock, emits period/season change events, tracks daylight.
+- **Weather System:** Rolls weather transitions per zone on a 5-minute tick, applies gameplay effects (damage modifiers, ranged penalties, attribute changes), broadcasts severe weather to players.
 
 ### Scripting & Core System Decoupling
 
@@ -153,7 +157,7 @@ System execution follows a tick outcome return-value pattern rather than an asyn
 
 ### In-Game Prompt
 
-Configurable template in `Player.prompt`. Variables: `%h/%H` (HP), `%m/%M` (Mana), `%v/%V` (Stamina), `%l` (Level), `%x/%X` (XP/XP-to-next), `%n` (Name), `%g` (Gold), `%a` (Alignment), `%r` (Room name), `%e` (Exits), `%R` (Rest state), `%C` (Combat state), `%c` (Newline), `%%` (literal). Rendered after every command output and on room entry, death, level-up, and combat changes. Customized via `prompt <template>`.
+Configurable template in `Player.prompt`. Variables: `%h/%H` (HP), `%m/%M` (Mana), `%v/%V` (Stamina), `%l` (Level), `%x/%X` (XP/XP-to-next), `%n` (Name), `%g` (Gold), `%a` (Alignment), `%r` (Room name), `%e` (Exits), `%R` (Rest state), `%C` (Combat state), `%t` (Time period), `%w` (Weather description), `%c` (Newline), `%%` (literal). Rendered after every command output and on room entry, death, level-up, and combat changes. Customized via `prompt <template>`.
 
 ### Combat
 
@@ -203,6 +207,16 @@ When a player submits a command, the server resolves it in the following order:
 ### Flexible / OLC
 
 - `Attributes(HashMap<String, String>)` — KV store for builder data
+
+### World State (Time & Weather)
+
+- `GameTime { hour, minute, day, season, year }` — singleton component on a world-time entity; tracks in-game clock
+- `Season` enum: Spring, Summer, Autumn, Winter
+- `TimePeriod` enum: Midnight, Dawn, Morning, Noon, Afternoon, Dusk, Evening, Night (maps to hour ranges)
+- `WeatherState { base: Option<String>, modifier: Option<String> }` — per-room weather; `None` = Clear
+- `WeatherCondition { id, name, description, severity, condition_type, effects }` — loaded from `content/weather.toml`
+- `WeatherSeverity` enum: Minor (on-request display), Severe (auto-broadcast on change)
+- `ConditionType` enum: Base (primary weather), Modifier (secondary overlay like Wind/Fog)
 
 ### Persistence
 
@@ -680,13 +694,286 @@ Combat skips damage on Immortal components. `switch` refuses player targets. `fo
 
 ---
 
-## Time & Weather
+## Time System
 
-Game time is independent of real time (default 1:60 ratio). Persisted in SQLite. Seasons affect daylight, weather tables, temperature, and mob spawns.
+Game time advances independently of real-world time. The scale is configurable in `content/server.toml` under `[time]`:
 
-Weather tracked per `weather_zone`. Updated by `WeatherSystem` on Weather phase. Conditions: Rain/Storm (−2 fire, +2 lightning), Fog (−25% ranged), Snow/Blizzard (−1 DEX), Strong wind (−2 ranged attacks).
+| Field                        | Default    | Description                         |
+| ---------------------------- | ---------- | ----------------------------------- |
+| `real_minutes_per_game_hour` | `24`       | Real-world minutes per in-game hour |
+| `days_per_season`            | `30`       | Game days per season                |
+| `start_season`               | `"spring"` | Season on first boot                |
+| `start_hour`                 | `6`        | Hour on first boot (0–23)           |
 
-Weather probabilities per-zone with season modifiers. See `game_mechanics.md` for the full transition matrix.
+### Clock Model
+
+- 1 in-game hour = `real_minutes_per_game_hour` real minutes
+- 1 in-game day = 24 game hours (default: 9.6 real hours)
+- 1 season = `days_per_season` game days (default: 30)
+- 4 seasons = 1 year (120 game days, default: ≈48 real hours)
+
+### Time Periods
+
+Eight named periods map to hour ranges:
+
+| Period    | Hours | Description               |
+| --------- | ----- | ------------------------- |
+| Midnight  | 1–5   | Deep night, few abroad    |
+| Dawn      | 5–7   | First light, birdsong     |
+| Morning   | 7–10  | Bright, market bustle     |
+| Noon      | 10–14 | Sun at its peak           |
+| Afternoon | 14–17 | Warm, shadows lengthen    |
+| Dusk      | 17–19 | Fading light, fires lit   |
+| Evening   | 19–22 | Dark, taverns busy        |
+| Night     | 22–1  | Full dark, danger outside |
+
+### Commands
+
+- `time` — shows period, day, season, year (e.g. "It is Dawn on the 14th day of Spring, Year 1.")
+
+### Prompt Variables
+
+- `%t` — current time period name (e.g. "Dawn")
+
+### Persistence
+
+Game time is stored in SQLite `world_time` table. Saved on shutdown (lazy persist). On startup, time loads from DB; if missing, uses `[time]` config defaults.
+
+### Events
+
+- `TimeChanged` — emitted every game hour advance
+- `PeriodChanged` — emitted when the named period changes (e.g. Dawn → Morning)
+- `SeasonChanged` — emitted when the season rolls over
+
+---
+
+## Weather System
+
+Weather is data-driven, per-zone, with probability-based transitions. Defined in `content/weather.toml`.
+
+### Architecture
+
+Weather operates on a **base + modifier** model:
+
+- **Base condition**: Clear, Rain, Snow, Storm, etc. (one active at a time)
+- **Modifier**: Strong Wind, Fog, etc. (optional secondary condition)
+
+If no weather is active, the room is **Clear** (no effects).
+
+### Composition Model
+
+Weather conditions are resolved per-room by merging three layers:
+
+1. **Global defaults** — season availability from `weather.toml [seasons]`
+2. **Area override** — `weather_zone` references a zone matrix, OR `weather_matrix` defines inline per-season weights. Areas can set `no_weather = true` to disable weather for the entire area.
+3. **Room override** — additive/subtractive:
+   - `no_weather = true` → no weather (indoors, underground)
+   - `exclude_weather = ["strong_wind"]` → removes specific conditions (forest blocks wind)
+   - `additional_weather = { fog = 15 }` → adds conditions (cave entrance gets fog)
+
+If an area has `no_weather = true`, all rooms in that area inherit it (room overrides ignored).
+
+### Resolution Chain
+
+```
+area.no_weather = true?  →  Clear (done)
+         ↓ no
+global season conditions
+         ↓
+area.weather_zone or area.weather_matrix (if present)
+         ↓
+room.exclude_weather (remove entries)
+         ↓
+room.additional_weather (add/merge entries)
+         ↓
+room.no_weather = true?  →  Clear (done)
+         ↓ no
+resolved weights → roll_weather()
+```
+
+### Weather Conditions
+
+Defined in `content/weather.toml [conditions]`:
+
+```toml
+[conditions.rain]
+name = "Rain"
+description = "Rain falls from grey clouds."
+severity = "minor"          # "minor" = on-request, "severe" = auto-broadcast
+[conditions.rain.effects]
+damage_fire = -2            # Flat damage modifier
+damage_lightning = 2
+```
+
+Severity controls player notifications:
+
+- **Severe** (Storm, Blizzard) → auto-broadcast to players in affected rooms
+- **Minor** (Rain, Fog, Wind) → shown on `weather` command or room entry
+
+### Season Availability
+
+```toml
+[seasons.spring]
+available = ["clear", "rain", "fog", "strong_wind"]
+```
+
+Only conditions listed for the current season can roll.
+
+### Zone Probability Matrices
+
+```toml
+[zones.temperate.spring]
+clear = 40       # Weight (system normalizes to probability)
+rain = 30
+fog = 20
+strong_wind = 10
+```
+
+Weights are arbitrary values — the system normalizes them internally. If all weights resolve to zero or empty, the result is **Clear**.
+
+### Weather Tick
+
+Fires every 5 minutes (300s). For each active weather zone:
+
+1. Resolve the room's weather set (area + room overrides)
+2. Roll base condition from resolved weights
+3. Roll modifier separately (same logic, only modifier-type conditions)
+4. If weather changed → update `WeatherState` component on room entity
+5. If new condition is **severe** → broadcast to all players in room
+
+### Gameplay Effects
+
+Weather effects are defined per-condition in `weather.toml` and applied during combat, skill use, and movement:
+
+| Effect Key            | Applies To              | Description                                 |
+| --------------------- | ----------------------- | ------------------------------------------- |
+| `damage_fire`         | Fire damage rolls       | Flat modifier to fire-type damage           |
+| `damage_lightning`    | Lightning damage rolls  | Flat modifier to lightning damage           |
+| `ranged_accuracy`     | Ranged attack hit rolls | Flat penalty to ranged attacks              |
+| `ranged_accuracy_pct` | Ranged attack hit rolls | Percentage penalty to ranged accuracy       |
+| `ranged_attack`       | Ranged attack rolls     | Flat attack penalty                         |
+| `dexterity`           | DEX attribute           | Temporary DEX modifier while weather active |
+
+### Room Descriptions
+
+Weather flavor text is appended to room descriptions on `look`:
+
+- `"Rain falls steadily here."`
+- `"A thick fog obscures the exits."`
+
+### Persistence
+
+Weather states stored in SQLite `weather_states` table (zone_id → base, modifier). Saved on shutdown (lazy persist). On startup, loads from DB; if missing, rolls initial weather from zone matrix.
+
+### Content Structure
+
+```toml
+# content/weather.toml
+
+[conditions.clear]
+name = "Clear"
+description = "The sky is clear and pleasant."
+severity = "minor"
+
+[conditions.rain]
+name = "Rain"
+description = "Rain falls from grey clouds."
+severity = "minor"
+[conditions.rain.effects]
+damage_fire = -2
+damage_lightning = 2
+
+[conditions.storm]
+name = "Storm"
+description = "Thunder rolls overhead as rain lashes down."
+severity = "severe"
+[conditions.storm.effects]
+damage_fire = -2
+damage_lightning = 2
+ranged_accuracy = -2
+
+[conditions.fog]
+name = "Fog"
+description = "A thick fog rolls in, obscuring your vision."
+severity = "minor"
+[conditions.fog.effects]
+ranged_accuracy_pct = -25
+
+[conditions.snow]
+name = "Snow"
+description = "Snow falls gently from the sky."
+severity = "minor"
+[conditions.snow.effects]
+dexterity = -1
+
+[conditions.blizzard]
+name = "Blizzard"
+description = "A howling blizzard lashes at you with ice and wind."
+severity = "severe"
+[conditions.blizzard.effects]
+dexterity = -2
+ranged_accuracy = -3
+
+[conditions.strong_wind]
+name = "Strong Wind"
+description = "Strong winds gust across the land."
+severity = "minor"
+condition_type = "modifier"
+[conditions.strong_wind.effects]
+ranged_attack = -2
+
+# Season availability
+[seasons.spring]
+available = ["clear", "rain", "fog", "strong_wind"]
+
+[seasons.summer]
+available = ["clear", "rain", "storm", "strong_wind"]
+
+[seasons.autumn]
+available = ["clear", "rain", "fog", "strong_wind"]
+
+[seasons.winter]
+available = ["clear", "snow", "blizzard", "strong_wind"]
+
+# Zone probability matrices
+[zones.temperate.spring]
+clear = 40
+rain = 30
+fog = 20
+strong_wind = 10
+
+[zones.temperate.summer]
+clear = 50
+rain = 20
+storm = 20
+strong_wind = 10
+
+[zones.temperate.autumn]
+clear = 35
+rain = 30
+fog = 25
+strong_wind = 10
+
+[zones.temperate.winter]
+clear = 30
+snow = 35
+blizzard = 20
+strong_wind = 15
+```
+
+### Room/Area TOML Fields
+
+**AreaTemplate additions:**
+
+- `no_weather: bool` — disables weather for entire area
+- `weather_zone: String` — reference a zone in weather.toml
+- `weather_matrix: { season → { condition → weight } }` — inline zone definition
+
+**RoomTemplate additions:**
+
+- `no_weather: bool` — disables weather for this room
+- `exclude_weather: [String]` — conditions to remove from resolved set
+- `additional_weather: { condition → weight }` — conditions to add to resolved set
 
 ---
 
@@ -714,7 +1001,7 @@ Tag syntax: `{red}text{/}`, `{brightblue}item{/}`, `{yellow bold}critical!{/}`, 
 
 **Two-tier:** In-memory ECS world ↔ SQLite on disk (WAL mode). Dirty tracking via `Dirty` marker component. Flush every 5s (DirtyFlush phase). Full flush + WAL checkpoint on shutdown.
 
-**Schema:** SQLite tables mirror component types: `entities` table + `components_*` tables per component type. Startup: load entities, populate components, delete stale.
+**Schema:** SQLite tables mirror component types: `entities` table + `components_*` tables per component type, plus `world_time` (game clock) and `weather_states` (per-zone weather). Startup: load entities, populate components, delete stale.
 
 **WriteBatch:** `{ entity_id, entity_type, components: Vec<ComponentRow> }`. Type-safe queries in `data/src/queries.rs`. Migrations via `PRAGMA user_version`.
 
@@ -728,7 +1015,7 @@ Tag syntax: `{red}text{/}`, `{brightblue}item{/}`, `{yellow bold}critical!{/}`, 
 
 All game content in TOML under `content/` (configurable path). Scanned at startup, deserialized via serde, cross-referenced, built into `TemplateRegistry` (behind `Arc<RwLock<...>>`).
 
-**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help, deities, affixes, sets}/` + `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
+**Directory layout:** `content/{areas, mobs, items, races, classes, skills, scripts, recipes, quests, factions, shops, help, deities, affixes, sets}/` + `weather.toml`, `languages.toml`, `socials.toml`, `treasure_classes.toml`. Rooms live in individual files under `content/areas/<area_id>/rooms/<room_id>.toml`.
 
 Hot-reload uses `notify` crate. On change: re-parse, validate, atomic-swap in registry, emit `ContentReloaded`.
 
@@ -1221,6 +1508,68 @@ Online creation commands (@dig/@link/@set/@mob/@area/@item), zone/area managemen
 ### Phase 6 — spade MUD Client & Protocol Expansion
 
 WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints), **spade MUD client mode** (output window, ANSI, scroll, input bar, sidebar, clickable names, connection profiles, session management, split mode, dashboard, script console, TOML preview), **MCP**: imm tools (set_stat, load, gecho, advance, stat, heal, damage, kill, revive, set_alignment, set_faction, purge_room, reboot), advanced simulators (regen, level-up, faction change, quest rewards, practice, XP curve), prompts/guided workflows, MCP resources.
+
+---
+
+## Weather & Time System — Implementation Tasks
+
+### Phase 0 — Config & Content Types ✓
+
+- [x] Create `core/src/templates/weather.rs` — `WeatherConfig`, `WeatherConditionDef`, `WeatherEffects`, severity/type enums
+- [x] Extend `RoomTemplate` with `no_weather`, `exclude_weather`, `additional_weather`
+- [x] Extend `AreaTemplate` with `no_weather`, `weather_matrix`
+- [x] Add `weather: Option<WeatherConfig>` to `TemplateRegistry`
+- [x] Update `core/src/content.rs` to load standalone `weather.toml`
+- [x] Create `content/weather.toml` — conditions, seasons, zone matrices
+- [x] Add `TimeConfig` to `core/src/systems/time.rs` and `ServerConfig`
+- [x] Add `[time]` section to `content/server.toml`
+- [x] Update all TUI/MCP/bin construction sites for new fields
+
+### Phase 1 — Time System (pending)
+
+- [ ] `GameTime` component (`hour`, `minute`, `day`, `season`, `year`)
+- [ ] `Season` and `TimePeriod` enums with hour-range mapping
+- [ ] `core/src/systems/time.rs` — `advance_time()`, `period_from_hour()`, `TimeEvent` enum
+- [ ] Time tick interval in `server/src/game_loop.rs` (configurable via `real_minutes_per_game_hour`)
+- [ ] Spawn `GameTime` on startup from DB or config defaults
+- [ ] `cmd_time()` — query `GameTime`, format period/day/season/year
+- [ ] SQLite `world_time` table + save/load queries
+- [ ] `%t` prompt variable in `core/src/prompt.rs`
+
+### Phase 2 — Weather System Core (pending)
+
+- [ ] `WeatherState` component (`base: Option<String>`, `modifier: Option<String>`)
+- [ ] `core/src/systems/weather.rs` — `resolve_weather_weights()`, `roll_weather()`, `roll_modifier()`
+- [ ] Resolution chain: global season → area zone/matrix → room exclude/additional → roll
+- [ ] Weather tick (300s) in `game_loop.rs` — per-zone roll, update `WeatherState`, broadcast severe
+- [ ] SQLite `weather_states` table + save/load queries
+
+### Phase 3 — ECS Integration (pending)
+
+- [ ] Spawn `WeatherState` on room entities during world load
+- [ ] `%w` prompt variable — query room's `WeatherState`, format description
+- [ ] `cmd_weather()` — query `WeatherState`, look up condition descriptions
+- [ ] Append weather flavor text to `look` room descriptions on movement
+
+### Phase 4 — Gameplay Effects (pending)
+
+- [ ] Combat: apply `damage_fire`, `damage_lightning`, `ranged_accuracy`, `ranged_attack` modifiers from room weather
+- [ ] Attributes: apply `dexterity` modifier from weather on DEX-based checks
+- [ ] Weather condition descriptions in room `look` output
+
+### Phase 5 — Tests (pending)
+
+- [ ] `time.rs` — `period_from_hour`, `advance_time` day/season/year rollover, edge cases
+- [ ] `weather.rs` — resolution chain, `no_weather` short-circuit, weight normalization, modifier rolling
+- [ ] `weather.rs` deserialization — `content/weather.toml` parses cleanly
+- [ ] `prompt.rs` — `%t` and `%w` render correctly
+
+### Phase 6 — Documentation (pending)
+
+- [ ] `docs/game_mechanics.md` lines 488-495 — replace stub with reference to ARCHITECTURE.md sections
+- [ ] `ARCHITECTURE.md` Development Phases — mark time/weather as implemented
+- [ ] `docs/builder_manual.md` — verify weather field docs match implementation
+- [ ] `AGENTS.md` — update Phases table
 
 ---
 

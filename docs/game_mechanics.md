@@ -487,9 +487,9 @@ Items with `requires_skill` are checked on `wear`/`wield`. If the player lacks t
 
 ## Time & Weather
 
-| Command   | Description                                                                   |
-| --------- | ----------------------------------------------------------------------------- |
-| `time`    | Shows current in-game time (stub: "It is currently 10:00 AM in the morning.") |
-| `weather` | Shows current weather conditions (stub: "The sky is clear...")                |
+| Command   | Description                                                                                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `time`    | Shows current in-game time period, day, season, and year (e.g. "It is Dawn on the 14th day of Spring, Year 1.")        |
+| `weather` | Shows current weather conditions in your area (e.g. "Rain falls from grey clouds. Strong winds gust across the land.") |
 
-Both are placeholder implementations. Future phases will integrate a full day/night cycle and weather system.
+For the full time system design (clock model, periods, persistence) and weather system design (conditions, effects, zone matrices, composition model), see [ARCHITECTURE.md](../ARCHITECTURE.md#time-system) and [ARCHITECTURE.md](../ARCHITECTURE.md#weather-system).

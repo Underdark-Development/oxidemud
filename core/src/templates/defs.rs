@@ -1033,6 +1033,12 @@ pub struct RoomTemplate {
     #[serde(default)]
     pub allow_revive: bool,
     #[serde(default)]
+    pub no_weather: bool,
+    #[serde(default)]
+    pub exclude_weather: Vec<String>,
+    #[serde(default)]
+    pub additional_weather: HashMap<String, u32>,
+    #[serde(default)]
     pub script: Option<String>,
     #[serde(default)]
     pub params: HashMap<String, String>,
@@ -1076,6 +1082,10 @@ pub struct AreaTemplate {
     pub flags: Vec<String>,
     #[serde(default)]
     pub weather_zone: Option<String>,
+    #[serde(default)]
+    pub no_weather: bool,
+    #[serde(default)]
+    pub weather_matrix: HashMap<String, HashMap<String, u32>>,
     #[serde(default)]
     pub reset_interval: Option<ResetInterval>,
     #[serde(default)]

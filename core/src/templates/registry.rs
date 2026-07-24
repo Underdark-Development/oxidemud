@@ -1,4 +1,5 @@
 use super::defs::*;
+use super::weather::WeatherConfig;
 use crate::components::SkillDef;
 use std::collections::HashMap;
 
@@ -35,6 +36,7 @@ pub struct TemplateRegistry {
     pub quests: HashMap<String, QuestDef>,
     pub factions: HashMap<String, FactionDef>,
     pub recipes: HashMap<String, RecipeDef>,
+    pub weather: Option<WeatherConfig>,
     pub indices: DerivedIndices,
 }
 

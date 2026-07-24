@@ -26,6 +26,9 @@ pub fn load_registry(content_path: &Path) -> (TemplateRegistry, FileMap) {
     registry.factions = load_dir(content_path, "factions", &mut file_map);
     registry.recipes = load_dir(content_path, "recipes", &mut file_map);
 
+    // Load standalone weather.toml
+    registry.weather = load_standalone_toml(content_path, "weather.toml");
+
     registry.build_indices();
     (registry, file_map)
 }
@@ -61,6 +64,18 @@ fn load_dir<T: serde::de::DeserializeOwned>(
     }
     file_map.insert(subdir.to_string(), path_map);
     map
+}
+
+fn load_standalone_toml<T: serde::de::DeserializeOwned>(
+    content_path: &Path,
+    filename: &str,
+) -> Option<T> {
+    let path = content_path.join(filename);
+    if !path.exists() {
+        return None;
+    }
+    let content = fs::read_to_string(&path).ok()?;
+    toml::from_str::<T>(&content).ok()
 }
 
 fn load_areas(content_path: &Path, file_map: &mut FileMap) -> HashMap<String, AreaTemplate> {

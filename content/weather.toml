@@ -1,0 +1,103 @@
+# Weather system configuration
+# See ARCHITECTURE.md for full weather system design.
+
+# ---------------------------------------------------------------------------
+# Conditions — each weather type with display text, severity, and effects
+# ---------------------------------------------------------------------------
+
+[conditions.clear]
+name = "Clear"
+description = "The sky is clear and pleasant."
+severity = "minor"
+
+[conditions.rain]
+name = "Rain"
+description = "Rain falls from grey clouds."
+severity = "minor"
+[conditions.rain.effects]
+damage_fire = -2
+damage_lightning = 2
+
+[conditions.storm]
+name = "Storm"
+description = "Thunder rolls overhead as rain lashes down."
+severity = "severe"
+[conditions.storm.effects]
+damage_fire = -2
+damage_lightning = 2
+ranged_accuracy = -2
+
+[conditions.fog]
+name = "Fog"
+description = "A thick fog rolls in, obscuring your vision."
+severity = "minor"
+[conditions.fog.effects]
+ranged_accuracy_pct = -25
+
+[conditions.snow]
+name = "Snow"
+description = "Snow falls gently from the sky."
+severity = "minor"
+[conditions.snow.effects]
+dexterity = -1
+
+[conditions.blizzard]
+name = "Blizzard"
+description = "A howling blizzard lashes at you with ice and wind."
+severity = "severe"
+[conditions.blizzard.effects]
+dexterity = -2
+ranged_accuracy = -3
+
+[conditions.strong_wind]
+name = "Strong Wind"
+description = "Strong winds gust across the land."
+severity = "minor"
+condition_type = "modifier"
+[conditions.strong_wind.effects]
+ranged_attack = -2
+
+# ---------------------------------------------------------------------------
+# Season availability — which conditions can roll each season
+# ---------------------------------------------------------------------------
+
+[seasons.spring]
+available = ["clear", "rain", "fog", "strong_wind"]
+
+[seasons.summer]
+available = ["clear", "rain", "storm", "strong_wind"]
+
+[seasons.autumn]
+available = ["clear", "rain", "fog", "strong_wind"]
+
+[seasons.winter]
+available = ["clear", "snow", "blizzard", "strong_wind"]
+
+# ---------------------------------------------------------------------------
+# Zone probability matrices — per-zone per-season weights
+# Weights are arbitrary; the system normalizes them to probabilities.
+# ---------------------------------------------------------------------------
+
+[zones.temperate.spring]
+clear = 40
+rain = 30
+fog = 20
+strong_wind = 10
+
+[zones.temperate.summer]
+clear = 50
+rain = 20
+storm = 20
+strong_wind = 10
+
+[zones.temperate.autumn]
+clear = 35
+rain = 30
+fog = 25
+strong_wind = 10
+
+[zones.temperate.winter]
+clear = 30
+snow = 35
+blizzard = 20
+strong_wind = 15

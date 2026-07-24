@@ -646,6 +646,9 @@ impl Screen for RoomGridScreen {
                         flags: Vec::new(),
                         content: Default::default(),
                         allow_revive: false,
+                        no_weather: false,
+                        exclude_weather: Vec::new(),
+                        additional_weather: HashMap::new(),
                         script: None,
                         params: HashMap::new(),
                     };

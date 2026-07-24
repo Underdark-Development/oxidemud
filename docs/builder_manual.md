@@ -72,6 +72,29 @@ credits = "Designed by Builder Staff"
 flags = ["city", "peaceful"]
 ```
 
+**Weather fields:**
+
+| Field            | Type   | Default | Description                                                     |
+| ---------------- | ------ | ------- | --------------------------------------------------------------- |
+| `weather_zone`   | string | —       | Reference a zone defined in `content/weather.toml`              |
+| `weather_matrix` | table  | —       | Inline per-season probability matrix (overrides `weather_zone`) |
+| `no_weather`     | bool   | `false` | Disable weather for entire area (all rooms inherit this)        |
+
+**Inline weather matrix example:**
+
+```toml
+[weather_matrix.spring]
+clear = 40
+rain = 30
+fog = 20
+strong_wind = 10
+
+[weather_matrix.summer]
+clear = 50
+rain = 20
+storm = 20
+```
+
 ### Rooms (`RoomTemplate`)
 
 Stored at `content/areas/<area_id>/rooms/<room_id>.toml`.
@@ -120,6 +143,31 @@ sets = [{ mob = "city_guard", items = ["steel_shortsword", "chainmail_chestpiece
 allowed_classes = ["cleric", "paladin"]
 description = "The sanctuary spawns holy acolytes."
 ```
+
+#### Room Weather Fields
+
+Rooms can override, extend, or suppress the area's weather conditions.
+
+| Field                | Type  | Default | Description                                                   |
+| -------------------- | ----- | ------- | ------------------------------------------------------------- |
+| `no_weather`         | bool  | `false` | Disable weather for this room (indoors, underground)          |
+| `exclude_weather`    | list  | `[]`    | Remove specific conditions from the area's weather set        |
+| `additional_weather` | table | `{}`    | Add conditions not in the area's matrix (probability weights) |
+
+**Examples:**
+
+```toml
+# Dense forest — blocks wind but keeps other weather
+exclude_weather = ["strong_wind"]
+
+# Cave entrance — adds fog chance beyond what the area provides
+additional_weather = { fog = 15 }
+
+# Indoor temple — no weather at all
+no_weather = true
+```
+
+Weather resolution chain: global defaults → area matrix → room exclude → room additional → roll. If `no_weather = true` on the area, all rooms inherit it.
 
 #### Exit Door Fields
 

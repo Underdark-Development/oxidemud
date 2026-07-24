@@ -439,6 +439,8 @@ impl OxideMcpServer {
             level_range: None,
             flags: Vec::new(),
             weather_zone: None,
+            no_weather: false,
+            weather_matrix: HashMap::new(),
             reset_interval: None,
             credits: None,
             spawns: Vec::new(),
@@ -463,6 +465,9 @@ impl OxideMcpServer {
             flags: Vec::new(),
             content: RoomContent::default(),
             allow_revive: false,
+            no_weather: false,
+            exclude_weather: Vec::new(),
+            additional_weather: HashMap::new(),
             script: None,
             params: HashMap::new(),
         };
@@ -614,6 +619,9 @@ impl OxideMcpServer {
             flags: Vec::new(),
             content: RoomContent::default(),
             allow_revive: false,
+            no_weather: false,
+            exclude_weather: Vec::new(),
+            additional_weather: HashMap::new(),
             script: None,
             params: HashMap::new(),
         };

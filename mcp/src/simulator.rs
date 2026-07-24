@@ -2265,6 +2265,8 @@ mod tests {
             level_range: None,
             flags: vec![],
             weather_zone: None,
+            no_weather: false,
+            weather_matrix: HashMap::new(),
             reset_interval: None,
             credits: None,
             spawns: vec![],
@@ -2284,6 +2286,9 @@ mod tests {
             flags: vec![],
             content: RoomContent::default(),
             allow_revive: false,
+            no_weather: false,
+            exclude_weather: vec![],
+            additional_weather: HashMap::new(),
             script: None,
             params: HashMap::new(),
         };
@@ -2301,6 +2306,9 @@ mod tests {
             flags: vec![],
             content: RoomContent::default(),
             allow_revive: false,
+            no_weather: false,
+            exclude_weather: vec![],
+            additional_weather: HashMap::new(),
             script: None,
             params: HashMap::new(),
         };

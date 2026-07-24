@@ -3,3 +3,9 @@ server_name = "MUD"
 server_version = "0.1.1"
 max_clients = 128
 default_prompt = "<%h/%Hhp %m/%Mmp> "
+
+[time]
+real_minutes_per_game_hour = 24
+days_per_season = 30
+start_season = "spring"
+start_hour = 6

@@ -2670,6 +2670,8 @@ mod tests {
             level_range: None,
             flags: vec![],
             weather_zone: None,
+            no_weather: false,
+            weather_matrix: HashMap::new(),
             reset_interval: None,
             credits: None,
             spawns: vec![SpawnEntry {
