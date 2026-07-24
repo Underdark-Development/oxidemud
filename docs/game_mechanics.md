@@ -487,9 +487,27 @@ Items with `requires_skill` are checked on `wear`/`wield`. If the player lacks t
 
 ## Time & Weather
 
+### Time System
+
+- **Clock Model**: 1 real-world minute equals 12 in-game minutes (1 in-game hour = 5 real minutes; 1 in-game day = 2 real hours).
+- **Time Periods**: 24-hour cycle split into `Night`, `Midnight`, `Dawn`, `Morning`, `Noon`, `Afternoon`, `Dusk`, and `Evening`.
+- **Seasons & Calendar**: 4 seasons (`Spring`, `Summer`, `Autumn`, `Winter`) of 30 days each (120-day in-game year).
+- **Prompt Integration**: `%t` prompt variable renders current active time period (e.g. `"Dawn"`).
+
+### Weather System
+
+- **Composition**: Per-room `WeatherState` component tracking active base condition (e.g. `"Rain"`) and modifier condition (e.g. `"Fog"`).
+- **Resolution Chain**: Evaluated per room via a 5-tier fallback chain: Room `additional_weather` $\rightarrow$ Area `weather_matrix` $\rightarrow$ Zone matrix $\rightarrow$ Season availability $\rightarrow$ Base fallback (`"clear"`).
+- **Gameplay Effects**: Active weather condition effects dynamically apply to gameplay:
+  - **Damage Modifiers**: Dynamic `damage_<type>` modifiers (e.g., `damage_fire`, `damage_lightning`, `damage_cold`) modify damage rolls of matching damage types.
+  - **Ranged Combat**: `ranged_accuracy` (flat modifier) and `ranged_accuracy_pct` (percentage modifier) modify ranged hit rolls; `ranged_attack` modifies ranged damage rolls.
+  - **Attributes**: `dexterity` modifier applies to character DEX attribute evaluations.
+- **Flavor & Looking**: Active weather flavor text automatically appends to `look` room descriptions and room transition outputs.
+- **Prompt Integration**: `%w` prompt variable renders active room weather conditions (e.g. `"Rain, Fog"`).
+
 | Command   | Description                                                                                                            |
 | --------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `time`    | Shows current in-game time period, day, season, and year (e.g. "It is Dawn on the 14th day of Spring, Year 1.")        |
 | `weather` | Shows current weather conditions in your area (e.g. "Rain falls from grey clouds. Strong winds gust across the land.") |
 
-For the full time system design (clock model, periods, persistence) and weather system design (conditions, effects, zone matrices, composition model), see [ARCHITECTURE.md](../ARCHITECTURE.md#time-system) and [ARCHITECTURE.md](../ARCHITECTURE.md#weather-system).
+For full architectural details, persistence schemas, and mathematical resolution formulas, see [ARCHITECTURE.md](../ARCHITECTURE.md#time-system) and [ARCHITECTURE.md](../ARCHITECTURE.md#weather-system).

@@ -1564,12 +1564,12 @@ WebSocket bridge, MCCP/GMCP/MXP/MSSP, REST API expansion (14 new imm endpoints),
 - [x] `weather.rs` deserialization — `content/weather.toml` parses cleanly
 - [x] `prompt.rs` — `%t` and `%w` render correctly
 
-### Phase 6 — Documentation (pending)
+### Phase 6 — Documentation ✓
 
-- [ ] `docs/game_mechanics.md` lines 488-495 — replace stub with reference to ARCHITECTURE.md sections
-- [ ] `ARCHITECTURE.md` Development Phases — mark time/weather as implemented
-- [ ] `docs/builder_manual.md` — verify weather field docs match implementation
-- [ ] `AGENTS.md` — update Phases table
+- [x] `docs/game_mechanics.md` lines 488-495 — replace stub with reference to ARCHITECTURE.md sections
+- [x] `ARCHITECTURE.md` Development Phases — mark time/weather as implemented
+- [x] `docs/builder_manual.md` — verify weather field docs match implementation
+- [x] `AGENTS.md` — update Phases table
 
 ---
 
