@@ -16,9 +16,9 @@ pub use _hecs::Entity;
 
 pub use components::{
     AccessLevel, ActiveEffect, ActiveScriptEffect, ActiveScriptEffects, ActiveStance, AffixMod,
-    AffixModifiers, AffixNames, Age, Alignment, Appearance, Armor, Attributes, Class, CombatState,
-    CombatStats, CommandRestrictions, Consumable, ConsumableKind, Corpse, DamageType, DbId, Deity,
-    Description, Direction, Dirty, DrinkContainer, Durability, EffectExpireCondition,
+    AffixModifiers, AffixNames, Age, Alignment, Appearance, Armor, Attributes, ChannelPrefs, Class,
+    CombatState, CombatStats, CommandRestrictions, Consumable, ConsumableKind, Corpse, DamageType,
+    DbId, Deity, Description, Direction, Dirty, DrinkContainer, Durability, EffectExpireCondition,
     EffectTemplate, EntityCommands, Equipment, EquipmentSlot, Exit, ExitFlags, Experience,
     FactionMember, FactionStanding, FloorItems, Following, Formation, Friendly, Gender, Group,
     GroupInvite, GroupManager, GroupMember, GroupMemberInfo, GroupRole, Health, HolyLight,
@@ -70,12 +70,12 @@ pub use systems::weather::{
     ResolutionParams, WeatherState,
 };
 pub use templates::{
-    ExitTemplate, FactionDef, FactionRank, PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult,
-    RecipeSkillReq,
+    default_channel_defs, ChannelDef, ChannelScope, ExitTemplate, FactionDef, FactionRank,
+    PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult, RecipeSkillReq,
 };
 pub use util::{
-    entities_in_room, get_entity_name, get_exits, get_name, get_pos_room, get_room_desc,
-    get_room_name, get_short_desc, is_void_room,
+    collect_rooms_by_scope, entities_in_room, get_entity_name, get_exits, get_name, get_pos_room,
+    get_room_desc, get_room_name, get_short_desc, is_void_room,
 };
 
 use hecs as _hecs;

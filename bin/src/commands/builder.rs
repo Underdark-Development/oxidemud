@@ -215,15 +215,15 @@ pub fn register(server: &mut Server) {
         handler: cmd_gecho,
     });
     server.register_command(Command {
-        name: "gtell",
-        aliases: &[],
+        name: "immtalk",
+        aliases: &["imm"],
         access: AccessLevel::Builder,
         topic: "Builder",
         help: CommandHelp {
             short: "Send a message to the staff channel",
             body: None,
         },
-        handler: cmd_gtell,
+        handler: cmd_immtalk,
     });
     server.register_command(Command {
         name: "wizwho",
@@ -739,7 +739,7 @@ pub fn cmd_gecho(
     }
 }
 
-pub fn cmd_gtell(
+pub fn cmd_immtalk(
     world: &mut World,
     conn: &mut dyn Connection,
     _name: &str,
@@ -748,7 +748,7 @@ pub fn cmd_gtell(
 ) {
     let msg = args.trim();
     if msg.is_empty() {
-        conn.send_line("Usage: gtell <message>");
+        conn.send_line("Usage: immtalk <message>");
         return;
     }
 

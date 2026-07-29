@@ -483,6 +483,20 @@ impl Database {
             )?;
         }
 
+        if current < 28 {
+            // Migration 28: add components_channel_prefs table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_channel_prefs (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    prefs_json TEXT NOT NULL DEFAULT '{}'
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (28)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

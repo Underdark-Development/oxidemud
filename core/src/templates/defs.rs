@@ -1217,6 +1217,120 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Channel scope — how far a channel's message propagates
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChannelScope {
+    /// Sender's room only.
+    Room,
+    /// Room plus up to N hops via the exit graph (respects doors + silent rooms).
+    Adjacent(u32),
+    /// All rooms within the same area (respects doors + silent rooms).
+    Area,
+    /// All connected players regardless of location.
+    #[default]
+    Global,
+}
+
+// ---------------------------------------------------------------------------
+// Channel definition — runtime config for chat channels
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelDef {
+    pub id: String,
+    pub name: String,
+    /// Single-character prefix for shortcut dispatch, e.g. "=", ";", "[".
+    /// Empty string means no shortcut.
+    pub shortcut: String,
+    /// Command aliases (e.g. "goss", "newb", "auc").
+    pub aliases: Vec<String>,
+    /// Format template with {player} and {message} interpolation.
+    /// {player} renders as "You" for sender, player name for others.
+    /// Include color tags directly, e.g. "{yellow}[OOC]{/} {player}: {message}"
+    pub format: String,
+    /// If true, skip ghost text formatting (OOC channels).
+    pub is_ooc: bool,
+    /// Minimum level allowed to send on this channel (1 = everyone).
+    pub min_level_send: u8,
+    /// Maximum level allowed to send on this channel (0 = unlimited).
+    pub max_level_send: u8,
+    /// Whether the channel is enabled by default for new characters.
+    pub default_enabled: bool,
+    /// Cooldown between sends in seconds (0 = no cooldown).
+    pub cooldown_secs: u64,
+    /// Scope/range of the channel (default: Global).
+    pub scope: ChannelScope,
+}
+
+impl ChannelDef {
+    pub fn render(&self, player_name: &str, message: &str, for_sender: bool) -> String {
+        let p = if for_sender { "You" } else { player_name };
+        self.format
+            .replace("{player}", p)
+            .replace("{message}", message)
+    }
+}
+
+pub fn default_channel_defs() -> Vec<ChannelDef> {
+    vec![
+        ChannelDef {
+            id: "ooc".into(),
+            name: "OOC".into(),
+            shortcut: "=".into(),
+            aliases: vec![],
+            format: "{yellow}[OOC]{/} {player}: {message}".into(),
+            is_ooc: true,
+            min_level_send: 1,
+            max_level_send: 0,
+            default_enabled: true,
+            cooldown_secs: 0,
+            scope: ChannelScope::Global,
+        },
+        ChannelDef {
+            id: "gossip".into(),
+            name: "Gossip".into(),
+            shortcut: ";".into(),
+            aliases: vec!["goss".into()],
+            format: "{green}[Gossip]{/} {player}: {message}".into(),
+            is_ooc: true,
+            min_level_send: 1,
+            max_level_send: 0,
+            default_enabled: true,
+            cooldown_secs: 0,
+            scope: ChannelScope::Global,
+        },
+        ChannelDef {
+            id: "newbie".into(),
+            name: "Newbie".into(),
+            shortcut: "[".into(),
+            aliases: vec!["newb".into()],
+            format: "{cyan}[Newbie]{/} {player}: {message}".into(),
+            is_ooc: true,
+            min_level_send: 1,
+            max_level_send: 5,
+            default_enabled: true,
+            cooldown_secs: 0,
+            scope: ChannelScope::Global,
+        },
+        ChannelDef {
+            id: "auction".into(),
+            name: "Auction".into(),
+            shortcut: String::new(),
+            aliases: vec!["auc".into()],
+            format: "{magenta}[Auction]{/} {player}: {message}".into(),
+            is_ooc: true,
+            min_level_send: 1,
+            max_level_send: 0,
+            default_enabled: true,
+            cooldown_secs: 0,
+            scope: ChannelScope::Global,
+        },
+    ]
+}
+
 #[derive(Debug, Clone)]
 pub enum SkillResolveError {
     NotFound,

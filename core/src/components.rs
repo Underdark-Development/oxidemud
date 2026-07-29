@@ -11,10 +11,10 @@ pub mod script_params;
 pub mod skills;
 
 pub use character::{
-    AccessLevel, Age, Alignment, Appearance, Attributes, Class, Deity, Description, Experience,
-    Following, Friendly, Gender, HolyLight, Immortal, LastMessenger, Level, MultiClassInfo, Name,
-    Npc, PatrolRoute, Player, PlayerState, PracticePoints, PrayerCooldown, Race, RecallRoom,
-    RestState, ShortDesc, Switched, Wallet, WanderBounds, Wizin,
+    AccessLevel, Age, Alignment, Appearance, Attributes, ChannelPrefs, Class, Deity, Description,
+    Experience, Following, Friendly, Gender, HolyLight, Immortal, LastMessenger, Level,
+    MultiClassInfo, Name, Npc, PatrolRoute, Player, PlayerState, PracticePoints, PrayerCooldown,
+    Race, RecallRoom, RestState, ShortDesc, Switched, Wallet, WanderBounds, Wizin,
 };
 pub use combat::{
     ActiveStance, Armor, CombatState, CombatStats, Corpse, DamageType, Health, LootRule, Resistance,
@@ -35,7 +35,7 @@ pub use room::{
     Direction, Exit, ExitFlags, FloorItems, PortalExit, Position, Room, RoomAllowRevive, RoomExits,
     RoomFlagBits, RoomFlags, RoomKey, RoomPortals, VoidRoom, EXIT_IS_CLOSED, EXIT_IS_DOOR,
     EXIT_IS_LOCKED, PORTAL_HIDDEN, ROOM_NO_TELEPORT_IN, ROOM_NO_TELEPORT_OUT, ROOM_PORTAL_IN,
-    ROOM_PORTAL_OUT,
+    ROOM_PORTAL_OUT, ROOM_SILENT,
 };
 pub use script_params::ScriptParams;
 pub use skills::{

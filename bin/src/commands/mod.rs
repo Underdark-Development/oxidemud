@@ -5,6 +5,7 @@ pub mod combat;
 pub mod common;
 pub mod communication;
 pub mod general;
+pub mod group;
 pub mod items;
 pub mod movement;
 pub mod test_helpers;
@@ -17,6 +18,7 @@ pub fn register_all_commands(server: &mut Server) {
     movement::register(server);
     communication::register(server);
     combat::register(server);
+    group::register(server);
     items::register(server);
     character::register(server);
     abilities::register(server);

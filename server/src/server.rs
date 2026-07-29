@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -447,6 +448,43 @@ fn handle_negotiation(conn: &mut TelnetConnection, neg: crate::telnet::codec::Ne
     }
 }
 
+/// Rewrite prefix-based communication shortcuts into command invocations.
+///
+/// Map:
+///   `'` → say, `"` → say, `>` → tell, `;` → gossip,
+///   `=` → ooc, `.` → whisper, `[` → newbie, `:` → emote
+fn apply_channel_shortcuts(input: &str) -> Cow<'_, str> {
+    if input.is_empty() {
+        return Cow::Borrowed(input);
+    }
+
+    // Single-punctuation shortcuts that don't need a trailing space
+    let first = input.chars().next().unwrap();
+    let rest = &input[first.len_utf8()..].trim_start();
+
+    match first {
+        '\'' => return Cow::Owned(format!("say {rest}")),
+        '"' => return Cow::Owned(format!("say {rest}")),
+        '>' => return Cow::Owned(format!("tell {rest}")),
+        '.' => return Cow::Owned(format!("whisper {rest}")),
+        ':' => return Cow::Owned(format!("emote {rest}")),
+        _ => {}
+    }
+
+    // Channel shortcut prefixes from channel definitions (=, ;, [, etc.)
+    for ch in oxide_core::default_channel_defs() {
+        if ch.shortcut.is_empty() {
+            continue;
+        }
+        if input.starts_with(&ch.shortcut) {
+            let rest = input[ch.shortcut.len()..].trim_start();
+            return Cow::Owned(format!("{} {}", ch.id, rest));
+        }
+    }
+
+    Cow::Borrowed(input)
+}
+
 async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: ConnectionContext) {
     let ConnectionContext {
         world,
@@ -600,7 +638,8 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                     }
                     let mut world_lock = world.lock().await;
                     let reg = registry.lock().await;
-                    commands.execute(&mut world_lock, &mut conn, trimmed, &reg);
+                    let rewritten = apply_channel_shortcuts(trimmed);
+                    commands.execute(&mut world_lock, &mut conn, &rewritten, &reg);
                     drop(reg);
                     if conn.is_disconnected() {
                         tracing::info!(
@@ -676,6 +715,21 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                             if let Some(tx) = conn.output_sender() {
                                 reg.register(entity, tx);
                             }
+
+                            // Load or initialize channel preferences
+                            let channel_prefs = if let Some(ref db) = db {
+                                let db_guard = db.lock().await;
+                                let conn_db = db_guard.conn();
+                                match oxide_data::load_channel_prefs(conn_db, player_db_id) {
+                                    Ok(Some(json)) => {
+                                        serde_json::from_str(&json).unwrap_or_default()
+                                    }
+                                    _ => oxide_core::ChannelPrefs::default(),
+                                }
+                            } else {
+                                oxide_core::ChannelPrefs::default()
+                            };
+                            let _ = w.insert(entity, (channel_prefs, oxide_core::Dirty));
                         }
                         if let Some(ref cb) = on_entity_spawned {
                             cb(&mut w, &mut conn, &reg);
@@ -845,7 +899,16 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
             }
         };
 
-        // 2. Save player progress to DB while not holding world lock
+        // 2a. Extract channel prefs separately
+        let channel_prefs_json: Option<String> = world
+            .lock()
+            .await
+            .query_one::<&oxide_core::ChannelPrefs>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .and_then(|prefs| serde_json::to_string(&prefs).ok());
+
+        // 2b. Save player progress to DB while not holding world lock
         if let Some((
             db_id,
             level,
@@ -1041,6 +1104,11 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                     let slot_str = format!("{:?}", slot).to_lowercase();
                     let _ =
                         oxide_data::save_equipment_slot(conn_db, db_id.0, &slot_str, item_db_id);
+                }
+
+                // Save ChannelPrefs
+                if let Some(ref json) = channel_prefs_json {
+                    let _ = oxide_data::save_channel_prefs(conn_db, db_id.0, json);
                 }
             }
         }

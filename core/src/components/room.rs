@@ -269,6 +269,8 @@ pub const ROOM_PORTAL_OUT: RoomFlagBits = 0x0002;
 pub const ROOM_NO_TELEPORT_IN: RoomFlagBits = 0x0004;
 /// Room has `no_teleport_out` — teleport spells cannot leave here (opt-out).
 pub const ROOM_NO_TELEPORT_OUT: RoomFlagBits = 0x0008;
+/// Room is silent — sound-based channels (non-Global scope) don't propagate through.
+pub const ROOM_SILENT: RoomFlagBits = 0x0010;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct RoomFlags(pub RoomFlagBits);
@@ -288,6 +290,10 @@ impl RoomFlags {
 
     pub fn no_teleport_out(&self) -> bool {
         self.0 & ROOM_NO_TELEPORT_OUT != 0
+    }
+
+    pub fn is_silent(&self) -> bool {
+        self.0 & ROOM_SILENT != 0
     }
 }
 

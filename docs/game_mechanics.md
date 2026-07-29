@@ -449,13 +449,83 @@ Default prompt is configurable via `server.toml` (`default_prompt` field).
 
 ## Communication Channels
 
-| Command                      | Scope  | Description                                             |
-| ---------------------------- | ------ | ------------------------------------------------------- |
-| `say <message>`              | Room   | Speaks aloud in the current room                        |
-| `tell <player> <message>`    | Global | Sends a private message to any online player            |
-| `reply <message>`            | Global | Replies to the last player who messaged you (`r` alias) |
-| `shout <message>`            | Area   | Shouts to all players in the same area                  |
-| `whisper <player> <message>` | Room   | Whispers to a player in the same room                   |
+| Command                      | Scope         | Description                                                                 |
+| ---------------------------- | ------------- | --------------------------------------------------------------------------- |
+| `say <message>`              | Room          | Speaks aloud in the current room                                            |
+| `tell <player> <message>`    | Global        | Sends a private message to any online player                                |
+| `reply <message>`            | Global        | Replies to the last player who messaged you (`r` alias)                     |
+| `shout <message>`            | Area          | Shouts to all players in the same area                                      |
+| `whisper <player> <message>` | Room          | Whispers to a player in the same room                                       |
+| `emote <message>`            | Room          | Performs an emote visible to everyone in the room                           |
+| `ooc <message>`              | World (OOC)   | Sends an out-of-character message to all players                            |
+| `gossip <message>`           | World         | Sends a message to all players on the gossip channel                        |
+| `newbie <message>`           | World         | Sends a message on the newbie channel (level 1–5 only)                      |
+| `auction <message>`          | World         | Sends a message on the auction channel                                      |
+| `channel [name [on\|off]]`   | Self          | Lists all channels and their status, or toggles/sets a channel's preference |
+| `gsay <message>`             | Group (Room)  | Speaks to group members in the same room                                    |
+| `gtell <message>`            | Group (World) | Sends a message to all online group members regardless of location          |
+
+### Group Chat
+
+**gsay** sends a message visible to all group members in your current room (room-only group chat). **gtell** sends to all online group members anywhere in the world. Both require you to be in a group. The message is prefixed with `[Group]`. The `group say` and `group tell` subcommands are aliases for these.
+
+### Channel System
+
+Channels are defined with a unique id, display name, optional prefix shortcut, format string (with `{player}` and `{message}` interpolation), level gates, OOC flag, and scope/range.
+
+#### Channel Scope
+
+Each channel has a **scope** that determines how far its message travels:
+
+| Scope         | Description                              | Propagation                    |
+| ------------- | ---------------------------------------- | ------------------------------ |
+| `Room`        | Sender's room only                       | No traversal                   |
+| `Adjacent(n)` | Room plus up to N hops in the exit graph | BFS through exits              |
+| `Area`        | All rooms in the same area               | BFS constrained by area prefix |
+| `Global`      | All connected players everywhere         | No traversal                   |
+
+**Propagation blockers** during BFS traversal:
+
+- **Door exits** — Exits with the `EXIT_IS_DOOR` flag block sound propagation. Sound does not pass through any exit marked as a door.
+- **Silent rooms** — Rooms with the `ROOM_SILENT` flag are sound barriers. Sound does not enter a silent room (unless it's the sender's own room), and sound from inside a silent room does not leave it. Same-room communication within a silent room still works.
+- Global-scope channels (OOC, gossip, auction) ignore these blockers — they transcend physical space.
+
+#### Prefix Shortcuts
+
+#### Prefix Shortcuts
+
+Certain punctuation characters at the start of an input line expand to channel commands. This rewriting happens at the server layer before command dispatch.
+
+| Shortcut | Expands to |
+| -------- | ---------- |
+| `'`      | `say`      |
+| `"`      | `say`      |
+| `>`      | `tell`     |
+| `;`      | `gossip`   |
+| `=`      | `ooc`      |
+| `.`      | `whisper`  |
+| `:`      | `emote`    |
+| `[`      | `newbie`   |
+
+#### Channel Preferences (ChannelPrefs)
+
+Each player has a `ChannelPrefs` component — a `HashMap<String, bool>` stored in the ECS. All channels are enabled by default. Players can toggle channels with the `channel` command:
+
+- `channel` — list all channels with ON/OFF status and shortcuts
+- `channel gossip` — toggle the gossip channel
+- `channel gossip off` — disable the gossip channel
+- `channel gossip on` — re-enable the gossip channel
+
+Disabled channels block incoming messages. A player's preferences are persisted to the `components_channel_prefs` table on disconnect and loaded on login.
+
+#### Level Gates
+
+| Channel | Min Level | Max Level |
+| ------- | --------- | --------- |
+| ooc     | 1         | —         |
+| gossip  | 1         | —         |
+| newbie  | 1         | 5         |
+| auction | 1         | —         |
 
 Ghost speech renders in a distinctive alternating color pattern. `tell` and `reply` track the last messenger via the `LastMessenger` component.
 

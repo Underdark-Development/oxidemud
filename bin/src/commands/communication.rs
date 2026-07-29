@@ -60,6 +60,96 @@ pub fn register(server: &mut Server) {
         },
         handler: cmd_whisper,
     });
+    server.register_command(Command {
+        name: "channel",
+        aliases: &["channels"],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "List or toggle chat channel preferences",
+            body: Some("Usage: channel [<name> [on|off]]"),
+        },
+        handler: cmd_channel,
+    });
+    server.register_command(Command {
+        name: "ooc",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Send a message on the OOC channel",
+            body: None,
+        },
+        handler: cmd_ooc,
+    });
+    server.register_command(Command {
+        name: "gossip",
+        aliases: &["goss"],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Send a message on the Gossip channel",
+            body: None,
+        },
+        handler: cmd_gossip,
+    });
+    server.register_command(Command {
+        name: "newbie",
+        aliases: &["newb"],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Send a message on the Newbie channel (level 1-5)",
+            body: None,
+        },
+        handler: cmd_newbie,
+    });
+    server.register_command(Command {
+        name: "auction",
+        aliases: &["auc"],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Send a message on the Auction channel",
+            body: None,
+        },
+        handler: cmd_auction,
+    });
+    server.register_command(Command {
+        name: "emote",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Perform an emote visible in the room",
+            body: Some("Usage: emote <message>\nExample: emote waves happily."),
+        },
+        handler: cmd_emote,
+    });
+    server.register_command(Command {
+        name: "gsay",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Speak to group members in the same room",
+            body: Some(
+                "Usage: gsay <message>\nOnly group members in your current room will hear it.",
+            ),
+        },
+        handler: cmd_gsay,
+    });
+    server.register_command(Command {
+        name: "gtell",
+        aliases: &[],
+        access: AccessLevel::Player,
+        topic: "Communication",
+        help: CommandHelp {
+            short: "Send a message to all group members anywhere",
+            body: Some("Usage: gtell <message>\nAll online group members will receive it regardless of location."),
+        },
+        handler: cmd_gtell,
+    });
 }
 
 pub fn cmd_say(
@@ -477,6 +567,467 @@ pub fn cmd_whisper(
         &format!("You whisper to {}, \"{}\"", target_name_real, msg_fmt),
     );
 }
+
+// ---------------------------------------------------------------------------
+// Channel system — helpers
+// ---------------------------------------------------------------------------
+
+/// Find a channel def by id or alias.
+fn resolve_channel(query: &str) -> Option<core::ChannelDef> {
+    let defs = core::default_channel_defs();
+    let lower = query.to_lowercase();
+    defs.into_iter()
+        .find(|c| c.id == lower || c.aliases.contains(&lower))
+}
+
+/// Broadcast a message to all players who have the given channel enabled.
+/// Returns an error message string if the channel cannot be sent on.
+fn send_to_channel(
+    world: &World,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    channel_id: &str,
+    message: &str,
+) -> Result<(), String> {
+    let ch =
+        resolve_channel(channel_id).ok_or_else(|| format!("Unknown channel '{channel_id}'."))?;
+
+    // Level gate
+    let level = world
+        .query_one::<&core::Level>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .unwrap_or(core::Level(1));
+    if level.0 < ch.min_level_send {
+        return Err(format!(
+            "You must be at least level {} to send on {}.",
+            ch.min_level_send, ch.name
+        ));
+    }
+    if ch.max_level_send > 0 && level.0 > ch.max_level_send {
+        return Err(format!(
+            "Characters above level {} cannot send on {}.",
+            ch.max_level_send, ch.name
+        ));
+    }
+
+    let player_name = get_name(world, entity)
+        .map(|n| n.0.clone())
+        .unwrap_or_else(|| "Someone".to_string());
+
+    let msg_fmt = if ch.is_ooc {
+        message.to_string()
+    } else {
+        format_ghost_text(message)
+    };
+
+    // Sender message — "You" instead of player name
+    let sender_msg = ch.render(&player_name, &msg_fmt, true);
+    let sender_parsed = core::format::parse_tags(&sender_msg);
+    send_to_conn_simple(world, registry, entity, &sender_parsed.render(true, true));
+
+    // Recipient message — actual player name
+    let recipient_msg = ch.render(&player_name, &msg_fmt, false);
+    let recipient_parsed = core::format::parse_tags(&recipient_msg);
+    let recipient_rendered = recipient_parsed.render(true, true);
+    let bytes = format!("{}\r\n", recipient_rendered).into_bytes();
+
+    // Determine recipients based on channel scope
+    let targets: Vec<core::Entity> = match ch.scope {
+        core::ChannelScope::Global => registry.connected_entities().to_vec(),
+        _ => {
+            let room = match core::get_pos_room(world, entity) {
+                Some(r) => r,
+                None => return Ok(()),
+            };
+            let rooms = core::collect_rooms_by_scope(world, room, &ch.scope);
+            let mut seen = std::collections::HashSet::new();
+            seen.insert(entity);
+            let mut targets = Vec::new();
+            for r in rooms {
+                for occ in registry.occupants(world, r) {
+                    if seen.insert(occ) {
+                        targets.push(occ);
+                    }
+                }
+            }
+            targets
+        }
+    };
+
+    for &other in &targets {
+        if other == entity {
+            continue;
+        }
+        // Check that recipient has this channel enabled
+        let is_enabled = match world.query_one::<&core::ChannelPrefs>(other) {
+            Ok(mut q) => q.get().map(|p| p.is_enabled(&ch.id)).unwrap_or(true),
+            _ => true,
+        };
+        if !is_enabled {
+            continue;
+        }
+        if let Some(tx) = registry.sender(other) {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+
+    Ok(())
+}
+
+/// Send a simple message to a single player via their connection.
+fn send_to_conn_simple(
+    _world: &World,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    message: &str,
+) {
+    if let Some(tx) = registry.sender(entity) {
+        let _ = tx.send(format!("{}\r\n", message).into_bytes());
+    }
+}
+
+/// Broadcast a message to all online group members.
+/// If `room_only`, only members in the same room as the sender receive it.
+pub(super) fn broadcast_to_group(
+    world: &World,
+    registry: &ConnectionRegistry,
+    entity: core::Entity,
+    message: &str,
+    room_only: bool,
+) -> Result<(), String> {
+    let gm = world
+        .query_one::<&core::GroupMember>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .ok_or_else(|| "You are not in a group.".to_string())?;
+
+    let name = get_name(world, entity)
+        .map(|n| n.0.clone())
+        .unwrap_or_else(|| "Someone".to_string());
+
+    let sender_room = if room_only {
+        get_pos_room(world, entity)
+    } else {
+        None
+    };
+
+    let formatted = format!("[Group] {}: {}\r\n", name, message).into_bytes();
+
+    if let Ok(mut q) = world.query_one::<&core::Group>(gm.group_id) {
+        if let Some(group) = q.get() {
+            for m in &group.members {
+                let m_ent = match m.entity {
+                    Some(e) => e,
+                    None => continue,
+                };
+                if room_only {
+                    let in_same_room = sender_room
+                        .and_then(|sr| {
+                            world
+                                .query_one::<&core::Position>(m_ent)
+                                .ok()
+                                .and_then(|mut q| q.get().map(|p| p.room == sr))
+                        })
+                        .unwrap_or(false);
+                    if !in_same_room {
+                        continue;
+                    }
+                }
+                if let Some(tx) = registry.sender(m_ent) {
+                    let _ = tx.send(formatted.clone());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Channel command: channel [<name> [on|off]]
+// ---------------------------------------------------------------------------
+
+pub fn cmd_channel(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    let defs = core::default_channel_defs();
+
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    match parts.len() {
+        0 => {
+            let prefs = world
+                .query_one::<&core::ChannelPrefs>(entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned())
+                .unwrap_or_default();
+            conn.send_line("Available channels:");
+            for ch in &defs {
+                let status = if prefs.is_enabled(&ch.id) {
+                    "ON"
+                } else {
+                    "OFF"
+                };
+                let shortcut = if ch.shortcut.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (shortcut: {})", ch.shortcut)
+                };
+                conn.send_line(&format!("  {:10}  {}{shortcut}", ch.name, status));
+            }
+            conn.send_line("Usage: channel <name> [on|off] — toggle or set a channel.");
+        }
+        1 => {
+            // Toggle channel
+            let ch_name = parts[0];
+            let ch = match resolve_channel(ch_name) {
+                Some(c) => c,
+                None => {
+                    conn.send_line(&format!(
+                        "Unknown channel '{ch_name}'. Type 'channel' for a list."
+                    ));
+                    return;
+                }
+            };
+            let mut prefs = world
+                .query_one::<&core::ChannelPrefs>(entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned())
+                .unwrap_or_default();
+            let new_state = prefs.toggle(&ch.id);
+            let _ = world.insert(entity, (prefs, core::Dirty));
+            let state_str = if new_state { "enabled" } else { "disabled" };
+            conn.send_line(&format!("{} channel {state_str}.", ch.name));
+        }
+        2 => {
+            // Set channel on/off
+            let ch_name = parts[0];
+            let setting = parts[1].to_lowercase();
+            let ch = match resolve_channel(ch_name) {
+                Some(c) => c,
+                None => {
+                    conn.send_line(&format!(
+                        "Unknown channel '{ch_name}'. Type 'channel' for a list."
+                    ));
+                    return;
+                }
+            };
+            let enabled = match setting.as_str() {
+                "on" => true,
+                "off" => false,
+                _ => {
+                    conn.send_line("Usage: channel <name> [on|off]");
+                    return;
+                }
+            };
+            let mut prefs = world
+                .query_one::<&core::ChannelPrefs>(entity)
+                .ok()
+                .and_then(|mut q| q.get().cloned())
+                .unwrap_or_default();
+            prefs.set_enabled(ch.id.clone(), enabled);
+            let _ = world.insert(entity, (prefs, core::Dirty));
+            let state_str = if enabled { "enabled" } else { "disabled" };
+            conn.send_line(&format!("{} channel {state_str}.", ch.name));
+        }
+        _ => {
+            conn.send_line("Usage: channel [<name> [on|off]]");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Channel send commands: ooc, gossip, newbie, auction
+// ---------------------------------------------------------------------------
+
+fn handle_channel_send(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+    channel_id: &'static str,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    if args.is_empty() {
+        let ch = resolve_channel(channel_id)
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| channel_id.to_string());
+        conn.send_line(&format!("Send what on {ch}?"));
+        return;
+    }
+
+    match send_to_channel(world, registry, entity, channel_id, args) {
+        Ok(()) => {}
+        Err(msg) => {
+            conn.send_line(&msg);
+        }
+    }
+}
+
+pub fn cmd_ooc(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    handle_channel_send(world, conn, name, args, registry, "ooc");
+}
+
+pub fn cmd_gossip(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    handle_channel_send(world, conn, name, args, registry, "gossip");
+}
+
+pub fn cmd_newbie(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    handle_channel_send(world, conn, name, args, registry, "newbie");
+}
+
+pub fn cmd_auction(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    handle_channel_send(world, conn, name, args, registry, "auction");
+}
+
+// ---------------------------------------------------------------------------
+// Emote command
+// ---------------------------------------------------------------------------
+
+pub fn cmd_emote(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    if args.is_empty() {
+        conn.send_line("Emote what?");
+        return;
+    }
+
+    let room = match get_pos_room(world, entity) {
+        Some(r) => r,
+        None => {
+            conn.send_line("You are nowhere.");
+            return;
+        }
+    };
+
+    if is_void_room(world, room) {
+        conn.send_line("There is no one here to see your emote.");
+        return;
+    }
+
+    let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
+
+    // Sender sees: "You wave happily."
+    let sender_msg = format!("You {}", args);
+    send_to_conn(conn, &sender_msg);
+
+    // Room sees: "PlayerName waves happily."
+    let room_msg = format!("{} {}", name, args);
+    let room_parsed = core::format::parse_tags(&room_msg);
+    let room_rendered = room_parsed.render(true, true);
+    let bytes = format!("{}\r\n", room_rendered).into_bytes();
+
+    let occupants = registry.occupants(world, room);
+    for &other in &occupants {
+        if other == entity {
+            continue;
+        }
+        if let Some(tx) = registry.sender(other) {
+            let _ = tx.send(bytes.clone());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Group chat commands: gsay, gtell
+// ---------------------------------------------------------------------------
+
+pub fn cmd_gsay(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    if args.is_empty() {
+        conn.send_line("Say what to your group?");
+        return;
+    }
+
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    match broadcast_to_group(world, registry, entity, args, true) {
+        Ok(()) => {}
+        Err(msg) => conn.send_line(&msg),
+    }
+}
+
+pub fn cmd_gtell(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    registry: &ConnectionRegistry,
+) {
+    if args.is_empty() {
+        conn.send_line("Tell what to your group?");
+        return;
+    }
+
+    let entity = match conn.entity() {
+        Some(e) => e,
+        None => return,
+    };
+
+    match broadcast_to_group(world, registry, entity, args, false) {
+        Ok(()) => {}
+        Err(msg) => conn.send_line(&msg),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

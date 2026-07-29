@@ -1,5 +1,6 @@
 use crate::Entity;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RestState {
@@ -199,6 +200,27 @@ pub struct ShortDesc(pub String);
 /// Marker component for NPCs that should not be auto-attacked by guards.
 #[derive(Debug, Clone, Copy)]
 pub struct Friendly;
+
+/// Per-player channel preferences (channel_id → enabled).
+/// Persisted as JSON in the database.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChannelPrefs(pub HashMap<String, bool>);
+
+impl ChannelPrefs {
+    pub fn is_enabled(&self, channel_id: &str) -> bool {
+        self.0.get(channel_id).copied().unwrap_or(true)
+    }
+
+    pub fn set_enabled(&mut self, channel_id: String, enabled: bool) {
+        self.0.insert(channel_id, enabled);
+    }
+
+    pub fn toggle(&mut self, channel_id: &str) -> bool {
+        let current = self.is_enabled(channel_id);
+        self.0.insert(channel_id.to_string(), !current);
+        !current
+    }
+}
 
 impl Player {
     pub fn new(account_id: i64) -> Self {

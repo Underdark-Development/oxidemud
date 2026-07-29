@@ -277,9 +277,14 @@ CREATE TABLE IF NOT EXISTS weather_states (
     base TEXT,
     modifier TEXT
 );
+
+CREATE TABLE IF NOT EXISTS components_channel_prefs (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    prefs_json TEXT NOT NULL DEFAULT '{}'
+);
 ";
 
-pub const VERSION: i64 = 27;
+pub const VERSION: i64 = 28;
 
 #[cfg(test)]
 mod tests {
@@ -312,6 +317,7 @@ mod tests {
             "components_alignment",
             "components_appearance",
             "components_armor",
+            "components_channel_prefs",
             "components_attributes",
             "components_combat_stats",
             "components_deity",

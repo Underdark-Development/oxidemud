@@ -40,7 +40,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 - `stat <target / item / room>` — Inspects the raw ECS components, attributes, and variables of an entity.
 - `owhere` / `olocate <item_id>` — Locates all instances of a specific item template in the world.
 - `gecho <text>` — Broadcasts a message to the entire server.
-- `gtell <text>` — Sends a message on the private Immortal-only chat channel.
+- `immtalk <text>` — Sends a message on the private Immortal-only chat channel (alias: `imm`).
 - `wizwho` — Lists all online staff and their current access level/visibility status.
 - `wizin` — Toggles Incognito mode (hides your presence from players).
 - `holylight` — Toggles Holy Light mode (lets you see hidden exits, invisible targets, and incognito staff).

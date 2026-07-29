@@ -1546,6 +1546,31 @@ pub fn load_learned_recipes_component(
     }
 }
 
+pub fn save_channel_prefs(
+    conn: &Connection,
+    entity_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_channel_prefs (entity_id, prefs_json) VALUES (?1, ?2)",
+        params![entity_id, json],
+    )?;
+    Ok(())
+}
+
+pub fn load_channel_prefs(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT prefs_json FROM components_channel_prefs WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 pub fn save_multiclass_component(
     conn: &Connection,
     entity_id: i64,

@@ -1,0 +1,413 @@
+# Social emotes definitions
+# Variables: $n = actor name, $N = target name
+# $m/$M = possessive (his/her/their), $s/$S = subjective (he/she/they)
+# $o/$O = objective (him/her/them)
+
+# ── Target + No Target ──
+
+[agree]
+name = "agree"
+char_no_target = "You nod in agreement."
+room_no_target = "$n nods in agreement."
+char_self = "You agree with yourself wholeheartedly."
+room_self = "$n agrees with $mself."
+char_target = "You agree with $N."
+room_target = "$n agrees with $N."
+target_char = "$n agrees with you."
+
+[applaud]
+name = "applaud"
+char_no_target = "You applaud loudly."
+room_no_target = "$n applauds loudly."
+char_self = "You applaud yourself."
+room_self = "$n applauds $mself."
+char_target = "You applaud $N."
+room_target = "$n applauds $N."
+target_char = "$n applauds you."
+
+[blush]
+name = "blush"
+char_no_target = "You blush."
+room_no_target = "$n blushes."
+char_self = "You blush at yourself."
+room_self = "$n blushes at $mself."
+char_target = "You blush at $N."
+room_target = "$n blushes at $N."
+target_char = "$n blushes at you."
+
+[bow]
+name = "bow"
+char_no_target = "You bow deeply."
+room_no_target = "$n bows deeply."
+char_self = "You bow to yourself."
+room_self = "$n bows to $mself."
+char_target = "You bow before $N."
+room_target = "$n bows before $N."
+target_char = "$n bows before you."
+
+[cackle]
+name = "cackle"
+char_no_target = "You cackle with glee."
+room_no_target = "$n cackles with glee."
+char_self = "You cackle at yourself."
+room_self = "$n cackles at $mself."
+char_target = "You cackle at $N."
+room_target = "$n cackles at $N."
+target_char = "$n cackles at you."
+
+[cheer]
+name = "cheer"
+char_no_target = "You cheer enthusiastically!"
+room_no_target = "$n cheers enthusiastically!"
+char_self = "You cheer for yourself."
+room_self = "$n cheers for $mself."
+char_target = "You cheer for $N."
+room_target = "$n cheers for $N."
+target_char = "$n cheers for you!"
+
+[chuckle]
+name = "chuckle"
+char_no_target = "You chuckle softly."
+room_no_target = "$n chuckles softly."
+char_self = "You chuckle at yourself."
+room_self = "$n chuckles at $mself."
+char_target = "You chuckle at $N."
+room_target = "$n chuckles at $N."
+target_char = "$n chuckles at you."
+
+[comfort]
+name = "comfort"
+char_no_target = "You try to comfort everyone."
+room_no_target = "$n tries to comfort everyone."
+char_self = "You comfort yourself."
+room_self = "$n comforts $mself."
+char_target = "You comfort $N."
+room_target = "$n comforts $N."
+target_char = "$n comforts you."
+
+[flex]
+name = "flex"
+char_no_target = "You flex your muscles proudly."
+room_no_target = "$n flexes $s muscles proudly."
+char_self = "You flex at your own reflection."
+room_self = "$n flexes at $mself."
+char_target = "You flex at $N."
+room_target = "$n flexes at $N."
+target_char = "$n flexes at you."
+
+[giggle]
+name = "giggle"
+char_no_target = "You giggle."
+room_no_target = "$n giggles."
+char_self = "You giggle at yourself."
+room_self = "$n giggles at $mself."
+char_target = "You giggle at $N."
+room_target = "$n giggles at $N."
+target_char = "$n giggles at you."
+
+[grin]
+name = "grin"
+char_no_target = "You grin mischievously."
+room_no_target = "$n grins mischievously."
+char_self = "You grin at yourself."
+room_self = "$n grins at $mself."
+char_target = "You grin at $N."
+room_target = "$n grins at $N."
+target_char = "$n grins at you."
+
+[groan]
+name = "groan"
+char_no_target = "You groan in frustration."
+room_no_target = "$n groans in frustration."
+char_self = "You groan at yourself."
+room_self = "$n groans at $mself."
+char_target = "You groan at $N."
+room_target = "$n groans at $N."
+target_char = "$n groans at you."
+
+[growl]
+name = "growl"
+char_no_target = "You growl menacingly."
+room_no_target = "$n growls menacingly."
+char_self = "You growl at yourself."
+room_self = "$n growls at $mself."
+char_target = "You growl at $N."
+room_target = "$n growls at $N."
+target_char = "$n growls at you."
+
+[hug]
+name = "hug"
+char_no_target = "You throw your arms open for a hug."
+room_no_target = "$n throws $s arms open for a hug."
+char_self = "You hug yourself warmly."
+room_self = "$n hugs $mself warmly."
+char_target = "You hug $N warmly."
+room_target = "$n hugs $N warmly."
+target_char = "$n hugs you warmly."
+
+[kick]
+name = "kick"
+char_no_target = "You kick the air."
+room_no_target = "$n kicks the air."
+char_self = "You kick yourself."
+room_self = "$n kicks $mself."
+char_target = "You kick $N."
+room_target = "$n kicks $N."
+target_char = "$n kicks you."
+
+[kiss]
+name = "kiss"
+char_no_target = "You blow a kiss into the air."
+room_no_target = "$n blows a kiss into the air."
+char_self = "You kiss yourself."
+room_self = "$n kisses $mself."
+char_target = "You kiss $N."
+room_target = "$n kisses $N."
+target_char = "$n kisses you."
+
+[laugh]
+name = "laugh"
+char_no_target = "You laugh heartily."
+room_no_target = "$n laughs heartily."
+char_self = "You laugh at yourself."
+room_self = "$n laughs at $mself."
+char_target = "You laugh at $N."
+room_target = "$n laughs at $N."
+target_char = "$n laughs at you."
+
+[nod]
+name = "nod"
+char_no_target = "You nod thoughtfully."
+room_no_target = "$n nods thoughtfully."
+char_self = "You nod at yourself."
+room_self = "$n nods at $mself."
+char_target = "You nod at $N."
+room_target = "$n nods at $N."
+target_char = "$n nods at you."
+
+[nudge]
+name = "nudge"
+char_no_target = "You nudge the air."
+room_no_target = "$n nudges the air."
+char_self = "You nudge yourself."
+room_self = "$n nudges $mself."
+char_target = "You nudge $N."
+room_target = "$n nudges $N."
+target_char = "$n nudges you."
+
+[poke]
+name = "poke"
+char_no_target = "You poke the air."
+room_no_target = "$n pokes the air."
+char_self = "You poke yourself."
+room_self = "$n pokes $mself."
+char_target = "You poke $N."
+room_target = "$n pokes $N."
+target_char = "$n pokes you."
+
+[salute]
+name = "salute"
+char_no_target = "You snap a sharp salute."
+room_no_target = "$n snaps a sharp salute."
+char_self = "You salute yourself."
+room_self = "$n salutes $mself."
+char_target = "You salute $N."
+room_target = "$n salutes $N."
+target_char = "$n salutes you."
+
+[shrug]
+name = "shrug"
+char_no_target = "You shrug helplessly."
+room_no_target = "$n shrugs helplessly."
+char_self = "You shrug at yourself."
+room_self = "$n shrugs at $mself."
+char_target = "You shrug at $N."
+room_target = "$n shrugs at $N."
+target_char = "$n shrugs at you."
+
+[slap]
+name = "slap"
+char_no_target = "You slap your forehead."
+room_no_target = "$n slaps $s forehead."
+char_self = "You slap yourself."
+room_self = "$n slaps $mself."
+char_target = "You slap $N."
+room_target = "$n slaps $N."
+target_char = "$n slaps you!"
+
+[smile]
+name = "smile"
+char_no_target = "You smile warmly."
+room_no_target = "$n smiles warmly."
+char_self = "You smile at yourself."
+room_self = "$n smiles at $mself."
+char_target = "You smile at $N."
+room_target = "$n smiles at $N."
+target_char = "$n smiles at you."
+
+[stare]
+name = "stare"
+char_no_target = "You stare into the distance."
+room_no_target = "$n stares into the distance."
+char_self = "You stare at yourself."
+room_self = "$n stares at $mself."
+char_target = "You stare at $N."
+room_target = "$n stares at $N."
+target_char = "$n stares at you."
+
+[tackle]
+name = "tackle"
+char_no_target = "You tackle the air."
+room_no_target = "$n tackles the air."
+char_self = "You tackle yourself?"
+room_self = "$n tackles $mself."
+char_target = "You tackle $N!"
+room_target = "$n tackles $N!"
+target_char = "$n tackles you!"
+
+[thank]
+name = "thank"
+char_no_target = "You thank everyone."
+room_no_target = "$n thanks everyone."
+char_self = "You thank yourself."
+room_self = "$n thanks $mself."
+char_target = "You thank $N."
+room_target = "$n thanks $N."
+target_char = "$n thanks you."
+
+[tickle]
+name = "tickle"
+char_no_target = "You tickle the air."
+room_no_target = "$n tickles the air."
+char_self = "You tickle yourself."
+room_self = "$n tickles $mself."
+char_target = "You tickle $N."
+room_target = "$n tickles $N."
+target_char = "$n tickles you."
+
+[wave]
+name = "wave"
+char_no_target = "You wave to everyone."
+room_no_target = "$n waves to everyone."
+char_self = "You wave at yourself."
+room_self = "$n waves at $mself."
+char_target = "You wave at $N."
+room_target = "$n waves at $N."
+target_char = "$n waves at you."
+
+[wink]
+name = "wink"
+char_no_target = "You wink slyly."
+room_no_target = "$n winks slyly."
+char_self = "You wink at yourself."
+room_self = "$n winks at $mself."
+char_target = "You wink at $N."
+room_target = "$n winks at $N."
+target_char = "$n winks at you."
+
+[yell]
+name = "yell"
+char_no_target = "You let out a mighty yell!"
+room_no_target = "$n lets out a mighty yell!"
+char_self = "You yell at yourself."
+room_self = "$n yells at $mself."
+char_target = "You yell at $N."
+room_target = "$n yells at $N."
+target_char = "$n yells at you!"
+
+# ── No Target Only ──
+
+[cough]
+name = "cough"
+char_no_target = "You cough."
+room_no_target = "$n coughs."
+
+[cry]
+name = "cry"
+char_no_target = "You cry."
+room_no_target = "$n cries."
+
+[dance]
+name = "dance"
+char_no_target = "You dance joyfully."
+room_no_target = "$n dances joyfully."
+
+[drool]
+name = "drool"
+char_no_target = "You drool."
+room_no_target = "$n drools."
+
+[faint]
+name = "faint"
+char_no_target = "You faint!"
+room_no_target = "$n faints!"
+
+[hiccup]
+name = "hiccup"
+char_no_target = "You hiccup."
+room_no_target = "$n hiccups."
+
+[panic]
+name = "panic"
+char_no_target = "You panic!"
+room_no_target = "$n panics!"
+
+[ponder]
+name = "ponder"
+char_no_target = "You ponder the meaning of it all."
+room_no_target = "$n ponders the meaning of it all."
+
+[pout]
+name = "pout"
+char_no_target = "You pout."
+room_no_target = "$n pouts."
+
+[purr]
+name = "purr"
+char_no_target = "You purr contentedly."
+room_no_target = "$n purrs contentedly."
+
+[shiver]
+name = "shiver"
+char_no_target = "You shiver."
+room_no_target = "$n shivers."
+
+[sigh]
+name = "sigh"
+char_no_target = "You sigh."
+room_no_target = "$n sighs."
+
+[smirk]
+name = "smirk"
+char_no_target = "You smirk."
+room_no_target = "$n smirks."
+
+[sneeze]
+name = "sneeze"
+char_no_target = "You sneeze."
+room_no_target = "$n sneezes."
+
+[snicker]
+name = "snicker"
+char_no_target = "You snicker."
+room_no_target = "$n snickers."
+
+[sob]
+name = "sob"
+char_no_target = "You sob."
+room_no_target = "$n sobs."
+
+[weep]
+name = "weep"
+char_no_target = "You weep."
+room_no_target = "$n weeps."
+
+[whistle]
+name = "whistle"
+char_no_target = "You whistle a tune."
+room_no_target = "$n whistles a tune."
+
+[yawn]
+name = "yawn"
+char_no_target = "You yawn."
+room_no_target = "$n yawns."
