@@ -10,6 +10,7 @@ mod color;
 pub mod conventions;
 pub mod preview;
 mod rich_text;
+pub mod social;
 mod tag;
 
 pub use color::Color;

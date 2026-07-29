@@ -1331,6 +1331,27 @@ pub fn default_channel_defs() -> Vec<ChannelDef> {
     ]
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SocialDef {
+    #[serde(default)]
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub char_no_target: Option<String>,
+    #[serde(default)]
+    pub room_no_target: Option<String>,
+    #[serde(default)]
+    pub char_self: Option<String>,
+    #[serde(default)]
+    pub room_self: Option<String>,
+    #[serde(default)]
+    pub char_target: Option<String>,
+    #[serde(default)]
+    pub room_target: Option<String>,
+    #[serde(default)]
+    pub target_char: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub enum SkillResolveError {
     NotFound,

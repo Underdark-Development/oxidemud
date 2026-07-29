@@ -1,5 +1,5 @@
 use oxide_core as core;
-use oxide_core::{get_name, get_pos_room, entities_in_room, AccessLevel, World};
+use oxide_core::{entities_in_room, get_name, get_pos_room, AccessLevel, World};
 use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::common::*;
@@ -22,7 +22,7 @@ pub fn register(server: &mut Server) {
         None => return,
     };
 
-    for (id, _) in &templates.socials {
+    for id in templates.socials.keys() {
         let name: &'static str = Box::leak(id.clone().into_boxed_str());
         server.register_command(Command {
             name,
@@ -193,9 +193,27 @@ fn cmd_social(
             }
         };
 
-        let char_msg = interpolate(char_tpl, &actor_name, &actor_gender, Some(&target_name_str), Some(&target_gender));
-        let room_msg = interpolate(room_tpl, &actor_name, &actor_gender, Some(&target_name_str), Some(&target_gender));
-        let target_msg = interpolate(target_tpl, &actor_name, &actor_gender, Some(&target_name_str), Some(&target_gender));
+        let char_msg = interpolate(
+            char_tpl,
+            &actor_name,
+            &actor_gender,
+            Some(&target_name_str),
+            Some(&target_gender),
+        );
+        let room_msg = interpolate(
+            room_tpl,
+            &actor_name,
+            &actor_gender,
+            Some(&target_name_str),
+            Some(&target_gender),
+        );
+        let target_msg = interpolate(
+            target_tpl,
+            &actor_name,
+            &actor_gender,
+            Some(&target_name_str),
+            Some(&target_gender),
+        );
 
         send_to_conn(conn, &char_msg);
 
@@ -213,7 +231,12 @@ fn cmd_social(
     }
 }
 
-fn resolve_target_in_room(world: &World, room: core::Entity, actor: core::Entity, target_name: &str) -> Option<core::Entity> {
+fn resolve_target_in_room(
+    world: &World,
+    room: core::Entity,
+    actor: core::Entity,
+    target_name: &str,
+) -> Option<core::Entity> {
     let lower_target = target_name.to_lowercase();
     let entities = entities_in_room(world, room);
     let candidates: Vec<core::Entity> = entities
@@ -238,6 +261,18 @@ fn resolve_target_in_room(world: &World, room: core::Entity, actor: core::Entity
     }
 }
 
-fn interpolate(template: &str, actor_name: &str, actor_gender: &core::Gender, target_name: Option<&str>, target_gender: Option<&core::Gender>) -> String {
-    core::format::social::interpolate(template, actor_name, actor_gender, target_name, target_gender)
+fn interpolate(
+    template: &str,
+    actor_name: &str,
+    actor_gender: &core::Gender,
+    target_name: Option<&str>,
+    target_gender: Option<&core::Gender>,
+) -> String {
+    core::format::social::interpolate(
+        template,
+        actor_name,
+        actor_gender,
+        target_name,
+        target_gender,
+    )
 }

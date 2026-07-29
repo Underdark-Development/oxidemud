@@ -8,6 +8,7 @@ pub mod general;
 pub mod group;
 pub mod items;
 pub mod movement;
+pub mod social;
 pub mod test_helpers;
 
 pub use movement::cmd_look;
@@ -23,4 +24,5 @@ pub fn register_all_commands(server: &mut Server) {
     character::register(server);
     abilities::register(server);
     builder::register(server);
+    social::register(server);
 }

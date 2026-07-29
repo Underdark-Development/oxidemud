@@ -71,7 +71,7 @@ pub use systems::weather::{
 };
 pub use templates::{
     default_channel_defs, ChannelDef, ChannelScope, ExitTemplate, FactionDef, FactionRank,
-    PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult, RecipeSkillReq,
+    PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult, RecipeSkillReq, SocialDef,
 };
 pub use util::{
     collect_rooms_by_scope, entities_in_room, get_entity_name, get_exits, get_name, get_pos_room,

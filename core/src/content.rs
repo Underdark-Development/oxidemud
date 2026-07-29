@@ -29,6 +29,9 @@ pub fn load_registry(content_path: &Path) -> (TemplateRegistry, FileMap) {
     // Load standalone weather.toml
     registry.weather = load_standalone_toml(content_path, "weather.toml");
 
+    // Load standalone socials.toml
+    registry.socials = load_standalone_toml(content_path, "socials.toml").unwrap_or_default();
+
     registry.build_indices();
     (registry, file_map)
 }

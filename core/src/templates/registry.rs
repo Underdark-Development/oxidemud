@@ -36,6 +36,7 @@ pub struct TemplateRegistry {
     pub quests: HashMap<String, QuestDef>,
     pub factions: HashMap<String, FactionDef>,
     pub recipes: HashMap<String, RecipeDef>,
+    pub socials: HashMap<String, SocialDef>,
     pub weather: Option<WeatherConfig>,
     pub indices: DerivedIndices,
 }
@@ -719,6 +720,28 @@ impl TemplateRegistry {
 
     pub fn get_affix(&self, id: &str) -> Option<&AffixDef> {
         self.affixes.get(id)
+    }
+
+    // ── Social helpers ──
+
+    pub fn get_social(&self, id: &str) -> Option<&SocialDef> {
+        self.socials.get(id)
+    }
+
+    pub fn resolve_social(&self, input: &str) -> Option<&SocialDef> {
+        let lower = input.to_lowercase();
+        if let Some(s) = self.socials.get(&lower) {
+            return Some(s);
+        }
+        if let Some(s) = self.socials.get(input) {
+            return Some(s);
+        }
+        for (key, social) in &self.socials {
+            if key.starts_with(&lower) || social.name.to_lowercase().starts_with(&lower) {
+                return Some(social);
+            }
+        }
+        None
     }
 
     // ── Index helpers ──
