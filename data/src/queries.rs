@@ -1596,6 +1596,167 @@ pub fn load_multiclass_component(
     }
 }
 
+// ── Report queries ──────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct ReportRow {
+    pub id: i64,
+    pub reporter_name: String,
+    pub report_type: String,
+    pub message: String,
+    pub room_key: Option<String>,
+    pub status: String,
+    pub staff_notes: String,
+    pub closed_by: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReportReplyRow {
+    pub id: i64,
+    pub report_id: i64,
+    pub staff_name: String,
+    pub message: String,
+    pub created_at: String,
+    pub seen_by_player: bool,
+}
+
+pub fn insert_report(
+    conn: &Connection,
+    reporter_name: &str,
+    report_type: &str,
+    message: &str,
+    room_key: Option<&str>,
+) -> Result<i64, rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO reports (reporter_name, report_type, message, room_key) VALUES (?1, ?2, ?3, ?4)",
+        params![reporter_name, report_type, message, room_key],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn load_report(conn: &Connection, id: i64) -> Result<Option<ReportRow>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, reporter_name, report_type, message, room_key, status, staff_notes, closed_by, created_at, updated_at \
+         FROM reports WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(ReportRow {
+            id: row.get(0)?,
+            reporter_name: row.get(1)?,
+            report_type: row.get(2)?,
+            message: row.get(3)?,
+            room_key: row.get(4)?,
+            status: row.get(5)?,
+            staff_notes: row.get(6)?,
+            closed_by: row.get(7)?,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
+        })),
+        None => Ok(None),
+    }
+}
+
+pub fn load_reports(
+    conn: &Connection,
+    status_filter: Option<&str>,
+) -> Result<Vec<ReportRow>, rusqlite::Error> {
+    let (sql, param): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match status_filter {
+        Some(s) if !s.is_empty() => (
+            "SELECT id, reporter_name, report_type, message, room_key, status, staff_notes, closed_by, created_at, updated_at \
+             FROM reports WHERE status = ?1 ORDER BY created_at DESC".to_string(),
+            vec![Box::new(s.to_string())],
+        ),
+        _ => (
+            "SELECT id, reporter_name, report_type, message, room_key, status, staff_notes, closed_by, created_at, updated_at \
+             FROM reports ORDER BY created_at DESC".to_string(),
+            vec![],
+        ),
+    };
+
+    let mut stmt = conn.prepare(&sql)?;
+    let param_refs: Vec<&dyn rusqlite::types::ToSql> = param.iter().map(|p| p.as_ref()).collect();
+    let rows = stmt.query_map(param_refs.as_slice(), |row| {
+        Ok(ReportRow {
+            id: row.get(0)?,
+            reporter_name: row.get(1)?,
+            report_type: row.get(2)?,
+            message: row.get(3)?,
+            room_key: row.get(4)?,
+            status: row.get(5)?,
+            staff_notes: row.get(6)?,
+            closed_by: row.get(7)?,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn update_report_status(
+    conn: &Connection,
+    id: i64,
+    status: &str,
+    staff_notes: &str,
+    closed_by: Option<&str>,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE reports SET status = ?1, staff_notes = ?2, closed_by = ?3, updated_at = datetime('now') WHERE id = ?4",
+        params![status, staff_notes, closed_by, id],
+    )?;
+    Ok(())
+}
+
+pub fn add_report_reply(
+    conn: &Connection,
+    report_id: i64,
+    staff_name: &str,
+    message: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO report_replies (report_id, staff_name, message) VALUES (?1, ?2, ?3)",
+        params![report_id, staff_name, message],
+    )?;
+    Ok(())
+}
+
+pub fn load_replies_for_report(
+    conn: &Connection,
+    report_id: i64,
+) -> Result<Vec<ReportReplyRow>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, report_id, staff_name, message, created_at, seen_by_player \
+         FROM report_replies WHERE report_id = ?1 ORDER BY created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![report_id], |row| {
+        Ok(ReportReplyRow {
+            id: row.get(0)?,
+            report_id: row.get(1)?,
+            staff_name: row.get(2)?,
+            message: row.get(3)?,
+            created_at: row.get(4)?,
+            seen_by_player: row.get::<_, i64>(5)? != 0,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn count_unread_replies(
+    conn: &Connection,
+    reporter_name: &str,
+) -> Result<i64, rusqlite::Error> {
+    conn.query_row(
+        "SELECT COUNT(*)
+         FROM report_replies rr
+         JOIN reports r ON r.id = rr.report_id
+         WHERE r.reporter_name = ?1 AND rr.seen_by_player = 0",
+        params![reporter_name],
+        |row| row.get(0),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2260,5 +2421,121 @@ mod tests {
         save_multiclass_component(&conn, eid, test_json).unwrap();
         let loaded = load_multiclass_component(&conn, eid).unwrap().unwrap();
         assert_eq!(loaded, test_json);
+    }
+
+    // ── Report queries ────────────────────────────────────
+
+    #[test]
+    fn test_insert_and_load_report() {
+        let conn = setup();
+        let id = insert_report(&conn, "PlayerA", "bug", "It broken", None).unwrap();
+        assert!(id > 0);
+
+        let report = load_report(&conn, id)
+            .unwrap()
+            .expect("report should exist");
+        assert_eq!(report.reporter_name, "PlayerA");
+        assert_eq!(report.report_type, "bug");
+        assert_eq!(report.message, "It broken");
+        assert_eq!(report.status, "open");
+        assert!(report.room_key.is_none());
+    }
+
+    #[test]
+    fn test_insert_report_with_room_key() {
+        let conn = setup();
+        let id = insert_report(
+            &conn,
+            "PlayerB",
+            "idea",
+            "Add more goblins",
+            Some("starting_vale:forest_path"),
+        )
+        .unwrap();
+        let report = load_report(&conn, id).unwrap().unwrap();
+        assert_eq!(
+            report.room_key,
+            Some("starting_vale:forest_path".to_string())
+        );
+    }
+
+    #[test]
+    fn test_load_reports_filters_by_status() {
+        let conn = setup();
+        insert_report(&conn, "P1", "bug", "bug one", None).unwrap();
+        insert_report(&conn, "P2", "idea", "idea one", None).unwrap();
+        let closed_id = insert_report(&conn, "P3", "typo", "typo one", None).unwrap();
+
+        update_report_status(&conn, closed_id, "closed", "fixed", Some("Staffer")).unwrap();
+
+        let open = load_reports(&conn, Some("open")).unwrap();
+        assert_eq!(open.len(), 2);
+
+        let closed = load_reports(&conn, Some("closed")).unwrap();
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0].id, closed_id);
+        assert_eq!(closed[0].status, "closed");
+        assert_eq!(closed[0].closed_by, Some("Staffer".to_string()));
+    }
+
+    #[test]
+    fn test_load_reports_no_filter_returns_all() {
+        let conn = setup();
+        insert_report(&conn, "P1", "bug", "msg1", None).unwrap();
+        insert_report(&conn, "P2", "idea", "msg2", None).unwrap();
+        let all = load_reports(&conn, None).unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_update_report_status() {
+        let conn = setup();
+        let id = insert_report(&conn, "P1", "bug", "help", None).unwrap();
+        update_report_status(&conn, id, "closed", "not a bug", Some("Wizard")).unwrap();
+
+        let report = load_report(&conn, id).unwrap().unwrap();
+        assert_eq!(report.status, "closed");
+        assert_eq!(report.staff_notes, "not a bug");
+        assert_eq!(report.closed_by, Some("Wizard".to_string()));
+    }
+
+    #[test]
+    fn test_add_and_load_replies() {
+        let conn = setup();
+        let id = insert_report(&conn, "PlayerX", "bug", "save error", None).unwrap();
+        add_report_reply(&conn, id, "StaffA", "Looking into it.").unwrap();
+        add_report_reply(&conn, id, "StaffB", "Fixed in next patch.").unwrap();
+
+        let replies = load_replies_for_report(&conn, id).unwrap();
+        assert_eq!(replies.len(), 2);
+        assert_eq!(replies[0].staff_name, "StaffA");
+        assert_eq!(replies[0].message, "Looking into it.");
+        assert_eq!(replies[1].staff_name, "StaffB");
+    }
+
+    #[test]
+    fn test_count_unread_replies() {
+        let conn = setup();
+        let id = insert_report(&conn, "PlayerY", "bug", "crash", None).unwrap();
+        add_report_reply(&conn, id, "StaffA", "Can you reproduce?").unwrap();
+        // reply not seen yet
+
+        let count = count_unread_replies(&conn, "PlayerY").unwrap();
+        assert_eq!(count, 1);
+
+        // Second reply
+        add_report_reply(&conn, id, "StaffA", "Never mind, found it.").unwrap();
+        let count = count_unread_replies(&conn, "PlayerY").unwrap();
+        assert_eq!(count, 2);
+
+        // Different player doesn't see these
+        let count_other = count_unread_replies(&conn, "PlayerZ").unwrap();
+        assert_eq!(count_other, 0);
+    }
+
+    #[test]
+    fn test_report_not_found_returns_none() {
+        let conn = setup();
+        assert!(load_report(&conn, 999).unwrap().is_none());
     }
 }

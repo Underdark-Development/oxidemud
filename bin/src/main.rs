@@ -18,6 +18,30 @@ fn pluralize(count: usize, singular: &str, plural: &str) -> String {
     }
 }
 
+fn notify_report_replies(world: &oxide_core::World, conn: &mut dyn oxide_server::Connection) {
+    let name = match conn.entity().and_then(|e| oxide_core::get_name(world, e)) {
+        Some(n) => n.0.clone(),
+        None => return,
+    };
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => return,
+    };
+    let guard = match db.try_lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+    let count = match oxide_data::count_unread_replies(guard.conn(), &name) {
+        Ok(c) if c > 0 => c,
+        _ => return,
+    };
+    let plural = if count == 1 { "reply" } else { "replies" };
+    commands::common::send_to_conn(
+        conn,
+        &format!("{{yellow}}You have {count} unread {plural} on your reports.{{/}}"),
+    );
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
@@ -192,6 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_templates(templates)
         .with_on_entity_spawned(move |world, conn, registry| {
             commands_cmd_look(world, conn, "", "", registry);
+            notify_report_replies(world, conn);
         });
 
     commands::register_all_commands(&mut server);

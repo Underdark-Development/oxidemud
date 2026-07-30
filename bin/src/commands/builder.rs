@@ -291,6 +291,19 @@ pub fn register(server: &mut Server) {
         },
         handler: cmd_return,
     });
+    server.register_command(Command {
+        name: "@report",
+        aliases: &[],
+        access: AccessLevel::Builder,
+        topic: "Builder",
+        help: CommandHelp {
+            short: "Manage player reports",
+            body: Some(
+                "Usage:\n  @report list [open|closed]\n  @report view <id>\n  @report close <id> [notes]\n  @report reply <id> <message>",
+            ),
+        },
+        handler: cmd_report,
+    });
 }
 
 fn find_player_by_name(world: &World, name: &str) -> Option<core::Entity> {
@@ -2666,6 +2679,220 @@ pub fn cmd_set(
                 field
             ));
         }
+    }
+}
+
+// ── Player report management ─────────────────────────────
+
+fn cmd_report(
+    world: &mut World,
+    conn: &mut dyn Connection,
+    _name: &str,
+    args: &str,
+    _registry: &ConnectionRegistry,
+) {
+    let parts: Vec<&str> = args.split_whitespace().collect();
+    if parts.is_empty() {
+        conn.send_line("Usage: @report list [open|closed] | @report view <id> | @report close <id> [notes] | @report reply <id> <message>");
+        return;
+    }
+
+    let db = match oxide_server::get_db() {
+        Some(d) => d,
+        None => {
+            conn.send_line("The report system is not available.");
+            return;
+        }
+    };
+    let guard = match db.try_lock() {
+        Ok(g) => g,
+        Err(_) => {
+            conn.send_line("The report system is busy.");
+            return;
+        }
+    };
+
+    match parts[0] {
+        "list" => cmd_report_list(&guard, conn, parts.get(1).copied()),
+        "view" => cmd_report_view(&guard, conn, parts.get(1).copied()),
+        "close" => {
+            let id = parts.get(1).and_then(|s| s.parse::<i64>().ok());
+            match id {
+                Some(id) => {
+                    let notes = parts.get(2..).map(|s| s.join(" ")).unwrap_or_default();
+                    let staff_name = conn
+                        .entity()
+                        .and_then(|e| {
+                            world
+                                .query_one::<&core::Name>(e)
+                                .ok()
+                                .and_then(|mut q| q.get().map(|n| n.0.clone()))
+                        })
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    cmd_report_close(&guard, conn, id, &notes, &staff_name);
+                }
+                None => conn.send_line("Usage: @report close <id> [notes]"),
+            }
+        }
+        "reply" => {
+            let id = parts.get(1).and_then(|s| s.parse::<i64>().ok());
+            match id {
+                Some(id) => {
+                    let msg = parts.get(2..).map(|s| s.join(" ")).unwrap_or_default();
+                    if msg.is_empty() {
+                        conn.send_line("Usage: @report reply <id> <message>");
+                        return;
+                    }
+                    let staff_name = conn
+                        .entity()
+                        .and_then(|e| {
+                            world
+                                .query_one::<&core::Name>(e)
+                                .ok()
+                                .and_then(|mut q| q.get().map(|n| n.0.clone()))
+                        })
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    cmd_report_reply(&guard, conn, id, &staff_name, &msg);
+                }
+                None => conn.send_line("Usage: @report reply <id> <message>"),
+            }
+        }
+        _ => conn
+            .send_line("Unknown @report subcommand. Try: list, view <id>, close <id>, reply <id>"),
+    }
+}
+
+fn cmd_report_list(
+    guard: &tokio::sync::MutexGuard<'_, oxide_data::Database>,
+    conn: &mut dyn Connection,
+    filter: Option<&str>,
+) {
+    let status = match filter {
+        Some("closed") => Some("closed"),
+        Some("open") | None => Some("open"),
+        Some(s) => {
+            conn.send_line(&format!("Unknown filter '{s}'. Use 'open' or 'closed'."));
+            return;
+        }
+    };
+
+    let reports = match oxide_data::load_reports(guard.conn(), status) {
+        Ok(r) => r,
+        Err(e) => {
+            conn.send_line(&format!("Error loading reports: {e}"));
+            return;
+        }
+    };
+
+    if reports.is_empty() {
+        conn.send_line("No reports found.");
+        return;
+    }
+
+    for report in &reports {
+        let preview = if report.message.len() > 50 {
+            format!("{}...", &report.message[..47])
+        } else {
+            report.message.clone()
+        };
+        conn.send_line(&format!(
+            "#{}  {:<10}  {}  — {}  {}",
+            report.id,
+            report.report_type,
+            preview,
+            report.reporter_name,
+            &report.created_at[..10],
+        ));
+    }
+}
+
+fn cmd_report_view(
+    guard: &tokio::sync::MutexGuard<'_, oxide_data::Database>,
+    conn: &mut dyn Connection,
+    id_str: Option<&str>,
+) {
+    let id = match id_str.and_then(|s| s.parse::<i64>().ok()) {
+        Some(i) => i,
+        None => {
+            conn.send_line("Usage: @report view <id>");
+            return;
+        }
+    };
+
+    let report = match oxide_data::load_report(guard.conn(), id) {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            conn.send_line(&format!("Report #{} not found.", id));
+            return;
+        }
+        Err(e) => {
+            conn.send_line(&format!("Error loading report: {e}"));
+            return;
+        }
+    };
+
+    conn.send_line(&format!("=== Report #{} ===", report.id));
+    conn.send_line(&format!("Type:     {}", report.report_type));
+    conn.send_line(&format!("Reporter: {}", report.reporter_name));
+    conn.send_line(&format!(
+        "Room:     {}",
+        report.room_key.as_deref().unwrap_or("N/A")
+    ));
+    conn.send_line(&format!("Status:   {}", report.status));
+    conn.send_line(&format!("Created:  {}", report.created_at));
+    conn.send_line(&format!("Updated:  {}", report.updated_at));
+    conn.send_line("---");
+    conn.send_line(&report.message);
+    if !report.staff_notes.is_empty() {
+        conn.send_line(&format!("---\nStaff notes: {}", report.staff_notes));
+    }
+    if let Some(cb) = &report.closed_by {
+        conn.send_line(&format!("Closed by: {}", cb));
+    }
+
+    let replies = match oxide_data::load_replies_for_report(guard.conn(), id) {
+        Ok(r) => r,
+        Err(e) => {
+            conn.send_line(&format!("Error loading replies: {e}"));
+            return;
+        }
+    };
+    if !replies.is_empty() {
+        conn.send_line("--- Replies ---");
+        for reply in &replies {
+            conn.send_line(&format!(
+                "[{}] {}: {}",
+                &reply.created_at[..19],
+                reply.staff_name,
+                reply.message
+            ));
+        }
+    }
+}
+
+fn cmd_report_close(
+    guard: &tokio::sync::MutexGuard<'_, oxide_data::Database>,
+    conn: &mut dyn Connection,
+    id: i64,
+    notes: &str,
+    staff_name: &str,
+) {
+    match oxide_data::update_report_status(guard.conn(), id, "closed", notes, Some(staff_name)) {
+        Ok(()) => conn.send_line(&format!("Report #{} closed.", id)),
+        Err(e) => conn.send_line(&format!("Error closing report: {e}")),
+    }
+}
+
+fn cmd_report_reply(
+    guard: &tokio::sync::MutexGuard<'_, oxide_data::Database>,
+    conn: &mut dyn Connection,
+    id: i64,
+    staff_name: &str,
+    message: &str,
+) {
+    match oxide_data::add_report_reply(guard.conn(), id, staff_name, message) {
+        Ok(()) => conn.send_line(&format!("Reply added to report #{}.", id)),
+        Err(e) => conn.send_line(&format!("Error adding reply: {e}")),
     }
 }
 

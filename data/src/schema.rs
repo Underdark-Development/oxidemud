@@ -282,9 +282,35 @@ CREATE TABLE IF NOT EXISTS components_channel_prefs (
     entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     prefs_json TEXT NOT NULL DEFAULT '{}'
 );
+
+CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporter_name TEXT NOT NULL,
+    report_type TEXT NOT NULL CHECK(report_type IN ('bug','idea','typo','complaint')),
+    message TEXT NOT NULL,
+    room_key TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')),
+    staff_notes TEXT NOT NULL DEFAULT '',
+    closed_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS report_replies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_id INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+    staff_name TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    seen_by_player INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_name);
+CREATE INDEX IF NOT EXISTS idx_report_replies_report ON report_replies(report_id);
 ";
 
-pub const VERSION: i64 = 28;
+pub const VERSION: i64 = 29;
 
 #[cfg(test)]
 mod tests {
@@ -346,6 +372,8 @@ mod tests {
             "components_stance",
             "components_weapon",
             "entities",
+            "report_replies",
+            "reports",
             "schema_version",
             "weather_states",
             "world_time",
