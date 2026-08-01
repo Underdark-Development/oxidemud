@@ -730,6 +730,21 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                                 oxide_core::ChannelPrefs::default()
                             };
                             let _ = w.insert(entity, (channel_prefs, oxide_core::Dirty));
+
+                            // Load or initialize player aliases
+                            let aliases = if let Some(ref db) = db {
+                                let db_guard = db.lock().await;
+                                let conn_db = db_guard.conn();
+                                match oxide_data::load_player_aliases(conn_db, player_db_id) {
+                                    Ok(Some(json)) => {
+                                        serde_json::from_str(&json).unwrap_or_default()
+                                    }
+                                    _ => oxide_core::Aliases::default(),
+                                }
+                            } else {
+                                oxide_core::Aliases::default()
+                            };
+                            let _ = w.insert(entity, (aliases, oxide_core::Dirty));
                         }
                         if let Some(ref cb) = on_entity_spawned {
                             cb(&mut w, &mut conn, &reg);
@@ -907,6 +922,15 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
             .ok()
             .and_then(|mut q| q.get().cloned())
             .and_then(|prefs| serde_json::to_string(&prefs).ok());
+
+        // 2a2. Extract player aliases separately
+        let aliases_json: Option<String> = world
+            .lock()
+            .await
+            .query_one::<&oxide_core::Aliases>(entity)
+            .ok()
+            .and_then(|mut q| q.get().cloned())
+            .and_then(|aliases| serde_json::to_string(&aliases).ok());
 
         // 2b. Save player progress to DB while not holding world lock
         if let Some((
@@ -1109,6 +1133,11 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                 // Save ChannelPrefs
                 if let Some(ref json) = channel_prefs_json {
                     let _ = oxide_data::save_channel_prefs(conn_db, db_id.0, json);
+                }
+
+                // Save player aliases
+                if let Some(ref json) = aliases_json {
+                    let _ = oxide_data::save_player_aliases(conn_db, db_id.0, json);
                 }
             }
         }

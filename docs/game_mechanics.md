@@ -531,6 +531,27 @@ Ghost speech renders in a distinctive alternating color pattern. `tell` and `rep
 
 ---
 
+## Player Aliases
+
+Players can define personal shortcuts for any command. Aliases are case-insensitive, and any extra text typed after the alias is appended to the command.
+
+- `alias` — list all defined aliases
+- `alias <name>` — show the value of one alias
+- `alias <name> <command>` — define a shortcut
+- `unalias <name>` — remove a shortcut
+
+Examples:
+
+- `alias gc gtell` then `gc hello` runs `gtell hello`
+- `alias gob get orb` then `gob potion` runs `get orb potion` (aliases can carry fixed arguments)
+- `alias look me look at me` then `look me` runs `look at me`
+
+Aliases resolve ahead of built-in command dispatch, so they can shorten or override any engine or content command — except entity commands attached to rooms, items, or NPCs, which always take precedence. The `alias` and `unalias` commands themselves cannot be aliased, so players can never lock themselves out of managing their shortcuts.
+
+Aliases are persisted per character on disconnect and restored on login.
+
+---
+
 ## Inventory & Equipment Commands
 
 | Command                   | Description                                 |

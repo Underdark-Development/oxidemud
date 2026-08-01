@@ -283,6 +283,11 @@ CREATE TABLE IF NOT EXISTS components_channel_prefs (
     prefs_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS components_player_aliases (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    aliases_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE TABLE IF NOT EXISTS reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     reporter_name TEXT NOT NULL,
@@ -310,7 +315,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_name);
 CREATE INDEX IF NOT EXISTS idx_report_replies_report ON report_replies(report_id);
 ";
 
-pub const VERSION: i64 = 29;
+pub const VERSION: i64 = 30;
 
 #[cfg(test)]
 mod tests {
@@ -363,6 +368,7 @@ mod tests {
             "components_mana",
             "components_npc",
             "components_player",
+            "components_player_aliases",
             "components_practice_points",
             "components_quest_log",
             "components_position",

@@ -1,4 +1,5 @@
 pub mod abilities;
+pub mod alias;
 pub mod builder;
 pub mod character;
 pub mod combat;
@@ -27,4 +28,5 @@ pub fn register_all_commands(server: &mut Server) {
     builder::register(server);
     reports::register(server);
     social::register(server);
+    alias::register(server);
 }

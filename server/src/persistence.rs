@@ -353,6 +353,17 @@ pub fn save_player_progress(world: &mut World, player: Entity, db: &oxide_data::
             let _ = oxide_data::save_multiclass_component(conn, db_id, &json);
         }
     }
+
+    // 21. Player aliases
+    if let Some(aliases) = world
+        .query_one::<&oxide_core::Aliases>(player)
+        .ok()
+        .and_then(|mut q| q.get().cloned())
+    {
+        if let Ok(json) = serde_json::to_string(&aliases) {
+            let _ = oxide_data::save_player_aliases(conn, db_id, &json);
+        }
+    }
 }
 
 fn current_xp(world: &World, player: Entity) -> u64 {

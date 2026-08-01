@@ -206,6 +206,31 @@ pub struct Friendly;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ChannelPrefs(pub HashMap<String, bool>);
 
+/// Per-player command aliases (alias → command).
+/// Keys are normalized to lowercase at set time and at lookup.
+/// Persisted as JSON in the database.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Aliases(pub HashMap<String, String>);
+
+impl Aliases {
+    pub fn resolve(&self, input: &str) -> Option<&str> {
+        self.0.get(&input.to_ascii_lowercase()).map(|s| s.as_str())
+    }
+
+    pub fn set(&mut self, name: &str, command: &str) {
+        self.0
+            .insert(name.to_ascii_lowercase(), command.to_string());
+    }
+
+    pub fn remove(&mut self, name: &str) -> Option<String> {
+        self.0.remove(&name.to_ascii_lowercase())
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.0.contains_key(&name.to_ascii_lowercase())
+    }
+}
+
 impl ChannelPrefs {
     pub fn is_enabled(&self, channel_id: &str) -> bool {
         self.0.get(channel_id).copied().unwrap_or(true)
@@ -764,6 +789,49 @@ mod tests {
     fn test_alignment_default() {
         let a = Alignment::default();
         assert_eq!(a.0, "true_neutral");
+    }
+
+    // ── Aliases tests ──
+
+    #[test]
+    fn test_aliases_default_empty() {
+        let a = Aliases::default();
+        assert!(a.0.is_empty());
+    }
+
+    #[test]
+    fn test_aliases_set_and_resolve_case_insensitive() {
+        let mut a = Aliases::default();
+        a.set("GC", "gtell");
+        assert_eq!(a.resolve("gc"), Some("gtell"));
+        assert_eq!(a.resolve("GC"), Some("gtell"));
+        assert!(a.contains("gc"));
+        assert!(a.contains("GC"));
+    }
+
+    #[test]
+    fn test_aliases_set_overwrites_case_insensitive() {
+        let mut a = Aliases::default();
+        a.set("gc", "gtell");
+        a.set("GC", "say");
+        assert_eq!(a.0.len(), 1);
+        assert_eq!(a.resolve("gc"), Some("say"));
+    }
+
+    #[test]
+    fn test_aliases_remove_case_insensitive() {
+        let mut a = Aliases::default();
+        a.set("gc", "gtell");
+        assert_eq!(a.remove("GC"), Some("gtell".to_string()));
+        assert!(!a.contains("gc"));
+        assert_eq!(a.remove("gc"), None);
+    }
+
+    #[test]
+    fn test_aliases_resolve_missing() {
+        let mut a = Aliases::default();
+        a.set("l", "look");
+        assert_eq!(a.resolve("x"), None);
     }
 
     #[test]

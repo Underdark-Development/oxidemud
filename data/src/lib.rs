@@ -529,6 +529,20 @@ impl Database {
             )?;
         }
 
+        if current < 30 {
+            // Migration 30: add components_player_aliases table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_player_aliases (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    aliases_json TEXT NOT NULL DEFAULT '{}'
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (30)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

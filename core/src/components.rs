@@ -11,10 +11,10 @@ pub mod script_params;
 pub mod skills;
 
 pub use character::{
-    AccessLevel, Age, Alignment, Appearance, Attributes, ChannelPrefs, Class, Deity, Description,
-    Experience, Following, Friendly, Gender, HolyLight, Immortal, LastMessenger, Level,
-    MultiClassInfo, Name, Npc, PatrolRoute, Player, PlayerState, PracticePoints, PrayerCooldown,
-    Race, RecallRoom, RestState, ShortDesc, Switched, Wallet, WanderBounds, Wizin,
+    AccessLevel, Age, Aliases, Alignment, Appearance, Attributes, ChannelPrefs, Class, Deity,
+    Description, Experience, Following, Friendly, Gender, HolyLight, Immortal, LastMessenger,
+    Level, MultiClassInfo, Name, Npc, PatrolRoute, Player, PlayerState, PracticePoints,
+    PrayerCooldown, Race, RecallRoom, RestState, ShortDesc, Switched, Wallet, WanderBounds, Wizin,
 };
 pub use combat::{
     ActiveStance, Armor, CombatState, CombatStats, Corpse, DamageType, Health, LootRule, Resistance,

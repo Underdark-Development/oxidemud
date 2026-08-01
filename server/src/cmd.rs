@@ -61,6 +61,36 @@ impl CommandDispatch {
             None => (input, ""),
         };
 
+        // Entity commands take precedence over player aliases so room/item
+        // script interactions cannot be shadowed.
+        if let Some(entity) = conn.entity() {
+            if check_entity_command(world, entity, name, args) {
+                return;
+            }
+        }
+
+        // Resolve player-defined aliases before consciousness checks so the
+        // resolved command is what gets gated. Aliases are case-insensitive
+        // and may carry fixed arguments (e.g. `alias gob get orb`).
+        let resolved = conn.entity().and_then(|entity| {
+            let mut q = world.query_one::<&oxide_core::Aliases>(entity).ok()?;
+            q.get().and_then(|a| a.resolve(name)).map(str::to_string)
+        });
+        let (name, args): (String, String) = if let Some(value) = resolved {
+            let (alias_cmd, alias_args) = match value.find(char::is_whitespace) {
+                Some(pos) => (&value[..pos], value[pos..].trim()),
+                None => (value.as_str(), ""),
+            };
+            let combined = match (alias_args.is_empty(), args.is_empty()) {
+                (true, _) => args.to_string(),
+                (false, true) => alias_args.to_string(),
+                (false, false) => format!("{alias_args} {args}"),
+            };
+            (alias_cmd.to_string(), combined)
+        } else {
+            (name.to_string(), args.to_string())
+        };
+
         let mut is_unconscious = false;
         if let Some(entity) = conn.entity() {
             if let Ok(mut q) = world.query_one::<&oxide_core::Health>(entity) {
@@ -95,20 +125,15 @@ impl CommandDispatch {
             }
         }
 
-        if let Some(entity) = conn.entity() {
-            if check_entity_command(world, entity, name, args) {
-                return;
-            }
-        }
-
         let dynamic_skill =
-            oxide_core::with_dynamic_skills(|reg| reg.find_direct_command(name).cloned());
+            oxide_core::with_dynamic_skills(|reg| reg.find_direct_command(&name).cloned());
         if let Some(skill) = dynamic_skill {
             if let Some(entity) = conn.entity() {
                 match check_command_restrictions(world, entity, None, false, &skill.restrictions) {
                     Ok(()) => {
                         if let Some(bridge) = oxide_core::get_scripting_bridge() {
-                            let _ = bridge.execute_script_skill(&skill.script, entity, args, world);
+                            let _ =
+                                bridge.execute_script_skill(&skill.script, entity, &args, world);
                             return;
                         }
                     }
@@ -120,12 +145,12 @@ impl CommandDispatch {
             }
         }
 
-        if let Some(cmd) = self.find(name) {
+        if let Some(cmd) = self.find(&name) {
             if conn.access_level() < cmd.access {
                 conn.send_line("Huh? Type 'help' for a list of commands.");
                 return;
             }
-            (cmd.handler)(world, conn, name, args, registry);
+            (cmd.handler)(world, conn, &name, &args, registry);
         } else {
             conn.send_line("Huh? Type 'help' for a list of commands.");
         }
@@ -145,22 +170,37 @@ impl CommandDispatch {
     }
 
     pub fn find(&self, name: &str) -> Option<&Command> {
+        let name = name.to_ascii_lowercase();
         // 1. Exact alias match — short aliases always take precedence
-        if let Some(cmd) = self.commands.iter().find(|cmd| cmd.aliases.contains(&name)) {
+        if let Some(cmd) = self
+            .commands
+            .iter()
+            .find(|cmd| cmd.aliases.iter().any(|a| a.eq_ignore_ascii_case(&name)))
+        {
             return Some(cmd);
         }
         // 2. Exact name match
-        if let Some(cmd) = self.commands.iter().find(|cmd| cmd.name == name) {
+        if let Some(cmd) = self
+            .commands
+            .iter()
+            .find(|cmd| cmd.name.eq_ignore_ascii_case(&name))
+        {
             return Some(cmd);
         }
         // 3. Prefix name match
-        if let Some(cmd) = self.commands.iter().find(|cmd| cmd.name.starts_with(name)) {
+        if let Some(cmd) = self
+            .commands
+            .iter()
+            .find(|cmd| cmd.name.to_ascii_lowercase().starts_with(&name))
+        {
             return Some(cmd);
         }
         // 4. Prefix alias match (lowest priority)
-        self.commands
-            .iter()
-            .find(|cmd| cmd.aliases.iter().any(|a| a.starts_with(name)))
+        self.commands.iter().find(|cmd| {
+            cmd.aliases
+                .iter()
+                .any(|a| a.to_ascii_lowercase().starts_with(&name))
+        })
     }
 }
 
@@ -470,6 +510,139 @@ mod tests {
     fn test_command_dispatch_find_by_alias() {
         let dispatch = make_dispatch();
         assert!(dispatch.find("t").is_some());
+    }
+
+    #[test]
+    fn test_command_dispatch_find_case_insensitive() {
+        let dispatch = make_dispatch();
+        assert!(dispatch.find("TEST").is_some());
+        assert!(dispatch.find("Admin").is_some());
+        assert!(dispatch.find("T").is_some());
+    }
+
+    #[test]
+    fn test_command_dispatch_alias_resolution() {
+        let mut dispatch = CommandDispatch::new();
+        dispatch.register(Command {
+            name: "test",
+            aliases: &["t"],
+            access: AccessLevel::Player,
+            topic: "General",
+            help: CommandHelp {
+                short: "test command",
+                body: None,
+            },
+            handler: test_handler,
+        });
+        let mut world = World::new();
+        let entity = world.spawn((AccessLevel::Player, oxide_core::Aliases::default()));
+        let mut aliases = world.query_one::<&mut oxide_core::Aliases>(entity).unwrap();
+        aliases.get().unwrap().set("tc", "test");
+        drop(aliases);
+
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
+        conn.set_entity(entity);
+        let registry = empty_registry();
+
+        dispatch.execute(&mut world, &mut conn, "tc hello", &registry);
+
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(msg.contains("handled: hello"), "got: {msg}");
+        } else {
+            panic!("Expected alias to dispatch to test handler");
+        }
+    }
+
+    #[test]
+    fn test_command_dispatch_alias_with_fixed_args() {
+        let mut dispatch = CommandDispatch::new();
+        dispatch.register(Command {
+            name: "test",
+            aliases: &[],
+            access: AccessLevel::Player,
+            topic: "General",
+            help: CommandHelp {
+                short: "test command",
+                body: None,
+            },
+            handler: test_handler,
+        });
+        let mut world = World::new();
+        let entity = world.spawn((AccessLevel::Player, oxide_core::Aliases::default()));
+        let mut aliases = world.query_one::<&mut oxide_core::Aliases>(entity).unwrap();
+        aliases.get().unwrap().set("gob", "test fixed");
+        drop(aliases);
+
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
+        conn.set_entity(entity);
+        let registry = empty_registry();
+
+        dispatch.execute(&mut world, &mut conn, "gob extra", &registry);
+
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(msg.contains("handled: fixed extra"), "got: {msg}");
+        } else {
+            panic!("Expected alias with fixed args to dispatch");
+        }
+    }
+
+    #[test]
+    fn test_command_dispatch_alias_case_insensitive_match() {
+        let mut dispatch = CommandDispatch::new();
+        dispatch.register(Command {
+            name: "test",
+            aliases: &[],
+            access: AccessLevel::Player,
+            topic: "General",
+            help: CommandHelp {
+                short: "test command",
+                body: None,
+            },
+            handler: test_handler,
+        });
+        let mut world = World::new();
+        let entity = world.spawn((AccessLevel::Player, oxide_core::Aliases::default()));
+        let mut aliases = world.query_one::<&mut oxide_core::Aliases>(entity).unwrap();
+        aliases.get().unwrap().set("gc", "test");
+        drop(aliases);
+
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
+        conn.set_entity(entity);
+        let registry = empty_registry();
+
+        dispatch.execute(&mut world, &mut conn, "GC hi", &registry);
+
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(msg.contains("handled: hi"), "got: {msg}");
+        } else {
+            panic!("Expected uppercase alias input to resolve");
+        }
+    }
+
+    #[test]
+    fn test_command_dispatch_unresolved_alias_huh() {
+        let dispatch = make_dispatch();
+        let mut world = World::new();
+        let entity = world.spawn((AccessLevel::Player, oxide_core::Aliases::default()));
+        let mut aliases = world.query_one::<&mut oxide_core::Aliases>(entity).unwrap();
+        aliases.get().unwrap().set("zzz", "nonexistentcmd");
+        drop(aliases);
+
+        let (mut conn, mut rx) = TelnetConnection::new("1".to_string());
+        conn.set_entity(entity);
+        let registry = empty_registry();
+
+        dispatch.execute(&mut world, &mut conn, "zzz", &registry);
+
+        if let Ok(bytes) = rx.try_recv() {
+            let msg = String::from_utf8_lossy(&bytes);
+            assert!(msg.contains("Huh?"), "got: {msg}");
+        } else {
+            panic!("Expected unresolved alias to produce unknown command message");
+        }
     }
 
     #[test]

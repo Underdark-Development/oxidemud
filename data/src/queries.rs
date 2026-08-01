@@ -1571,6 +1571,31 @@ pub fn load_channel_prefs(
     }
 }
 
+pub fn save_player_aliases(
+    conn: &Connection,
+    entity_id: i64,
+    json: &str,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_player_aliases (entity_id, aliases_json) VALUES (?1, ?2)",
+        params![entity_id, json],
+    )?;
+    Ok(())
+}
+
+pub fn load_player_aliases(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<String>, rusqlite::Error> {
+    let mut stmt =
+        conn.prepare("SELECT aliases_json FROM components_player_aliases WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 pub fn save_multiclass_component(
     conn: &Connection,
     entity_id: i64,

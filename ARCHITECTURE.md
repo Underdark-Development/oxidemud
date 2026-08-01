@@ -90,8 +90,9 @@ Concurrent execution is split into two main Tokio loop layers:
 When a player submits input, [`server/src/cmd/`](server/src/cmd) evaluates:
 
 1. **Contextual Entity Commands (`EntityCommands`):** Commands attached to rooms, items, or NPCs.
-2. **Dynamic Script Skills (`DynamicSkillRegistry`):** Custom Rhai script commands and abilities.
-3. **Static Engine Commands (`CommandDispatch`):** Built-in Rust handlers (movement, combat, info, builder, admin).
+2. **Player Aliases (`Aliases`):** Per-character command shortcuts stored as `HashMap<String, String>`, resolved before static dispatch. Case-insensitive; values may carry fixed arguments (e.g. `alias gob get orb`); args typed by the player are appended. Single-level resolution, no recursion. `alias`/`unalias` names are reserved and cannot be shadowed, and entity commands take precedence so room interactions always win. Persisted per character in `components_player_aliases`.
+3. **Dynamic Script Skills (`DynamicSkillRegistry`):** Custom Rhai script commands and abilities.
+4. **Static Engine Commands (`CommandDispatch`):** Built-in Rust handlers (movement, combat, info, builder, admin). Command lookup is case-insensitive.
 
 ### Scripting & Engine Decoupling
 
