@@ -27,6 +27,8 @@ impl EntityInspectorScreen {
         Self::add_field(table, "aggro_range", mob.aggro_range);
         Self::add_field(table, "aggro_players", mob.aggro_players);
         Self::add_field(table, "faction_standing", mob.faction_standing);
+        Self::add_field(table, "friendly", mob.friendly);
+        Self::add_field(table, "banker", mob.banker);
 
         // Optionals
         Self::add_field(table, "damage", mob.damage.as_deref().unwrap_or(""));
@@ -164,6 +166,8 @@ impl EntityInspectorScreen {
             "faction_standing" => {
                 mob.faction_standing = value.parse().map_err(|_| "invalid number")?
             }
+            "friendly" => mob.friendly = value.parse().unwrap_or(false),
+            "banker" => mob.banker = value.parse().unwrap_or(false),
             "damage" => {
                 mob.damage = if value.is_empty() {
                     None

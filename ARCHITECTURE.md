@@ -114,7 +114,7 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 - **Prestige & Multi-Classing:** Multi-classing tracks per-class levels and applies non-favored class XP penalties. Prestige classes enforce gate prerequisites (`[prestige_gate]`).
 - **Experience & Progression:** Cubic XP curve (`level³ × 100`). Automatic level-up awards attribute gains, practice points, BAB/save recalculations, and passive updates. Player death results in XP loss (without de-leveling), corpse creation, and transition to a Ghost state.
 - **Training & Practice:** Single `PracticePoints` pool used for both stat increases (`train`) and skill rank upgrades (`practice`) at trainer NPCs.
-- **Economy & Shops:** Three-tier decimal currency (copper, silver, gold). NPC shops calculate dynamic buy/sell prices based on base template values and player reputation tiers.
+- **Economy & Shops:** Three-tier decimal currency (copper, silver, gold). NPC shops calculate dynamic buy/sell prices based on base template values and player reputation tiers. Banking: gold-only per-character bank accounts persisted in SQLite, gated by `banker = true` NPCs in the room (`balance`, `deposit`, `withdraw` commands).
 - **Deity System:** Templates in `content/deities/*.toml`. Characters adopt deities subject to class policy (`any`, `none`, `required`, `subset`), granting prayer buffs subject to cooldowns.
 - **Crafting & Recipes:** Material consumption, station verification (room flags/entities), difficulty checks, and quality margin scaling.
 - **Quests & Factions:** Objective tracking (kill, gather, deliver, explore, escort), reward delivery, and faction standing propagation matrices.

@@ -76,6 +76,10 @@ impl MobTemplate {
             let _ = world.insert(npc, (crate::components::Friendly,));
         }
 
+        if self.banker {
+            let _ = world.insert(npc, (crate::components::Banker,));
+        }
+
         if !self.trainer_types.is_empty() {
             let _ = world.insert(
                 npc,
@@ -323,5 +327,81 @@ impl super::defs::ItemTemplate {
         );
 
         item
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::templates::defs::{HealthBounds, LootTable, RaceAttributes};
+    use std::collections::HashMap;
+
+    fn base_mob(id: &str) -> MobTemplate {
+        MobTemplate {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: String::new(),
+            short_desc: String::new(),
+            level: 1,
+            attributes: RaceAttributes::default(),
+            health: HealthBounds {
+                current: 10,
+                max: 10,
+            },
+            armor: 0,
+            damage: None,
+            damage_type: None,
+            race: None,
+            size: "medium".to_string(),
+            equipment: Vec::new(),
+            xp_value: 0,
+            loot: LootTable::default(),
+            ai_mode: "idle".to_string(),
+            patrol_route: Vec::new(),
+            wander_rooms: Vec::new(),
+            wander_area: false,
+            aggro_range: 0,
+            aggro_players: false,
+            aggro_mobs: false,
+            aggro_race: Vec::new(),
+            faction: None,
+            faction_standing: 0,
+            trainer_types: Vec::new(),
+            languages: Vec::new(),
+            skills: Vec::new(),
+            shop: None,
+            friendly: false,
+            banker: false,
+            scripts: Vec::new(),
+            params: HashMap::new(),
+        }
+    }
+
+    fn has_banker(world: &crate::World, entity: crate::Entity) -> bool {
+        world
+            .query_one::<&crate::components::Banker>(entity)
+            .ok()
+            .is_some_and(|mut q| q.get().is_some())
+    }
+
+    #[test]
+    fn spawn_banker_inserts_banker_component() {
+        let mut world = crate::World::new();
+        let room = world.spawn(());
+        let registry = TemplateRegistry::default();
+        let mut mob = base_mob("teller");
+        mob.banker = true;
+        let npc = mob.spawn(&mut world, room, &registry);
+        assert!(has_banker(&world, npc));
+    }
+
+    #[test]
+    fn spawn_non_banker_has_no_banker_component() {
+        let mut world = crate::World::new();
+        let room = world.spawn(());
+        let registry = TemplateRegistry::default();
+        let mob = base_mob("guard");
+        let npc = mob.spawn(&mut world, room, &registry);
+        assert!(!has_banker(&world, npc));
     }
 }

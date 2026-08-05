@@ -1265,6 +1265,34 @@ pub fn load_golds_component(
     }
 }
 
+// ── Bank account persistence ──
+
+/// Persist a character's bank balance (in gold pieces).
+pub fn save_bank_account_component(
+    conn: &Connection,
+    entity_id: i64,
+    gold: i64,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT OR REPLACE INTO components_bank_account (entity_id, gold) VALUES (?1, ?2)",
+        params![entity_id, gold],
+    )?;
+    Ok(())
+}
+
+/// Load a character's bank balance (in gold pieces).
+pub fn load_bank_account_component(
+    conn: &Connection,
+    entity_id: i64,
+) -> Result<Option<i64>, rusqlite::Error> {
+    let mut stmt = conn.prepare("SELECT gold FROM components_bank_account WHERE entity_id = ?1")?;
+    let mut rows = stmt.query(params![entity_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some(row.get(0)?)),
+        None => Ok(None),
+    }
+}
+
 // ── Alignment persistence ──
 
 pub fn save_alignment_component(
@@ -2562,5 +2590,32 @@ mod tests {
     fn test_report_not_found_returns_none() {
         let conn = setup();
         assert!(load_report(&conn, 999).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_bank_account_save_load_round_trip() {
+        let conn = setup();
+        let entity_id = insert_entity(&conn, "player").unwrap();
+
+        assert!(load_bank_account_component(&conn, entity_id)
+            .unwrap()
+            .is_none());
+
+        save_bank_account_component(&conn, entity_id, 1234).unwrap();
+        assert_eq!(
+            load_bank_account_component(&conn, entity_id).unwrap(),
+            Some(1234)
+        );
+
+        save_bank_account_component(&conn, entity_id, 0).unwrap();
+        assert_eq!(
+            load_bank_account_component(&conn, entity_id).unwrap(),
+            Some(0)
+        );
+
+        delete_entity(&conn, entity_id).unwrap();
+        assert!(load_bank_account_component(&conn, entity_id)
+            .unwrap()
+            .is_none());
     }
 }

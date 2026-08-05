@@ -543,6 +543,20 @@ impl Database {
             )?;
         }
 
+        if current < 31 {
+            // Migration 31: add components_bank_account table
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS components_bank_account (
+                    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+                    gold INTEGER NOT NULL DEFAULT 0
+                );",
+            )?;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (31)",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 

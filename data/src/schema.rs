@@ -147,6 +147,11 @@ CREATE TABLE IF NOT EXISTS components_golds (
     platinum INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS components_bank_account (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    gold INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS components_skills (
     entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     skill_id TEXT NOT NULL,
@@ -315,7 +320,7 @@ CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_name);
 CREATE INDEX IF NOT EXISTS idx_report_replies_report ON report_replies(report_id);
 ";
 
-pub const VERSION: i64 = 30;
+pub const VERSION: i64 = 31;
 
 #[cfg(test)]
 mod tests {
@@ -348,6 +353,8 @@ mod tests {
             "components_alignment",
             "components_appearance",
             "components_armor",
+            "components_attributes",
+            "components_bank_account",
             "components_channel_prefs",
             "components_attributes",
             "components_combat_stats",

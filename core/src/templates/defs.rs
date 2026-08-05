@@ -907,6 +907,8 @@ pub struct MobTemplate {
     #[serde(default)]
     pub friendly: bool,
     #[serde(default)]
+    pub banker: bool,
+    #[serde(default)]
     pub scripts: Vec<ScriptHookEntry>,
     #[serde(default)]
     pub params: HashMap<String, String>,

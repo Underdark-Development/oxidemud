@@ -450,6 +450,16 @@ impl Wallet {
     }
 }
 
+/// Per-character bank balance, denominated in gold pieces.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BankAccount(pub u64);
+
+impl BankAccount {
+    pub fn new(gold: u64) -> Self {
+        BankAccount(gold)
+    }
+}
+
 /// The entity's alignment on the lawful–chaotic × good–evil grid.
 ///
 /// Valid values: `lawful_good`, `neutral_good`, `chaotic_good`,
@@ -690,6 +700,18 @@ mod tests {
     fn test_name_new() {
         let n = Name::new("Alice");
         assert_eq!(n.as_str(), "Alice");
+    }
+
+    #[test]
+    fn test_bank_account_default() {
+        let b = BankAccount::default();
+        assert_eq!(b.0, 0);
+    }
+
+    #[test]
+    fn test_bank_account_new() {
+        let b = BankAccount::new(500);
+        assert_eq!(b.0, 500);
     }
 
     #[test]

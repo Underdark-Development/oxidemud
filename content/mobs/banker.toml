@@ -1,0 +1,14 @@
+id = "banker"
+name = "Teller"
+description = "A crisp-suited teller with a neat ledger and a watchful eye, seated behind a polished counter."
+short_desc = "a bank teller"
+health = { current = 100, max = 100 }
+level = 10
+armor = 5
+ai_mode = "idle"
+race = "human"
+size = "medium"
+languages = ["common"]
+trainer_types = []
+friendly = true
+banker = true

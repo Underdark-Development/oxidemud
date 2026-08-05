@@ -824,6 +824,10 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                     .query_one::<&Wallet>(entity)
                     .ok()
                     .and_then(|mut q| q.get().cloned());
+                let bank_account = w
+                    .query_one::<&oxide_core::BankAccount>(entity)
+                    .ok()
+                    .and_then(|mut q| q.get().copied());
                 let skills = w
                     .query_one::<&LearnedSkills>(entity)
                     .ok()
@@ -900,6 +904,7 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                     position,
                     room_key,
                     wallet,
+                    bank_account,
                     skills,
                     practice_points,
                     player_comp,
@@ -943,6 +948,7 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
             _room_entity,
             room_key,
             wallet,
+            bank_account,
             skills,
             practice_points,
             player_comp,
@@ -1001,6 +1007,14 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                         wallet.silver as i64,
                         wallet.gold as i64,
                         wallet.platinum as i64,
+                    );
+                }
+                // Save BankAccount
+                if let Some(bank_account) = bank_account {
+                    let _ = oxide_data::save_bank_account_component(
+                        conn_db,
+                        db_id.0,
+                        bank_account.0 as i64,
                     );
                 }
                 // Save LearnedSkills

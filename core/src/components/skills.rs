@@ -8,6 +8,11 @@ pub struct Trainer {
     pub trainer_types: Vec<String>,
 }
 
+/// Marker component for NPC mobiles that can serve as bankers.
+/// Attached to NPC entities spawned from mob templates with `banker = true`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Banker;
+
 impl Trainer {
     pub fn new(trainer_types: Vec<String>) -> Self {
         Trainer { trainer_types }

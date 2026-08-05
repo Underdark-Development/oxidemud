@@ -1955,6 +1955,7 @@ mod tests {
             skills: vec![],
             shop: None,
             friendly: false,
+            banker: false,
             scripts: vec![],
             params: HashMap::new(),
         };
@@ -2254,6 +2255,7 @@ mod tests {
             skills: vec![],
             shop: None,
             friendly: false,
+            banker: false,
             scripts: vec![],
             params: HashMap::new(),
         };

@@ -576,6 +576,28 @@ Items with `requires_skill` are checked on `wear`/`wield`. If the player lacks t
 
 ---
 
+## Banking
+
+Bankers are friendly NPCs (mob templates with `banker = true`) who offer secure storage for gold. A player must be in the same room as a banker to use any bank service.
+
+### Rules
+
+- **Denomination**: Bank accounts hold gold only. Silver, copper, and platinum coins stay in your wallet — convert them at a currency exchange before depositing.
+- **Capacity**: No fees, interest, or storage limits.
+- **Persistence**: Balances are saved to your character and persist across logouts and server restarts.
+
+### Commands
+
+| Command                  | Description                                                         |
+| ------------------------ | ------------------------------------------------------------------- |
+| `balance` (alias `bank`) | Shows your bank balance and gold on hand. Requires a banker nearby. |
+| `deposit <amount         | all>`                                                               |
+| `withdraw <amount        | all>`                                                               |
+
+Attempts to bank without a banker present are refused with a prompt to find one.
+
+---
+
 ## Time & Weather
 
 ### Time System

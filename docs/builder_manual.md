@@ -227,6 +227,9 @@ wander_area = true                                                  # Wander any
 # Friendly NPCs don't aggro players
 friendly = false
 
+# Banker NPCs offer deposit/withdraw/balance services to nearby players
+banker = false
+
 # Aggro configuration (NPCs with ai_mode = "aggro" or "patrol")
 aggro_range = 5          # Distance in rooms to detect targets
 aggro_players = true     # Aggro on players
@@ -294,39 +297,40 @@ chance = 15
 
 #### Mob Schema Fields
 
-| Field              | Type    | Default    | Description                                                                                  |
-| ------------------ | ------- | ---------- | -------------------------------------------------------------------------------------------- |
-| `id`               | String  | —          | Unique identifier for the mob template.                                                      |
-| `name`             | String  | —          | Display name seen in room descriptions.                                                      |
-| `description`      | String  | —          | Full description on `look` (supports color codes).                                           |
-| `short_desc`       | String  | —          | Brief description shown in room entity list. Falls back to `name`.                           |
-| `level`            | Integer | `1`        | NPC level; affects hit/damage and XP calculations.                                           |
-| `race`             | String  | —          | Race template ID; grants racial traits and size defaults.                                    |
-| `size`             | String  | `"medium"` | Size category: `tiny`, `small`, `medium`, `large`, `huge`.                                   |
-| `armor`            | Integer | `0`        | Base armor class value.                                                                      |
-| `damage`           | String  | —          | Natural weapon damage in dice notation (e.g. `1d6`, `2d4+3`).                                |
-| `damage_type`      | String  | —          | Natural weapon damage type: `slash`, `pierce`, `bludgeon`, etc.                              |
-| `xp_value`         | Integer | `0`        | XP awarded when killed.                                                                      |
-| `shop`             | String  | —          | Shop template ID if this NPC is a vendor.                                                    |
-| `faction`          | String  | —          | Faction template ID this NPC belongs to.                                                     |
-| `faction_standing` | Integer | `0`        | Starting faction standing (–100 to 100).                                                     |
-| `friendly`         | Bool    | `false`    | If true, never aggroes players.                                                              |
-| `ai_mode`          | String  | `"idle"`   | AI behavior: `idle`, `wander`, `patrol`, `aggro`.                                            |
-| `patrol_route`     | Array   | `[]`       | Room IDs for patrol waypoints (`area.room` format).                                          |
-| `wander_rooms`     | Array   | `[]`       | Specific rooms to wander (empty = any in area).                                              |
-| `wander_area`      | Bool    | `false`    | If true, wanders anywhere in the current area.                                               |
-| `aggro_range`      | Integer | `0`        | Room-distance to detect targets. `0` = room only.                                            |
-| `aggro_players`    | Bool    | `false`    | If true, aggroes on player characters.                                                       |
-| `aggro_mobs`       | Bool    | `false`    | If true, aggroes on other NPCs.                                                              |
-| `aggro_race`       | Array   | `[]`       | Only aggro specific races (empty = all races).                                               |
-| `trainer_types`    | Array   | `[]`       | Training categories this NPC teaches: `attributes`, `combat`, `weapon`, `magic`, `crafting`. |
-| `languages`        | Array   | `[]`       | Languages the NPC speaks/knows.                                                              |
-| `scripts`          | Array   | `[]`       | Script hooks that fire on game events.                                                       |
-| `health`           | Section | —          | `{ current, max }` — starting hit points.                                                    |
-| `attributes`       | Section | —          | `{ str, dex, int, wis, con, cha }` — base attributes.                                        |
-| `equipment`        | Array   | `[]`       | Equipment entries: `{ template_id, slot }`.                                                  |
-| `loot`             | Section | —          | Loot table: `{ entries: [{ item, chance, count?, treasure_class? }] }`.                      |
-| `skills`           | Array   | `[]`       | Known skills: `{ id, level }`.                                                               |
+| Field              | Type    | Default    | Description                                                                                       |
+| ------------------ | ------- | ---------- | ------------------------------------------------------------------------------------------------- |
+| `id`               | String  | —          | Unique identifier for the mob template.                                                           |
+| `name`             | String  | —          | Display name seen in room descriptions.                                                           |
+| `description`      | String  | —          | Full description on `look` (supports color codes).                                                |
+| `short_desc`       | String  | —          | Brief description shown in room entity list. Falls back to `name`.                                |
+| `level`            | Integer | `1`        | NPC level; affects hit/damage and XP calculations.                                                |
+| `race`             | String  | —          | Race template ID; grants racial traits and size defaults.                                         |
+| `size`             | String  | `"medium"` | Size category: `tiny`, `small`, `medium`, `large`, `huge`.                                        |
+| `armor`            | Integer | `0`        | Base armor class value.                                                                           |
+| `damage`           | String  | —          | Natural weapon damage in dice notation (e.g. `1d6`, `2d4+3`).                                     |
+| `damage_type`      | String  | —          | Natural weapon damage type: `slash`, `pierce`, `bludgeon`, etc.                                   |
+| `xp_value`         | Integer | `0`        | XP awarded when killed.                                                                           |
+| `shop`             | String  | —          | Shop template ID if this NPC is a vendor.                                                         |
+| `faction`          | String  | —          | Faction template ID this NPC belongs to.                                                          |
+| `faction_standing` | Integer | `0`        | Starting faction standing (–100 to 100).                                                          |
+| `friendly`         | Bool    | `false`    | If true, never aggroes players.                                                                   |
+| `banker`           | Bool    | `false`    | If true, this NPC offers bank services (`balance`, `deposit`, `withdraw`) to players in the room. |
+| `ai_mode`          | String  | `"idle"`   | AI behavior: `idle`, `wander`, `patrol`, `aggro`.                                                 |
+| `patrol_route`     | Array   | `[]`       | Room IDs for patrol waypoints (`area.room` format).                                               |
+| `wander_rooms`     | Array   | `[]`       | Specific rooms to wander (empty = any in area).                                                   |
+| `wander_area`      | Bool    | `false`    | If true, wanders anywhere in the current area.                                                    |
+| `aggro_range`      | Integer | `0`        | Room-distance to detect targets. `0` = room only.                                                 |
+| `aggro_players`    | Bool    | `false`    | If true, aggroes on player characters.                                                            |
+| `aggro_mobs`       | Bool    | `false`    | If true, aggroes on other NPCs.                                                                   |
+| `aggro_race`       | Array   | `[]`       | Only aggro specific races (empty = all races).                                                    |
+| `trainer_types`    | Array   | `[]`       | Training categories this NPC teaches: `attributes`, `combat`, `weapon`, `magic`, `crafting`.      |
+| `languages`        | Array   | `[]`       | Languages the NPC speaks/knows.                                                                   |
+| `scripts`          | Array   | `[]`       | Script hooks that fire on game events.                                                            |
+| `health`           | Section | —          | `{ current, max }` — starting hit points.                                                         |
+| `attributes`       | Section | —          | `{ str, dex, int, wis, con, cha }` — base attributes.                                             |
+| `equipment`        | Array   | `[]`       | Equipment entries: `{ template_id, slot }`.                                                       |
+| `loot`             | Section | —          | Loot table: `{ entries: [{ item, chance, count?, treasure_class? }] }`.                           |
+| `skills`           | Array   | `[]`       | Known skills: `{ id, level }`.                                                                    |
 
 ---
 

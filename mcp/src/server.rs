@@ -1173,6 +1173,7 @@ impl OxideMcpServer {
             languages: Vec::new(),
             shop: None,
             friendly: false,
+            banker: false,
             skills: Vec::new(),
             scripts: Vec::new(),
             params: HashMap::new(),

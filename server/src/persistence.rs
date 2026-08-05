@@ -1,6 +1,6 @@
 use oxide_core::{
-    Alignment, Attributes, DbId, Description, Entity, Equipment, Experience, Health, Inventory,
-    LearnedSkills, Level, Player, Position, PracticePoints, RoomKey, Wallet, World,
+    Alignment, Attributes, BankAccount, DbId, Description, Entity, Equipment, Experience, Health,
+    Inventory, LearnedSkills, Level, Player, Position, PracticePoints, RoomKey, Wallet, World,
 };
 
 pub fn save_online_players(world: &mut World, db: &oxide_data::Database, force: bool) {
@@ -102,6 +102,15 @@ pub fn save_player_progress(world: &mut World, player: Entity, db: &oxide_data::
             wallet.gold as i64,
             wallet.platinum as i64,
         );
+    }
+
+    // 5.5. Bank account
+    if let Some(bank_account) = world
+        .query_one::<&BankAccount>(player)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+    {
+        let _ = oxide_data::save_bank_account_component(conn, db_id, bank_account.0 as i64);
     }
 
     // 6. LearnedSkills

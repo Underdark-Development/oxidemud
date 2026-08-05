@@ -2157,6 +2157,14 @@ pub async fn load_character(
         })
         .unwrap_or_default();
 
+    let bank_account = oxide_core::BankAccount(
+        oxide_data::load_bank_account_component(conn_db, entity_id)
+            .ok()
+            .flatten()
+            .map(|g| g as u64)
+            .unwrap_or(0),
+    );
+
     let skills_map = oxide_data::load_skills(conn_db, entity_id)
         .ok()
         .unwrap_or_default();
@@ -2391,6 +2399,7 @@ pub async fn load_character(
             alignment,
             description,
             gold,
+            bank_account,
             inventory,
             equipment,
             PracticePoints(practice_points),

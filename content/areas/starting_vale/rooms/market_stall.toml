@@ -12,3 +12,7 @@ exits = { south = "town_square" }
 [[content.mobs]]
 template_id = "merchant"
 count = 1
+
+[[content.mobs]]
+template_id = "banker"
+count = 1
