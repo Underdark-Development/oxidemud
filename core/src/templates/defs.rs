@@ -1194,6 +1194,10 @@ pub struct ShopTemplate {
     #[serde(default)]
     pub inventory: Vec<ShopInventoryEntry>,
     #[serde(default)]
+    pub buy_types: Vec<String>,
+    #[serde(default)]
+    pub price_mods: HashMap<String, f64>,
+    #[serde(default)]
     pub params: HashMap<String, String>,
 }
 

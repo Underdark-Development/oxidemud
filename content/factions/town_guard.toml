@@ -1,0 +1,23 @@
+id = "town_guard"
+name = "Town Guard"
+description = "The watch that keeps the town's streets and markets safe."
+starting_standing = 0
+min_standing = -2000
+max_standing = 2000
+aggro_below = -500
+
+[[ranks]]
+name = "Hostile"
+threshold = -500
+
+[[ranks]]
+name = "Neutral"
+threshold = 0
+
+[[ranks]]
+name = "Friendly"
+threshold = 250
+
+[[ranks]]
+name = "Adored"
+threshold = 750

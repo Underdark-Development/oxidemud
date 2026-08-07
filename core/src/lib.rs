@@ -33,6 +33,7 @@ pub use components::{
     Wizin, EXIT_IS_CLOSED, EXIT_IS_DOOR, EXIT_IS_LOCKED, PORTAL_HIDDEN, ROOM_NO_TELEPORT_IN,
     ROOM_NO_TELEPORT_OUT, ROOM_PORTAL_IN, ROOM_PORTAL_OUT,
 };
+pub use components::{HaggleCooldown, LastRestock, PendingHaggle, ShopStock, Shopkeeper};
 pub use prompt::PromptVars;
 pub use resources::{Energy, Mana, Psi, Stamina, WorldName};
 pub use scripting::{
@@ -57,6 +58,13 @@ pub use systems::player_state::{
 pub use systems::quest::{
     abandon_quest, accept_quest, complete_quest, handle_explore_event, handle_kill_event,
     handle_talk_event, reconcile_gather_objectives,
+};
+pub use systems::shop::{
+    asking_price, base_price, charisma_bonus, charisma_of, evaluate_counter, haggle_floor,
+    haggle_on_cooldown, init_stock, insult_threshold, pending_haggle_valid, reputation_multiplier,
+    restock_shops, roll_count, sell_price, shop_buys_item, shopkeeper_in_room, CounterOutcome,
+    ShopParams, DEFAULT_HAGGLE_COOLDOWN_SECS, DEFAULT_HAGGLE_FLOOR, DEFAULT_HAGGLE_ROUNDS,
+    DEFAULT_INSULT_FLOOR,
 };
 pub use systems::skill_gate::run_skill_gate_pulse;
 pub use systems::skill_use::{

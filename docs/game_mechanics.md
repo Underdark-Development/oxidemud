@@ -598,6 +598,43 @@ Attempts to bank without a banker present are refused with a prompt to find one.
 
 ---
 
+## Shops
+
+Vendors are NPCs whose mob template carries a `shop` field pointing at a shop template in `content/shops/`. To trade, stand in the same room as a vendor.
+
+### Commands
+
+| Command              | Description                                                                     |
+| -------------------- | ------------------------------------------------------------------------------- |
+| `list`               | Shows the vendor's wares and their asking prices, including out-of-stock items. |
+| `buy <item>`         | Purchases the item at the asking price.                                         |
+| `buy <item> <offer>` | Makes an offer and enters haggling.                                             |
+| `sell <item>`        | Sells a carried item the vendor will buy.                                       |
+| `value <item>`       | Shows how much a vendor would pay for a carried item.                           |
+
+### Haggling
+
+When you make an offer, the vendor answers with one of three outcomes:
+
+- **Accept** — your offer meets the vendor's floor and the sale completes.
+- **Counter-offer** — the vendor names a lower price; answer it with another `buy <item> <offer>`.
+- **Refuse** — offers well below the item's worth are rejected as insulting and haggling ends.
+
+The vendor's floor and patience are shaped by your charisma and your reputation with the vendor's faction. Each accepted round lowers the vendor's floor until it concedes or gives up, and each attempt per item is gated by a short cooldown.
+
+### Pricing
+
+- **Buying**: the asking price is the item's value multiplied by the shop's `sell_rate`, then adjusted by your faction reputation tier.
+- **Selling**: the vendor pays value × `buy_rate`, adjusted by reputation.
+- **Buyback scope**: shops only buy item types listed in their `buy_types` (e.g. potions). Anything else is refused.
+- **Restocking**: shop stock refills on a per-shop cadence, so sold-out and sold items recover over time.
+
+### Reputation Tiers
+
+Your standing with a faction (such as `town_guard`) places you in a rank like Hostile, Neutral, Friendly, or Adored. Each shop defines a price multiplier per rank: well-liked players pay less and earn more when selling, while hostile players pay a premium.
+
+---
+
 ## Time & Weather
 
 ### Time System

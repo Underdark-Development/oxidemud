@@ -11,6 +11,7 @@ pub mod player_state;
 pub mod quest;
 pub mod regen;
 pub mod set_bonus;
+pub mod shop;
 pub mod skill_gate;
 pub mod skill_use;
 pub mod stance;

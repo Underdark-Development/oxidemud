@@ -3,6 +3,19 @@ name = "Elias's Wares"
 buy_rate = 0.5
 sell_rate = 1.5
 restock_secs = 300
+buy_types = ["potion"]
+
+[price_mods]
+Adored = 0.85
+Friendly = 0.95
+Neutral = 1.0
+Hostile = 1.5
+
+[params]
+haggle_floor = "0.75"
+haggle_rounds = "4"
+insult_floor = "0.60"
+haggle_cooldown_secs = "300"
 
 [[inventory]]
 item = "healing_salve"

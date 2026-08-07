@@ -80,6 +80,24 @@ impl MobTemplate {
             let _ = world.insert(npc, (crate::components::Banker,));
         }
 
+        if let Some(ref shop_id) = self.shop {
+            let stock = registry
+                .shops
+                .get(shop_id)
+                .map(|shop| crate::components::ShopStock(crate::systems::shop::init_stock(shop)))
+                .unwrap_or_default();
+            let _ = world.insert(
+                npc,
+                (
+                    crate::components::Shopkeeper {
+                        shop_id: shop_id.clone(),
+                    },
+                    stock,
+                    crate::components::LastRestock(std::time::Instant::now()),
+                ),
+            );
+        }
+
         if !self.trainer_types.is_empty() {
             let _ = world.insert(
                 npc,

@@ -190,6 +190,20 @@ impl TemplateRegistry {
             }
         }
 
+        // Validate shops
+        for (id, shop) in &self.shops {
+            for (idx, entry) in shop.inventory.iter().enumerate() {
+                if !self.items.contains_key(&entry.item) {
+                    errors.push(ValidationError {
+                        template_type: "shop",
+                        template_id: id.clone(),
+                        field: format!("inventory[{idx}].item"),
+                        message: format!("references unknown item template: {}", entry.item),
+                    });
+                }
+            }
+        }
+
         // Validate passives referenced by race/class/items
         for race in self.races.values() {
             for ability in &race.racial_abilities {

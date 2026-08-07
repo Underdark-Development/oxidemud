@@ -217,6 +217,9 @@ pub fn spawn_game_loop(
                         systems::corpse::run_corpse_pulse(&mut w);
                         oxide_core::run_skill_gate_pulse(&mut w);
                         oxide_core::run_group_cleanup(&mut w, Instant::now());
+                        if let Some(templates) = crate::get_templates() {
+                            oxide_core::restock_shops(&mut w, &templates);
+                        }
                         if let Some(ref db) = db {
                             if let Ok(db_guard) = db.try_lock() {
                                 save_online_players(&mut w, &db_guard, false);

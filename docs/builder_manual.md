@@ -686,6 +686,62 @@ Factions track players' reputations with in-game organizations or groups. Factio
 
 ---
 
+### Shops (`ShopTemplate`)
+
+Stored under `content/shops/`. A shop is attached to an NPC through the mob's `shop` field. The mob's `faction` determines which reputation tier applies to shoppers (see `price_mods` below).
+
+```toml
+id = "elias_wares"
+name = "Elias's General Store"
+
+buy_rate = 0.5    # Fraction of value the shop pays when buying from players
+sell_rate = 1.5   # Multiplier on value applied to prices players pay
+restock_secs = 300  # Seconds between automatic restocks of stock counts
+
+# Item types/subtypes the shop will buy back from players (empty = buys nothing)
+buy_types = ["potion"]
+
+# Price multiplier per faction rank (keys must match the faction's `ranks`)
+[price_mods]
+Adored = 0.85
+Friendly = 0.95
+Neutral = 1.0
+Hostile = 1.5
+
+# Haggling knobs (string values)
+[params]
+haggle_floor = "0.75"          # Vendor accepts nothing below this fraction of asking
+insult_floor = "0.60"          # Offers below this are refused as insulting
+haggle_rounds = "4"            # Counter-offer rounds before the vendor gives up
+haggle_cooldown_secs = "300"   # Cooldown between haggling attempts per item
+
+[[inventory]]
+item = "healing_salve"   # Item template ID
+count = 10               # Restock target count
+price = 30               # Asking price in copper (overrides value × sell_rate)
+
+[[inventory]]
+item = "torch"
+count = 25
+price = 3
+```
+
+| Field          | Type    | Default | Description                                                                                                     |
+| -------------- | ------- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| `id`           | String  | —       | Unique shop identifier.                                                                                         |
+| `name`         | String  | —       | Shop display name.                                                                                              |
+| `buy_rate`     | Number  | —       | Fraction of base value the shop pays when buying from players.                                                  |
+| `sell_rate`    | Number  | —       | Multiplier on base value applied to prices players pay to buy.                                                  |
+| `restock_secs` | Integer | —       | Seconds between automatic restocks of stock counts.                                                             |
+| `inventory`    | Array   | `[]`    | Stock entries: `item` (template ID), `count` (restock target), `price` (copper; defaults to value × sell_rate). |
+| `buy_types`    | Array   | `[]`    | Item types/subtypes the shop buys back from players. Empty means the shop buys nothing.                         |
+| `price_mods`   | Map     | `{}`    | Price multiplier per faction rank, keyed by rank name (e.g. `Neutral`).                                         |
+| `params`       | Map     | `{}`    | Haggling knobs: `haggle_floor`, `insult_floor`, `haggle_rounds`, `haggle_cooldown_secs`.                        |
+
+If no `price_mods` entry matches a player's current rank, Neutral pricing (1.0) is assumed.
+
+---
+
 ### Item Quality & Affixes
 
 Items have a quality tier that determines how many affixes they can roll when spawned as loot.

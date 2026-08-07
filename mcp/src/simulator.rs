@@ -878,10 +878,18 @@ pub fn simulate_shop_transaction(
         .get(item_id)
         .ok_or_else(|| format!("Item template '{}' not found", item_id))?;
 
-    let base_val = item.value as f64;
+    // Prefer the shop's per-entry price override, else the item's base value.
+    let base = shop
+        .inventory
+        .iter()
+        .find(|e| e.item == item_id)
+        .map(|e| oxide_core::base_price(e, item))
+        .unwrap_or(item.value);
 
-    fn fmt_coins(copper: f64) -> String {
-        let total_cp = copper.round() as u64;
+    let buys = oxide_core::shop_buys_item(shop, item);
+
+    fn fmt_coins(copper: u64) -> String {
+        let total_cp = copper;
         let gp = total_cp / 10000;
         let rem = total_cp % 10000;
         let sp = rem / 100;
@@ -904,42 +912,57 @@ pub fn simulate_shop_transaction(
     );
     out.push_str(&format!(
         "*   **Base Value**: {} ({:.0} cp)\n",
-        fmt_coins(base_val),
-        base_val
+        fmt_coins(base),
+        base
     ));
     out.push_str(&format!(
         "*   **Shop Buy Markup (Sell Rate)**: {:.2}x\n",
         shop.sell_rate
     ));
     out.push_str(&format!(
-        "*   **Shop Sell Markdown (Buy Rate)**: {:.2}x\n\n",
+        "*   **Shop Sell Markdown (Buy Rate)**: {:.2}x\n",
         shop.buy_rate
     ));
+    out.push_str(&format!(
+        "*   **Buyback**: {}\n\n",
+        if buys {
+            "accepted"
+        } else {
+            "not accepted for this item"
+        }
+    ));
+
+    // Reputation tiers come from the shop's own price_mods, with a Neutral
+    // fallback, so the sim always reflects the shop's pricing config.
+    let mut mods: Vec<(String, f64)> = shop
+        .price_mods
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+    if !mods.iter().any(|(k, _)| k.eq_ignore_ascii_case("Neutral")) {
+        mods.push(("Neutral".to_string(), 1.0));
+    }
+    mods.sort_by(|a, b| a.1.total_cmp(&b.1));
 
     out.push_str(
         "| Reputation Level | Buying from Shop (Player Cost) | Selling to Shop (Player Gain) |\n",
     );
     out.push_str("|---|---|---|\n");
 
-    let reps = [
-        ("Adored", 0.80, 1.20),
-        ("Friendly", 0.90, 1.10),
-        ("Neutral", 1.00, 1.00),
-        ("Unfriendly", 1.25, 0.75),
-        ("Hostile", 1.50, 0.50),
-    ];
-
-    for (name, buy_mult, sell_mult) in &reps {
-        let player_buy = base_val * shop.sell_rate * buy_mult;
-        let player_sell = base_val * shop.buy_rate * sell_mult;
+    for (name, mult) in &mods {
+        let player_buy = oxide_core::asking_price(shop, base, *mult);
+        let player_sell = oxide_core::sell_price(shop, base, *mult);
 
         out.push_str(&format!(
-            "| **{}** | {} ({:.0} cp) | {} ({:.0} cp) |\n",
+            "| **{}** | {} ({:.0} cp) | {} |\n",
             name,
             fmt_coins(player_buy),
-            player_buy.round(),
-            fmt_coins(player_sell),
-            player_sell.round()
+            player_buy as f64,
+            if buys {
+                format!("{} ({:.0} cp)", fmt_coins(player_sell), player_sell as f64)
+            } else {
+                "not bought".to_string()
+            }
         ));
     }
 
@@ -2335,6 +2358,8 @@ mod tests {
             sell_rate: 1.2,
             restock_secs: 300,
             inventory: vec![],
+            buy_types: vec![],
+            price_mods: HashMap::new(),
             params: HashMap::new(),
         };
         let item = ItemTemplate {

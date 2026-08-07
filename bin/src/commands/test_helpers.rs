@@ -230,6 +230,82 @@ pub fn init_test_templates() -> std::sync::MutexGuard<'static, ()> {
         .items
         .insert("wooden_shield".to_string(), shield_tmpl);
 
+    // Shop items
+    let healing_salve_tmpl = core::templates::ItemTemplate {
+        id: "healing_salve".to_string(),
+        name: "Healing Salve".to_string(),
+        description: "A clay pot of green herbal paste.".to_string(),
+        item_type: "potion".to_string(),
+        subtype: String::new(),
+        quality: "common".to_string(),
+        level_requirement: 1,
+        weight: 0.3,
+        value: 25,
+        flags: vec![],
+        allowed_classes: vec![],
+        allowed_races: vec![],
+        allowed_alignments: vec![],
+        requires_skill: None,
+        weapon: None,
+        equipment: None,
+        set: None,
+        triggers: vec![],
+        params: std::collections::HashMap::new(),
+        ..Default::default()
+    };
+    registry
+        .items
+        .insert("healing_salve".to_string(), healing_salve_tmpl);
+
+    let torch_tmpl = core::templates::ItemTemplate {
+        id: "torch".to_string(),
+        name: "Torch".to_string(),
+        description: "A resin-soaked brand.".to_string(),
+        item_type: "light".to_string(),
+        subtype: String::new(),
+        quality: "common".to_string(),
+        level_requirement: 1,
+        weight: 1.0,
+        value: 2,
+        flags: vec![],
+        allowed_classes: vec![],
+        allowed_races: vec![],
+        allowed_alignments: vec![],
+        requires_skill: None,
+        weapon: None,
+        equipment: None,
+        set: None,
+        triggers: vec![],
+        params: std::collections::HashMap::new(),
+        ..Default::default()
+    };
+    registry.items.insert("torch".to_string(), torch_tmpl);
+
+    // Shop template used by shop command tests
+    let test_shop = core::templates::ShopTemplate {
+        id: "test_shop".to_string(),
+        name: "Test Shop".to_string(),
+        buy_rate: 0.5,
+        sell_rate: 1.5,
+        restock_secs: 300,
+        inventory: vec![
+            core::templates::ShopInventoryEntry {
+                item: "healing_salve".to_string(),
+                count: core::templates::ShopInventoryCount { min: 2, max: 5 },
+                price: 30,
+            },
+            core::templates::ShopInventoryEntry {
+                item: "torch".to_string(),
+                count: core::templates::ShopInventoryCount { min: 3, max: 10 },
+                price: 3,
+            },
+        ],
+        buy_types: vec!["potion".to_string()],
+        price_mods: std::collections::HashMap::new(),
+        params: std::collections::HashMap::new(),
+    };
+    registry.shops.insert("test_shop".to_string(), test_shop);
+
     // Skill templates for testing
     let heal_skill = core::SkillDef {
         id: "potion_minor_heal".into(),

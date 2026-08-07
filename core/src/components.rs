@@ -8,6 +8,7 @@ pub mod persistence;
 pub mod quest;
 pub mod room;
 pub mod script_params;
+pub mod shop;
 pub mod skills;
 
 pub use character::{
@@ -39,6 +40,7 @@ pub use room::{
     ROOM_PORTAL_OUT, ROOM_SILENT,
 };
 pub use script_params::ScriptParams;
+pub use shop::{HaggleCooldown, LastRestock, PendingHaggle, ShopStock, Shopkeeper};
 pub use skills::{
     ActiveScriptEffect, ActiveScriptEffects, Banker, CommandRestrictions, EffectExpireCondition,
     EffectTemplate, EntityCommands, LearnedSkills, PermanentItemAffects, ResourceCost,

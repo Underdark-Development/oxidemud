@@ -1606,9 +1606,19 @@ impl OxideMcpServer {
                         )
                     })
                     .collect();
+                let price_mods: Vec<String> = s
+                    .price_mods
+                    .iter()
+                    .map(|(k, v)| format!("{k}: {v}x"))
+                    .collect();
+                let params: Vec<String> =
+                    s.params.iter().map(|(k, v)| format!("{k}: {v}")).collect();
                 format!(
-                    "id: {}\nname: {}\nbuy_rate: {}\nsell_rate: {}\nrestock_secs: {}\ninventory: [{}]",
+                    "id: {}\nname: {}\nbuy_rate: {}\nsell_rate: {}\nrestock_secs: {}\nbuy_types: [{}]\nprice_mods: [{}]\nparams: [{}]\ninventory: [{}]",
                     p.id, s.name, s.buy_rate, s.sell_rate, s.restock_secs,
+                    s.buy_types.join(", "),
+                    price_mods.join(", "),
+                    params.join(", "),
                     inv.join(", "),
                 )
             }
@@ -1637,6 +1647,8 @@ impl OxideMcpServer {
             sell_rate: 1.0,
             restock_secs: 3600,
             inventory: Vec::new(),
+            buy_types: Vec::new(),
+            price_mods: HashMap::new(),
             params: HashMap::new(),
         };
         match toml::to_string_pretty(&shop) {

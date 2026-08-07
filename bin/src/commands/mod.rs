@@ -11,6 +11,7 @@ pub mod group;
 pub mod items;
 pub mod movement;
 pub mod reports;
+pub mod shop;
 pub mod social;
 pub mod test_helpers;
 
@@ -31,4 +32,5 @@ pub fn register_all_commands(server: &mut Server) {
     social::register(server);
     alias::register(server);
     bank::register(server);
+    shop::register(server);
 }
