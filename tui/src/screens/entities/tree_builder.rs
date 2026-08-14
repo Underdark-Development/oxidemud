@@ -195,6 +195,7 @@ impl EntitiesScreen {
         );
 
         self.tree = Tree::new(roots);
+        self.tree.search_filter = self.search.clone();
         self.tree.selected = Some(0);
     }
 }

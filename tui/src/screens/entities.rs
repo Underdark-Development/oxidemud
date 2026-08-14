@@ -296,7 +296,8 @@ impl EntitiesScreen {
             }
             KeyCode::Char('/') => {
                 self.search_focus = true;
-                self.search.get_or_insert_with(String::new);
+                self.search = Some(String::new());
+                self.rebuild_tree();
             }
             _ => {}
         }
@@ -1679,19 +1680,11 @@ impl Screen for EntitiesScreen {
                 &search_text,
                 Style::default().fg(Color::Cyan).bg(Color::Indexed(236)),
             );
-            if let Some(ref s) = self.search {
-                let cursor_x = area.x + 2 + s.len() as u16;
-                if cursor_x < area.x + area.width {
-                    buf.set_string(
-                        cursor_x,
-                        area.y,
-                        "\u{2588}",
-                        Style::default().fg(Color::Cyan).bg(Color::Indexed(236)),
-                    );
-                }
-            } else {
+            let s_len = self.search.as_deref().map(|s| s.chars().count()).unwrap_or(0);
+            let cursor_x = area.x + 3 + s_len as u16;
+            if cursor_x < area.x + area.width {
                 buf.set_string(
-                    area.x + 2,
+                    cursor_x,
                     area.y,
                     "\u{2588}",
                     Style::default().fg(Color::Cyan).bg(Color::Indexed(236)),
