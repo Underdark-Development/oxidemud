@@ -6,6 +6,29 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub fn handle_key(app: &mut App, key: KeyEvent) {
     app.clear_hover();
 
+    // Quit dialog is active: route all keys to quit dialog
+    if app.quit_dialog.is_some() {
+        if key.code == KeyCode::Esc {
+            app.quit_dialog = None;
+            return;
+        }
+        if let Some(ref mut dialog) = app.quit_dialog {
+            if let Some(btn) = dialog.handle_key(key) {
+                if btn == 0 {
+                    app.quit_dialog = None;
+                } else if btn == 1 {
+                    app.quit_dialog = None;
+                    app.handle_command_action(CommandAction::SaveEntity);
+                    app.should_quit = true;
+                } else if btn == 2 {
+                    app.quit_dialog = None;
+                    app.should_quit = true;
+                }
+            }
+        }
+        return;
+    }
+
     // Command palette is open: route to command palette
     if app.command_palette_open {
         if key.code == KeyCode::Esc
@@ -60,7 +83,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
     // Global: Ctrl+D to quit
     if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::CONTROL {
-        app.should_quit = true;
+        app.confirm_quit();
         return;
     }
 

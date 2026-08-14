@@ -10,15 +10,22 @@ pub fn render_dropdown_box(buf: &mut Buffer, rect: Rect, border_style: Style) {
     if rect.width < 4 || rect.height < 3 {
         return;
     }
+    ratatui::widgets::Clear.render(rect, buf);
     let block = Block::default()
         .borders(Borders::ALL)
         .style(border_style.bg(Color::Black));
     block.render(rect, buf);
-    for y in (rect.y + 1)..(rect.y + rect.height - 1) {
-        for x in (rect.x + 1)..(rect.x + rect.width - 1) {
+    for y in rect.y..rect.y + rect.height {
+        for x in rect.x..rect.x + rect.width {
             if let Some(cell) = buf.cell_mut((x, y)) {
-                cell.set_char(' ');
-                cell.set_bg(Color::Black);
+                if x > rect.x
+                    && x < rect.x + rect.width - 1
+                    && y > rect.y
+                    && y < rect.y + rect.height - 1
+                {
+                    cell.set_char(' ');
+                }
+                cell.set_style(Style::default().bg(Color::Black).fg(Color::White));
             }
         }
     }

@@ -22,7 +22,7 @@ impl EntitiesScreen {
         if !self.registry.areas.is_empty() {
             let mut area_count = 0usize;
             let mut area_node = TreeNode::new(
-                "Areas".to_string(),
+                "🧭 Areas".to_string(),
                 NodeInfo {
                     category: String::new(),
                     id: String::new(),
@@ -79,7 +79,7 @@ impl EntitiesScreen {
                 }
             }
             if area_count > 0 {
-                area_node.label = format!("Areas ({area_count})");
+                area_node.label = format!("🧭 Areas ({area_count})");
                 roots.push(area_node);
             }
         }
@@ -88,7 +88,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.items,
-            "Items",
+            "📦 Items",
             "items",
             |i| i.name.clone(),
             filter_str,
@@ -97,7 +97,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.mobs,
-            "Mobs",
+            "🧟 Mobs",
             "mobs",
             |m| m.name.clone(),
             filter_str,
@@ -106,7 +106,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.quests,
-            "Quests",
+            "📜 Quests",
             "quests",
             |q| q.name.clone(),
             filter_str,
@@ -115,7 +115,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.factions,
-            "Factions",
+            "🛡️ Factions",
             "factions",
             |f| f.name.clone(),
             filter_str,
@@ -124,7 +124,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.recipes,
-            "Recipes",
+            "🛠️ Recipes",
             "recipes",
             |r| r.name.clone(),
             filter_str,
@@ -133,7 +133,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.races,
-            "Races",
+            "🧬 Races",
             "races",
             |r| r.name.clone(),
             filter_str,
@@ -142,7 +142,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.classes,
-            "Classes",
+            "⚔️ Classes",
             "classes",
             |c| c.name.clone(),
             filter_str,
@@ -151,7 +151,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.skills,
-            "Skills",
+            "✨ Skills",
             "skills",
             |s| s.name.clone(),
             filter_str,
@@ -160,7 +160,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.stances,
-            "Stances",
+            "🥋 Stances",
             "stances",
             |s| s.name.clone(),
             filter_str,
@@ -169,7 +169,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.sets,
-            "Sets",
+            "👑 Sets",
             "sets",
             |s| s.name.clone(),
             filter_str,
@@ -178,7 +178,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.affixes,
-            "Affixes",
+            "💎 Affixes",
             "affixes",
             |a| a.name.clone(),
             filter_str,
@@ -187,7 +187,7 @@ impl EntitiesScreen {
         add_group(
             &mut roots,
             &self.registry.passives,
-            "Passives",
+            "🔮 Passives",
             "passives",
             |p| p.name.clone(),
             filter_str,

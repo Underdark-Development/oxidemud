@@ -34,33 +34,30 @@ impl EntityInspectorScreen {
         Self::add_field(table, "credits", area.credits.as_deref().unwrap_or(""));
 
         // Spawns
-        if area.spawns.is_empty() {
-            Self::add_field(table, "spawns[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, spawn) in area.spawns.iter().enumerate() {
-                Self::add_field(table, &format!("spawns[{i}].room"), &spawn.room);
-                Self::add_field(table, &format!("spawns[{i}].label"), &spawn.label);
-                Self::add_field(
-                    table,
-                    &format!("spawns[{i}].description"),
-                    &spawn.description,
-                );
-                Self::add_field(
-                    table,
-                    &format!("spawns[{i}].allowed_races"),
-                    spawn.allowed_races.join(", "),
-                );
-                Self::add_field(
-                    table,
-                    &format!("spawns[{i}].allowed_classes"),
-                    spawn.allowed_classes.join(", "),
-                );
-                Self::add_field(
-                    table,
-                    &format!("spawns[{i}].allowed_alignments"),
-                    spawn.allowed_alignments.join(", "),
-                );
-            }
+        Self::add_array_header(table, "spawns", area.spawns.len());
+        for (i, spawn) in area.spawns.iter().enumerate() {
+            Self::add_array_item(table, &format!("spawns[{i}].room"), &spawn.room);
+            Self::add_field(table, &format!("  spawns[{i}].label"), &spawn.label);
+            Self::add_field(
+                table,
+                &format!("  spawns[{i}].description"),
+                &spawn.description,
+            );
+            Self::add_field(
+                table,
+                &format!("  spawns[{i}].allowed_races"),
+                spawn.allowed_races.join(", "),
+            );
+            Self::add_field(
+                table,
+                &format!("  spawns[{i}].allowed_classes"),
+                spawn.allowed_classes.join(", "),
+            );
+            Self::add_field(
+                table,
+                &format!("  spawns[{i}].allowed_alignments"),
+                spawn.allowed_alignments.join(", "),
+            );
         }
     }
 
@@ -184,6 +181,20 @@ impl EntityInspectorScreen {
                     area.spawns.remove(index);
                 }
             }
+            _ => return Err(format!("unknown area array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn clear_area_array(&mut self, prefix: &str) -> Result<(), String> {
+        let area = self
+            .registry
+            .areas
+            .get_mut(&self.template_id)
+            .ok_or("area not found")?;
+        match prefix {
+            "spawns" => area.spawns.clear(),
+            "flags" => area.flags.clear(),
             _ => return Err(format!("unknown area array: {prefix}")),
         }
         Ok(())

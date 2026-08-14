@@ -121,7 +121,22 @@ impl EntitiesScreen {
         (area_width * 25 / 100).clamp(20, 35)
     }
 
+    fn sync_detail_changes(&mut self) {
+        if let Some(ref mut detail) = self.detail {
+            if detail.dirty {
+                detail.apply_changes(&mut self.registry);
+                if self
+                    .unsaved
+                    .insert((detail.category.clone(), detail.template_id.clone()))
+                {
+                    self.rebuild_tree();
+                }
+            }
+        }
+    }
+
     fn open_detail(&mut self, category: String, template_id: String) {
+        self.sync_detail_changes();
         let is_draft = self
             .draft_data
             .contains_key(&(category.clone(), template_id.clone()));
@@ -304,6 +319,7 @@ impl EntitiesScreen {
                 self.focus = Focus::Tree;
             }
         }
+        self.sync_detail_changes();
     }
 
     fn handle_tree_mouse(&mut self, mouse: MouseEvent, area: Rect, _tree_width: u16) {
@@ -810,7 +826,7 @@ fn generate_default_content(
 }
 
 /// Parse a raw TOML string into the proper struct and insert into the registry.
-fn insert_draft_into_registry(
+pub(super) fn insert_draft_into_registry(
     registry: &mut TemplateRegistry,
     category: &str,
     id: &str,
@@ -1036,6 +1052,22 @@ impl Screen for EntitiesScreen {
         self.unsaved.len()
     }
 
+    fn syntax_error_count(&self) -> usize {
+        if let Some(ref detail) = self.detail {
+            detail.syntax_error_count()
+        } else {
+            0
+        }
+    }
+
+    fn validation_error_count(&self) -> usize {
+        if let Some(ref detail) = self.detail {
+            detail.validation_error_count()
+        } else {
+            0
+        }
+    }
+
     fn set_sidebar_focused(&mut self, focused: bool) {
         self.sidebar_focused = focused;
     }
@@ -1065,15 +1097,18 @@ impl Screen for EntitiesScreen {
                     area.height.saturating_sub(1),
                 );
                 detail.handle_mouse(mouse, detail_area);
-                if detail.deleted {
-                    self.unsaved
-                        .remove(&(detail.category.clone(), detail.template_id.clone()));
-                    self.draft_data
-                        .remove(&(detail.category.clone(), detail.template_id.clone()));
-                    remove_from_registry(&mut self.registry, &detail.category, &detail.template_id);
-                    self.detail = None;
-                    self.focus = Focus::Tree;
-                    self.rebuild_tree();
+                self.sync_detail_changes();
+                if let Some(ref detail) = self.detail {
+                    if detail.deleted {
+                        let cat = detail.category.clone();
+                        let id = detail.template_id.clone();
+                        self.unsaved.remove(&(cat.clone(), id.clone()));
+                        self.draft_data.remove(&(cat.clone(), id.clone()));
+                        remove_from_registry(&mut self.registry, &cat, &id);
+                        self.detail = None;
+                        self.focus = Focus::Tree;
+                        self.rebuild_tree();
+                    }
                 }
             }
         }
@@ -1134,6 +1169,14 @@ impl Screen for EntitiesScreen {
 
     fn handle_command_action(&mut self, action: &CommandAction) -> Result<bool, String> {
         match action {
+            CommandAction::ToggleViewMode => {
+                if let Some(ref mut detail) = self.detail {
+                    detail.toggle_view_mode();
+                    Ok(true)
+                } else {
+                    Err("No entity selected to toggle view mode".to_string())
+                }
+            }
             CommandAction::CreateEntity(cat) => {
                 let ctx = self.selection_context();
                 let normalized = normalize_category(cat);
@@ -1492,6 +1535,8 @@ impl Screen for EntitiesScreen {
         if area.width < 2 || area.height < 2 {
             return;
         }
+
+        self.sync_detail_changes();
 
         let tree_muted = self.focus == Focus::Detail || self.sidebar_focused;
         let detail_muted = self.focus == Focus::Tree || self.sidebar_focused;

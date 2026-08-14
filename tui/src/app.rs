@@ -53,6 +53,7 @@ pub struct App {
     pub sidebar_focused: bool,
     pub command_palette_open: bool,
     pub command_palette: CommandPalette,
+    pub quit_dialog: Option<crate::components::Dialog>,
 }
 
 struct TerminalGuard;
@@ -108,6 +109,25 @@ impl App {
             sidebar_focused: false,
             command_palette_open: false,
             command_palette: CommandPalette::new(),
+            quit_dialog: None,
+        }
+    }
+
+    pub fn confirm_quit(&mut self) {
+        let total_unsaved: usize = self.screens.iter().map(|s| s.unsaved_count()).sum();
+        if total_unsaved > 0 {
+            self.quit_dialog = Some(crate::components::Dialog::new(
+                ratatui::style::Color::Red,
+                " Unsaved Edits Warning ",
+                "You have unsaved changes across entities! Are you sure you want to quit?",
+                &[
+                    "Cancel".into(),
+                    "Save & Quit".into(),
+                    "Discard & Quit".into(),
+                ],
+            ));
+        } else {
+            self.should_quit = true;
         }
     }
 
@@ -121,6 +141,16 @@ impl App {
 
     pub fn switch_screen(&mut self, id: ScreenId) {
         self.active_screen = id;
+        let entities_idx = ScreenId::Entities.as_index();
+        if let Some(registry) = self.screens[entities_idx].registry() {
+            let registry = registry.clone();
+            self.registry = registry.clone();
+            let idx = id.as_index();
+            if idx < self.screens.len() {
+                self.screens[idx].update_registry(&registry);
+                self.screens[idx].reload();
+            }
+        }
     }
 
     pub fn reload_content(&mut self) {
@@ -150,8 +180,7 @@ impl App {
                 self.switch_screen(ScreenId::Validation);
             }
             CommandAction::Quit => {
-                self.set_status("Quitting...");
-                self.should_quit = true;
+                self.confirm_quit();
             }
             CommandAction::SwitchScreen(idx) => {
                 if let Some(id) = ScreenId::from_index(idx) {
@@ -258,6 +287,23 @@ impl App {
                     self.mouse_pos = Some((mouse.column, mouse.row));
                     let size = terminal.size()?;
                     let main_area = Rect::new(0, 2, size.width, size.height.saturating_sub(4));
+
+                    // Route mouse to quit dialog if active
+                    if let Some(ref mut dialog) = self.quit_dialog {
+                        if let Some(btn) = dialog.handle_mouse(mouse) {
+                            if btn == 0 {
+                                self.quit_dialog = None;
+                            } else if btn == 1 {
+                                self.quit_dialog = None;
+                                self.handle_command_action(CommandAction::SaveEntity);
+                                self.should_quit = true;
+                            } else if btn == 2 {
+                                self.quit_dialog = None;
+                                self.should_quit = true;
+                            }
+                        }
+                        continue;
+                    }
 
                     // Route mouse to command palette if open
                     if self.command_palette_open {

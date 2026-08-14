@@ -178,6 +178,11 @@ impl MenuBar {
                         Some("Ctrl+B".into()),
                         CommandAction::ToggleSidebar,
                     ),
+                    MenuItem::action(
+                        "Toggle Raw TOML View",
+                        Some("Ctrl+E".into()),
+                        CommandAction::ToggleViewMode,
+                    ),
                     MenuItem::action("Search", Some("/".into()), CommandAction::ToggleSearch),
                     MenuItem::separator(),
                     MenuItem::action("Expand All", None, CommandAction::ExpandAll),
@@ -632,12 +637,13 @@ impl MenuBar {
             let items: Vec<&MenuItem> = menu.items.iter().collect();
             let dropdown_rect = self.dropdown_rect(full_area, menu_idx, &items);
 
-            if x >= dropdown_rect.x
-                && x < dropdown_rect.x + dropdown_rect.width
-                && y >= dropdown_rect.y
-                && y < dropdown_rect.y + dropdown_rect.height
-            {
-                let row = (y - dropdown_rect.y).saturating_sub(1) as usize;
+            let in_dropdown_interior = x > dropdown_rect.x
+                && x < dropdown_rect.x + dropdown_rect.width - 1
+                && y > dropdown_rect.y
+                && y < dropdown_rect.y + dropdown_rect.height - 1;
+
+            if in_dropdown_interior {
+                let row = (y - dropdown_rect.y - 1) as usize;
                 if row < items.len() {
                     let item = items[row];
                     if item.is_separator() {
@@ -680,11 +686,10 @@ impl MenuBar {
                     }
                     return None;
                 }
-                self.hovered = None;
-                return None;
             }
 
             // Check submenu
+            let mut in_submenu_interior = false;
             let submenu_stuff = self.open_submenu.as_ref().map(|sub| {
                 let item = &menu.items[sub.0];
                 (sub.0, item.has_submenu())
@@ -695,12 +700,13 @@ impl MenuBar {
                     let sub_items: Vec<&MenuItem> = item.submenu.iter().collect();
                     let sub_rect = self.submenu_rect(full_area, dropdown_rect, sub_idx, &sub_items);
 
-                    if x >= sub_rect.x
-                        && x < sub_rect.x + sub_rect.width
-                        && y >= sub_rect.y
-                        && y < sub_rect.y + sub_rect.height
+                    if x > sub_rect.x
+                        && x < sub_rect.x + sub_rect.width - 1
+                        && y > sub_rect.y
+                        && y < sub_rect.y + sub_rect.height - 1
                     {
-                        let row = (y - sub_rect.y).saturating_sub(1) as usize;
+                        in_submenu_interior = true;
+                        let row = (y - sub_rect.y - 1) as usize;
                         if row < sub_items.len() {
                             let sub_item = sub_items[row];
                             if sub_item.is_separator() {
@@ -722,17 +728,23 @@ impl MenuBar {
                             }
                             return None;
                         }
-                        if let Some(ref mut sub) = self.open_submenu {
-                            sub.1.hovered = None;
-                        }
-                        return None;
                     }
+                }
+            }
+
+            if !in_dropdown_interior {
+                self.hovered = None;
+            }
+            if !in_submenu_interior {
+                if let Some(ref mut sub) = self.open_submenu {
+                    sub.1.hovered = None;
                 }
             }
 
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 self.close_all();
             }
+            return None;
         }
 
         None

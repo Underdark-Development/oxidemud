@@ -119,6 +119,16 @@ pub trait Screen {
         0
     }
 
+    /// Returns the number of syntax errors in this screen.
+    fn syntax_error_count(&self) -> usize {
+        0
+    }
+
+    /// Returns the number of validation errors in this screen.
+    fn validation_error_count(&self) -> usize {
+        0
+    }
+
     /// Returns the currently selected entity, if any.
     fn selection_context(&self) -> Option<EntityContext> {
         None

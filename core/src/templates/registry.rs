@@ -127,6 +127,66 @@ impl TemplateRegistry {
                 }
             }
 
+            // Item type validation
+            let valid_types = [
+                "weapon",
+                "armor",
+                "potion",
+                "scroll",
+                "food",
+                "drink",
+                "container",
+                "key",
+                "quest",
+                "misc",
+            ];
+            if !item.item_type.is_empty() && !valid_types.contains(&item.item_type.as_str()) {
+                errors.push(ValidationError {
+                    template_type: "item",
+                    template_id: id.clone(),
+                    field: "item_type".into(),
+                    message: format!("invalid item type '{}'", item.item_type),
+                });
+            }
+
+            // Quality validation
+            let valid_qualities = [
+                "common",
+                "uncommon",
+                "rare",
+                "epic",
+                "legendary",
+                "artifact",
+            ];
+            if !item.quality.is_empty() && !valid_qualities.contains(&item.quality.as_str()) {
+                errors.push(ValidationError {
+                    template_type: "item",
+                    template_id: id.clone(),
+                    field: "quality".into(),
+                    message: format!("invalid quality '{}'", item.quality),
+                });
+            }
+
+            // Weapon validation
+            if let Some(ref w) = item.weapon {
+                let valid_hands = [
+                    "one_hand",
+                    "two_hand",
+                    "one_or_two_hand",
+                    "onehand",
+                    "twohand",
+                    "one_hand_or_two_hand",
+                ];
+                if !w.hands.is_empty() && !valid_hands.contains(&w.hands.to_lowercase().as_str()) {
+                    errors.push(ValidationError {
+                        template_type: "item",
+                        template_id: id.clone(),
+                        field: "weapon.hands".into(),
+                        message: format!("invalid hands mode '{}'", w.hands),
+                    });
+                }
+            }
+
             // Allowed races
             for race_id in &item.allowed_races {
                 if !self.races.contains_key(race_id) {

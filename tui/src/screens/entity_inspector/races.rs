@@ -18,38 +18,21 @@ impl EntityInspectorScreen {
         Self::add_field(table, "attributes.cha", race.attributes.charisma);
 
         // Allowed Classes
-        if race.allowed_classes.is_empty() {
-            Self::add_field(table, "allowed_classes[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, cls) in race.allowed_classes.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_classes[{i}]"), cls);
-            }
+        Self::add_array_header(table, "allowed_classes", race.allowed_classes.len());
+        for (i, cls) in race.allowed_classes.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_classes[{i}]"), cls);
         }
 
         // Allowed Alignments
-        if race.allowed_alignments.is_empty() {
-            Self::add_field(
-                table,
-                "allowed_alignments[]",
-                "(Empty Array - Press + to add)",
-            );
-        } else {
-            for (i, align) in race.allowed_alignments.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
-            }
+        Self::add_array_header(table, "allowed_alignments", race.allowed_alignments.len());
+        for (i, align) in race.allowed_alignments.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_alignments[{i}]"), align);
         }
 
         // Racial Abilities
-        if race.racial_abilities.is_empty() {
-            Self::add_field(
-                table,
-                "racial_abilities[]",
-                "(Empty Array - Press + to add)",
-            );
-        } else {
-            for (i, ability) in race.racial_abilities.iter().enumerate() {
-                Self::add_field(table, &format!("racial_abilities[{i}]"), ability);
-            }
+        Self::add_array_header(table, "racial_abilities", race.racial_abilities.len());
+        for (i, ability) in race.racial_abilities.iter().enumerate() {
+            Self::add_array_item(table, &format!("racial_abilities[{i}]"), ability);
         }
     }
 
@@ -168,6 +151,21 @@ impl EntityInspectorScreen {
                     race.racial_abilities.remove(index);
                 }
             }
+            _ => return Err(format!("unknown race array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn clear_race_array(&mut self, prefix: &str) -> Result<(), String> {
+        let race = self
+            .registry
+            .races
+            .get_mut(&self.template_id)
+            .ok_or("race not found")?;
+        match prefix {
+            "allowed_classes" => race.allowed_classes.clear(),
+            "allowed_alignments" => race.allowed_alignments.clear(),
+            "racial_abilities" => race.racial_abilities.clear(),
             _ => return Err(format!("unknown race array: {prefix}")),
         }
         Ok(())

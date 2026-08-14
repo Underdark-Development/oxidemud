@@ -59,67 +59,49 @@ impl EntityInspectorScreen {
         }
 
         // Loot entries
-        if mob.loot.entries.is_empty() {
-            Self::add_field(table, "loot.entries[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, entry) in mob.loot.entries.iter().enumerate() {
-                Self::add_field(table, &format!("loot.entries[{i}].item"), &entry.item);
-                Self::add_field(table, &format!("loot.entries[{i}].chance"), entry.chance);
-                if let Some(ref tc) = entry.treasure_class {
-                    Self::add_field(table, &format!("loot.entries[{i}].treasure_class"), tc);
-                }
-                if let Some(ref count) = entry.count {
-                    Self::add_field(table, &format!("loot.entries[{i}].count.min"), count.min);
-                    Self::add_field(table, &format!("loot.entries[{i}].count.max"), count.max);
-                }
+        Self::add_array_header(table, "loot.entries", mob.loot.entries.len());
+        for (i, entry) in mob.loot.entries.iter().enumerate() {
+            Self::add_array_item(table, &format!("loot.entries[{i}].item"), &entry.item);
+            Self::add_field(table, &format!("  loot.entries[{i}].chance"), entry.chance);
+            if let Some(ref tc) = entry.treasure_class {
+                Self::add_field(table, &format!("  loot.entries[{i}].treasure_class"), tc);
+            }
+            if let Some(ref count) = entry.count {
+                Self::add_field(table, &format!("  loot.entries[{i}].count.min"), count.min);
+                Self::add_field(table, &format!("  loot.entries[{i}].count.max"), count.max);
             }
         }
 
         // Aggro race
-        if mob.aggro_race.is_empty() {
-            Self::add_field(table, "aggro_race[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, race_id) in mob.aggro_race.iter().enumerate() {
-                Self::add_field(table, &format!("aggro_race[{i}]"), race_id);
-            }
+        Self::add_array_header(table, "aggro_race", mob.aggro_race.len());
+        for (i, race_id) in mob.aggro_race.iter().enumerate() {
+            Self::add_array_item(table, &format!("aggro_race[{i}]"), race_id);
         }
 
         // Languages
-        if mob.languages.is_empty() {
-            Self::add_field(table, "languages[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, lang) in mob.languages.iter().enumerate() {
-                Self::add_field(table, &format!("languages[{i}]"), lang);
-            }
+        Self::add_array_header(table, "languages", mob.languages.len());
+        for (i, lang) in mob.languages.iter().enumerate() {
+            Self::add_array_item(table, &format!("languages[{i}]"), lang);
         }
 
         // Skills
-        if mob.skills.is_empty() {
-            Self::add_field(table, "skills[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, skill) in mob.skills.iter().enumerate() {
-                Self::add_field(table, &format!("skills[{i}].id"), &skill.id);
-                Self::add_field(table, &format!("skills[{i}].level"), skill.level);
-            }
+        Self::add_array_header(table, "skills", mob.skills.len());
+        for (i, skill) in mob.skills.iter().enumerate() {
+            Self::add_array_item(table, &format!("skills[{i}].id"), &skill.id);
+            Self::add_field(table, &format!("  skills[{i}].level"), skill.level);
         }
 
         // Trainer types
-        if mob.trainer_types.is_empty() {
-            Self::add_field(table, "trainer_types[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, trainer_type) in mob.trainer_types.iter().enumerate() {
-                Self::add_field(table, &format!("trainer_types[{i}]"), trainer_type);
-            }
+        Self::add_array_header(table, "trainer_types", mob.trainer_types.len());
+        for (i, trainer_type) in mob.trainer_types.iter().enumerate() {
+            Self::add_array_item(table, &format!("trainer_types[{i}]"), trainer_type);
         }
 
         // Scripts/hooks
-        if mob.scripts.is_empty() {
-            Self::add_field(table, "scripts[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, script) in mob.scripts.iter().enumerate() {
-                Self::add_field(table, &format!("scripts[{i}].event"), &script.event);
-                Self::add_field(table, &format!("scripts[{i}].script"), &script.script);
-            }
+        Self::add_array_header(table, "scripts", mob.scripts.len());
+        for (i, script) in mob.scripts.iter().enumerate() {
+            Self::add_array_item(table, &format!("scripts[{i}].event"), &script.event);
+            Self::add_field(table, &format!("  scripts[{i}].script"), &script.script);
         }
     }
 
@@ -418,6 +400,24 @@ impl EntityInspectorScreen {
                     mob.scripts.remove(index);
                 }
             }
+            _ => return Err(format!("unknown mob array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn clear_mob_array(&mut self, prefix: &str) -> Result<(), String> {
+        let mob = self
+            .registry
+            .mobs
+            .get_mut(&self.template_id)
+            .ok_or("mob not found")?;
+        match prefix {
+            "loot.entries" => mob.loot.entries.clear(),
+            "aggro_race" => mob.aggro_race.clear(),
+            "languages" => mob.languages.clear(),
+            "skills" => mob.skills.clear(),
+            "trainer_types" => mob.trainer_types.clear(),
+            "scripts" => mob.scripts.clear(),
             _ => return Err(format!("unknown mob array: {prefix}")),
         }
         Ok(())

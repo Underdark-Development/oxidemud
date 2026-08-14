@@ -28,52 +28,33 @@ impl EntityInspectorScreen {
         Self::add_field(table, "attribute_mods.cha", class.attribute_mods.charisma);
 
         // Allowed Races
-        if class.allowed_races.is_empty() {
-            Self::add_field(table, "allowed_races[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, race) in class.allowed_races.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_races[{i}]"), race);
-            }
+        Self::add_array_header(table, "allowed_races", class.allowed_races.len());
+        for (i, race) in class.allowed_races.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_races[{i}]"), race);
         }
 
         // Allowed Alignments
-        if class.allowed_alignments.is_empty() {
-            Self::add_field(
-                table,
-                "allowed_alignments[]",
-                "(Empty Array - Press + to add)",
-            );
-        } else {
-            for (i, align) in class.allowed_alignments.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
-            }
+        Self::add_array_header(table, "allowed_alignments", class.allowed_alignments.len());
+        for (i, align) in class.allowed_alignments.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_alignments[{i}]"), align);
         }
 
         // Auto Skills
-        if class.auto_skills.is_empty() {
-            Self::add_field(table, "auto_skills[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, skill) in class.auto_skills.iter().enumerate() {
-                Self::add_field(table, &format!("auto_skills[{i}]"), skill);
-            }
+        Self::add_array_header(table, "auto_skills", class.auto_skills.len());
+        for (i, skill) in class.auto_skills.iter().enumerate() {
+            Self::add_array_item(table, &format!("auto_skills[{i}]"), skill);
         }
 
         // Skill Pool
-        if class.skill_pool.is_empty() {
-            Self::add_field(table, "skill_pool[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, skill) in class.skill_pool.iter().enumerate() {
-                Self::add_field(table, &format!("skill_pool[{i}]"), skill);
-            }
+        Self::add_array_header(table, "skill_pool", class.skill_pool.len());
+        for (i, skill) in class.skill_pool.iter().enumerate() {
+            Self::add_array_item(table, &format!("skill_pool[{i}]"), skill);
         }
 
         // Starting Items
-        if class.starting_items.is_empty() {
-            Self::add_field(table, "starting_items[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, item) in class.starting_items.iter().enumerate() {
-                Self::add_field(table, &format!("starting_items[{i}]"), item);
-            }
+        Self::add_array_header(table, "starting_items", class.starting_items.len());
+        for (i, item) in class.starting_items.iter().enumerate() {
+            Self::add_array_item(table, &format!("starting_items[{i}]"), item);
         }
 
         Self::add_field(table, "starting_gold.copper", class.starting_gold.copper);
@@ -259,6 +240,23 @@ impl EntityInspectorScreen {
                     cls.starting_items.remove(index);
                 }
             }
+            _ => return Err(format!("unknown class array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn clear_class_array(&mut self, prefix: &str) -> Result<(), String> {
+        let cls = self
+            .registry
+            .classes
+            .get_mut(&self.template_id)
+            .ok_or("class not found")?;
+        match prefix {
+            "allowed_races" => cls.allowed_races.clear(),
+            "allowed_alignments" => cls.allowed_alignments.clear(),
+            "auto_skills" => cls.auto_skills.clear(),
+            "skill_pool" => cls.skill_pool.clear(),
+            "starting_items" => cls.starting_items.clear(),
             _ => return Err(format!("unknown class array: {prefix}")),
         }
         Ok(())

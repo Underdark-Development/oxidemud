@@ -80,9 +80,14 @@ impl CommandPalette {
             ),
             PaletteItem::new("Validate Content", None, CommandAction::ValidateContent),
             PaletteItem::new(
-                "Toggle Command Sidebar",
+                "Toggle Sidebar",
                 Some("Ctrl+B"),
                 CommandAction::ToggleSidebar,
+            ),
+            PaletteItem::new(
+                "Toggle Raw TOML / Form View",
+                Some("Ctrl+E"),
+                CommandAction::ToggleViewMode,
             ),
             PaletteItem::new("Toggle Help Modal", Some("?"), CommandAction::ToggleHelp),
             PaletteItem::new(

@@ -20,14 +20,20 @@ use crate::content::FileMap;
 mod affixes;
 mod areas;
 mod classes;
+mod factions;
 mod items;
 mod mobs;
 mod passives;
+mod quests;
 mod races;
+mod recipes;
 mod rooms;
 mod sets;
 mod skills;
 mod stances;
+
+pub mod raw_editor;
+use raw_editor::{RawTomlEditor, ViewMode};
 
 enum EditMode {
     Idle,
@@ -75,6 +81,8 @@ pub struct EntityInspectorScreen {
     dropdown_scroll: usize,
     /// Original file path at construction time, used to detect file relocation.
     original_path: Option<PathBuf>,
+    pub view_mode: ViewMode,
+    pub raw_editor: RawTomlEditor,
 }
 
 impl EntityInspectorScreen {
@@ -105,10 +113,270 @@ impl EntityInspectorScreen {
             dropdown_hovered: None,
             dropdown_scroll: 0,
             original_path: None,
+            view_mode: ViewMode::Structured,
+            raw_editor: RawTomlEditor::new(),
         };
         screen.load_table();
         screen.original_path = screen.resolve_save_path().ok();
         screen
+    }
+
+    pub fn validate_entity(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        let room_exists = |room_id: &str| -> bool {
+            if room_id.is_empty() {
+                return true;
+            }
+            self.registry
+                .areas
+                .values()
+                .any(|a| a.rooms.contains_key(room_id))
+        };
+
+        match self.category.as_str() {
+            "rooms" => {
+                if let Some(room) = self
+                    .registry
+                    .areas
+                    .values()
+                    .find_map(|a| a.rooms.get(&self.template_id))
+                {
+                    // Validate exits
+                    for (dir, exit) in &room.exits {
+                        let dest = exit.dest();
+                        if !dest.is_empty() && !room_exists(dest) {
+                            errors.push(format!(
+                                "exit.{dir}: destination room '{dest}' does not exist"
+                            ));
+                        }
+                    }
+                    // Validate portals
+                    for (i, portal) in room.portals.iter().enumerate() {
+                        if !portal.dest.is_empty() && !room_exists(&portal.dest) {
+                            errors.push(format!(
+                                "portal[{i}]: destination room '{}' does not exist",
+                                portal.dest
+                            ));
+                        }
+                    }
+                    // Validate mob spawns
+                    for (i, spawn) in room.content.mobs.iter().enumerate() {
+                        if !spawn.template_id.is_empty()
+                            && !self.registry.mobs.contains_key(&spawn.template_id)
+                        {
+                            errors.push(format!(
+                                "content.mobs[{i}]: mob template '{}' does not exist",
+                                spawn.template_id
+                            ));
+                        }
+                    }
+                    // Validate item spawns
+                    for (i, spawn) in room.content.items.iter().enumerate() {
+                        if !spawn.template_id.is_empty()
+                            && !self.registry.items.contains_key(&spawn.template_id)
+                        {
+                            errors.push(format!(
+                                "content.items[{i}]: item template '{}' does not exist",
+                                spawn.template_id
+                            ));
+                        }
+                    }
+                }
+            }
+            "items" => {
+                if let Some(item) = self.registry.items.get(&self.template_id) {
+                    let valid_types = [
+                        "weapon",
+                        "armor",
+                        "potion",
+                        "scroll",
+                        "food",
+                        "drink",
+                        "container",
+                        "key",
+                        "quest",
+                        "misc",
+                    ];
+                    if !item.item_type.is_empty() && !valid_types.contains(&item.item_type.as_str())
+                    {
+                        errors.push(format!("item_type: invalid item type '{}'", item.item_type));
+                    }
+                    let valid_qualities = [
+                        "common",
+                        "uncommon",
+                        "rare",
+                        "epic",
+                        "legendary",
+                        "artifact",
+                    ];
+                    if !item.quality.is_empty() && !valid_qualities.contains(&item.quality.as_str())
+                    {
+                        errors.push(format!("quality: invalid quality '{}'", item.quality));
+                    }
+                    if let Some(ref w) = item.weapon {
+                        let valid_hands = [
+                            "one_hand",
+                            "two_hand",
+                            "one_or_two_hand",
+                            "onehand",
+                            "twohand",
+                            "one_hand_or_two_hand",
+                        ];
+                        if !w.hands.is_empty()
+                            && !valid_hands.contains(&w.hands.to_lowercase().as_str())
+                        {
+                            errors.push(format!("weapon.hands: invalid hands mode '{}'", w.hands));
+                        }
+                        let valid_dmg = [
+                            "slashing",
+                            "piercing",
+                            "bludgeoning",
+                            "fire",
+                            "cold",
+                            "lightning",
+                            "acid",
+                            "poison",
+                            "holy",
+                            "shadow",
+                            "arcane",
+                        ];
+                        if !w.damage_type.is_empty() && !valid_dmg.contains(&w.damage_type.as_str())
+                        {
+                            errors.push(format!(
+                                "weapon.damage_type: invalid damage type '{}'",
+                                w.damage_type
+                            ));
+                        }
+                    }
+                    if let Some(ref eq) = item.equipment {
+                        let valid_slots = [
+                            "head", "neck", "torso", "back", "arms", "hands", "finger", "legs",
+                            "feet", "shield", "weapon", "ranged", "ammo", "wrist", "waist",
+                        ];
+                        if !eq.slot.is_empty() && !valid_slots.contains(&eq.slot.as_str()) {
+                            errors.push(format!("equipment.slot: invalid slot '{}'", eq.slot));
+                        }
+                    }
+                }
+            }
+            "mobs" => {
+                if let Some(mob) = self.registry.mobs.get(&self.template_id) {
+                    let valid_modes = ["idle", "wander", "patrol", "aggressive", "guard", "flee"];
+                    if !mob.ai_mode.is_empty() && !valid_modes.contains(&mob.ai_mode.as_str()) {
+                        errors.push(format!("ai_mode: invalid AI mode '{}'", mob.ai_mode));
+                    }
+                    let valid_sizes = ["tiny", "small", "medium", "large", "huge", "giant"];
+                    if !mob.size.is_empty() && !valid_sizes.contains(&mob.size.as_str()) {
+                        errors.push(format!("size: invalid size '{}'", mob.size));
+                    }
+                    for entry in &mob.equipment {
+                        if !entry.template_id.is_empty()
+                            && !self.registry.items.contains_key(&entry.template_id)
+                        {
+                            errors.push(format!(
+                                "equipment.{}: item template '{}' does not exist",
+                                entry.slot, entry.template_id
+                            ));
+                        }
+                    }
+                    for (i, entry) in mob.loot.entries.iter().enumerate() {
+                        if !entry.item.is_empty() && !self.registry.items.contains_key(&entry.item)
+                        {
+                            errors.push(format!(
+                                "loot.entries[{i}]: item template '{}' does not exist",
+                                entry.item
+                            ));
+                        }
+                    }
+                    for room_id in &mob.patrol_route {
+                        if !room_exists(room_id) {
+                            errors.push(format!("patrol_route: room '{room_id}' does not exist"));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        errors
+    }
+
+    pub fn validate_raw_editor(&mut self) {
+        let category = self.category.clone();
+        self.raw_editor
+            .validate_with_schema(|content| match category.as_str() {
+                "items" => {
+                    toml::from_str::<oxide_core::templates::ItemTemplate>(content).map(|_| ())
+                }
+                "mobs" => toml::from_str::<oxide_core::templates::MobTemplate>(content).map(|_| ()),
+                "quests" => toml::from_str::<oxide_core::templates::QuestDef>(content).map(|_| ()),
+                "recipes" => {
+                    toml::from_str::<oxide_core::templates::RecipeDef>(content).map(|_| ())
+                }
+                "factions" => {
+                    toml::from_str::<oxide_core::templates::FactionDef>(content).map(|_| ())
+                }
+                "areas" => {
+                    toml::from_str::<oxide_core::templates::AreaTemplate>(content).map(|_| ())
+                }
+                "rooms" => {
+                    toml::from_str::<oxide_core::templates::RoomTemplate>(content).map(|_| ())
+                }
+                "races" => {
+                    toml::from_str::<oxide_core::templates::RaceTemplate>(content).map(|_| ())
+                }
+                "classes" => {
+                    toml::from_str::<oxide_core::templates::ClassTemplate>(content).map(|_| ())
+                }
+                _ => Ok(()),
+            });
+        if self.raw_editor.error.is_none() {
+            let sem_errors = self.validate_entity();
+            if let Some(err) = sem_errors.first() {
+                self.raw_editor.error = Some(raw_editor::RawEditorError {
+                    line: 0,
+                    col: 0,
+                    message: err.clone(),
+                    is_syntax: false,
+                });
+            }
+        }
+    }
+
+    pub fn toggle_view_mode(&mut self) {
+        match self.view_mode {
+            ViewMode::Structured => {
+                if let Ok(toml_str) = self.serialize_registry_data() {
+                    self.raw_editor.set_content(&toml_str);
+                    self.validate_raw_editor();
+                }
+                self.view_mode = ViewMode::RawToml;
+            }
+            ViewMode::RawToml => {
+                let toml_str = self.raw_editor.to_string_content();
+                match self.validate_toml(&toml_str) {
+                    Ok(_) => {
+                        super::entities::insert_draft_into_registry(
+                            &mut self.registry,
+                            &self.category,
+                            &self.template_id,
+                            &toml_str,
+                        );
+                        self.load_table();
+                        self.view_mode = ViewMode::Structured;
+                    }
+                    Err(e) => {
+                        self.raw_editor.error = Some(raw_editor::RawEditorError {
+                            line: 0,
+                            col: 0,
+                            message: format!("Cannot switch to Form mode: {e}"),
+                            is_syntax: false,
+                        });
+                    }
+                }
+            }
+        }
     }
 
     fn load_table(&mut self) {
@@ -117,6 +385,9 @@ impl EntityInspectorScreen {
         match self.category.as_str() {
             "items" => self.load_items(&mut table),
             "mobs" => self.load_mobs(&mut table),
+            "quests" => self.load_quests(&mut table),
+            "factions" => self.load_factions(&mut table),
+            "recipes" => self.load_recipes(&mut table),
             "races" => self.load_races(&mut table),
             "classes" => self.load_classes(&mut table),
             "skills" => self.load_skills(&mut table),
@@ -150,13 +421,34 @@ impl EntityInspectorScreen {
         table.add_row(vec![field.to_string(), value.to_string()]);
     }
 
+    pub(super) fn add_array_header(table: &mut Table, name: &str, count: usize) {
+        let val_str = if count == 0 {
+            "(array, 0 items)   [ + Add Entry ]".to_string()
+        } else {
+            let item_str = if count == 1 { "item" } else { "items" };
+            format!("(array, {count} {item_str})   [ + Add Entry ]   [ 🗑 Clear ]")
+        };
+        table.add_row(vec![name.to_string(), val_str]);
+    }
+
+    pub(super) fn add_array_item(table: &mut Table, field: &str, value: impl std::fmt::Display) {
+        table.add_row(vec![format!("  {field}"), format!("{value}   [ ✕ ]")]);
+    }
+
     fn detect_field_kind(&self, row: usize) -> EditMode {
         let value = &self.table.rows[row][1];
-        let field = &self.table.rows[row][0];
+        let clean_field = self.table.rows[row][0].trim();
 
-        if field == "description"
-            || field.ends_with(".description")
-            || field.ends_with(".script")
+        if value.starts_with("(array")
+            || value.contains("[ + Add Entry ]")
+            || value.contains("press + to add")
+        {
+            return EditMode::Idle;
+        }
+
+        if clean_field == "description"
+            || clean_field.ends_with(".description")
+            || clean_field.ends_with(".script")
             || value.len() > 50
         {
             return EditMode::Multiline {
@@ -167,7 +459,7 @@ impl EntityInspectorScreen {
             };
         }
 
-        if let Some(options) = dropdown_options(field) {
+        if let Some(options) = dropdown_options(clean_field) {
             let sel = options.iter().position(|o| o == value).unwrap_or(0);
             return EditMode::Dropdown {
                 row,
@@ -178,10 +470,10 @@ impl EntityInspectorScreen {
         }
 
         let is_number = matches!(
-            field
+            clean_field
                 .rsplit('.')
                 .next()
-                .unwrap_or(field)
+                .unwrap_or(clean_field)
                 .trim_end_matches(']'),
             "level"
                 | "weight"
@@ -190,6 +482,9 @@ impl EntityInspectorScreen {
                 | "chance"
                 | "min"
                 | "max"
+                | "max_items"
+                | "capacity_weight"
+                | "charges"
                 | "count"
                 | "armor"
                 | "xp_value"
@@ -241,6 +536,12 @@ impl EntityInspectorScreen {
     }
 
     fn start_edit(&mut self, row: usize) {
+        if row < self.table.rows.len() {
+            let val = self.table.rows[row][1].clone();
+            if let Some(pos) = val.rfind("   [ ✕ ]") {
+                self.table.rows[row][1] = val[..pos].to_string();
+            }
+        }
         self.edit_mode = self.detect_field_kind(row);
     }
 
@@ -274,7 +575,7 @@ impl EntityInspectorScreen {
             }
         };
 
-        let field = self.table.rows[row][0].clone();
+        let field = self.table.rows[row][0].trim().to_string();
         let old_value = match &self.edit_mode {
             EditMode::Idle => return,
             m => match m {
@@ -1115,6 +1416,9 @@ impl EntityInspectorScreen {
         match self.category.as_str() {
             "items" => self.update_items(field, value),
             "mobs" => self.update_mobs(field, value),
+            "quests" => self.update_quests(field, value),
+            "factions" => self.update_factions(field, value),
+            "recipes" => self.update_recipes(field, value),
             "races" => self.update_races(field, value),
             "classes" => self.update_classes(field, value),
             "skills" => self.update_skills(field, value),
@@ -1164,6 +1468,23 @@ impl Screen for EntityInspectorScreen {
             }
             return true;
         }
+
+        if (key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('e'))
+            || key.code == KeyCode::F(12)
+        {
+            self.toggle_view_mode();
+            return true;
+        }
+
+        if self.view_mode == ViewMode::RawToml {
+            let handled = self.raw_editor.handle_key(key);
+            self.validate_raw_editor();
+            if self.raw_editor.dirty {
+                self.dirty = true;
+            }
+            return handled;
+        }
+
         match self.edit_mode {
             EditMode::Idle => self.handle_key_idle(key),
             EditMode::Text { .. } | EditMode::Number { .. } => self.handle_key_inline(key),
@@ -1171,6 +1492,49 @@ impl Screen for EntityInspectorScreen {
             EditMode::Dropdown { .. } => self.handle_key_dropdown(key),
         }
         true
+    }
+
+    fn unsaved_count(&self) -> usize {
+        if self.dirty {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn syntax_error_count(&self) -> usize {
+        if self.view_mode == ViewMode::RawToml {
+            if let Some(ref err) = self.raw_editor.error {
+                if err.is_syntax {
+                    return 1;
+                }
+            }
+        }
+        0
+    }
+
+    fn validation_error_count(&self) -> usize {
+        if self.view_mode == ViewMode::RawToml {
+            if let Some(ref err) = self.raw_editor.error {
+                if !err.is_syntax {
+                    return 1;
+                }
+            }
+            0
+        } else {
+            self.validate_entity().len()
+        }
+    }
+
+    fn handle_command_action(
+        &mut self,
+        action: &crate::components::CommandAction,
+    ) -> Result<bool, String> {
+        if action == &crate::components::CommandAction::ToggleViewMode {
+            self.toggle_view_mode();
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
@@ -1191,6 +1555,16 @@ impl Screen for EntityInspectorScreen {
             }
             return;
         }
+        if self.view_mode == ViewMode::RawToml {
+            let inner_area = Rect::new(
+                area.x,
+                area.y + 1,
+                area.width,
+                area.height.saturating_sub(1),
+            );
+            self.raw_editor.handle_mouse(mouse, inner_area);
+            return;
+        }
         match self.edit_mode {
             EditMode::Idle => self.handle_mouse_idle(mouse, area),
             EditMode::Dropdown { .. } => self.handle_mouse_dropdown(mouse, area),
@@ -1205,13 +1579,83 @@ impl Screen for EntityInspectorScreen {
 
         self.dropdown_rect = None;
 
-        let info = format!(" {} > {} ", self.category, self.template_id);
-        buf.set_string(
-            area.x,
-            area.y,
-            &info,
-            Style::default().fg(Color::Indexed(245)),
+        let mode_tab = match self.view_mode {
+            ViewMode::Structured => "[Form]  Raw TOML (Ctrl+E)",
+            ViewMode::RawToml => "Form  [Raw TOML (Ctrl+E)]",
+        };
+        let val_errors = self.validate_entity();
+        let err_suffix = if let Some(err) = val_errors.first() {
+            format!("  │  ⚠ {}", err)
+        } else {
+            String::new()
+        };
+        let info = format!(
+            " {} > {}  │  {}{}",
+            self.category, self.template_id, mode_tab, err_suffix
         );
+        let header_style = if val_errors.is_empty() {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(ratatui::style::Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(ratatui::style::Modifier::BOLD)
+        };
+        buf.set_string(area.x, area.y, &info, header_style);
+
+        let inner_area = Rect::new(
+            area.x,
+            area.y + 1,
+            area.width,
+            area.height.saturating_sub(1),
+        );
+
+        if self.view_mode == ViewMode::RawToml {
+            self.raw_editor.render(inner_area, buf, !self.muted);
+            return;
+        }
+
+        self.table.row_errors.clear();
+
+        // 1. TOML Syntax / Schema Errors
+        if let Some(ref toml_err) = self.raw_editor.error {
+            let msg = toml_err.message.clone();
+            for (row_idx, row) in self.table.rows.iter().enumerate() {
+                let f_name = row[0].trim();
+                if f_name.len() > 1 && msg.contains(f_name) {
+                    self.table.row_errors.insert(
+                        row_idx,
+                        crate::components::table::RowErrorInfo {
+                            message: msg.clone(),
+                            is_toml: true,
+                        },
+                    );
+                }
+            }
+        }
+
+        // 2. Semantic Validation Errors (TOML errors take precedence)
+        for err in &val_errors {
+            if let Some(colon_pos) = err.find(':') {
+                let err_field = &err[..colon_pos];
+                for (row_idx, row) in self.table.rows.iter().enumerate() {
+                    let field_name = row[0].trim();
+                    let is_match = field_name == err_field
+                        || field_name.ends_with(err_field)
+                        || err_field.ends_with(field_name)
+                        || err_field.split('.').last() == Some(field_name);
+                    if is_match {
+                        self.table.row_errors.entry(row_idx).or_insert_with(|| {
+                            crate::components::table::RowErrorInfo {
+                                message: err.clone(),
+                                is_toml: false,
+                            }
+                        });
+                    }
+                }
+            }
+        }
 
         let content_lines = area.height.saturating_sub(2) as usize;
         self.table.update_scroll(content_lines);
@@ -1246,7 +1690,7 @@ impl Screen for EntityInspectorScreen {
             area.width.saturating_sub(1),
             area.height.saturating_sub(2),
         );
-        self.table.render(table_area, buf);
+        self.table.render_table(table_area, buf);
 
         let scrollbar_area = Rect::new(
             area.x + area.width - 1,
@@ -1376,6 +1820,9 @@ impl EntityInspectorScreen {
         match self.category.as_str() {
             "items" => self.add_item_array(prefix, index),
             "mobs" => self.add_mob_array(prefix, index),
+            "quests" => self.add_quest_array(prefix, index),
+            "factions" => self.add_faction_array(prefix, index),
+            "recipes" => self.add_recipe_array(prefix, index),
             "areas" => self.add_area_array(prefix, index),
             "rooms" => self.add_room_array(prefix, index),
             "races" => self.add_race_array(prefix, index),
@@ -1391,6 +1838,9 @@ impl EntityInspectorScreen {
         match self.category.as_str() {
             "items" => self.remove_item_array(prefix, index),
             "mobs" => self.remove_mob_array(prefix, index),
+            "quests" => self.remove_quest_array(prefix, index),
+            "factions" => self.remove_faction_array(prefix, index),
+            "recipes" => self.remove_recipe_array(prefix, index),
             "areas" => self.remove_area_array(prefix, index),
             "rooms" => self.remove_room_array(prefix, index),
             "races" => self.remove_race_array(prefix, index),
@@ -1402,18 +1852,109 @@ impl EntityInspectorScreen {
         }
     }
 
+    fn clear_array(&mut self, prefix: &str) -> Result<(), String> {
+        match self.category.as_str() {
+            "items" => self.clear_item_array(prefix),
+            "mobs" => self.clear_mob_array(prefix),
+            "quests" => self.clear_quest_array(prefix),
+            "factions" => self.clear_faction_array(prefix),
+            "recipes" => self.clear_recipe_array(prefix),
+            "areas" => self.clear_area_array(prefix),
+            "rooms" => self.clear_room_array(prefix),
+            "races" => self.clear_race_array(prefix),
+            "classes" => self.clear_class_array(prefix),
+            _ => Err(format!(
+                "clearing array for category {} not supported",
+                self.category
+            )),
+        }
+    }
+
     fn handle_mouse_idle(&mut self, mouse: MouseEvent, area: Rect) {
         match mouse.kind {
             MouseEventKind::ScrollUp => self.table.scroll_up(),
             MouseEventKind::ScrollDown => self.table.scroll_down(),
-            MouseEventKind::Down(_) => {
+            MouseEventKind::Down(MouseButton::Left) => {
                 let row = (mouse.row as usize)
                     .saturating_sub(area.y as usize)
                     .saturating_sub(2)
                     .saturating_add(self.table.scroll.offset);
                 if row < self.table.rows.len() {
+                    let field = self.table.rows[row][0].clone();
+                    let val = self.table.rows[row][1].clone();
+                    let col1_x = area.x + 2 + self.table.col_x(1, area);
+                    let relative_x = (mouse.column as usize).saturating_sub(col1_x as usize);
+
+                    // Check if click was on array header buttons: [ + Add Entry ] or [ 🗑 Clear ]
+                    if val.contains("[ + Add Entry ]") || val.contains("[ 🗑 Clear ]") {
+                        if let Some(start_add) = val.find("[ + Add Entry ]") {
+                            let end_add = start_add + "[ + Add Entry ]".len();
+                            if relative_x >= start_add && relative_x < end_add {
+                                let clean_field = field.trim();
+                                let prefix = clean_field.trim_end_matches("[]").to_string();
+                                let idx = self
+                                    .table
+                                    .rows
+                                    .iter()
+                                    .filter(|r| {
+                                        parse_array_field(r[0].trim())
+                                            .map(|(p, _)| p == prefix)
+                                            .unwrap_or(false)
+                                    })
+                                    .count()
+                                    .saturating_sub(1);
+                                if let Err(e) = self.add_array_entry(&prefix, idx) {
+                                    tracing::error!("add array entry error: {e}");
+                                } else {
+                                    self.dirty = true;
+                                    self.load_table();
+                                }
+                                self.table.selected = Some(row);
+                                return;
+                            }
+                        }
+                        if let Some(start_clear) = val.find("[ 🗑 Clear ]") {
+                            let end_clear = start_clear + "[ 🗑 Clear ]".len();
+                            if relative_x >= start_clear && relative_x < end_clear {
+                                let clean_field = field.trim();
+                                let prefix = clean_field.trim_end_matches("[]").to_string();
+                                if let Err(e) = self.clear_array(&prefix) {
+                                    tracing::error!("clear array error: {e}");
+                                } else {
+                                    self.dirty = true;
+                                    self.load_table();
+                                }
+                                self.table.selected = Some(row);
+                                return;
+                            }
+                        }
+                    }
+
+                    // Check if click was on array item delete button: [ ✕ ]
+                    if val.contains("[ ✕ ]") {
+                        if let Some(start_del) = val.rfind("[ ✕ ]") {
+                            let end_del = start_del + "[ ✕ ]".len();
+                            if relative_x >= start_del && relative_x < end_del {
+                                let clean_field = field.trim();
+                                if let Some((prefix, idx)) = parse_array_field(clean_field) {
+                                    if let Err(e) = self.remove_array_entry(&prefix, idx) {
+                                        tracing::error!("remove array entry error: {e}");
+                                    } else {
+                                        self.dirty = true;
+                                        self.load_table();
+                                    }
+                                    self.table.selected = Some(row.saturating_sub(1));
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    let was_already_selected = self.table.selected == Some(row);
                     self.table.selected = Some(row);
-                    self.start_edit(row);
+                    if was_already_selected {
+                        self.start_edit(row);
+                    }
                 }
             }
             _ => {}
@@ -1706,12 +2247,12 @@ impl EntityInspectorScreen {
         let visible_row = row.saturating_sub(self.table.scroll.offset);
         let row_y = area.y + 1 + 1 + visible_row as u16;
 
-        let max_width = options
-            .iter()
-            .map(|o| o.len() + 4)
-            .max()
-            .unwrap_or(20)
-            .max(10) as u16;
+        let max_option_len = options.iter().map(|o| o.len()).max().unwrap_or(10);
+        let col_width = self.table.col_x(1, area);
+        let max_width = ((max_option_len + 7) as u16)
+            .max(col_width)
+            .max(25)
+            .min(area.width.saturating_sub(4));
 
         let box_height = (options.len() as u16).min(10).saturating_add(2);
         let mut box_y = row_y + 1;
@@ -1719,7 +2260,10 @@ impl EntityInspectorScreen {
             box_y = row_y.saturating_sub(box_height);
         }
 
-        let box_x = area.x + 2 + self.table.col_x(1, area);
+        let mut box_x = area.x + 2 + self.table.col_x(1, area);
+        if box_x + max_width > area.x + area.width {
+            box_x = (area.x + area.width).saturating_sub(max_width);
+        }
         let overlay = Rect::new(box_x, box_y, max_width, box_height);
         self.dropdown_rect = Some(overlay);
 
@@ -1805,8 +2349,11 @@ fn dropdown_options(field: &str) -> Option<Vec<&'static str>> {
             "arcane",
         ]),
         "weapon.range" | "range" => Some(vec!["melee", "short", "medium", "long", "very_long"]),
+        "weapon.hands" | "hands" => Some(vec!["one_hand", "two_hand", "one_or_two_hand"]),
         "type" => Some(vec!["prefix", "suffix"]),
         "quality_min" => Some(vec!["common", "uncommon", "rare", "epic", "legendary"]),
+        "friendly" | "banker" | "wander_area" | "aggro_players" | "is_locked" | "is_opaque"
+        | "allow_revive" => Some(vec!["true", "false"]),
         _ => None,
     }
 }

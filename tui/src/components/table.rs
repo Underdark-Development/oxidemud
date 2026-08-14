@@ -7,6 +7,12 @@ use ratatui::{
 
 use crate::components::ScrollState;
 
+#[derive(Debug, Clone)]
+pub struct RowErrorInfo {
+    pub message: String,
+    pub is_toml: bool,
+}
+
 pub struct Table {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
@@ -16,6 +22,7 @@ pub struct Table {
     pub hovered: Option<usize>,
     pub highlight_symbol: String,
     pub muted: bool,
+    pub row_errors: std::collections::HashMap<usize, RowErrorInfo>,
 }
 
 impl Table {
@@ -30,6 +37,7 @@ impl Table {
             hovered: None,
             highlight_symbol: "▸ ".to_string(),
             muted: false,
+            row_errors: std::collections::HashMap::new(),
         }
     }
 
@@ -68,25 +76,24 @@ impl Table {
             return;
         }
         let idx = self.selected.unwrap_or(0);
-        self.selected = Some(if idx == 0 {
-            self.rows.len() - 1
+        if idx == 0 {
+            self.selected = Some(self.rows.len() - 1);
         } else {
-            idx - 1
-        });
+            self.selected = Some(idx - 1);
+        }
         self.ensure_selected_visible();
     }
 
     pub fn ensure_selected_visible(&mut self) {
-        let idx = match self.selected {
-            Some(i) => i,
-            None => return,
-        };
-        if idx < self.scroll.offset {
-            self.scroll.offset = idx;
-        } else if idx >= self.scroll.offset + self.scroll.visible_lines {
-            self.scroll.offset = idx
-                .saturating_add(1)
-                .saturating_sub(self.scroll.visible_lines);
+        if let Some(selected) = self.selected {
+            if self.scroll.visible_lines == 0 {
+                return;
+            }
+            if selected < self.scroll.offset {
+                self.scroll.offset = selected;
+            } else if selected >= self.scroll.offset + self.scroll.visible_lines {
+                self.scroll.offset = selected.saturating_sub(self.scroll.visible_lines - 1);
+            }
         }
     }
 
@@ -98,56 +105,47 @@ impl Table {
         }
     }
 
-    pub fn update_scroll(&mut self, area_height: usize) {
+    pub fn update_scroll(&mut self, visible_lines: usize) {
+        self.scroll.visible_lines = visible_lines;
         self.scroll.total_lines = self.rows.len();
-        self.scroll.visible_lines = area_height.saturating_sub(1);
-        self.ensure_selected_visible();
     }
 
     pub fn col_x(&self, col: usize, area: Rect) -> u16 {
-        let cols_area = Rect::new(
-            area.x.saturating_add(2),
-            area.y,
-            area.width.saturating_sub(2),
-            area.height,
-        );
-        let col_areas = Layout::horizontal(self.column_widths.clone()).split(cols_area);
-        if let Some(col_area) = col_areas.get(col) {
-            col_area.x.saturating_sub(cols_area.x)
+        let layout = Layout::horizontal(&self.column_widths).split(area);
+        if col < layout.len() {
+            layout[col].x - area.x
         } else {
             0
         }
     }
-}
 
-impl Widget for &Table {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        if area.height < 2 || self.headers.is_empty() {
+    pub fn render_table(&mut self, area: Rect, buf: &mut Buffer) {
+        if area.width < 4 || area.height < 2 {
             return;
         }
 
-        let offset = self.scroll.offset;
-        let visible = self.scroll.visible_lines.max(1);
+        let visible = area.height.saturating_sub(1) as usize;
+        self.update_scroll(visible);
 
-        let cols_area = Rect::new(
-            area.x.saturating_add(2),
+        let offset = self.scroll.offset;
+        let col_areas = Layout::horizontal(&self.column_widths).split(Rect::new(
+            area.x + 2,
             area.y,
             area.width.saturating_sub(2),
             area.height,
-        );
-        let col_areas = Layout::horizontal(self.column_widths.clone()).split(cols_area);
+        ));
 
         // Render header background
         for x in area.x..area.x + area.width {
             if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_bg(Color::White);
+                cell.set_bg(Color::Indexed(238));
             }
         }
 
         // Render header strings
         let header_style = Style::default()
-            .fg(Color::Black)
-            .bg(Color::White)
+            .fg(Color::Cyan)
+            .bg(Color::Indexed(238))
             .add_modifier(Modifier::BOLD);
         for (i, header) in self.headers.iter().enumerate() {
             if let Some(col_area) = col_areas.get(i) {
@@ -162,6 +160,8 @@ impl Widget for &Table {
             }
         }
 
+        let mut active_tooltip: Option<(u16, u16, String, bool)> = None;
+
         // Render rows
         for i in 0..visible {
             let idx = offset + i;
@@ -173,16 +173,33 @@ impl Widget for &Table {
                 break;
             }
 
+            let err_info = self.row_errors.get(&idx).cloned();
+            let has_error = err_info.is_some();
             let is_selected = Some(idx) == self.selected;
             let is_hovered = self.hovered == Some(idx);
-            if is_selected || is_hovered {
-                for x in area.x..area.x + area.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_bg(Color::Indexed(240));
-                    }
+            let bg_color = if has_error {
+                Color::Indexed(52)
+            } else if is_selected || is_hovered {
+                Color::Indexed(240)
+            } else if i % 2 == 1 {
+                Color::Indexed(235)
+            } else {
+                Color::Reset
+            };
+
+            for x in area.x..area.x + area.width {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_bg(bg_color);
                 }
             }
-            let text_fg = if self.muted {
+
+            let text_fg = if let Some(ref err) = err_info {
+                if err.is_toml {
+                    Color::LightRed
+                } else {
+                    Color::Yellow
+                }
+            } else if self.muted {
                 Color::Indexed(245)
             } else {
                 Color::White
@@ -190,26 +207,45 @@ impl Widget for &Table {
             let row_style = if is_selected {
                 Style::default()
                     .fg(text_fg)
-                    .bg(Color::Indexed(240))
+                    .bg(if has_error {
+                        Color::Indexed(52)
+                    } else {
+                        Color::Indexed(240)
+                    })
                     .add_modifier(Modifier::BOLD)
             } else if is_hovered {
-                Style::default().fg(text_fg).bg(Color::Indexed(240))
-            } else if i % 2 == 0 {
-                Style::default().fg(text_fg)
+                Style::default().fg(text_fg).bg(if has_error {
+                    Color::Indexed(52)
+                } else {
+                    Color::Indexed(240)
+                })
             } else {
-                Style::default().fg(if self.muted { text_fg } else { Color::Gray })
+                Style::default().fg(text_fg).bg(bg_color)
             };
 
-            // Selection symbol
-            let symbol_style = if is_selected {
-                Style::default().fg(Color::Cyan)
+            // Selection symbol / Error symbol
+            let (symbol, symbol_style) = if let Some(ref err) = err_info {
+                if is_hovered || (self.hovered.is_none() && is_selected) {
+                    active_tooltip = Some((area.x + 2, y, err.message.clone(), err.is_toml));
+                }
+                let color = if err.is_toml {
+                    Color::LightRed
+                } else {
+                    Color::Yellow
+                };
+                (
+                    "⚠ ",
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )
+            } else if is_selected {
+                (
+                    &self.highlight_symbol[..],
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
-                Style::default()
-            };
-            let symbol = if is_selected {
-                &self.highlight_symbol
-            } else {
-                "  "
+                ("  ", Style::default())
             };
             buf.set_stringn(area.x, y, symbol, 2, symbol_style);
 
@@ -217,9 +253,91 @@ impl Widget for &Table {
             for (col, value) in self.rows[idx].iter().enumerate() {
                 if let Some(col_area) = col_areas.get(col) {
                     let text = format!(" {}", value);
-                    buf.set_stringn(col_area.x, y, &text, col_area.width as usize, row_style);
+                    let is_array_header = col == 0
+                        && self.rows[idx]
+                            .get(1)
+                            .map_or(false, |v| v.starts_with("(array"));
+                    let cell_style = if is_array_header {
+                        row_style.fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else {
+                        row_style
+                    };
+                    buf.set_stringn(col_area.x, y, &text, col_area.width as usize, cell_style);
+
+                    // Overlay colored button badges on column 1 ("Value")
+                    if col == 1 {
+                        if let Some(pos) = value.find("[ + Add Entry ]") {
+                            let btn_x = col_area.x + 1 + pos as u16;
+                            buf.set_string(
+                                btn_x,
+                                y,
+                                "[ + Add Entry ]",
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .bg(if is_selected || is_hovered {
+                                        Color::Indexed(240)
+                                    } else {
+                                        bg_color
+                                    })
+                                    .add_modifier(Modifier::BOLD),
+                            );
+                        }
+                        if let Some(pos) = value.find("[ 🗑 Clear ]") {
+                            let btn_x = col_area.x + 1 + pos as u16;
+                            buf.set_string(
+                                btn_x,
+                                y,
+                                "[ 🗑 Clear ]",
+                                Style::default().fg(Color::Yellow).bg(
+                                    if is_selected || is_hovered {
+                                        Color::Indexed(240)
+                                    } else {
+                                        bg_color
+                                    },
+                                ),
+                            );
+                        }
+                        if let Some(pos) = value.rfind("[ ✕ ]") {
+                            let btn_x = col_area.x + 1 + pos as u16;
+                            buf.set_string(
+                                btn_x,
+                                y,
+                                "[ ✕ ]",
+                                Style::default()
+                                    .fg(Color::LightRed)
+                                    .bg(if is_selected || is_hovered {
+                                        Color::Indexed(240)
+                                    } else {
+                                        bg_color
+                                    })
+                                    .add_modifier(Modifier::BOLD),
+                            );
+                        }
+                    }
                 }
             }
         }
+
+        // Render tooltip popup overlay if active
+        if let Some((tx, ty, msg, is_toml)) = active_tooltip {
+            crate::components::TooltipPopup::render(buf, area, tx, ty, &msg, is_toml);
+        }
+    }
+}
+
+impl Widget for &Table {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let mut t = Table {
+            headers: self.headers.clone(),
+            rows: self.rows.clone(),
+            column_widths: self.column_widths.clone(),
+            scroll: self.scroll.clone(),
+            selected: self.selected,
+            hovered: self.hovered,
+            highlight_symbol: self.highlight_symbol.clone(),
+            muted: self.muted,
+            row_errors: self.row_errors.clone(),
+        };
+        t.render_table(area, buf);
     }
 }

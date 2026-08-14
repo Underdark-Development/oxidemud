@@ -19,34 +19,21 @@ impl EntityInspectorScreen {
         Self::add_field(table, "flags", item.flags.join(", "));
 
         // Allowed Classes
-        if item.allowed_classes.is_empty() {
-            Self::add_field(table, "allowed_classes[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, cls) in item.allowed_classes.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_classes[{i}]"), cls);
-            }
+        Self::add_array_header(table, "allowed_classes", item.allowed_classes.len());
+        for (i, cls) in item.allowed_classes.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_classes[{i}]"), cls);
         }
 
         // Allowed Races
-        if item.allowed_races.is_empty() {
-            Self::add_field(table, "allowed_races[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, race) in item.allowed_races.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_races[{i}]"), race);
-            }
+        Self::add_array_header(table, "allowed_races", item.allowed_races.len());
+        for (i, race) in item.allowed_races.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_races[{i}]"), race);
         }
 
         // Allowed Alignments
-        if item.allowed_alignments.is_empty() {
-            Self::add_field(
-                table,
-                "allowed_alignments[]",
-                "(Empty Array - Press + to add)",
-            );
-        } else {
-            for (i, align) in item.allowed_alignments.iter().enumerate() {
-                Self::add_field(table, &format!("allowed_alignments[{i}]"), align);
-            }
+        Self::add_array_header(table, "allowed_alignments", item.allowed_alignments.len());
+        for (i, align) in item.allowed_alignments.iter().enumerate() {
+            Self::add_array_item(table, &format!("allowed_alignments[{i}]"), align);
         }
 
         // Optionals: Requires Skill
@@ -99,6 +86,34 @@ impl EntityInspectorScreen {
             .unwrap_or("");
         Self::add_field(table, "equipment.slot", eq_slot);
 
+        // Optionals: Consumable
+        let cons_charges = item
+            .consumable
+            .as_ref()
+            .map(|c| c.charges.to_string())
+            .unwrap_or_default();
+        let cons_script = item
+            .consumable
+            .as_ref()
+            .and_then(|c| c.effect_script.as_deref())
+            .unwrap_or("");
+        Self::add_field(table, "consumable.charges", cons_charges);
+        Self::add_field(table, "consumable.effect_script", cons_script);
+
+        // Optionals: Container
+        let cont_cap = item
+            .container
+            .as_ref()
+            .map(|c| c.capacity_weight.to_string())
+            .unwrap_or_default();
+        let cont_max = item
+            .container
+            .as_ref()
+            .map(|c| c.max_items.to_string())
+            .unwrap_or_default();
+        Self::add_field(table, "container.capacity_weight", cont_cap);
+        Self::add_field(table, "container.max_items", cont_max);
+
         // Optionals: Set
         let set_id = item.set.as_ref().map(|s| s.id.as_str()).unwrap_or("");
         let set_piece = item
@@ -110,15 +125,12 @@ impl EntityInspectorScreen {
         Self::add_field(table, "set.piece_type", set_piece);
 
         // Triggers
-        if item.triggers.is_empty() {
-            Self::add_field(table, "triggers[]", "(Empty Array - Press + to add)");
-        } else {
-            for (i, trigger) in item.triggers.iter().enumerate() {
-                Self::add_field(table, &format!("triggers[{i}].event"), &trigger.event);
-                Self::add_field(table, &format!("triggers[{i}].chance"), trigger.chance);
-                Self::add_field(table, &format!("triggers[{i}].cast"), &trigger.cast);
-                Self::add_field(table, &format!("triggers[{i}].target"), &trigger.target);
-            }
+        Self::add_array_header(table, "triggers", item.triggers.len());
+        for (i, trigger) in item.triggers.iter().enumerate() {
+            Self::add_array_item(table, &format!("triggers[{i}].event"), &trigger.event);
+            Self::add_field(table, &format!("  triggers[{i}].chance"), trigger.chance);
+            Self::add_field(table, &format!("  triggers[{i}].cast"), &trigger.cast);
+            Self::add_field(table, &format!("  triggers[{i}].target"), &trigger.target);
         }
     }
 
@@ -235,7 +247,7 @@ impl EntityInspectorScreen {
                                 damage_type: "slashing".to_string(),
                                 speed: 1.5,
                                 range: "melee".to_string(),
-                                hands: "OneHand".to_string(),
+                                hands: "one_hand".to_string(),
                             });
                     match field {
                         "weapon.damage" => {
@@ -278,6 +290,68 @@ impl EntityInspectorScreen {
                         s.piece_type = value.to_string();
                     }
                     item.set = Some(s);
+                }
+            }
+            "consumable.charges" | "consumable.effect_script" => {
+                if value.is_empty() && item.consumable.is_some() {
+                    if field == "consumable.charges" {
+                        item.consumable = None;
+                    } else if let Some(ref mut c) = item.consumable {
+                        c.effect_script = None;
+                    }
+                } else {
+                    let mut c = item.consumable.take().unwrap_or_else(|| {
+                        oxide_core::templates::ConsumableDef {
+                            kind: String::new(),
+                            charges: 1,
+                            max_charges: 1,
+                            effect_script: None,
+                            restore_health: 0,
+                            restore_mana: 0,
+                            restore_stamina: 0,
+                            depleted_template: None,
+                            replenishable: false,
+                            liquid_type: None,
+                        }
+                    });
+                    if field == "consumable.charges" {
+                        c.charges = value.parse().map_err(|_| "invalid number")?;
+                    } else {
+                        c.effect_script = if value.is_empty() {
+                            None
+                        } else {
+                            Some(value.to_string())
+                        };
+                    }
+                    item.consumable = Some(c);
+                }
+            }
+            "container.capacity_weight" | "container.max_items" => {
+                if value.is_empty() && item.container.is_some() {
+                    if field == "container.capacity_weight" {
+                        item.container = None;
+                    }
+                } else {
+                    let mut c = item.container.take().unwrap_or_else(|| {
+                        oxide_core::templates::ContainerDef {
+                            capacity_weight: 10.0,
+                            max_items: 10,
+                            weight_reduction_pct: 0,
+                            is_drink_container: false,
+                            liquid_type: None,
+                            liquid_charges: 0,
+                            max_liquid_charges: 0,
+                            is_closed: false,
+                            is_locked: false,
+                            key_template_id: None,
+                        }
+                    });
+                    if field == "container.capacity_weight" {
+                        c.capacity_weight = value.parse().map_err(|_| "invalid number")?;
+                    } else if field == "container.max_items" {
+                        c.max_items = value.parse().map_err(|_| "invalid number")?;
+                    }
+                    item.container = Some(c);
                 }
             }
             _ if field.starts_with("triggers[") => {
@@ -372,6 +446,22 @@ impl EntityInspectorScreen {
                     item.triggers.remove(index);
                 }
             }
+            _ => return Err(format!("unknown item array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn clear_item_array(&mut self, prefix: &str) -> Result<(), String> {
+        let item = self
+            .registry
+            .items
+            .get_mut(&self.template_id)
+            .ok_or("item not found")?;
+        match prefix {
+            "allowed_classes" => item.allowed_classes.clear(),
+            "allowed_races" => item.allowed_races.clear(),
+            "allowed_alignments" => item.allowed_alignments.clear(),
+            "triggers" => item.triggers.clear(),
             _ => return Err(format!("unknown item array: {prefix}")),
         }
         Ok(())

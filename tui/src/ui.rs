@@ -129,23 +129,15 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         app.command_palette.render(area, buf, mouse_pos);
     }
 
+    // --- Quit Dialog Overlay ---
+    if let Some(ref mut dialog) = app.quit_dialog {
+        dialog.render(area, buf, app.mouse_pos);
+    }
+
     // --- Menu dropdown overlays (render last, on top of everything) ---
     app.menu_bar.render_dropdowns(buf, area);
 
     // --- Status bar ---
-    let mode_label = match app.mode {
-        crate::app::Mode::Offline => "offline",
-        crate::app::Mode::Online => "online",
-        crate::app::Mode::Split => "split",
-    };
-
-    let connection_info = match app.mode {
-        crate::app::Mode::Offline | crate::app::Mode::Split => String::new(),
-        crate::app::Mode::Online => {
-            format!(" {}:{} ", app.connection_host, app.connection_port)
-        }
-    };
-
     let status_msg = app
         .status_message
         .as_ref()
@@ -160,64 +152,57 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         }
     }
 
-    // Status line 0: mode (reverse) + connection info + unsaved count
-    let mode_y = status_area.y;
-    let mut cursor_x = status_area.x;
-
-    // Leading normal-bg space — matches APP_NAME convention in menu_bar
-    buf.set_string(
-        cursor_x,
-        mode_y,
-        " ",
-        Style::default().fg(Color::White).bg(Color::Indexed(236)),
-    );
-    cursor_x += 1;
-
-    let padded_mode = format!(" {} ", mode_label);
-    buf.set_string(
-        cursor_x,
-        mode_y,
-        &padded_mode,
-        Style::default().fg(Color::White).bg(Color::Indexed(236)),
-    );
-    for (i, _) in padded_mode.char_indices() {
-        if let Some(cell) = buf.cell_mut((cursor_x + i as u16, mode_y)) {
-            cell.set_fg(Color::Black);
-            cell.set_bg(Color::White);
+    // Status line 0: Document metrics (left) and Mode badge with connection info (right-aligned)
+    let mode_str = match app.mode {
+        crate::app::Mode::Offline => "offline".to_string(),
+        crate::app::Mode::Online => {
+            format!("online @ {}:{}", app.connection_host, app.connection_port)
         }
-    }
-    cursor_x += padded_mode.len() as u16;
+        crate::app::Mode::Split => "split".to_string(),
+    };
+    let mode_badge = format!(" {mode_str} ");
+    let badge_x = (status_area.x + status_area.width).saturating_sub(mode_badge.len() as u16 + 1);
 
-    if !connection_info.is_empty() {
-        let conn_text = format!(" |{connection_info}");
-        buf.set_string(
-            cursor_x,
-            mode_y,
-            &conn_text,
-            Style::default()
-                .fg(Color::Indexed(245))
-                .bg(Color::Indexed(236)),
-        );
-        cursor_x += conn_text.len() as u16;
-    }
+    // Render right-aligned mode badge (inverted Black text on White background)
+    buf.set_string(
+        badge_x,
+        status_area.y,
+        &mode_badge,
+        Style::default().fg(Color::Black).bg(Color::White),
+    );
 
+    // Left-aligned metrics: unsaved changes, syntax errors, validation errors
     let unsaved = app.active_screen().unsaved_count();
+    let syntax_errs = app.active_screen().syntax_error_count();
+    let val_errs = app.active_screen().validation_error_count();
+
+    let mut parts = Vec::new();
     if unsaved > 0 {
         let plural = if unsaved == 1 { "change" } else { "changes" };
-        let unsaved_text = format!(" {unsaved} unsaved {plural} ");
-        let unsaved_x =
-            (status_area.x + status_area.width).saturating_sub(unsaved_text.len() as u16);
-        if unsaved_x >= cursor_x {
+        parts.push(format!("{unsaved} unsaved {plural}"));
+    }
+    if syntax_errs > 0 {
+        let plural = if syntax_errs == 1 { "error" } else { "errors" };
+        parts.push(format!("{syntax_errs} syntax {plural}"));
+    }
+    if val_errs > 0 {
+        let plural = if val_errs == 1 { "error" } else { "errors" };
+        parts.push(format!("{val_errs} validation {plural}"));
+    }
+
+    if !parts.is_empty() {
+        let left_text = format!(" {}", parts.join(" | "));
+        if status_area.x + (left_text.len() as u16) < badge_x {
             buf.set_string(
-                unsaved_x,
-                mode_y,
-                &unsaved_text,
+                status_area.x,
+                status_area.y,
+                &left_text,
                 Style::default().fg(Color::White).bg(Color::Indexed(236)),
             );
         }
     }
 
-    // Status line 1: action feedback
+    // Status line 1: reserved for messages (status updates, error alerts)
     if let Some(msg) = status_msg {
         buf.set_string(
             status_area.x,

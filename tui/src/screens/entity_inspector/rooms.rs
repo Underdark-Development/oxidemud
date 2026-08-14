@@ -26,60 +26,51 @@ impl EntityInspectorScreen {
                 }
 
                 // Portals
-                if room.portals.is_empty() {
-                    Self::add_field(table, "portal[]", "(Empty Array - Press + to add)");
-                } else {
-                    for (i, portal) in room.portals.iter().enumerate() {
-                        Self::add_field(table, &format!("portal[{i}].keyword"), &portal.keyword);
-                        Self::add_field(table, &format!("portal[{i}].destination"), &portal.dest);
-                        Self::add_field(
-                            table,
-                            &format!("portal[{i}].description"),
-                            &portal.description,
-                        );
-                        Self::add_field(
-                            table,
-                            &format!("portal[{i}].flags"),
-                            portal.flags.join(", "),
-                        );
-                    }
+                Self::add_array_header(table, "portal", room.portals.len());
+                for (i, portal) in room.portals.iter().enumerate() {
+                    Self::add_array_item(table, &format!("portal[{i}].keyword"), &portal.keyword);
+                    Self::add_field(table, &format!("  portal[{i}].destination"), &portal.dest);
+                    Self::add_field(
+                        table,
+                        &format!("  portal[{i}].description"),
+                        &portal.description,
+                    );
+                    Self::add_field(
+                        table,
+                        &format!("  portal[{i}].flags"),
+                        portal.flags.join(", "),
+                    );
                 }
 
                 // Mobs Spawn
-                if room.content.mobs.is_empty() {
-                    Self::add_field(table, "content.mobs[]", "(Empty Array - Press + to add)");
-                } else {
-                    for (i, spawn) in room.content.mobs.iter().enumerate() {
-                        Self::add_field(
-                            table,
-                            &format!("content.mobs[{i}].template_id"),
-                            &spawn.template_id,
-                        );
-                        Self::add_field(table, &format!("content.mobs[{i}].count"), spawn.count);
-                        let respawn_secs = spawn
-                            .respawn_secs
-                            .map(|s| s.to_string())
-                            .unwrap_or_default();
-                        Self::add_field(
-                            table,
-                            &format!("content.mobs[{i}].respawn_secs"),
-                            respawn_secs,
-                        );
-                    }
+                Self::add_array_header(table, "content.mobs", room.content.mobs.len());
+                for (i, spawn) in room.content.mobs.iter().enumerate() {
+                    Self::add_array_item(
+                        table,
+                        &format!("content.mobs[{i}].template_id"),
+                        &spawn.template_id,
+                    );
+                    Self::add_field(table, &format!("  content.mobs[{i}].count"), spawn.count);
+                    let respawn_secs = spawn
+                        .respawn_secs
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    Self::add_field(
+                        table,
+                        &format!("  content.mobs[{i}].respawn_secs"),
+                        respawn_secs,
+                    );
                 }
 
                 // Items Spawn
-                if room.content.items.is_empty() {
-                    Self::add_field(table, "content.items[]", "(Empty Array - Press + to add)");
-                } else {
-                    for (i, spawn) in room.content.items.iter().enumerate() {
-                        Self::add_field(
-                            table,
-                            &format!("content.items[{i}].template_id"),
-                            &spawn.template_id,
-                        );
-                        Self::add_field(table, &format!("content.items[{i}].count"), spawn.count);
-                    }
+                Self::add_array_header(table, "content.items", room.content.items.len());
+                for (i, spawn) in room.content.items.iter().enumerate() {
+                    Self::add_array_item(
+                        table,
+                        &format!("content.items[{i}].template_id"),
+                        &spawn.template_id,
+                    );
+                    Self::add_field(table, &format!("  content.items[{i}].count"), spawn.count);
                 }
 
                 return;
@@ -243,6 +234,22 @@ impl EntityInspectorScreen {
                     room.content.items.remove(index);
                 }
             }
+            _ => return Err(format!("unknown room array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn clear_room_array(&mut self, prefix: &str) -> Result<(), String> {
+        let room = self
+            .registry
+            .areas
+            .values_mut()
+            .find_map(|a| a.rooms.get_mut(&self.template_id))
+            .ok_or_else(|| "room not found".to_string())?;
+        match prefix {
+            "portal" => room.portals.clear(),
+            "content.mobs" => room.content.mobs.clear(),
+            "content.items" => room.content.items.clear(),
             _ => return Err(format!("unknown room array: {prefix}")),
         }
         Ok(())

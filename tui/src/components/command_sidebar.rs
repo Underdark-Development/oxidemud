@@ -27,6 +27,7 @@ pub enum CommandAction {
     ReloadContent,
     ValidateContent,
     ToggleHelp,
+    ToggleViewMode,
     SwitchScreen(usize),
     ToggleSidebar,
     ShowAbout,
