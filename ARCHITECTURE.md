@@ -126,8 +126,9 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 
 #### spade (Builder TUI & Client) Actionable UI/UX Items
 
-1. **Event Bubbling & Overlay Menu Layer Isolation:**
+1. **Event Bubbling & Overlay Menu Layer Isolation** _(implemented)_:
    - Enforce strict input capture on top menu bar dropdowns, context menus, command palette, and modal dialogs, blocking mouse hover/click and keypress events from bleeding through to underlying editor screens or table controls.
+   - Capture is enforced by ordered routing in `tui/src/input.rs` (keys) and `tui/src/app.rs` (mouse): quit dialog → command palette → open menu → screen-level modal → globals. Screens report modal overlays (help, preview, confirm dialogs) via the `Screen::modal_overlay_active()` hook; while true, `App` forwards all keys to the screen and suppresses global shortcuts. Hover state is withheld from screens and the sidebar whenever an app-level overlay is open.
 
 2. **Form Editor & Inspector Improvements:**
    - **Selection vs. Hover Visual Clarity:** Differentiate row selection and mouse hover background styling in form tables to eliminate visual target ambiguity.

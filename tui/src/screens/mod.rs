@@ -107,6 +107,14 @@ pub trait Screen {
     fn handle_mouse(&mut self, _mouse: MouseEvent, _area: Rect) {}
     fn reload(&mut self) {}
 
+    /// Returns true when the screen is showing a capture-all modal overlay
+    /// (help, preview, confirm dialog, etc.). While true, `App` routes all
+    /// keyboard input to the screen and suppresses global shortcuts so events
+    /// never bleed through to the editor beneath the overlay.
+    fn modal_overlay_active(&self) -> bool {
+        false
+    }
+
     /// Called each frame with the sidebar focus state so the screen can adjust its visual focus.
     fn set_sidebar_focused(&mut self, _focused: bool) {}
 

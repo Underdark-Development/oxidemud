@@ -981,9 +981,49 @@ impl Screen for EntitiesScreen {
         self.open_detail(category.to_string(), id.to_string());
     }
 
+    fn modal_overlay_active(&self) -> bool {
+        self.show_help
+            || self.preview.is_some()
+            || self
+                .detail
+                .as_ref()
+                .is_some_and(|d| d.modal_overlay_active())
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> bool {
         if self.search_focus {
             self.handle_search_key(key);
+            return true;
+        }
+
+        // A modal dialog in the detail pane captures all keys.
+        if self
+            .detail
+            .as_ref()
+            .is_some_and(|d| d.modal_overlay_active())
+        {
+            if let Some(ref mut detail) = self.detail {
+                detail.handle_key(key);
+            }
+            return true;
+        }
+
+        // Capture-all modal overlays: only overlay-dismiss keys pass through so
+        // nothing bleeds through to the tree/detail beneath the help or preview.
+        if self.show_help || self.preview.is_some() {
+            match key.code {
+                KeyCode::Char('?') if self.show_help => {
+                    self.show_help = false;
+                }
+                KeyCode::Esc => {
+                    if self.preview.is_some() {
+                        self.preview = None;
+                    } else if self.show_help {
+                        self.show_help = false;
+                    }
+                }
+                _ => {}
+            }
             return true;
         }
 
@@ -993,25 +1033,21 @@ impl Screen for EntitiesScreen {
         }
 
         if key.code == KeyCode::Esc {
-            if self.preview.is_some() {
-                self.preview = None;
-            } else if self.show_help {
-                self.show_help = false;
-            } else if self.detail.is_some() {
-                if self.detail.as_ref().unwrap().is_editing() {
-                    self.detail.as_mut().unwrap().handle_key(key);
-                } else {
-                    if let Some(mut detail) = self.detail.take() {
-                        if detail.dirty {
-                            detail.apply_changes(&mut self.registry);
-                            self.unsaved
-                                .insert((detail.category.clone(), detail.template_id.clone()));
-                        }
-                    }
-                    self.focus = Focus::Tree;
-                    self.rebuild_tree();
+            if let Some(ref mut detail) = self.detail {
+                if detail.is_editing() {
+                    detail.handle_key(key);
+                    return true;
                 }
             }
+            if let Some(mut detail) = self.detail.take() {
+                if detail.dirty {
+                    detail.apply_changes(&mut self.registry);
+                    self.unsaved
+                        .insert((detail.category.clone(), detail.template_id.clone()));
+                }
+            }
+            self.focus = Focus::Tree;
+            self.rebuild_tree();
             return true;
         }
 
@@ -1077,11 +1113,31 @@ impl Screen for EntitiesScreen {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
-        if self.show_help || area.width < 2 {
+        if self.show_help || self.preview.is_some() || area.width < 2 {
             return;
         }
 
         let tree_width = self.tree_width_pct(area.width);
+
+        // A modal dialog in the detail pane captures all mouse input.
+        if self
+            .detail
+            .as_ref()
+            .is_some_and(|d| d.modal_overlay_active())
+        {
+            if let Some(ref mut detail) = self.detail {
+                self.focus = Focus::Detail;
+                let detail_x = area.x + tree_width + 1;
+                let detail_area = Rect::new(
+                    detail_x,
+                    area.y + 1,
+                    area.width.saturating_sub(tree_width).saturating_sub(1),
+                    area.height.saturating_sub(1),
+                );
+                detail.handle_mouse(mouse, detail_area);
+            }
+            return;
+        }
 
         if mouse.column < area.x + tree_width {
             self.focus = Focus::Tree;
@@ -1555,6 +1611,16 @@ impl Screen for EntitiesScreen {
 
         let tree_width = self.tree_width_pct(area.width);
 
+        if self.preview.is_some() {
+            self.render_preview(area, buf);
+            return;
+        }
+
+        if self.show_help {
+            self.render_help(area, buf);
+            return;
+        }
+
         self.tree.hovered = mouse_pos.and_then(|(col, row)| {
             if row >= content_y
                 && row < content_y + content_h
@@ -1568,16 +1634,6 @@ impl Screen for EntitiesScreen {
                 None
             }
         });
-
-        if self.preview.is_some() {
-            self.render_preview(area, buf);
-            return;
-        }
-
-        if self.show_help {
-            self.render_help(area, buf);
-            return;
-        }
 
         if self.search_focus {
             let search_text = format!(" / {}", self.search.as_deref().unwrap_or(""));

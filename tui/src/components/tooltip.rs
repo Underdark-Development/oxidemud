@@ -39,11 +39,7 @@ impl TooltipPopup {
 
         // Estimate height based on wrapped text length
         let inner_width = width.saturating_sub(4) as usize;
-        let lines_needed = if inner_width > 0 {
-            (message.len() / inner_width) + 1
-        } else {
-            1
-        };
+        let lines_needed = message.len().checked_div(inner_width).unwrap_or(0) + 1;
         let height = ((lines_needed + 2) as u16)
             .clamp(3, 8)
             .min(screen_area.height.saturating_sub(2));

@@ -48,7 +48,12 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         (main_area, None)
     };
 
-    let mouse_pos = app.mouse_pos;
+    // When an app-level overlay (palette, dialog, menu dropdown) is open, do
+    // not propagate hover state so highlights never bleed through to the
+    // underlying screen or sidebar.
+    let overlay_active =
+        app.command_palette_open || app.quit_dialog.is_some() || app.menu_bar.open_menu.is_some();
+    let mouse_pos = if overlay_active { None } else { app.mouse_pos };
     let sidebar_focused = app.sidebar_focused;
     app.active_screen_mut().set_sidebar_focused(sidebar_focused);
     app.active_screen_mut().render(content_area, buf, mouse_pos);

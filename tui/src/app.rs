@@ -290,6 +290,7 @@ impl App {
 
                     // Route mouse to quit dialog if active
                     if let Some(ref mut dialog) = self.quit_dialog {
+                        self.menu_bar.hovered_label = None;
                         if let Some(btn) = dialog.handle_mouse(mouse) {
                             if btn == 0 {
                                 self.quit_dialog = None;
@@ -307,6 +308,7 @@ impl App {
 
                     // Route mouse to command palette if open
                     if self.command_palette_open {
+                        self.menu_bar.hovered_label = None;
                         if let Some(action) = self
                             .command_palette
                             .handle_mouse(mouse, Rect::new(0, 0, size.width, size.height))

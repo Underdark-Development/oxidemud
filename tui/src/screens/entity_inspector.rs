@@ -1448,6 +1448,10 @@ impl Screen for EntityInspectorScreen {
         }
     }
 
+    fn modal_overlay_active(&self) -> bool {
+        self.delete_dialog.is_some()
+    }
+
     fn handle_key(&mut self, key: KeyEvent) -> bool {
         if let Some(ref mut dialog) = self.delete_dialog {
             if let Some(btn) = dialog.handle_key(key) {
@@ -1644,7 +1648,7 @@ impl Screen for EntityInspectorScreen {
                     let is_match = field_name == err_field
                         || field_name.ends_with(err_field)
                         || err_field.ends_with(field_name)
-                        || err_field.split('.').last() == Some(field_name);
+                        || err_field.split('.').next_back() == Some(field_name);
                     if is_match {
                         self.table.row_errors.entry(row_idx).or_insert_with(|| {
                             crate::components::table::RowErrorInfo {

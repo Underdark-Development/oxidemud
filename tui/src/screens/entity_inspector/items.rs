@@ -332,7 +332,7 @@ impl EntityInspectorScreen {
                         item.container = None;
                     }
                 } else {
-                    let mut c = item.container.take().unwrap_or_else(|| {
+                    let mut c = item.container.take().unwrap_or({
                         oxide_core::templates::ContainerDef {
                             capacity_weight: 10.0,
                             max_items: 10,

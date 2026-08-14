@@ -256,7 +256,7 @@ impl Table {
                     let is_array_header = col == 0
                         && self.rows[idx]
                             .get(1)
-                            .map_or(false, |v| v.starts_with("(array"));
+                            .is_some_and(|v| v.starts_with("(array"));
                     let cell_style = if is_array_header {
                         row_style.fg(Color::Cyan).add_modifier(Modifier::BOLD)
                     } else {
