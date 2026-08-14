@@ -31,6 +31,7 @@ pub enum CommandAction {
     ToggleViewMode,
     SwitchScreen(usize),
     ToggleSidebar,
+    ShowNotificationHistory,
     ShowAbout,
     Quit,
     MoveToRoom(String),

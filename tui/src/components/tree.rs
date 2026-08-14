@@ -45,6 +45,7 @@ pub struct Tree<T> {
     pub scroll: ScrollState,
     pub hovered: Option<usize>,
     pub muted: bool,
+    pub search_filter: Option<String>,
 }
 
 impl<T> Tree<T> {
@@ -56,6 +57,7 @@ impl<T> Tree<T> {
             scroll: ScrollState::new(),
             hovered: None,
             muted: false,
+            search_filter: None,
         }
     }
 
@@ -94,6 +96,7 @@ impl<T> Tree<T> {
         };
         let mut counter = 0;
         toggle_at(&mut self.roots, idx, &mut counter);
+        self.ensure_selected_visible();
     }
 
     pub fn selected_data(&self) -> Option<&T> {
@@ -276,7 +279,35 @@ impl<T> Widget for &Tree<T> {
             } else {
                 label_spans.push(Span::styled(format!("{} ", prefix), prefix_style));
             }
-            label_spans.push(Span::styled(&node.label, label_style));
+
+            if let Some(ref filter) = self.search_filter {
+                if !filter.is_empty() {
+                    let label_lower = node.label.to_lowercase();
+                    let filter_lower = filter.to_lowercase();
+                    if let Some(match_pos) = label_lower.find(&filter_lower) {
+                        let match_end = match_pos + filter_lower.len();
+                        let before = &node.label[..match_pos];
+                        let matched = &node.label[match_pos..match_end];
+                        let after = &node.label[match_end..];
+
+                        let highlight_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+                        if !before.is_empty() {
+                            label_spans.push(Span::styled(before, label_style));
+                        }
+                        label_spans.push(Span::styled(matched, highlight_style));
+                        if !after.is_empty() {
+                            label_spans.push(Span::styled(after, label_style));
+                        }
+                    } else {
+                        label_spans.push(Span::styled(&node.label, label_style));
+                    }
+                } else {
+                    label_spans.push(Span::styled(&node.label, label_style));
+                }
+            } else {
+                label_spans.push(Span::styled(&node.label, label_style));
+            }
+
             let line = Line::from(label_spans);
             buf.set_line(area.x, y, &line, area.width);
         }

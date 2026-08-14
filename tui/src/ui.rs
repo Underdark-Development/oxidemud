@@ -139,6 +139,11 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         dialog.render(area, buf, app.mouse_pos);
     }
 
+    // --- Notification History Dialog Overlay ---
+    if let Some(ref mut dialog) = app.notification_dialog {
+        dialog.render(area, buf, app.mouse_pos);
+    }
+
     // --- Menu dropdown overlays (render last, on top of everything) ---
     app.menu_bar.render_dropdowns(buf, area);
 

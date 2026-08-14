@@ -90,6 +90,11 @@ impl CommandPalette {
                 CommandAction::ToggleSidebar,
             ),
             PaletteItem::new(
+                "Show Notification History Log",
+                None,
+                CommandAction::ShowNotificationHistory,
+            ),
+            PaletteItem::new(
                 "Toggle Raw TOML / Form View",
                 Some("Ctrl+E"),
                 CommandAction::ToggleViewMode,

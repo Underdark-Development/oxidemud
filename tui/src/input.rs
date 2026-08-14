@@ -29,6 +29,20 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Notification history dialog is active: route keys to notification dialog
+    if app.notification_dialog.is_some() {
+        if key.code == KeyCode::Esc || key.code == KeyCode::Enter {
+            app.notification_dialog = None;
+            return;
+        }
+        if let Some(ref mut dialog) = app.notification_dialog {
+            if dialog.handle_key(key).is_some() {
+                app.notification_dialog = None;
+            }
+        }
+        return;
+    }
+
     // Command palette is open: route to command palette
     if app.command_palette_open {
         if key.code == KeyCode::Esc

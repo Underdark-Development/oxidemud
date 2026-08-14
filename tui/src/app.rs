@@ -54,6 +54,8 @@ pub struct App {
     pub command_palette_open: bool,
     pub command_palette: CommandPalette,
     pub quit_dialog: Option<crate::components::Dialog>,
+    pub notification_history: Vec<(String, String)>,
+    pub notification_dialog: Option<crate::components::Dialog>,
 }
 
 struct TerminalGuard;
@@ -110,6 +112,8 @@ impl App {
             command_palette_open: false,
             command_palette: CommandPalette::new(),
             quit_dialog: None,
+            notification_history: Vec::new(),
+            notification_dialog: None,
         }
     }
 
@@ -118,13 +122,12 @@ impl App {
         if total_unsaved > 0 {
             self.quit_dialog = Some(crate::components::Dialog::new(
                 ratatui::style::Color::Red,
-                " Unsaved Edits Warning ",
-                "You have unsaved changes across entities! Are you sure you want to quit?",
-                &[
-                    "Cancel".into(),
-                    "Save & Quit".into(),
-                    "Discard & Quit".into(),
-                ],
+                "Unsaved Changes",
+                &format!(
+                    "You have unsaved changes in {} entity/entities.\nDo you want to save before quitting?",
+                    total_unsaved
+                ),
+                &["Cancel".into(), "Save & Quit".into(), "Quit Without Saving".into()],
             ));
         } else {
             self.should_quit = true;
@@ -198,6 +201,25 @@ impl App {
                 } else {
                     "Sidebar hidden"
                 });
+            }
+            CommandAction::ShowNotificationHistory => {
+                let history_text = if self.notification_history.is_empty() {
+                    "No notifications logged yet.".to_string()
+                } else {
+                    self.notification_history
+                        .iter()
+                        .rev()
+                        .take(15)
+                        .map(|(t, m)| format!("[{t}] {m}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                self.notification_dialog = Some(crate::components::Dialog::new(
+                    ratatui::style::Color::Cyan,
+                    "Notification History",
+                    &history_text,
+                    &["Close".into()],
+                ));
             }
             CommandAction::ShowAbout => {
                 self.set_status("MUD Game Engine — spade v0.1.0");
@@ -302,6 +324,15 @@ impl App {
                                 self.quit_dialog = None;
                                 self.should_quit = true;
                             }
+                        }
+                        continue;
+                    }
+
+                    // Route mouse to notification dialog if active
+                    if let Some(ref mut dialog) = self.notification_dialog {
+                        self.menu_bar.hovered_label = None;
+                        if dialog.handle_mouse(mouse).is_some() {
+                            self.notification_dialog = None;
                         }
                         continue;
                     }
