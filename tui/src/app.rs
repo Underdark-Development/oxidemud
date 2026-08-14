@@ -402,6 +402,12 @@ fn init_terminal(enable_mouse: bool) -> color_eyre::Result<Tui> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
+    let _ = execute!(
+        stdout,
+        ratatui::crossterm::event::PushKeyboardEnhancementFlags(
+            ratatui::crossterm::event::KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+        )
+    );
     if enable_mouse {
         execute!(stdout, ratatui::crossterm::event::EnableMouseCapture)?;
         use std::io::Write;
@@ -418,6 +424,7 @@ fn restore_terminal() -> color_eyre::Result<()> {
     let _ = write!(stdout, "\x1b[?1003l");
     let _ = execute!(
         stdout,
+        ratatui::crossterm::event::PopKeyboardEnhancementFlags,
         LeaveAlternateScreen,
         ratatui::crossterm::event::DisableMouseCapture
     );

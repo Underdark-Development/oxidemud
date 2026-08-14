@@ -208,7 +208,12 @@ impl RawTomlEditor {
                     }
                     return true;
                 }
-                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('\u{19}') => {
+                KeyCode::Char('y')
+                | KeyCode::Char('Y')
+                | KeyCode::Char('\u{19}')
+                | KeyCode::Char('r')
+                | KeyCode::Char('R')
+                | KeyCode::Char('\u{12}') => {
                     self.redo();
                     return true;
                 }
