@@ -86,15 +86,6 @@ impl ValidationPanelScreen {
                 .push_str(if self.sort_ascending { " ▲" } else { " ▼" });
         }
 
-        let mut table = Table::new(headers);
-        table.column_widths = vec![
-            Constraint::Length(12),
-            Constraint::Length(22),
-            Constraint::Length(16),
-            Constraint::Length(24),
-            Constraint::Fill(1),
-        ];
-
         let mut row_data: Vec<[String; 5]> = Vec::new();
 
         for err in &errors {
@@ -119,6 +110,25 @@ impl ValidationPanelScreen {
                 err.message.clone(),
             ]);
         }
+
+        let max_cat = row_data.iter().map(|r| r[0].len()).max().unwrap_or(8).max(10) + 3;
+        let max_id = row_data.iter().map(|r| r[1].len()).max().unwrap_or(10).max(12) + 3;
+        let max_kind = row_data.iter().map(|r| r[2].len()).max().unwrap_or(10).max(12) + 3;
+        let max_field = row_data.iter().map(|r| r[3].len()).max().unwrap_or(8).max(8) + 3;
+
+        let w_cat = (max_cat as u16).clamp(11, 16);
+        let w_id = (max_id as u16).clamp(14, 24);
+        let w_kind = (max_kind as u16).clamp(14, 18);
+        let w_field = (max_field as u16).clamp(10, 16); // Tightened field column width
+
+        let mut table = Table::new(headers);
+        table.column_widths = vec![
+            Constraint::Length(w_cat),
+            Constraint::Length(w_id),
+            Constraint::Length(w_kind),
+            Constraint::Length(w_field),
+            Constraint::Fill(1),
+        ];
 
         let sort_col = self.sort_column.min(4);
         let sort_asc = self.sort_ascending;
