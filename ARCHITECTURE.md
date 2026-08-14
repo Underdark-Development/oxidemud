@@ -122,35 +122,7 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 - **Telnet & Communication:** Telnet IAC state machine parser (ANSI, 256-color, NAWS, Keepalive). Channels (say, tell, shout, emote, ooc, gtell, etc.) and TOML socials (`content/socials.toml`).
 - **Persistence & Content Loading:** Two-tier SQLite persistence in WAL mode with dirty flushing every 5s and automated hot backups. Content is loaded from TOML files into `TemplateRegistry` with hot-reloading via `notify`.
 - **Zone & Area System:** Areas group rooms into directories (`content/areas/<area_id>/`). Handles doors/locks, area flags, room flags, and automated area resets.
-- **spade (Builder TUI & Client):** Terminal tool in `tui/` providing offline world building (tree view, TOML form editor, validation, room grid) and MUD client connection features.
-
-#### spade (Builder TUI & Client) Actionable UI/UX Items
-
-1. **Event Bubbling & Overlay Menu Layer Isolation** _(implemented)_:
-   - Enforce strict input capture on top menu bar dropdowns, context menus, command palette, and modal dialogs, blocking mouse hover/click and keypress events from bleeding through to underlying editor screens or table controls.
-   - Capture is enforced by ordered routing in `tui/src/input.rs` (keys) and `tui/src/app.rs` (mouse): quit dialog → command palette → open menu → screen-level modal → globals. Screens report modal overlays (help, preview, confirm dialogs) via the `Screen::modal_overlay_active()` hook; while true, `App` forwards all keys to the screen and suppresses global shortcuts. Hover state is withheld from screens and the sidebar whenever an app-level overlay is open.
-
-2. **Form Editor & Inspector Improvements:**
-   - **Selection vs. Hover Visual Clarity:** Differentiate row selection and mouse hover background styling in form tables to eliminate visual target ambiguity.
-   - **Inspector Header Dirty Badge:** Display a `*` dirty indicator in the Entity Inspector top header (`category > template_id *`) whenever there are uncommitted in-memory edits.
-   - **Multi-Line Form Text Editing:** Provide a multi-line text input block modal for long text fields (such as room descriptions) within Structured Form mode.
-   - **Array Element Reordering:** Add `Up` and `Down` move action buttons to array sub-form items for reordering elements.
-   - **Form Navigation Shortcuts:** Support `PageUp`, `PageDown`, `Home`, and `End` key bindings in form tables for rapid scrolling through large entity templates.
-
-3. **Validation Table Column Architecture & Interactive Sorting:**
-   - **Clickable Header Sorting:** Enable single-click column header sorting with ascending/descending indicators (`▲` / `▼`).
-   - **Logical Column Ordering:** Re-architect columns into: `Category`, `Entity ID`, `Error Kind` (`Syntax`, `Schema`, `Reference`, `Enum`), `Field`, and `Message`.
-
-4. **Raw TOML Editor Enhancements:**
-   - **Mouse Drag Selection & Clipboard:** Add mouse drag-selection for highlighting text blocks and native TUI clipboard copy/paste integration.
-   - **Undo / Redo History Stack:** Implement an in-memory edit history stack (`Ctrl+Z` / `Ctrl+Y`) for reverting text edits in the Raw TOML buffer.
-
-5. **Tree Sidebar & Navigation Polish:**
-   - **Substring Search Highlighting:** Visually highlight matching query substrings within visible tree node labels during search filtering.
-   - **Deep Node Auto-Scroll:** Automatically adjust tree viewport scroll when expanding deeply nested nodes to keep expanded children visible.
-
-6. **System Feedback & Notifications:**
-   - **Persistent Notification Log:** Add a notification history log viewer to review past 5-second status bar messages and action outputs.
+- **spade (Builder TUI & Client):** Terminal tool providing offline world building (tree sidebar with substring search highlighting, structured form editor with multi-line text modals and array reordering, raw TOML editor with undo/redo stack and drag-selection clipboard support, 5-column interactive sortable validation panel, room grid, cross-category search, entity duplication, and fuzzy command palette) and MUD client connection features. Enforces strict overlay input event isolation, floating error tooltips, and persistent notification history.
 
 - **MCP Server:** Stdio Model Context Protocol server in `mcp/` exposing content CRUD tools, validation, search, and local gameplay simulators to AI agents.
 
