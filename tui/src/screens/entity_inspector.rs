@@ -1593,9 +1593,14 @@ impl Screen for EntityInspectorScreen {
         } else {
             String::new()
         };
+        let dirty_suffix = if self.dirty || self.raw_editor.dirty {
+            " *"
+        } else {
+            ""
+        };
         let info = format!(
-            " {} > {}  │  {}{}",
-            self.category, self.template_id, mode_tab, err_suffix
+            " {} > {}{}  │  {}{}",
+            self.category, self.template_id, dirty_suffix, mode_tab, err_suffix
         );
         let header_style = if val_errors.is_empty() {
             Style::default()
@@ -1760,6 +1765,10 @@ impl EntityInspectorScreen {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.table.select_prev(),
             KeyCode::Down | KeyCode::Char('j') => self.table.select_next(),
+            KeyCode::Home => self.table.select_first(),
+            KeyCode::End => self.table.select_last(),
+            KeyCode::PageUp => self.table.page_up(),
+            KeyCode::PageDown => self.table.page_down(),
             KeyCode::Enter | KeyCode::Tab => {
                 if let Some(row) = self.table.selected {
                     self.start_edit(row);
@@ -1874,6 +1883,13 @@ impl EntityInspectorScreen {
         }
     }
 
+    fn swap_array_entries(&mut self, prefix: &str, i1: usize, i2: usize) -> Result<(), String> {
+        match self.category.as_str() {
+            "items" => self.swap_item_array(prefix, i1, i2),
+            _ => Ok(()),
+        }
+    }
+
     fn handle_mouse_idle(&mut self, mouse: MouseEvent, area: Rect) {
         match mouse.kind {
             MouseEventKind::ScrollUp => self.table.scroll_up(),
@@ -1930,6 +1946,41 @@ impl EntityInspectorScreen {
                                 }
                                 self.table.selected = Some(row);
                                 return;
+                            }
+                        }
+                    }
+
+                    if val.contains("[ ▲ ]") {
+                        if let Some(start_up) = val.find("[ ▲ ]") {
+                            let end_up = start_up + "[ ▲ ]".len();
+                            if relative_x >= start_up && relative_x < end_up {
+                                let clean_field = field.trim();
+                                if let Some((prefix, idx)) = parse_array_field(clean_field) {
+                                    if idx > 0 {
+                                        if let Ok(_) = self.swap_array_entries(&prefix, idx, idx - 1) {
+                                            self.dirty = true;
+                                            self.load_table();
+                                            self.table.selected = Some(row.saturating_sub(1));
+                                        }
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    if val.contains("[ ▼ ]") {
+                        if let Some(start_dn) = val.find("[ ▼ ]") {
+                            let end_dn = start_dn + "[ ▼ ]".len();
+                            if relative_x >= start_dn && relative_x < end_dn {
+                                let clean_field = field.trim();
+                                if let Some((prefix, idx)) = parse_array_field(clean_field) {
+                                    if let Ok(_) = self.swap_array_entries(&prefix, idx, idx + 1) {
+                                        self.dirty = true;
+                                        self.load_table();
+                                        self.table.selected = Some(row + 1);
+                                    }
+                                    return;
+                                }
                             }
                         }
                     }

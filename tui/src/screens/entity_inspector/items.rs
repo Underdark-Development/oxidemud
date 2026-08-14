@@ -466,4 +466,41 @@ impl EntityInspectorScreen {
         }
         Ok(())
     }
+
+    pub(super) fn swap_item_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let item = self
+            .registry
+            .items
+            .get_mut(&self.template_id)
+            .ok_or("item not found")?;
+        match prefix {
+            "allowed_classes" => {
+                if i1 < item.allowed_classes.len() && i2 < item.allowed_classes.len() {
+                    item.allowed_classes.swap(i1, i2);
+                }
+            }
+            "allowed_races" => {
+                if i1 < item.allowed_races.len() && i2 < item.allowed_races.len() {
+                    item.allowed_races.swap(i1, i2);
+                }
+            }
+            "allowed_alignments" => {
+                if i1 < item.allowed_alignments.len() && i2 < item.allowed_alignments.len() {
+                    item.allowed_alignments.swap(i1, i2);
+                }
+            }
+            "triggers" => {
+                if i1 < item.triggers.len() && i2 < item.triggers.len() {
+                    item.triggers.swap(i1, i2);
+                }
+            }
+            _ => return Err(format!("unknown item array: {prefix}")),
+        }
+        Ok(())
+    }
 }

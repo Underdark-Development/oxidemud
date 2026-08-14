@@ -84,6 +84,41 @@ impl Table {
         self.ensure_selected_visible();
     }
 
+    pub fn select_first(&mut self) {
+        if !self.rows.is_empty() {
+            self.selected = Some(0);
+            self.ensure_selected_visible();
+        }
+    }
+
+    pub fn select_last(&mut self) {
+        if !self.rows.is_empty() {
+            self.selected = Some(self.rows.len() - 1);
+            self.ensure_selected_visible();
+        }
+    }
+
+    pub fn page_up(&mut self) {
+        if self.rows.is_empty() {
+            return;
+        }
+        let step = self.scroll.visible_lines.max(1);
+        let current = self.selected.unwrap_or(0);
+        self.selected = Some(current.saturating_sub(step));
+        self.ensure_selected_visible();
+    }
+
+    pub fn page_down(&mut self) {
+        if self.rows.is_empty() {
+            return;
+        }
+        let step = self.scroll.visible_lines.max(1);
+        let current = self.selected.unwrap_or(0);
+        let last = self.rows.len() - 1;
+        self.selected = Some((current + step).min(last));
+        self.ensure_selected_visible();
+    }
+
     pub fn ensure_selected_visible(&mut self) {
         if let Some(selected) = self.selected {
             if self.scroll.visible_lines == 0 {
@@ -179,8 +214,12 @@ impl Table {
             let is_hovered = self.hovered == Some(idx);
             let bg_color = if has_error {
                 Color::Indexed(52)
-            } else if is_selected || is_hovered {
-                Color::Indexed(240)
+            } else if is_selected && is_hovered {
+                Color::Indexed(242)
+            } else if is_selected {
+                Color::Indexed(239)
+            } else if is_hovered {
+                Color::Indexed(236)
             } else if i % 2 == 1 {
                 Color::Indexed(235)
             } else {
@@ -207,23 +246,15 @@ impl Table {
             let row_style = if is_selected {
                 Style::default()
                     .fg(text_fg)
-                    .bg(if has_error {
-                        Color::Indexed(52)
-                    } else {
-                        Color::Indexed(240)
-                    })
+                    .bg(bg_color)
                     .add_modifier(Modifier::BOLD)
             } else if is_hovered {
-                Style::default().fg(text_fg).bg(if has_error {
-                    Color::Indexed(52)
-                } else {
-                    Color::Indexed(240)
-                })
+                Style::default().fg(text_fg).bg(bg_color)
             } else {
                 Style::default().fg(text_fg).bg(bg_color)
             };
 
-            // Selection symbol / Error symbol
+            // Selection symbol / Error symbol / Hover symbol
             let (symbol, symbol_style) = if let Some(ref err) = err_info {
                 if is_hovered || (self.hovered.is_none() && is_selected) {
                     active_tooltip = Some((area.x + 2, y, err.message.clone(), err.is_toml));
@@ -244,6 +275,8 @@ impl Table {
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 )
+            } else if is_hovered {
+                ("· ", Style::default().fg(Color::Indexed(244)))
             } else {
                 ("  ", Style::default())
             };
@@ -274,11 +307,7 @@ impl Table {
                                 "[ + Add Entry ]",
                                 Style::default()
                                     .fg(Color::Cyan)
-                                    .bg(if is_selected || is_hovered {
-                                        Color::Indexed(240)
-                                    } else {
-                                        bg_color
-                                    })
+                                    .bg(bg_color)
                                     .add_modifier(Modifier::BOLD),
                             );
                         }
@@ -288,13 +317,31 @@ impl Table {
                                 btn_x,
                                 y,
                                 "[ 🗑 Clear ]",
-                                Style::default().fg(Color::Yellow).bg(
-                                    if is_selected || is_hovered {
-                                        Color::Indexed(240)
-                                    } else {
-                                        bg_color
-                                    },
-                                ),
+                                Style::default().fg(Color::Yellow).bg(bg_color),
+                            );
+                        }
+                        if let Some(pos) = value.find("[ ▲ ]") {
+                            let btn_x = col_area.x + 1 + pos as u16;
+                            buf.set_string(
+                                btn_x,
+                                y,
+                                "[ ▲ ]",
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .bg(bg_color)
+                                    .add_modifier(Modifier::BOLD),
+                            );
+                        }
+                        if let Some(pos) = value.find("[ ▼ ]") {
+                            let btn_x = col_area.x + 1 + pos as u16;
+                            buf.set_string(
+                                btn_x,
+                                y,
+                                "[ ▼ ]",
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .bg(bg_color)
+                                    .add_modifier(Modifier::BOLD),
                             );
                         }
                         if let Some(pos) = value.rfind("[ ✕ ]") {
@@ -305,11 +352,7 @@ impl Table {
                                 "[ ✕ ]",
                                 Style::default()
                                     .fg(Color::LightRed)
-                                    .bg(if is_selected || is_hovered {
-                                        Color::Indexed(240)
-                                    } else {
-                                        bg_color
-                                    })
+                                    .bg(bg_color)
                                     .add_modifier(Modifier::BOLD),
                             );
                         }
