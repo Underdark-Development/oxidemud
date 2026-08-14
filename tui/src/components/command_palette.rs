@@ -74,7 +74,7 @@ impl CommandPalette {
             ),
             PaletteItem::new(
                 "Duplicate Active Entity",
-                Some("Ctrl+D"),
+                Some("Ctrl+Shift+D"),
                 CommandAction::DuplicateEntity,
             ),
             PaletteItem::new("Save All Entities", None, CommandAction::SaveAllEntities),

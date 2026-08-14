@@ -1786,8 +1786,9 @@ impl EntityInspectorScreen {
     fn handle_key_idle(&mut self, key: KeyEvent) {
         use ratatui::crossterm::event::KeyModifiers;
 
-        if key.modifiers.contains(KeyModifiers::CONTROL)
-            || key.modifiers.contains(KeyModifiers::SUPER)
+        if (key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::SUPER))
+            && key.modifiers.contains(KeyModifiers::SHIFT)
         {
             match key.code {
                 KeyCode::Char('d') | KeyCode::Char('D') => {

@@ -87,6 +87,14 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Global: Ctrl+D to quit
+    if (key.code == KeyCode::Char('d') || key.code == KeyCode::Char('D'))
+        && key.modifiers == KeyModifiers::CONTROL
+    {
+        app.confirm_quit();
+        return;
+    }
+
     // Alt+letter: open menus (excluding digits)
     if key.modifiers.contains(KeyModifiers::ALT)
         && matches!(key.code, KeyCode::Char(c) if !c.is_ascii_digit())
