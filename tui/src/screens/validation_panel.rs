@@ -118,7 +118,7 @@ impl ValidationPanelScreen {
 
         let w_cat = (max_cat as u16).clamp(11, 16);
         let w_id = (max_id as u16).clamp(14, 24);
-        let w_kind = (max_kind as u16).clamp(14, 18);
+        let w_kind = (max_kind as u16).clamp(12, 14); // Tightened error kind column width
         let w_field = (max_field as u16).clamp(10, 16); // Tightened field column width
 
         let mut table = Table::new(headers);
