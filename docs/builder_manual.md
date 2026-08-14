@@ -13,9 +13,13 @@ content/
 ├── areas/
 │   └── <area_id>/
 │       ├── area.toml                 # Area metadata
-│       └── rooms/
-│           ├── <room_id_1>.toml      # Room template 1
-│           └── <room_id_2>.toml      # Room template 2
+│       ├── rooms/
+│       │   ├── <room_id_1>.toml      # Room template 1
+│       │   └── <room_id_2>.toml      # Room template 2
+│       └── areas/                    # Optional nested sub-areas
+│           └── <sub_area_id>/
+│               ├── area.toml         # Sub-area metadata
+│               └── rooms/            # Sub-area room templates
 ├── mobs/
 │   └── <mob_id>.toml                 # NPC template files
 ├── items/
@@ -43,14 +47,14 @@ content/
 ├── affixes/
 │   └── <affix_id>.toml               # Item affix definitions (prefix/suffix)
 ├── sets/
-│   └── <set_id>.toml                # Item set definitions and tier bonuses
+│   └── <set_id>.toml                 # Item set definitions and tier bonuses
 ├── passives/
 │   └── <passive_id>.toml             # Passive trait/ability definitions
 ├── stances/
 │   └── <stance_id>.toml              # Combat stance definitions
 ├── languages.toml                    # Languages granted at creation
 ├── socials.toml                      # Social emotes definitions
-└── treasure_classes.toml             # Random loot tier configurations
+└── weather.toml                      # Weather systems and season climate matrices
 ```
 
 ---
@@ -59,7 +63,7 @@ content/
 
 ### Areas (`AreaTemplate`)
 
-Stored at `content/areas/<area_id>/area.toml`. Defines a geographic zone of rooms.
+Stored at `content/areas/<area_id>/area.toml`. Defines a geographic zone of rooms. Areas support parent/sub-area nesting via the optional `<area_id>/areas/<sub_area_id>/` subfolder hierarchy. Sub-areas automatically resolve using dot-notated IDs (e.g., `parent_id.sub_id`).
 
 ```toml
 id = "midgaard"
