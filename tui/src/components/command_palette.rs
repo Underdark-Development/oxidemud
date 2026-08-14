@@ -72,6 +72,11 @@ impl CommandPalette {
                 Some("Ctrl+S"),
                 CommandAction::SaveEntity,
             ),
+            PaletteItem::new(
+                "Duplicate Active Entity",
+                Some("Ctrl+D"),
+                CommandAction::DuplicateEntity,
+            ),
             PaletteItem::new("Save All Entities", None, CommandAction::SaveAllEntities),
             PaletteItem::new(
                 "Reload Content Templates",

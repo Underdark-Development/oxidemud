@@ -63,8 +63,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // Global: Ctrl+P to toggle command palette
-    if key.code == KeyCode::Char('p') && key.modifiers == KeyModifiers::CONTROL {
+    // Global: Ctrl+P / Ctrl+Shift+P / Cmd+Shift+P to toggle command palette
+    if (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P'))
+        && (key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER))
+    {
         app.command_palette_open = true;
         app.command_palette.reset();
         return;
@@ -86,12 +88,6 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
             app.switch_screen(id);
             return;
         }
-    }
-
-    // Global: Ctrl+D to quit
-    if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::CONTROL {
-        app.confirm_quit();
-        return;
     }
 
     // Global: Ctrl+B to toggle sidebar
