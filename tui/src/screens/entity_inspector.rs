@@ -379,6 +379,28 @@ impl EntityInspectorScreen {
         }
     }
 
+    pub fn duplicate_entity(&mut self) {
+        if let Ok(toml_str) = self.serialize_registry_data() {
+            let base_id = self.template_id.clone();
+            let mut suffix_idx = 1;
+            let mut new_id = format!("{}_copy", base_id);
+            while template_exists_in_registry(&self.registry, &self.category, &new_id) {
+                new_id = format!("{}_copy_{}", base_id, suffix_idx);
+                suffix_idx += 1;
+            }
+            super::entities::insert_draft_into_registry(
+                &mut self.registry,
+                &self.category,
+                &new_id,
+                &toml_str,
+            );
+            self.template_id = new_id;
+            self.dirty = true;
+            self.is_draft = true;
+            self.load_table();
+        }
+    }
+
     fn load_table(&mut self) {
         let mut table = Table::new(vec!["Field".into(), "Value".into()]);
 
@@ -1762,6 +1784,18 @@ impl Screen for EntityInspectorScreen {
 // ---------------------------------------------------------------------------
 impl EntityInspectorScreen {
     fn handle_key_idle(&mut self, key: KeyEvent) {
+        use ratatui::crossterm::event::KeyModifiers;
+
+        if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER) {
+            match key.code {
+                KeyCode::Char('d') | KeyCode::Char('D') => {
+                    self.duplicate_entity();
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => self.table.select_prev(),
             KeyCode::Down | KeyCode::Char('j') => self.table.select_next(),
@@ -2015,12 +2049,10 @@ impl EntityInspectorScreen {
             _ => {}
         }
     }
-}
 
 // ---------------------------------------------------------------------------
 // Inline (Text / Number) edit handlers
 // ---------------------------------------------------------------------------
-impl EntityInspectorScreen {
     fn handle_key_inline(&mut self, key: KeyEvent) {
         let m = key.modifiers;
         match key.code {
@@ -2474,4 +2506,24 @@ fn parse_array_field(field: &str) -> Option<(String, usize)> {
         }
     }
     None
+}
+
+fn template_exists_in_registry(registry: &TemplateRegistry, category: &str, id: &str) -> bool {
+    match category {
+        "rooms" => registry.areas.values().any(|a| a.rooms.contains_key(id)),
+        "mobs" => registry.mobs.contains_key(id),
+        "items" => registry.items.contains_key(id),
+        "quests" => registry.quests.contains_key(id),
+        "recipes" => registry.recipes.contains_key(id),
+        "factions" => registry.factions.contains_key(id),
+        "races" => registry.races.contains_key(id),
+        "classes" => registry.classes.contains_key(id),
+        "areas" => registry.areas.contains_key(id),
+        "skills" => registry.skills.contains_key(id),
+        "stances" => registry.stances.contains_key(id),
+        "sets" => registry.sets.contains_key(id),
+        "affixes" => registry.affixes.contains_key(id),
+        "passives" => registry.passives.contains_key(id),
+        _ => false,
+    }
 }

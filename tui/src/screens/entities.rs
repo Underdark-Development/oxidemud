@@ -1220,6 +1220,7 @@ impl Screen for EntitiesScreen {
         {
             cmds.push(("Save".to_string(), CommandAction::SaveEntity));
         }
+        cmds.push(("Duplicate".to_string(), CommandAction::DuplicateEntity));
         cmds
     }
 
@@ -1231,6 +1232,34 @@ impl Screen for EntitiesScreen {
                     Ok(true)
                 } else {
                     Err("No entity selected to toggle view mode".to_string())
+                }
+            }
+            CommandAction::DuplicateEntity => {
+                if let Some(ref mut detail) = self.detail {
+                    detail.duplicate_entity();
+                    let cat = detail.category.clone();
+                    let new_id = detail.template_id.clone();
+                    self.unsaved.insert((cat, new_id));
+                    self.rebuild_tree();
+                    Ok(true)
+                } else if let Some(data) = self.tree.selected_data() {
+                    if !data.id.is_empty() {
+                        self.open_detail(data.category.clone(), data.id.clone());
+                        if let Some(ref mut detail) = self.detail {
+                            detail.duplicate_entity();
+                            let cat = detail.category.clone();
+                            let new_id = detail.template_id.clone();
+                            self.unsaved.insert((cat, new_id));
+                            self.rebuild_tree();
+                            Ok(true)
+                        } else {
+                            Err("Failed to duplicate entity".to_string())
+                        }
+                    } else {
+                        Err("No entity selected to duplicate".to_string())
+                    }
+                } else {
+                    Err("No entity selected to duplicate".to_string())
                 }
             }
             CommandAction::CreateEntity(cat) => {

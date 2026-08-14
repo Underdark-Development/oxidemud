@@ -12,6 +12,7 @@ use crate::components::{Tree, TreeNode};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandAction {
     CreateEntity(String),
+    DuplicateEntity,
     SaveEntity,
     SaveAllEntities,
     EditEntity,
