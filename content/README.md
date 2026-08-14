@@ -21,7 +21,9 @@ The following server-level configuration and text asset files live in the root o
 Game content is organized into subdirectories by template category. All content templates use TOML data format, while dynamic behaviors use Rhai scripts (`.rhai`):
 
 - **`affixes/`** — Item prefix and suffix stat modifier templates.
-- **`areas/`** — Zone and room layout definitions (`content/areas/<area_id>/*.toml`).
+- **`areas/`** — Nested world zone and room layout definitions. Each area lives in its own subdirectory (`content/areas/<area_id>/`):
+  - **`area.toml`** — Master zone metadata file containing the area's display name, recommended level range, climate, author details, reset intervals, and zone-wide flags.
+  - **`rooms/`** — Subdirectory containing individual room definition files (`.toml`) specifying room descriptions, coordinates, directional exits, and keyword portals within that zone.
 - **`classes/`** — Character class templates (attribute progression, saving throws, hit dice, auto-granted skills).
 - **`deities/`** — Deity templates and prayer blessing buff definitions.
 - **`factions/`** — Faction definitions, initial standing matrices, and reputation decay/boost settings.
