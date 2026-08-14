@@ -26,6 +26,12 @@ pub struct RawTomlEditor {
     pub scroll: usize,
     pub error: Option<RawEditorError>,
     pub dirty: bool,
+    pub undo_stack: Vec<(Vec<String>, usize, usize)>,
+    pub redo_stack: Vec<(Vec<String>, usize, usize)>,
+    pub selection_start: Option<(usize, usize)>,
+    pub selection_end: Option<(usize, usize)>,
+    pub is_selecting: bool,
+    pub clipboard: String,
 }
 
 impl Default for RawTomlEditor {
@@ -43,6 +49,12 @@ impl RawTomlEditor {
             scroll: 0,
             error: None,
             dirty: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            selection_start: None,
+            selection_end: None,
+            is_selecting: false,
+            clipboard: String::new(),
         }
     }
 
@@ -58,14 +70,163 @@ impl RawTomlEditor {
         self.scroll = 0;
         self.error = None;
         self.dirty = false;
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.selection_start = None;
+        self.selection_end = None;
+        self.is_selecting = false;
     }
 
     pub fn to_string_content(&self) -> String {
         self.lines.join("\n")
     }
 
+    pub fn push_undo(&mut self) {
+        if self.undo_stack.len() >= 50 {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push((self.lines.clone(), self.cursor_line, self.cursor_col));
+        self.redo_stack.clear();
+    }
+
+    pub fn undo(&mut self) {
+        if let Some((lines, cl, cc)) = self.undo_stack.pop() {
+            self.redo_stack.push((self.lines.clone(), self.cursor_line, self.cursor_col));
+            self.lines = lines;
+            self.cursor_line = cl;
+            self.cursor_col = cc;
+            self.dirty = true;
+            self.ensure_cursor_visible();
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if let Some((lines, cl, cc)) = self.redo_stack.pop() {
+            self.undo_stack.push((self.lines.clone(), self.cursor_line, self.cursor_col));
+            self.lines = lines;
+            self.cursor_line = cl;
+            self.cursor_col = cc;
+            self.dirty = true;
+            self.ensure_cursor_visible();
+        }
+    }
+
+    pub fn get_selection_range(&self) -> Option<((usize, usize), (usize, usize))> {
+        let start = self.selection_start?;
+        let end = self.selection_end?;
+        if start == end {
+            return None;
+        }
+        if start <= end {
+            Some((start, end))
+        } else {
+            Some((end, start))
+        }
+    }
+
+    pub fn copy_selection(&mut self) {
+        if let Some((start, end)) = self.get_selection_range() {
+            let mut extracted = Vec::new();
+            for l in start.0..=end.0 {
+                if l >= self.lines.len() { break; }
+                let line_str = &self.lines[l];
+                let c_start = if l == start.0 { start.1.min(line_str.len()) } else { 0 };
+                let c_end = if l == end.0 { end.1.min(line_str.len()) } else { line_str.len() };
+                if c_start < c_end {
+                    extracted.push(line_str[c_start..c_end].to_string());
+                }
+            }
+            self.clipboard = extracted.join("\n");
+        } else if self.cursor_line < self.lines.len() {
+            self.clipboard = self.lines[self.cursor_line].clone();
+        }
+    }
+
+    pub fn cut_selection(&mut self) {
+        self.copy_selection();
+        if let Some((start, end)) = self.get_selection_range() {
+            self.push_undo();
+            if start.0 == end.0 {
+                let l_str = &mut self.lines[start.0];
+                let s = start.1.min(l_str.len());
+                let e = end.1.min(l_str.len());
+                l_str.drain(s..e);
+                self.cursor_col = s;
+            } else {
+                let remaining = self.lines[start.0][..start.1.min(self.lines[start.0].len())].to_string();
+                let end_rem = self.lines[end.0.min(self.lines.len() - 1)][end.1.min(self.lines[end.0.min(self.lines.len() - 1)].len())..].to_string();
+                let mut joined = remaining;
+                joined.push_str(&end_rem);
+                for _ in start.0..end.0 {
+                    if start.0 + 1 < self.lines.len() {
+                        self.lines.remove(start.0 + 1);
+                    }
+                }
+                self.lines[start.0] = joined;
+                self.cursor_line = start.0;
+                self.cursor_col = start.1;
+            }
+            self.selection_start = None;
+            self.selection_end = None;
+            self.dirty = true;
+        }
+    }
+
+    pub fn paste_clipboard(&mut self) {
+        if self.clipboard.is_empty() { return; }
+        self.push_undo();
+        let clip_lines: Vec<&str> = self.clipboard.lines().collect();
+        if clip_lines.len() == 1 {
+            self.lines[self.cursor_line].insert_str(self.cursor_col, clip_lines[0]);
+            self.cursor_col += clip_lines[0].len();
+        } else if !clip_lines.is_empty() {
+            let remainder = self.lines[self.cursor_line].split_off(self.cursor_col);
+            self.lines[self.cursor_line].push_str(clip_lines[0]);
+            for cl in clip_lines.iter().skip(1) {
+                self.cursor_line += 1;
+                self.lines.insert(self.cursor_line, cl.to_string());
+            }
+            self.cursor_col = self.lines[self.cursor_line].len();
+            self.lines[self.cursor_line].push_str(&remainder);
+        }
+        self.dirty = true;
+        self.ensure_cursor_visible();
+    }
+
     pub fn handle_key(&mut self, key: ratatui::crossterm::event::KeyEvent) -> bool {
-        use ratatui::crossterm::event::KeyCode;
+        use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+
+        let mods = key.modifiers;
+
+        if mods.contains(KeyModifiers::CONTROL) || mods.contains(KeyModifiers::SUPER) {
+            match key.code {
+                KeyCode::Char('z') | KeyCode::Char('Z') | KeyCode::Char('\u{1a}') => {
+                    if mods.contains(KeyModifiers::SHIFT) || key.code == KeyCode::Char('Z') {
+                        self.redo();
+                    } else {
+                        self.undo();
+                    }
+                    return true;
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char('\u{19}') => {
+                    self.redo();
+                    return true;
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    self.copy_selection();
+                    return true;
+                }
+                KeyCode::Char('x') | KeyCode::Char('X') => {
+                    self.cut_selection();
+                    return true;
+                }
+                KeyCode::Char('v') | KeyCode::Char('V') => {
+                    self.paste_clipboard();
+                    return true;
+                }
+                _ => {}
+            }
+        }
 
         match key.code {
             KeyCode::Up => {
@@ -126,6 +287,7 @@ impl RawTomlEditor {
                 true
             }
             KeyCode::Char(c) => {
+                self.push_undo();
                 self.lines[self.cursor_line].insert(self.cursor_col, c);
                 self.cursor_col += 1;
                 self.dirty = true;
@@ -133,10 +295,12 @@ impl RawTomlEditor {
             }
             KeyCode::Backspace => {
                 if self.cursor_col > 0 {
+                    self.push_undo();
                     self.lines[self.cursor_line].remove(self.cursor_col - 1);
                     self.cursor_col -= 1;
                     self.dirty = true;
                 } else if self.cursor_line > 0 {
+                    self.push_undo();
                     let cur_line = self.lines.remove(self.cursor_line);
                     self.cursor_line -= 1;
                     self.cursor_col = self.lines[self.cursor_line].len();
@@ -149,9 +313,11 @@ impl RawTomlEditor {
             KeyCode::Delete => {
                 let line_len = self.lines[self.cursor_line].len();
                 if self.cursor_col < line_len {
+                    self.push_undo();
                     self.lines[self.cursor_line].remove(self.cursor_col);
                     self.dirty = true;
                 } else if self.cursor_line + 1 < self.lines.len() {
+                    self.push_undo();
                     let next_line = self.lines.remove(self.cursor_line + 1);
                     self.lines[self.cursor_line].push_str(&next_line);
                     self.dirty = true;
@@ -159,6 +325,7 @@ impl RawTomlEditor {
                 true
             }
             KeyCode::Enter => {
+                self.push_undo();
                 let remainder = self.lines[self.cursor_line].split_off(self.cursor_col);
                 self.cursor_line += 1;
                 self.lines.insert(self.cursor_line, remainder);
@@ -189,7 +356,7 @@ impl RawTomlEditor {
         mouse: ratatui::crossterm::event::MouseEvent,
         area: Rect,
     ) -> bool {
-        use ratatui::crossterm::event::MouseEventKind;
+        use ratatui::crossterm::event::{MouseButton, MouseEventKind};
 
         if mouse.column < area.x
             || mouse.column >= area.x + area.width
@@ -200,17 +367,38 @@ impl RawTomlEditor {
         }
 
         match mouse.kind {
-            MouseEventKind::Down(_) => {
+            MouseEventKind::Down(MouseButton::Left) => {
                 let rel_row = (mouse.row as usize).saturating_sub(area.y as usize);
                 let target_line = self.scroll + rel_row;
                 if target_line < self.lines.len() {
                     self.cursor_line = target_line;
                     let num_width = 4;
-                    let text_start_x = area.x as usize + num_width + 1; // 5 chars for line number gutter
+                    let text_start_x = area.x as usize + num_width + 1;
                     let rel_col = (mouse.column as usize).saturating_sub(text_start_x);
                     self.cursor_col = rel_col.min(self.lines[self.cursor_line].len());
+                    self.selection_start = Some((self.cursor_line, self.cursor_col));
+                    self.selection_end = Some((self.cursor_line, self.cursor_col));
+                    self.is_selecting = true;
                     self.ensure_cursor_visible();
                 }
+                true
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if self.is_selecting {
+                    let rel_row = (mouse.row as usize).saturating_sub(area.y as usize);
+                    let target_line = (self.scroll + rel_row).min(self.lines.len().saturating_sub(1));
+                    let num_width = 4;
+                    let text_start_x = area.x as usize + num_width + 1;
+                    let rel_col = (mouse.column as usize).saturating_sub(text_start_x);
+                    let target_col = rel_col.min(self.lines[target_line].len());
+                    self.selection_end = Some((target_line, target_col));
+                    self.cursor_line = target_line;
+                    self.cursor_col = target_col;
+                }
+                true
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                self.is_selecting = false;
                 true
             }
             MouseEventKind::ScrollUp => {
@@ -344,6 +532,23 @@ impl RawTomlEditor {
 
             let line = Line::from(spans);
             buf.set_line(x_start, y, &line, editor_width);
+
+            // Render selection highlight overlay
+            if let Some((s_pos, e_pos)) = self.get_selection_range() {
+                if line_idx >= s_pos.0 && line_idx <= e_pos.0 {
+                    let s_col = if line_idx == s_pos.0 { s_pos.1 } else { 0 };
+                    let e_col = if line_idx == e_pos.0 { e_pos.1 } else { line_text.len() };
+                    for col in s_col..e_col {
+                        let sel_x = x_start + col as u16;
+                        if sel_x < area.x + area.width {
+                            if let Some(cell) = buf.cell_mut((sel_x, y)) {
+                                cell.set_bg(Color::Indexed(242));
+                                cell.set_fg(Color::White);
+                            }
+                        }
+                    }
+                }
+            }
 
             // Render text cursor if focused
             if is_focused && is_cur_line {
