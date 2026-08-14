@@ -29,6 +29,7 @@ impl PaletteItem {
 pub struct CommandPalette {
     pub input: String,
     pub selected_index: usize,
+    pub scroll_offset: usize,
     pub items: Vec<PaletteItem>,
     pub item_rects: Vec<Rect>,
     pub hovered_index: Option<usize>,
@@ -131,29 +132,44 @@ impl CommandPalette {
                 CommandAction::CreateEntity("class".to_string()),
             ),
             PaletteItem::new(
+                "Create Faction",
+                None,
+                CommandAction::CreateEntity("faction".to_string()),
+            ),
+            PaletteItem::new(
+                "Create Quest",
+                None,
+                CommandAction::CreateEntity("quest".to_string()),
+            ),
+            PaletteItem::new(
+                "Create Recipe",
+                None,
+                CommandAction::CreateEntity("recipe".to_string()),
+            ),
+            PaletteItem::new(
+                "Create Spell",
+                None,
+                CommandAction::CreateEntity("spell".to_string()),
+            ),
+            PaletteItem::new(
                 "Create Skill",
                 None,
                 CommandAction::CreateEntity("skill".to_string()),
             ),
             PaletteItem::new(
-                "Create Stance",
+                "Create Dialogue",
                 None,
-                CommandAction::CreateEntity("stance".to_string()),
+                CommandAction::CreateEntity("dialogue".to_string()),
             ),
             PaletteItem::new(
-                "Create Set",
+                "Create Merchant",
                 None,
-                CommandAction::CreateEntity("set".to_string()),
+                CommandAction::CreateEntity("merchant".to_string()),
             ),
             PaletteItem::new(
-                "Create Affix",
+                "Create Loot Table",
                 None,
-                CommandAction::CreateEntity("affix".to_string()),
-            ),
-            PaletteItem::new(
-                "Create Passive",
-                None,
-                CommandAction::CreateEntity("passive".to_string()),
+                CommandAction::CreateEntity("loot_table".to_string()),
             ),
             PaletteItem::new("Expand All Nodes", None, CommandAction::ExpandAll),
             PaletteItem::new("Collapse All Nodes", None, CommandAction::CollapseAll),
@@ -180,6 +196,7 @@ impl CommandPalette {
         Self {
             input: String::new(),
             selected_index: 0,
+            scroll_offset: 0,
             items,
             item_rects: Vec::new(),
             hovered_index: None,
@@ -189,6 +206,7 @@ impl CommandPalette {
     pub fn reset(&mut self) {
         self.input.clear();
         self.selected_index = 0;
+        self.scroll_offset = 0;
         self.item_rects.clear();
         self.hovered_index = None;
     }
@@ -211,19 +229,41 @@ impl CommandPalette {
         scored.into_iter().map(|(_, item)| item).collect()
     }
 
+    pub fn ensure_selected_visible(&mut self, list_height: usize) {
+        let filtered_len = self.filtered_items().len();
+        if filtered_len == 0 || list_height == 0 {
+            self.scroll_offset = 0;
+            return;
+        }
+        if self.selected_index < self.scroll_offset {
+            self.scroll_offset = self.selected_index;
+        } else if self.selected_index >= self.scroll_offset + list_height {
+            self.scroll_offset = self.selected_index + 1 - list_height;
+        }
+        let max_scroll = filtered_len.saturating_sub(list_height);
+        if self.scroll_offset > max_scroll {
+            self.scroll_offset = max_scroll;
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<CommandAction> {
         let filtered = self.filtered_items();
         if self.selected_index >= filtered.len() {
             self.selected_index = 0;
+            self.scroll_offset = 0;
         }
+
+        let list_height = 11; // Standard palette height minus borders/prompt/sep
 
         match key.code {
             KeyCode::Up => {
                 if !filtered.is_empty() {
                     if self.selected_index == 0 {
                         self.selected_index = filtered.len() - 1;
+                        self.scroll_offset = filtered.len().saturating_sub(list_height);
                     } else {
                         self.selected_index -= 1;
+                        self.ensure_selected_visible(list_height);
                     }
                 }
                 None
@@ -232,9 +272,25 @@ impl CommandPalette {
                 if !filtered.is_empty() {
                     if self.selected_index + 1 >= filtered.len() {
                         self.selected_index = 0;
+                        self.scroll_offset = 0;
                     } else {
                         self.selected_index += 1;
+                        self.ensure_selected_visible(list_height);
                     }
+                }
+                None
+            }
+            KeyCode::PageUp => {
+                if !filtered.is_empty() {
+                    self.selected_index = self.selected_index.saturating_sub(list_height);
+                    self.ensure_selected_visible(list_height);
+                }
+                None
+            }
+            KeyCode::PageDown => {
+                if !filtered.is_empty() {
+                    self.selected_index = (self.selected_index + list_height).min(filtered.len() - 1);
+                    self.ensure_selected_visible(list_height);
                 }
                 None
             }
@@ -251,11 +307,13 @@ impl CommandPalette {
                 }
                 self.input.push(c);
                 self.selected_index = 0;
+                self.scroll_offset = 0;
                 None
             }
             KeyCode::Backspace => {
                 self.input.pop();
                 self.selected_index = 0;
+                self.scroll_offset = 0;
                 None
             }
             _ => None,
@@ -265,18 +323,37 @@ impl CommandPalette {
     pub fn handle_mouse(&mut self, mouse: MouseEvent, _area: Rect) -> Option<CommandAction> {
         let filtered = self.filtered_items();
 
-        if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-            for (i, rect) in self.item_rects.iter().enumerate() {
-                if mouse.column >= rect.x
-                    && mouse.column < rect.x + rect.width
-                    && mouse.row == rect.y
-                    && i < filtered.len()
-                {
-                    return Some(filtered[i].action.clone());
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                if self.scroll_offset > 0 {
+                    self.scroll_offset -= 1;
                 }
+                None
             }
+            MouseEventKind::ScrollDown => {
+                let list_height = 11;
+                let max_scroll = filtered.len().saturating_sub(list_height);
+                if self.scroll_offset < max_scroll {
+                    self.scroll_offset += 1;
+                }
+                None
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                for (i, rect) in self.item_rects.iter().enumerate() {
+                    let item_idx = self.scroll_offset + i;
+                    if mouse.column >= rect.x
+                        && mouse.column < rect.x + rect.width
+                        && mouse.row == rect.y
+                        && item_idx < filtered.len()
+                    {
+                        self.selected_index = item_idx;
+                        return Some(filtered[item_idx].action.clone());
+                    }
+                }
+                None
+            }
+            _ => None,
         }
-        None
     }
 
     pub fn render(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
@@ -362,29 +439,32 @@ impl CommandPalette {
 
         if self.selected_index >= filtered.len() {
             self.selected_index = 0;
+            self.scroll_offset = 0;
         }
+        self.ensure_selected_visible(list_height);
 
         self.item_rects.clear();
         self.hovered_index = None;
 
         for i in 0..list_height {
-            if i >= filtered.len() {
+            let item_idx = self.scroll_offset + i;
+            if item_idx >= filtered.len() {
                 break;
             }
-            let item = &filtered[i];
+            let item = &filtered[item_idx];
             let item_y = list_y + i as u16;
-            let is_selected = i == self.selected_index;
+            let is_selected = item_idx == self.selected_index;
 
             let row_rect = Rect::new(inner.x, item_y, inner.width, 1);
             self.item_rects.push(row_rect);
 
             if let Some((mx, my)) = mouse_pos {
                 if mx >= row_rect.x && mx < row_rect.x + row_rect.width && my == row_rect.y {
-                    self.hovered_index = Some(i);
+                    self.hovered_index = Some(item_idx);
                 }
             }
 
-            let is_hovered = self.hovered_index == Some(i);
+            let is_hovered = self.hovered_index == Some(item_idx);
 
             let style = if is_selected {
                 Style::default().fg(Color::Black).bg(Color::Cyan)
