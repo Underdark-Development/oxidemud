@@ -201,6 +201,13 @@ impl EntitiesScreen {
     }
 
     fn handle_search_key(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::ALT)
+            || key.modifiers.contains(KeyModifiers::SUPER)
+        {
+            return;
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.search = None;
@@ -213,10 +220,6 @@ impl EntitiesScreen {
             KeyCode::Backspace => {
                 if let Some(ref mut s) = self.search {
                     s.pop();
-                    if s.is_empty() {
-                        self.search = None;
-                        self.search_focus = false;
-                    }
                 }
                 self.rebuild_tree();
             }
@@ -1115,6 +1118,10 @@ impl Screen for EntitiesScreen {
     fn handle_mouse(&mut self, mouse: MouseEvent, area: Rect) {
         if self.show_help || self.preview.is_some() || area.width < 2 {
             return;
+        }
+
+        if matches!(mouse.kind, MouseEventKind::Down(_)) {
+            self.search_focus = false;
         }
 
         let tree_width = self.tree_width_pct(area.width);
