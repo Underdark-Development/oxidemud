@@ -16,6 +16,37 @@ pub struct ValidationPanelScreen {
     scrollbar: ScrollState,
     error_count: usize,
     pending_action: ScreenAction,
+    sort_column: usize,
+    sort_ascending: bool,
+}
+
+fn classify_error_kind(msg: &str, field: &str) -> &'static str {
+    let msg_lower = msg.to_lowercase();
+    let field_lower = field.to_lowercase();
+    if msg_lower.contains("does not exist")
+        || msg_lower.contains("referential")
+        || field_lower.contains("exit")
+        || field_lower.contains("destination")
+    {
+        "Reference"
+    } else if msg_lower.contains("enum")
+        || msg_lower.contains("invalid option")
+        || field_lower.contains("hands")
+        || field_lower.contains("slot")
+        || field_lower.contains("quality")
+        || field_lower.contains("item_type")
+    {
+        "Enum"
+    } else if msg_lower.contains("schema")
+        || msg_lower.contains("type")
+        || msg_lower.contains("expected")
+    {
+        "Schema"
+    } else if msg_lower.contains("syntax") || msg_lower.contains("parse") {
+        "Syntax"
+    } else {
+        "Validation"
+    }
 }
 
 impl ValidationPanelScreen {
@@ -23,14 +54,17 @@ impl ValidationPanelScreen {
         let mut screen = ValidationPanelScreen {
             registry,
             table: Table::new(vec![
-                "Type".into(),
-                "ID".into(),
+                "Category".into(),
+                "Entity ID".into(),
+                "Error Kind".into(),
                 "Field".into(),
                 "Message".into(),
             ]),
             scrollbar: ScrollState::new(),
             error_count: 0,
             pending_action: ScreenAction::None,
+            sort_column: 0,
+            sort_ascending: true,
         };
         screen.run_validation();
         screen
@@ -40,32 +74,72 @@ impl ValidationPanelScreen {
         let errors = self.registry.validate();
         self.error_count = errors.len();
 
-        let mut table = Table::new(vec![
-            "Type".into(),
-            "ID".into(),
-            "Field".into(),
-            "Message".into(),
-        ]);
+        let mut headers = vec![
+            "Category".to_string(),
+            "Entity ID".to_string(),
+            "Error Kind".to_string(),
+            "Field".to_string(),
+            "Message".to_string(),
+        ];
+        if self.sort_column < headers.len() {
+            headers[self.sort_column]
+                .push_str(if self.sort_ascending { " ▲" } else { " ▼" });
+        }
+
+        let mut table = Table::new(headers);
         table.column_widths = vec![
-            Constraint::Length(8),
-            Constraint::Length(20),
+            Constraint::Length(12),
+            Constraint::Length(22),
+            Constraint::Length(16),
             Constraint::Length(24),
             Constraint::Fill(1),
         ];
 
+        let mut row_data: Vec<[String; 5]> = Vec::new();
+
         for err in &errors {
-            table.add_row(vec![
-                err.template_type.to_string(),
+            let category = match err.template_type {
+                "room" | "area" => "rooms".to_string(),
+                "mob" => "mobs".to_string(),
+                "item" => "items".to_string(),
+                "quest" => "quests".to_string(),
+                "recipe" => "recipes".to_string(),
+                "faction" => "factions".to_string(),
+                "race" => "races".to_string(),
+                "class" => "classes".to_string(),
+                other => format!("{}s", other),
+            };
+            let kind = classify_error_kind(&err.message, &err.field).to_string();
+
+            row_data.push([
+                category,
                 err.template_id.clone(),
+                kind,
                 err.field.clone(),
                 err.message.clone(),
             ]);
+        }
+
+        let sort_col = self.sort_column.min(4);
+        let sort_asc = self.sort_ascending;
+        row_data.sort_by(|a, b| {
+            let cmp = a[sort_col].to_lowercase().cmp(&b[sort_col].to_lowercase());
+            if sort_asc {
+                cmp
+            } else {
+                cmp.reverse()
+            }
+        });
+
+        for row in row_data {
+            table.add_row(row.to_vec());
         }
 
         if errors.is_empty() {
             table.add_row(vec![
                 "✓".into(),
                 "All good".into(),
+                "Clean".into(),
                 "no errors".into(),
                 "template registry validated successfully".into(),
             ]);
@@ -81,22 +155,32 @@ impl ValidationPanelScreen {
         if let Some(idx) = self.table.selected {
             if idx < self.table.rows.len() {
                 let row = &self.table.rows[idx];
-                let t_type = row[0].as_str();
-                let t_id = &row[1];
-                let category = match t_type {
-                    "room" | "area" => "rooms",
-                    "mob" => "mobs",
-                    "item" => "items",
-                    "quest" => "quests",
-                    "recipe" => "recipes",
-                    "faction" => "factions",
-                    "race" => "races",
-                    "class" => "classes",
-                    other => other,
-                };
-                self.pending_action = ScreenAction::Inspect(category.to_string(), t_id.clone());
+                let category = &row[0];
+                let mut target_id = row[1].clone();
+                let field = &row[3];
+
+                // Handle nested room field prefix (e.g. rooms.north_gate.exits)
+                if field.starts_with("rooms.") {
+                    let parts: Vec<&str> = field.split('.').collect();
+                    if parts.len() >= 2 {
+                        target_id = parts[1].to_string();
+                    }
+                }
+
+                self.pending_action =
+                    ScreenAction::Inspect(category.clone(), target_id);
             }
         }
+    }
+
+    fn handle_header_click(&mut self, col: usize) {
+        if col == self.sort_column {
+            self.sort_ascending = !self.sort_ascending;
+        } else {
+            self.sort_column = col.min(4);
+            self.sort_ascending = true;
+        }
+        self.run_validation();
     }
 }
 
@@ -122,6 +206,10 @@ impl Screen for ValidationPanelScreen {
         match key.code {
             KeyCode::Up => self.table.select_prev(),
             KeyCode::Down => self.table.select_next(),
+            KeyCode::Home => self.table.select_first(),
+            KeyCode::End => self.table.select_last(),
+            KeyCode::PageUp => self.table.page_up(),
+            KeyCode::PageDown => self.table.page_down(),
             KeyCode::Enter => self.inspect_selected_error(),
             _ => {}
         }
@@ -133,10 +221,29 @@ impl Screen for ValidationPanelScreen {
             MouseEventKind::ScrollUp => self.table.select_prev(),
             MouseEventKind::ScrollDown => self.table.select_next(),
             MouseEventKind::Down(MouseButton::Left) => {
-                let table_top = area.y + 2; // top status line + table header row
+                let header_y = area.y + 1;
+                let table_top = area.y + 2;
                 let content_lines = area.height.saturating_sub(2) as usize;
-                if mouse.row >= table_top && mouse.row < table_top + content_lines as u16 {
-                    let clicked_row = (mouse.row - table_top) as usize + self.table.scroll.offset;
+
+                if mouse.row == header_y {
+                    let rel_x = mouse.column.saturating_sub(area.x + 2);
+                    // Column width bounds:
+                    // Category: 0..12, Entity ID: 12..34, Error Kind: 34..50, Field: 50..74, Message: 74+
+                    let col = if rel_x < 12 {
+                        0
+                    } else if rel_x < 34 {
+                        1
+                    } else if rel_x < 50 {
+                        2
+                    } else if rel_x < 74 {
+                        3
+                    } else {
+                        4
+                    };
+                    self.handle_header_click(col);
+                } else if mouse.row >= table_top && mouse.row < table_top + content_lines as u16 {
+                    let clicked_row =
+                        (mouse.row - table_top) as usize + self.table.scroll.offset;
                     if clicked_row < self.table.rows.len() {
                         self.table.selected = Some(clicked_row);
                         self.inspect_selected_error();
@@ -161,7 +268,7 @@ impl Screen for ValidationPanelScreen {
             " validation passed — no errors ".to_string()
         } else {
             format!(
-                " {} error(s) found  │  💡 Click any validation error (or press Enter) to open it in the entity editor ",
+                " {} error(s) found  │  💡 Click any header to sort, click error to edit ",
                 self.error_count
             )
         };
