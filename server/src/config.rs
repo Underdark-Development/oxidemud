@@ -30,12 +30,24 @@ fn default_log_rotation() -> String {
     "daily".to_string()
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TlsConfig {
+    pub cert_path: Option<String>,
+    pub key_path: Option<String>,
+    pub acme_domain: Option<String>,
+    pub acme_email: Option<String>,
+    pub auto_dev_cert: Option<bool>,
+    pub allow_insecure_http: Option<bool>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiConfig {
     #[serde(default = "default_api_enabled")]
     pub enabled: bool,
     #[serde(default = "default_api_bind_addr")]
     pub bind_addr: String,
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 impl Default for ApiConfig {
@@ -43,6 +55,7 @@ impl Default for ApiConfig {
         Self {
             enabled: true,
             bind_addr: "127.0.0.1:8080".to_string(),
+            tls: TlsConfig::default(),
         }
     }
 }
@@ -53,6 +66,38 @@ fn default_api_enabled() -> bool {
 
 fn default_api_bind_addr() -> String {
     "127.0.0.1:8080".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WebSocketConfig {
+    #[serde(default = "default_ws_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_ws_ping_interval_secs")]
+    pub ping_interval_secs: u64,
+    #[serde(default = "default_ws_max_message_size")]
+    pub max_message_size_bytes: usize,
+}
+
+impl Default for WebSocketConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            ping_interval_secs: 30,
+            max_message_size_bytes: 65536,
+        }
+    }
+}
+
+fn default_ws_enabled() -> bool {
+    true
+}
+
+fn default_ws_ping_interval_secs() -> u64 {
+    30
+}
+
+fn default_ws_max_message_size() -> usize {
+    65536
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,6 +114,8 @@ pub struct ServerConfig {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub api: ApiConfig,
+    #[serde(default)]
+    pub websocket: WebSocketConfig,
     #[serde(default)]
     pub time: oxide_core::TimeConfig,
 }
@@ -98,6 +145,7 @@ pub fn init(path: &Path) {
             default_prompt: default_prompt(),
             logging: LoggingConfig::default(),
             api: ApiConfig::default(),
+            websocket: WebSocketConfig::default(),
             time: oxide_core::TimeConfig::default(),
         }
     } else {
@@ -114,6 +162,7 @@ pub fn init(path: &Path) {
                 default_prompt: default_prompt(),
                 logging: LoggingConfig::default(),
                 api: ApiConfig::default(),
+                websocket: WebSocketConfig::default(),
                 time: oxide_core::TimeConfig::default(),
             }
         })

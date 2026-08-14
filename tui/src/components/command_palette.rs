@@ -158,6 +158,21 @@ impl CommandPalette {
             PaletteItem::new("Expand All Nodes", None, CommandAction::ExpandAll),
             PaletteItem::new("Collapse All Nodes", None, CommandAction::CollapseAll),
             PaletteItem::new("Search Entities", Some("/"), CommandAction::ToggleSearch),
+            PaletteItem::new(
+                "Switch Mode to Online (WSS)",
+                None,
+                CommandAction::SwitchMode(crate::app::Mode::Online),
+            ),
+            PaletteItem::new(
+                "Switch Mode to Offline",
+                None,
+                CommandAction::SwitchMode(crate::app::Mode::Offline),
+            ),
+            PaletteItem::new(
+                "Switch Mode to Split",
+                None,
+                CommandAction::SwitchMode(crate::app::Mode::Split),
+            ),
             PaletteItem::new("Show About Dialog", None, CommandAction::ShowAbout),
             PaletteItem::new("Quit Spade", Some("Ctrl+D"), CommandAction::Quit),
         ];

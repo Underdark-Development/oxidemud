@@ -57,9 +57,15 @@ sudo systemctl start oxide
 
 ## 4. Connecting a Client
 
-Oxide MUD features a raw Telnet network reader that supports ANSI 256 colors. You can connect to the live port using standard client utilities:
+OxideMUD supports both standard Telnet connections and modern WebSockets (WSS/WS):
 
-- **TinTin++ (Recommended):**
+- **WebSocket Web Client / Browser (Recommended):**
+  Connect to `ws://localhost:8080/ws/play` or `wss://mud.example.com/ws/play` using any browser web client or WebSocket tool.
+- **Spade TUI Client & World Builder:**
+  ```bash
+  spade connect wss://localhost:8080/ws/spade
+  ```
+- **TinTin++ (Telnet):**
   ```bash
   tt++ -r /dev/null localhost 4000
   ```
@@ -70,12 +76,19 @@ Oxide MUD features a raw Telnet network reader that supports ANSI 256 colors. Yo
 
 ---
 
-## 5. Starting the MCP Server
+## 5. Starting the MCP Server for AI Agents
 
-To enable AI assistant world building, make sure the Model Context Protocol (MCP) server is running:
+To enable AI assistant world building, run the Model Context Protocol (MCP) server in offline or online mode:
 
-```bash
-/opt/oxide/bin/oxide-mcp /opt/oxide/content
-```
-
-This listens on port `5000` (or systemd socket) allowing compatible AI tools to securely read, write, and validate MUD data models.
+- **Offline Mode (Local TOML Files):**
+  ```bash
+  oxide-mcp /opt/oxide/content
+  ```
+- **Online Mode (Live WebSocket Connection):**
+  ```bash
+  oxide-mcp --online
+  ```
+  or connect to a custom WSS server:
+  ```bash
+  oxide-mcp --ws wss://mud.example.com/ws/mcp --key <API_KEY>
+  ```

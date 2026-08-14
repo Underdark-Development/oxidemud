@@ -1786,7 +1786,9 @@ impl EntityInspectorScreen {
     fn handle_key_idle(&mut self, key: KeyEvent) {
         use ratatui::crossterm::event::KeyModifiers;
 
-        if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER) {
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::SUPER)
+        {
             match key.code {
                 KeyCode::Char('d') | KeyCode::Char('D') => {
                     self.duplicate_entity();
@@ -1990,12 +1992,12 @@ impl EntityInspectorScreen {
                             if relative_x >= start_up && relative_x < end_up {
                                 let clean_field = field.trim();
                                 if let Some((prefix, idx)) = parse_array_field(clean_field) {
-                                    if idx > 0 {
-                                        if let Ok(_) = self.swap_array_entries(&prefix, idx, idx - 1) {
-                                            self.dirty = true;
-                                            self.load_table();
-                                            self.table.selected = Some(row.saturating_sub(1));
-                                        }
+                                    if idx > 0
+                                        && self.swap_array_entries(&prefix, idx, idx - 1).is_ok()
+                                    {
+                                        self.dirty = true;
+                                        self.load_table();
+                                        self.table.selected = Some(row.saturating_sub(1));
                                     }
                                     return;
                                 }
@@ -2008,7 +2010,7 @@ impl EntityInspectorScreen {
                             if relative_x >= start_dn && relative_x < end_dn {
                                 let clean_field = field.trim();
                                 if let Some((prefix, idx)) = parse_array_field(clean_field) {
-                                    if let Ok(_) = self.swap_array_entries(&prefix, idx, idx + 1) {
+                                    if self.swap_array_entries(&prefix, idx, idx + 1).is_ok() {
                                         self.dirty = true;
                                         self.load_table();
                                         self.table.selected = Some(row + 1);
@@ -2050,9 +2052,9 @@ impl EntityInspectorScreen {
         }
     }
 
-// ---------------------------------------------------------------------------
-// Inline (Text / Number) edit handlers
-// ---------------------------------------------------------------------------
+    // ---------------------------------------------------------------------------
+    // Inline (Text / Number) edit handlers
+    // ---------------------------------------------------------------------------
     fn handle_key_inline(&mut self, key: KeyEvent) {
         let m = key.modifiers;
         match key.code {

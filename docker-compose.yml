@@ -9,25 +9,17 @@ services:
     stdin_open: true
     tty: true
     ports:
-      - "4000:4000"
-      - "8080:8080"
+      - "4000:4000" # MUD Telnet (Direct TCP)
+      - "127.0.0.1:8080:8080" # REST API & WebSockets (Loopback only; forwarded via Cloudflare Tunnel or Caddy)
     volumes:
       - ${HOME}/.oxide/content:/app/content
       - ${HOME}/.oxide/data:/app/data
       - ${HOME}/.oxide/logs:/app/logs
 
-  oxide-mcp:
-    profiles:
-      - mcp
-    image: oxide-server:latest
-    container_name: oxide-mcp
-    depends_on:
-      - oxide-server
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
     restart: unless-stopped
-    ports:
-      - "5000:5000"
+    command: tunnel --no-autoupdate run
     environment:
-      - OXIDE_API_KEY=${OXIDE_API_KEY:-}
-    volumes:
-      - ${HOME}/.oxide/content:/app/content
-    entrypoint: ["/bin/sh", "-c", "socat TCP-LISTEN:5000,fork,reuseaddr EXEC:\"/app/bin/oxide-mcp /app/content --url http://oxide-server:8080 --key $OXIDE_API_KEY\""]
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}

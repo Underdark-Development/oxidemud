@@ -249,7 +249,7 @@ impl Table {
                     .bg(bg_color)
                     .add_modifier(Modifier::BOLD)
             } else if is_hovered {
-                Style::default().fg(text_fg).bg(bg_color)
+                Style::default().fg(text_fg).bg(Color::Indexed(238))
             } else {
                 Style::default().fg(text_fg).bg(bg_color)
             };

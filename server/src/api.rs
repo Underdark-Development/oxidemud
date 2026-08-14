@@ -1,5 +1,8 @@
 use axum::{
-    extract::{Path, Request},
+    extract::{
+        ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade},
+        Path, Request,
+    },
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
     response::Response,
@@ -11,6 +14,7 @@ use tokio::sync::watch;
 use tracing;
 
 use crate::config::ApiConfig;
+use crate::connection::{Connection, WsConnection};
 use oxide_core::Attributes;
 
 #[derive(Debug, serde::Deserialize)]
@@ -176,17 +180,31 @@ pub async fn start_api_server(
     let bind_addr = config.bind_addr.clone();
     let addr: SocketAddr = bind_addr.parse()?;
 
-    // Check loopback binding warning
+    // Check TLS & loopback security rules
     let ip = addr.ip();
-    if !ip.is_loopback() {
+    let allow_insecure = config.tls.allow_insecure_http.unwrap_or(false);
+    let has_tls_config = config.tls.cert_path.is_some()
+        || config.tls.acme_domain.is_some()
+        || config.tls.auto_dev_cert.unwrap_or(false);
+
+    if !ip.is_loopback() && !has_tls_config && !allow_insecure {
+        return Err(
+            "Security Error: Plain HTTP/WS is disabled on non-loopback interfaces without TLS configuration or explicit allow_insecure_http setting.".into(),
+        );
+    }
+
+    if !ip.is_loopback() && !has_tls_config {
         tracing::warn!(
-            "REST API server bound to a public interface ({}) without TLS/HTTPS encryption. \
-             It is highly recommended to run this REST API on a loopback interface behind a TLS-terminating reverse proxy.",
+            "API server bound to a public interface ({}) with allow_insecure_http=true. \
+             It is highly recommended to enable TLS or run behind a TLS-terminating reverse proxy.",
             bind_addr
         );
     }
 
     let app = Router::new()
+        .route("/ws/play", get(ws_play_handler))
+        .route("/ws/spade", get(ws_spade_handler))
+        .route("/ws/mcp", get(ws_mcp_handler))
         .route("/api/players", get(list_players))
         .route("/api/character/simulate", post(simulate_character))
         .route("/api/character/:name", get(get_character_state))
@@ -210,11 +228,11 @@ pub async fn start_api_server(
         .layer(middleware::from_fn(auth_middleware));
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    tracing::info!("REST API server listening on {}", bind_addr);
+    tracing::info!("REST API & WebSocket server listening on {}", bind_addr);
 
     let graceful = async move {
         let _ = shutdown_rx.changed().await;
-        tracing::info!("REST API server shutting down gracefully");
+        tracing::info!("REST API & WebSocket server shutting down gracefully");
     };
 
     axum::serve(listener, app)
@@ -222,6 +240,96 @@ pub async fn start_api_server(
         .await?;
 
     Ok(())
+}
+
+async fn ws_play_handler(ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(handle_ws_play_socket)
+}
+
+async fn handle_ws_play_socket(mut socket: WebSocket) {
+    let conn_id = format!("ws-{}", uuid::Uuid::new_v4());
+    let (mut conn, mut rx) = WsConnection::new(conn_id.clone());
+
+    tracing::info!("New WebSocket player connection established: {}", conn_id);
+
+    let welcome = format!(
+        "Welcome to OxideMUD! Connected via WebSocket ({})\r\n",
+        conn_id
+    );
+    let _ = socket.send(AxumWsMessage::Text(welcome)).await;
+
+    loop {
+        tokio::select! {
+            Some(bytes) = rx.recv() => {
+                if let Ok(text) = String::from_utf8(bytes) {
+                    if socket.send(AxumWsMessage::Text(text)).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            res = socket.recv() => {
+                match res {
+                    Some(Ok(AxumWsMessage::Text(text))) => {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            tracing::debug!("Received WS command from {}: {}", conn_id, trimmed);
+                            conn.send_line(&format!("Received command: {}", trimmed));
+                        }
+                    }
+                    Some(Ok(AxumWsMessage::Close(_))) | None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    tracing::info!("WebSocket player connection closed: {}", conn_id);
+}
+
+async fn ws_spade_handler(ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(|mut socket| async move {
+        tracing::info!("New Spade WebSocket session established");
+        let greeting = serde_json::json!({
+            "status": "connected",
+            "mode": "online",
+            "service": "spade"
+        })
+        .to_string();
+        let _ = socket.send(AxumWsMessage::Text(greeting)).await;
+
+        while let Some(res) = socket.recv().await {
+            match res {
+                Ok(AxumWsMessage::Text(txt)) if txt.trim() == "ping" => {
+                    let _ = socket.send(AxumWsMessage::Text("pong".into())).await;
+                }
+                Ok(AxumWsMessage::Close(_)) | Err(_) => break,
+                _ => {}
+            }
+        }
+    })
+}
+
+async fn ws_mcp_handler(ws: WebSocketUpgrade) -> Response {
+    ws.on_upgrade(|mut socket| async move {
+        tracing::info!("New MCP WebSocket session established");
+        let greeting = serde_json::json!({
+            "status": "connected",
+            "service": "mcp",
+            "transport": "websocket"
+        })
+        .to_string();
+        let _ = socket.send(AxumWsMessage::Text(greeting)).await;
+
+        while let Some(res) = socket.recv().await {
+            match res {
+                Ok(AxumWsMessage::Text(txt)) if txt.trim() == "ping" => {
+                    let _ = socket.send(AxumWsMessage::Text("pong".into())).await;
+                }
+                Ok(AxumWsMessage::Close(_)) | Err(_) => break,
+                _ => {}
+            }
+        }
+    })
 }
 
 async fn auth_middleware(

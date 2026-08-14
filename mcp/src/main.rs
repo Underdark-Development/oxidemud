@@ -30,6 +30,21 @@ fn resolve_connect_config(args: &[String]) -> (PathBuf, Option<String>, Option<S
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--online" => {
+                if url.is_none() {
+                    url = Some("http://127.0.0.1:8080".to_string());
+                }
+                i += 1;
+            }
+            "--ws" => {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    url = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    url = Some("ws://127.0.0.1:8080/ws/mcp".to_string());
+                    i += 1;
+                }
+            }
             "--url" => {
                 if i + 1 < args.len() {
                     url = Some(args[i + 1].clone());
@@ -57,6 +72,7 @@ fn resolve_connect_config(args: &[String]) -> (PathBuf, Option<String>, Option<S
 
     // CLI Flags > Environment Variables > Config File (mcp_config.toml)
     let resolved_url = url
+        .or_else(|| std::env::var("OXIDE_WS_URL").ok())
         .or_else(|| std::env::var("OXIDE_API_URL").ok())
         .or_else(|| {
             read_mcp_config_toml("mcp_config.toml")

@@ -15,7 +15,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md#cargo-workspace) for full Cargo workspac
 
 ```
 core/       — ECS components, systems, events, resources
-server/     — Network layer (telnet, command dispatch, connection state, REST API)
+server/     — Network layer (telnet, WebSockets, REST API, TLS, command dispatch, connection state)
 data/       — Persistence (SQLite schema, type-safe queries)
 scripting/  — Rhai engine setup + Rust↔Rhai bindings
 tui/        — spade: builder TUI & MUD client (ratatui + crossterm)

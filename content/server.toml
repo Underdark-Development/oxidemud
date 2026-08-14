@@ -1,8 +1,40 @@
-server_name = "MUD"
+server_name = "OxideMUD"
 # server_url = "https://my-awesome-mud.org"
-server_version = "0.1.1"
-max_clients = 128
+server_version = "0.4.0"
+max_clients = 256
 default_prompt = "<%h/%Hhp %m/%Mmp> "
+
+[logging]
+retention_days = 5
+rotation = "daily"
+
+[api]
+enabled = true
+bind_addr = "127.0.0.1:8080"
+
+[api.tls]
+# Primary Option A: Automatic Let's Encrypt (Recommended for public production servers)
+# OxideMUD will automatically request and renew TLS certificates for your domain.
+# acme_domain = "mud.example.com"
+# acme_email = "admin@example.com"
+
+# Option B: Custom Certificate Files (Uncomment if using existing cert files)
+# cert_path = "certs/server.crt"
+# key_path = "certs/server.key"
+
+# Option C: Automatic Self-Signed Dev Certs (For local testing of spade/mcp)
+# auto_dev_cert = true
+
+# WARNING: Advanced setting — Not recommended for direct public deployments.
+# Disables TLS encryption on the server. Use ONLY if OxideMUD is bound strictly to loopback
+# (127.0.0.1) behind a reverse proxy (e.g., Caddy, Nginx, Cloudflare Tunnel) that handles TLS upstream,
+# or for local browser testing. Never expose unencrypted HTTP/WS directly to public interfaces.
+allow_insecure_http = true
+
+[websocket]
+enabled = true
+ping_interval_secs = 30
+max_message_size_bytes = 65536
 
 [time]
 real_minutes_per_game_hour = 24

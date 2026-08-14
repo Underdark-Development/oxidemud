@@ -4,16 +4,25 @@
 
 ---
 
-## Invocation Modes
+## Invocation Modes & WebSocket Connectivity
 
-| Command                       | Mode            | Status          | Description                                                                                  |
-| :---------------------------- | :-------------- | :-------------- | :------------------------------------------------------------------------------------------- |
-| `spade`                       | Offline Builder | **Implemented** | Opens the local TOML template editor, file browser, and validation suite directly from disk. |
-| `spade --mode online`         | Online Client   | **Planned**     | Will connect to a running game server as a player/administrator.                             |
-| `spade --mode split`          | Split Mode      | **Planned**     | Will open builder tools and MUD client side-by-side.                                         |
-| `spade connect <host> <port>` | Quick Connect   | **Planned**     | Will connect to a game server using a saved profile.                                         |
+| Command                               | Mode            | Status      | Description                                                                      |
+| :------------------------------------ | :-------------- | :---------- | :------------------------------------------------------------------------------- |
+| `spade`                               | Offline Builder | Implemented | Opens local TOML template editor, room grid, file browser, and validation suite. |
+| `spade --mode online --url wss://...` | Online Client   | Implemented | Connects to a running game server via WebSockets (`wss://` / `ws://`).           |
+| `spade --mode split`                  | Split Mode      | Implemented | Opens builder tools and real-time MUD client side-by-side.                       |
+| `spade connect wss://<host>:<port>`   | Quick Connect   | Implemented | Connects directly to a game server WebSocket endpoint.                           |
 
-> Only **offline builder** mode is currently implemented. Online and split modes parse from CLI but are not wired.
+### Runtime Mode Switching
+
+You can switch execution modes dynamically while Spade is running without restarting the app:
+
+1. Open the Command Palette using `Ctrl + P`.
+2. Type `Switch Mode` to select:
+   - `Switch Mode to Online (WSS)`
+   - `Switch Mode to Offline`
+   - `Switch Mode to Split`
+3. The bottom status bar immediately updates to reflect the active mode (e.g. `[OFFLINE]`, `[ONLINE]`, `[SPLIT]`).
 
 ---
 

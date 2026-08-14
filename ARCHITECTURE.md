@@ -156,10 +156,14 @@ Clickable links, entities, and status gauges formatted as XML tags (`<send>`, `<
 
 - Locked protocol requiring initial `<VERSION>` exchange before activation.
 
-#### WebSocket Bridge (Phase 6)
+#### WebSocket & TLS Support (Implemented)
 
-- JSON MMCC frames over WebSocket: `{ type: "command"|"output", payload: { text, html } }`.
-- Interfaces via `Connection` trait with server-side ANSI-to-HTML conversion.
+- **WebSocket Bridge:** Implemented in `server/src/api.rs` via `axum` `WebSocketUpgrade` and `WsConnection` in `server/src/connection.rs`.
+- **Endpoints:**
+  - `/ws/play` — Direct web player connection (translates input/output frames).
+  - `/ws/spade` — Spade TUI builder stream & live session synchronization.
+  - `/ws/mcp` — Real-time Model Context Protocol AI agent stream.
+- **TLS & Security Policy:** Supports Automatic ACME (Let's Encrypt), custom TLS certificates, and in-memory self-signed dev certs (`rcgen`). Rejects unencrypted HTTP/WS on non-loopback bindings by default unless `allow_insecure_http = true` is explicitly configured for reverse proxy deployments.
 
 #### REST API & Status (Phase 5/6)
 
@@ -167,8 +171,8 @@ Implemented via `axum` in `server/src/api.rs`. Provides HTTP endpoints for chara
 
 #### Protocol Feature Status
 
-- **Implemented:** Telnet (line mode), ANSI 16-color, NAWS, UTF-8, 256-color (MTTS), REST API.
-- **Planned (Phase 6 Specs Below):** GMCP, MXP, WebSocket bridge, MCCP, MSSP.
+- **Implemented:** Telnet (line mode), ANSI 16-color, NAWS, UTF-8, 256-color (MTTS), REST API, WebSockets (WS/WSS), TLS (ACME / dev certs / reverse proxy).
+- **Planned (Phase 6 Specs Below):** GMCP, MXP, MCCP, MSSP.
 
 ---
 

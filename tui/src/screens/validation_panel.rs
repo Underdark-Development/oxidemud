@@ -82,8 +82,7 @@ impl ValidationPanelScreen {
             "Message".to_string(),
         ];
         if self.sort_column < headers.len() {
-            headers[self.sort_column]
-                .push_str(if self.sort_ascending { " ▲" } else { " ▼" });
+            headers[self.sort_column].push_str(if self.sort_ascending { " ▲" } else { " ▼" });
         }
 
         let mut row_data: Vec<[String; 5]> = Vec::new();
@@ -111,10 +110,34 @@ impl ValidationPanelScreen {
             ]);
         }
 
-        let max_cat = row_data.iter().map(|r| r[0].len()).max().unwrap_or(8).max(10) + 3;
-        let max_id = row_data.iter().map(|r| r[1].len()).max().unwrap_or(10).max(12) + 3;
-        let max_kind = row_data.iter().map(|r| r[2].len()).max().unwrap_or(10).max(12) + 3;
-        let max_field = row_data.iter().map(|r| r[3].len()).max().unwrap_or(8).max(8) + 3;
+        let max_cat = row_data
+            .iter()
+            .map(|r| r[0].len())
+            .max()
+            .unwrap_or(8)
+            .max(10)
+            + 3;
+        let max_id = row_data
+            .iter()
+            .map(|r| r[1].len())
+            .max()
+            .unwrap_or(10)
+            .max(12)
+            + 3;
+        let max_kind = row_data
+            .iter()
+            .map(|r| r[2].len())
+            .max()
+            .unwrap_or(10)
+            .max(12)
+            + 3;
+        let max_field = row_data
+            .iter()
+            .map(|r| r[3].len())
+            .max()
+            .unwrap_or(8)
+            .max(8)
+            + 3;
 
         let w_cat = (max_cat as u16).clamp(11, 16);
         let w_id = (max_id as u16).clamp(14, 24);
@@ -177,8 +200,7 @@ impl ValidationPanelScreen {
                     }
                 }
 
-                self.pending_action =
-                    ScreenAction::Inspect(category.clone(), target_id);
+                self.pending_action = ScreenAction::Inspect(category.clone(), target_id);
             }
         }
     }
@@ -252,8 +274,7 @@ impl Screen for ValidationPanelScreen {
                     };
                     self.handle_header_click(col);
                 } else if mouse.row >= table_top && mouse.row < table_top + content_lines as u16 {
-                    let clicked_row =
-                        (mouse.row - table_top) as usize + self.table.scroll.offset;
+                    let clicked_row = (mouse.row - table_top) as usize + self.table.scroll.offset;
                     if clicked_row < self.table.rows.len() {
                         self.table.selected = Some(clicked_row);
                         self.inspect_selected_error();

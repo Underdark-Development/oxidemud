@@ -224,6 +224,10 @@ impl App {
             CommandAction::ShowAbout => {
                 self.set_status("MUD Game Engine — spade v0.1.0");
             }
+            CommandAction::SwitchMode(mode) => {
+                self.mode = mode;
+                self.set_status(format!("Switched execution mode to {:?}", mode));
+            }
             ref action => {
                 let active = self.active_screen;
                 match self.screens[active.as_index()].handle_command_action(action) {

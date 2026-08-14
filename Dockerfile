@@ -6,17 +6,15 @@
 
 FROM debian:bookworm-slim AS runtime
 
-# Install runtime dependencies and socat for TCP-to-stdio forwarding (MCP port)
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    socat \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy precompiled binaries
+# Copy precompiled game server binary
 COPY bin/oxide-server /app/bin/
-COPY bin/oxide-mcp /app/bin/
 
 # Copy game content templates and configs
 COPY content/ /app/content/
@@ -24,7 +22,7 @@ COPY content/ /app/content/
 # Create directories for SQLite persistence and rotating logs
 RUN mkdir -p /app/data /app/logs
 
-# Expose the default MUD telnet port and REST API port
+# Expose the default MUD telnet port (4000) and REST API / WebSocket port (8080)
 EXPOSE 4000 8080
 
 # Set environment variable defaults

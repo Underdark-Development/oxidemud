@@ -79,7 +79,8 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
     // Global: Ctrl+P / Ctrl+Shift+P / Cmd+Shift+P to toggle command palette
     if (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P'))
-        && (key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::SUPER))
+        && (key.modifiers.contains(KeyModifiers::CONTROL)
+            || key.modifiers.contains(KeyModifiers::SUPER))
     {
         app.command_palette_open = true;
         app.command_palette.reset();
@@ -189,6 +190,7 @@ mod tests {
     fn test_app() -> App {
         let cli = Config {
             mode: Mode::Offline,
+            url: None,
             connect_host: None,
             connect_port: None,
             subcommand: None,

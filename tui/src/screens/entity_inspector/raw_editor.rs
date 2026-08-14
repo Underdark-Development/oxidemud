@@ -85,13 +85,15 @@ impl RawTomlEditor {
         if self.undo_stack.len() >= 50 {
             self.undo_stack.remove(0);
         }
-        self.undo_stack.push((self.lines.clone(), self.cursor_line, self.cursor_col));
+        self.undo_stack
+            .push((self.lines.clone(), self.cursor_line, self.cursor_col));
         self.redo_stack.clear();
     }
 
     pub fn undo(&mut self) {
         if let Some((lines, cl, cc)) = self.undo_stack.pop() {
-            self.redo_stack.push((self.lines.clone(), self.cursor_line, self.cursor_col));
+            self.redo_stack
+                .push((self.lines.clone(), self.cursor_line, self.cursor_col));
             self.lines = lines;
             self.cursor_line = cl;
             self.cursor_col = cc;
@@ -102,7 +104,8 @@ impl RawTomlEditor {
 
     pub fn redo(&mut self) {
         if let Some((lines, cl, cc)) = self.redo_stack.pop() {
-            self.undo_stack.push((self.lines.clone(), self.cursor_line, self.cursor_col));
+            self.undo_stack
+                .push((self.lines.clone(), self.cursor_line, self.cursor_col));
             self.lines = lines;
             self.cursor_line = cl;
             self.cursor_col = cc;
@@ -128,10 +131,20 @@ impl RawTomlEditor {
         if let Some((start, end)) = self.get_selection_range() {
             let mut extracted = Vec::new();
             for l in start.0..=end.0 {
-                if l >= self.lines.len() { break; }
+                if l >= self.lines.len() {
+                    break;
+                }
                 let line_str = &self.lines[l];
-                let c_start = if l == start.0 { start.1.min(line_str.len()) } else { 0 };
-                let c_end = if l == end.0 { end.1.min(line_str.len()) } else { line_str.len() };
+                let c_start = if l == start.0 {
+                    start.1.min(line_str.len())
+                } else {
+                    0
+                };
+                let c_end = if l == end.0 {
+                    end.1.min(line_str.len())
+                } else {
+                    line_str.len()
+                };
                 if c_start < c_end {
                     extracted.push(line_str[c_start..c_end].to_string());
                 }
@@ -153,8 +166,11 @@ impl RawTomlEditor {
                 l_str.drain(s..e);
                 self.cursor_col = s;
             } else {
-                let remaining = self.lines[start.0][..start.1.min(self.lines[start.0].len())].to_string();
-                let end_rem = self.lines[end.0.min(self.lines.len() - 1)][end.1.min(self.lines[end.0.min(self.lines.len() - 1)].len())..].to_string();
+                let remaining =
+                    self.lines[start.0][..start.1.min(self.lines[start.0].len())].to_string();
+                let end_rem = self.lines[end.0.min(self.lines.len() - 1)]
+                    [end.1.min(self.lines[end.0.min(self.lines.len() - 1)].len())..]
+                    .to_string();
                 let mut joined = remaining;
                 joined.push_str(&end_rem);
                 for _ in start.0..end.0 {
@@ -173,7 +189,9 @@ impl RawTomlEditor {
     }
 
     pub fn paste_clipboard(&mut self) {
-        if self.clipboard.is_empty() { return; }
+        if self.clipboard.is_empty() {
+            return;
+        }
         self.push_undo();
         let clip_lines: Vec<&str> = self.clipboard.lines().collect();
         if clip_lines.len() == 1 {
@@ -391,7 +409,8 @@ impl RawTomlEditor {
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.is_selecting {
                     let rel_row = (mouse.row as usize).saturating_sub(area.y as usize);
-                    let target_line = (self.scroll + rel_row).min(self.lines.len().saturating_sub(1));
+                    let target_line =
+                        (self.scroll + rel_row).min(self.lines.len().saturating_sub(1));
                     let num_width = 4;
                     let text_start_x = area.x as usize + num_width + 1;
                     let rel_col = (mouse.column as usize).saturating_sub(text_start_x);
@@ -542,7 +561,11 @@ impl RawTomlEditor {
             if let Some((s_pos, e_pos)) = self.get_selection_range() {
                 if line_idx >= s_pos.0 && line_idx <= e_pos.0 {
                     let s_col = if line_idx == s_pos.0 { s_pos.1 } else { 0 };
-                    let e_col = if line_idx == e_pos.0 { e_pos.1 } else { line_text.len() };
+                    let e_col = if line_idx == e_pos.0 {
+                        e_pos.1
+                    } else {
+                        line_text.len()
+                    };
                     for col in s_col..e_col {
                         let sel_x = x_start + col as u16;
                         if sel_x < area.x + area.width {

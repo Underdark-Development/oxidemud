@@ -34,6 +34,7 @@ pub enum CommandAction {
     ShowNotificationHistory,
     ShowAbout,
     Quit,
+    SwitchMode(crate::app::Mode),
     MoveToRoom(String),
     DigRoom(String),
     Separator,

@@ -115,6 +115,11 @@ else
     echo "Warning: content directory not found."
 fi
 
+if [ -f "mcp_config.toml" ]; then
+    cp "mcp_config.toml" "$STAGE_DIR/mcp_config.toml"
+    echo "  Added mcp_config.toml template"
+fi
+
 # Write version metadata file
 echo "$VERSION" > "$STAGE_DIR/.version"
 echo "  Written .version metadata file"

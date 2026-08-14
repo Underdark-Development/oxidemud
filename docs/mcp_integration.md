@@ -23,14 +23,31 @@ Start the MCP server using the `oxide-mcp` binary:
 cargo run --bin oxide-mcp [options] [content_path]
 ```
 
-### Server Modes
+### Server Modes & Low-Friction Execution
 
 The MCP server supports two runtime modes:
 
-| Mode             | Trigger           | Data Source                       | Write Operation                                                                                 |
-| :--------------- | :---------------- | :-------------------------------- | :---------------------------------------------------------------------------------------------- |
-| **Offline Mode** | Default           | Local TOML files under `content/` | Direct atomic write: writes content to a temporary file, validates, and then renames to target. |
-| **Online Mode**  | `mcp --db <path>` | Game SQLite Database              | Executes commands using a REST HTTP/JSON bridge to the running game server.                     |
+| Mode             | Trigger / CLI Flags            | Transport / Data Source                   | Description                                                                                             |
+| :--------------- | :----------------------------- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------ |
+| **Offline Mode** | Default                        | Stdio / Local `content/` TOML files       | Direct atomic TOML file editing and local gameplay simulation without requiring a running server.       |
+| **Online Mode**  | `oxide-mcp --online` or `--ws` | WebSocket (`wss://.../ws/mcp`) / REST API | Connects to a live OxideMUD server over WebSockets for real-time agent execution and streaming updates. |
+
+#### Low-Friction Online Mode Execution
+
+AI Agents and developer tools can connect to a running server effortlessly:
+
+```bash
+# 1. Quick online connect to default local server (ws://127.0.0.1:8080/ws/mcp):
+oxide-mcp --online
+
+# 2. Connect to a custom WebSocket URL:
+oxide-mcp --ws wss://mud.example.com/ws/mcp --key <API_KEY>
+
+# 3. Environment Variable configuration:
+export OXIDE_WS_URL="wss://mud.example.com/ws/mcp"
+export OXIDE_API_KEY="your-api-key"
+oxide-mcp
+```
 
 ---
 

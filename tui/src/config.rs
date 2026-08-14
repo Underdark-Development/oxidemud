@@ -8,6 +8,10 @@ pub struct Config {
     #[arg(short, long, value_enum, default_value = "offline")]
     pub mode: Mode,
 
+    /// Connection URL (ws://, wss://, http://, or https://)
+    #[arg(long)]
+    pub url: Option<String>,
+
     /// Connection host (optional, defaults to config file value)
     #[arg(long)]
     pub connect_host: Option<String>,
@@ -22,22 +26,26 @@ pub struct Config {
 
 #[derive(clap::Subcommand, Debug, Clone)]
 pub enum SubCommand {
-    /// Connect to a MUD server directly
+    /// Connect to a MUD server directly via URL or host/port
     Connect {
-        /// Connection host
-        host: String,
-        /// Connection port
-        port: u16,
+        /// Connection target (e.g. wss://127.0.0.1:8080/ws/spade or 127.0.0.1)
+        target: String,
+        /// Connection port (optional if URL or host is specified)
+        port: Option<u16>,
     },
 }
 
 impl Config {
     pub fn parse() -> Self {
         let mut cli = <Self as Parser>::parse();
-        if let Some(SubCommand::Connect { host, port }) = cli.subcommand.take() {
+        if let Some(SubCommand::Connect { target, port }) = cli.subcommand.take() {
             cli.mode = Mode::Online;
-            cli.connect_host = Some(host);
-            cli.connect_port = Some(port);
+            if target.contains("://") || target.contains('/') {
+                cli.url = Some(target);
+            } else {
+                cli.connect_host = Some(target);
+                cli.connect_port = port;
+            }
         }
         cli
     }

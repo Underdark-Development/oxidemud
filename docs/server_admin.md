@@ -195,7 +195,113 @@ retention_days = 5
 
 # Rotation policy: "daily", "hourly", or "never"
 rotation = "daily"
+
+[api]
+enabled = true
+bind_addr = "0.0.0.0:8080"
+
+[api.tls]
+# Primary Option A: Automatic Let's Encrypt (Recommended for public production servers)
+# OxideMUD will automatically request and renew TLS certificates for your domain.
+acme_domain = "mud.example.com"
+acme_email = "admin@example.com"
+
+# Option B: Custom Certificate Files (Uncomment if using existing cert files)
+# cert_path = "certs/server.crt"
+# key_path = "certs/server.key"
+
+# Option C: Automatic Self-Signed Dev Certs (For local testing of spade/mcp)
+# auto_dev_cert = true
+
+# WARNING: Advanced setting — Not recommended for direct public deployments.
+# Disables TLS encryption on the server. Use ONLY if OxideMUD is bound strictly to loopback
+# (127.0.0.1) behind a reverse proxy (e.g., Caddy, Nginx, Cloudflare Tunnel) that handles TLS upstream,
+# or for local browser testing. Never expose unencrypted HTTP/WS directly to public interfaces.
+# allow_insecure_http = false
+
+[websocket]
+enabled = true
+ping_interval_secs = 30
+max_message_size_bytes = 65536
 ```
+
+#### TLS Precedence Order
+
+When starting `oxide-server`, the engine evaluates `[api.tls]` settings in the following strict order of precedence (highest to lowest):
+
+1. **Explicit Certificate Files (`cert_path` & `key_path`):** Custom or organization-managed SSL certificates.
+2. **Automatic ACME / Let's Encrypt (`acme_domain` & `acme_email`):** Automatically requests and renews certificates from Let's Encrypt. Primary recommendation for public production deployments.
+3. **Auto-Generated Self-Signed Dev Certs (`auto_dev_cert = true`):** Ephemeral in-memory TLS certificates for local testing with native clients (`spade`, `oxide-mcp`).
+4. **Reverse Proxy / Plain Loopback (`allow_insecure_http = true`):** Plain HTTP/WS when bound to `127.0.0.1` behind a reverse proxy (Caddy, Nginx, Cloudflare Tunnel).
+
+---
+
+### Production Docker Deployment & Cloudflare Tunnel Setup (Default)
+
+The recommended production deployment for OxideMUD uses **Docker Compose** with **Cloudflare Tunnel (`cloudflared`)** for zero-configuration TLS encryption, DDOS protection, and hidden VPS web ports.
+
+#### Step-by-Step Cloudflare Tunnel Setup
+
+1. **Create Cloudflare Account & Add Domain:**
+   Ensure your domain DNS is managed by Cloudflare.
+2. **Create Tunnel in Cloudflare Zero Trust Dashboard:**
+   - Log into [dash.teams.cloudflare.com](https://dash.teams.cloudflare.com/) (free for up to 50 users).
+   - Go to **Networks** -> **Tunnels** -> Click **Create a Tunnel**.
+   - Select **Cloudflared** and enter a tunnel name (e.g. `oxide-mud`).
+3. **Copy Tunnel Token:**
+   - Copy the generated tunnel token string (`eyJh...`).
+   - Create or edit `.env` in your deployment path and set:
+     ```env
+     TUNNEL_TOKEN=eyJh...
+     ```
+4. **Configure Public Hostname Route in Cloudflare Dashboard:**
+   - On the **Public Hostnames** step:
+     - **Subdomain / Domain:** e.g., `mud.example.com`
+     - **Type:** `HTTP`
+     - **URL:** `oxide-server:8080` _(uses internal Docker container service name)_
+5. **Launch Docker Containers:**
+   ```bash
+   docker-compose up -d --build
+   ```
+
+#### Telnet vs. WebSockets Traffic Flow
+
+- **Telnet (Port 4000):** Exposed directly on the host VPS. Desktop clients (TinTin++, Mudlet) connect to `mud.example.com:4000`.
+- **WebSockets & REST API (Port 8080):** Bound internally to loopback (`127.0.0.1:8080`) and encrypted at Cloudflare Edge. Web clients, Spade, and MCP connect to `wss://mud.example.com/ws/*`.
+
+#### Alternate Setup 1: Caddy Reverse Proxy (Non-Cloudflare)
+
+If you prefer using Caddy for automatic Let's Encrypt certificates instead of Cloudflare Tunnel:
+
+```yaml
+services:
+  caddy:
+    image: caddy:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+  oxide-server:
+    image: oxide-server:latest
+    ports:
+      - "4000:4000"
+      - "127.0.0.1:8080:8080"
+```
+
+And a 3-line `Caddyfile`:
+
+```caddy
+mud.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+#### Alternate Setup 2: Built-in Native Let's Encrypt (Single Container)
+
+Set `acme_domain = "mud.example.com"` and `acme_email = "admin@example.com"` in `content/server.toml`, and map port `443:8080` and `80:80` in `docker-compose.yml`.
 
 > [!NOTE]
 > Changes made directly to the `server.toml` file require a server restart to take effect. If you modify settings via the in-game `config` command, changes are written to the database and take effect immediately.
