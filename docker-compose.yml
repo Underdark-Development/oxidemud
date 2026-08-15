@@ -1,7 +1,7 @@
 services:
   oxide-server:
     build:
-      context: ${HOME}/.oxide
+      context: ${OXIDE_DIR:-.}
       dockerfile: Dockerfile
     image: oxide-server:latest
     container_name: oxide-server
@@ -12,13 +12,17 @@ services:
       - "4000:4000" # MUD Telnet (Direct TCP)
       - "127.0.0.1:8080:8080" # REST API & WebSockets (Loopback only; forwarded via Cloudflare Tunnel or Caddy)
     volumes:
-      - ${HOME}/.oxide/content:/app/content
-      - ${HOME}/.oxide/data:/app/data
-      - ${HOME}/.oxide/logs:/app/logs
+      - ${OXIDE_DIR:-.}/content:/app/content
+      - ${OXIDE_DIR:-.}/data:/app/data
+      - ${OXIDE_DIR:-.}/logs:/app/logs
 
+  # Cloudflare Tunnel for HTTPS/WSS ingress. Only started when the 'tunnel'
+  # profile is enabled, e.g. `docker compose --profile tunnel up -d` with
+  # TUNNEL_TOKEN set in .env (next to this file).
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
+    profiles: ["tunnel"]
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
