@@ -6,40 +6,91 @@ use crate::templates::{AreaTemplate, RoomTemplate, TemplateRegistry};
 
 pub type FileMap = HashMap<String, HashMap<String, PathBuf>>;
 
-pub fn load_registry(content_path: &Path) -> (TemplateRegistry, FileMap) {
+/// A single content file that failed to parse during loading.
+#[derive(Debug, Clone)]
+pub struct ContentLoadError {
+    /// Template category (content subdirectory or filename stem).
+    pub category: String,
+    /// Path to the offending file.
+    pub path: PathBuf,
+    /// The deserialization error message.
+    pub message: String,
+}
+
+/// Result of loading a content tree: the parsed registry, the file map, and
+/// every file that failed to parse (the loader never silently drops content).
+pub struct ContentLoad {
+    pub registry: TemplateRegistry,
+    pub file_map: FileMap,
+    pub errors: Vec<ContentLoadError>,
+}
+
+/// Load a content tree, collecting per-file parse errors.
+///
+/// Files that fail to parse are excluded from the registry but recorded in
+/// `errors` with their path and the underlying serde error.
+pub fn load_registry_report(content_path: &Path) -> ContentLoad {
     let mut file_map = FileMap::new();
     let mut registry = TemplateRegistry::new();
+    let mut errors = Vec::new();
 
-    registry.races = load_dir(content_path, "races", &mut file_map);
-    registry.classes = load_dir(content_path, "classes", &mut file_map);
-    registry.items = load_dir(content_path, "items", &mut file_map);
-    registry.mobs = load_dir(content_path, "mobs", &mut file_map);
-    registry.stances = load_dir(content_path, "stances", &mut file_map);
-    registry.sets = load_dir(content_path, "sets", &mut file_map);
-    registry.affixes = load_dir(content_path, "affixes", &mut file_map);
-    registry.passives = load_dir(content_path, "passives", &mut file_map);
-    registry.areas = load_areas(content_path, &mut file_map);
-    registry.skills = load_dir(content_path, "skills", &mut file_map);
-    registry.shops = load_dir(content_path, "shops", &mut file_map);
-    registry.deities = load_dir(content_path, "deities", &mut file_map);
-    registry.quests = load_dir(content_path, "quests", &mut file_map);
-    registry.factions = load_dir(content_path, "factions", &mut file_map);
-    registry.recipes = load_dir(content_path, "recipes", &mut file_map);
+    registry.races = load_dir(content_path, "races", &mut file_map, &mut errors);
+    registry.classes = load_dir(content_path, "classes", &mut file_map, &mut errors);
+    registry.items = load_dir(content_path, "items", &mut file_map, &mut errors);
+    registry.mobs = load_dir(content_path, "mobs", &mut file_map, &mut errors);
+    registry.stances = load_dir(content_path, "stances", &mut file_map, &mut errors);
+    registry.sets = load_dir(content_path, "sets", &mut file_map, &mut errors);
+    registry.affixes = load_dir(content_path, "affixes", &mut file_map, &mut errors);
+    registry.passives = load_dir(content_path, "passives", &mut file_map, &mut errors);
+    registry.areas = load_areas(content_path, &mut file_map, &mut errors);
+    registry.skills = load_dir(content_path, "skills", &mut file_map, &mut errors);
+    registry.shops = load_dir(content_path, "shops", &mut file_map, &mut errors);
+    registry.deities = load_dir(content_path, "deities", &mut file_map, &mut errors);
+    registry.quests = load_dir(content_path, "quests", &mut file_map, &mut errors);
+    registry.factions = load_dir(content_path, "factions", &mut file_map, &mut errors);
+    registry.recipes = load_dir(content_path, "recipes", &mut file_map, &mut errors);
 
     // Load standalone weather.toml
-    registry.weather = load_standalone_toml(content_path, "weather.toml");
+    registry.weather = load_standalone_toml(content_path, "weather.toml", &mut errors);
 
     // Load standalone socials.toml
-    registry.socials = load_standalone_toml(content_path, "socials.toml").unwrap_or_default();
+    registry.socials =
+        load_standalone_toml(content_path, "socials.toml", &mut errors).unwrap_or_default();
 
     registry.build_indices();
-    (registry, file_map)
+    ContentLoad {
+        registry,
+        file_map,
+        errors,
+    }
+}
+
+/// Backward-compatible wrapper: returns only the registry and file map.
+/// Parse failures are logged via `tracing::warn!` so they are never silent.
+pub fn load_registry(content_path: &Path) -> (TemplateRegistry, FileMap) {
+    let report = load_registry_report(content_path);
+    log_load_errors(&report.errors);
+    (report.registry, report.file_map)
+}
+
+/// Emit one warning per failed file. Safe to call before tracing is
+/// initialized — no-ops in that case (validation mode prints errors directly).
+pub fn log_load_errors(errors: &[ContentLoadError]) {
+    for err in errors {
+        tracing::warn!(
+            "Content file failed to parse and was skipped: {} ({}): {}",
+            err.path.display(),
+            err.category,
+            err.message
+        );
+    }
 }
 
 fn load_dir<T: serde::de::DeserializeOwned>(
     content_path: &Path,
     subdir: &str,
     file_map: &mut FileMap,
+    errors: &mut Vec<ContentLoadError>,
 ) -> HashMap<String, T> {
     let dir = content_path.join(subdir);
     let mut map = HashMap::new();
@@ -51,16 +102,28 @@ fn load_dir<T: serde::de::DeserializeOwned>(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "toml") {
-                if let Ok(content) = fs::read_to_string(&path) {
-                    if let Ok(t) = toml::from_str::<T>(&content) {
-                        let id = path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        path_map.insert(id.clone(), path);
-                        map.insert(id, t);
-                    }
+                match fs::read_to_string(&path) {
+                    Ok(content) => match toml::from_str::<T>(&content) {
+                        Ok(t) => {
+                            let id = path
+                                .file_stem()
+                                .and_then(|s| s.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            path_map.insert(id.clone(), path);
+                            map.insert(id, t);
+                        }
+                        Err(e) => errors.push(ContentLoadError {
+                            category: subdir.to_string(),
+                            path: path.clone(),
+                            message: e.to_string(),
+                        }),
+                    },
+                    Err(e) => errors.push(ContentLoadError {
+                        category: subdir.to_string(),
+                        path: path.clone(),
+                        message: format!("read error: {e}"),
+                    }),
                 }
             }
         }
@@ -72,16 +135,41 @@ fn load_dir<T: serde::de::DeserializeOwned>(
 fn load_standalone_toml<T: serde::de::DeserializeOwned>(
     content_path: &Path,
     filename: &str,
+    errors: &mut Vec<ContentLoadError>,
 ) -> Option<T> {
     let path = content_path.join(filename);
     if !path.exists() {
         return None;
     }
-    let content = fs::read_to_string(&path).ok()?;
-    toml::from_str::<T>(&content).ok()
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            errors.push(ContentLoadError {
+                category: filename.trim_end_matches(".toml").to_string(),
+                path: path.clone(),
+                message: format!("read error: {e}"),
+            });
+            return None;
+        }
+    };
+    match toml::from_str::<T>(&content) {
+        Ok(t) => Some(t),
+        Err(e) => {
+            errors.push(ContentLoadError {
+                category: filename.trim_end_matches(".toml").to_string(),
+                path,
+                message: e.to_string(),
+            });
+            None
+        }
+    }
 }
 
-fn load_areas(content_path: &Path, file_map: &mut FileMap) -> HashMap<String, AreaTemplate> {
+fn load_areas(
+    content_path: &Path,
+    file_map: &mut FileMap,
+    errors: &mut Vec<ContentLoadError>,
+) -> HashMap<String, AreaTemplate> {
     let dir = content_path.join("areas");
     let mut map = HashMap::new();
     let mut path_map = HashMap::new();
@@ -91,7 +179,14 @@ fn load_areas(content_path: &Path, file_map: &mut FileMap) -> HashMap<String, Ar
         return map;
     }
 
-    load_areas_recursive(&dir, &mut map, &mut path_map, &mut room_path_map, "");
+    load_areas_recursive(
+        &dir,
+        &mut map,
+        &mut path_map,
+        &mut room_path_map,
+        "",
+        errors,
+    );
     file_map.insert("areas".to_string(), path_map);
     file_map.insert("rooms".to_string(), room_path_map);
     map
@@ -103,6 +198,7 @@ fn load_areas_recursive(
     path_map: &mut HashMap<String, PathBuf>,
     room_path_map: &mut HashMap<String, PathBuf>,
     prefix: &str,
+    errors: &mut Vec<ContentLoadError>,
 ) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
@@ -120,48 +216,82 @@ fn load_areas_recursive(
         if !area_file.exists() {
             continue;
         }
-        if let Ok(content) = fs::read_to_string(&area_file) {
-            if let Ok(mut area) = toml::from_str::<AreaTemplate>(&content) {
-                let area_id = if prefix.is_empty() {
-                    area.id.clone()
-                } else {
-                    format!("{}.{}", prefix, area.id)
-                };
-                area.id.clone_from(&area_id);
-                path_map.insert(area_id.clone(), area_file);
+        match fs::read_to_string(&area_file) {
+            Ok(content) => match toml::from_str::<AreaTemplate>(&content) {
+                Ok(mut area) => {
+                    let area_id = if prefix.is_empty() {
+                        area.id.clone()
+                    } else {
+                        format!("{}.{}", prefix, area.id)
+                    };
+                    area.id.clone_from(&area_id);
+                    path_map.insert(area_id.clone(), area_file);
 
-                // Load rooms from <dir>/<area_id>/rooms/*.toml
-                let rooms_dir = path.join("rooms");
-                if rooms_dir.exists() {
-                    if let Ok(room_entries) = fs::read_dir(&rooms_dir) {
-                        for room_entry in room_entries.flatten() {
-                            let room_path = room_entry.path();
-                            if room_path.extension().is_some_and(|ext| ext == "toml") {
-                                if let Ok(room_content) = fs::read_to_string(&room_path) {
-                                    if let Ok(room) = toml::from_str::<RoomTemplate>(&room_content)
-                                    {
-                                        let room_id = room.id.clone();
-                                        if !room_id.is_empty() {
-                                            area.rooms.insert(room_id.clone(), room);
-                                            // Use composite key to avoid collisions
-                                            room_path_map
-                                                .insert(format!("{area_id}:{room_id}"), room_path);
+                    // Load rooms from <dir>/<area_id>/rooms/*.toml
+                    let rooms_dir = path.join("rooms");
+                    if rooms_dir.exists() {
+                        if let Ok(room_entries) = fs::read_dir(&rooms_dir) {
+                            for room_entry in room_entries.flatten() {
+                                let room_path = room_entry.path();
+                                if room_path.extension().is_some_and(|ext| ext == "toml") {
+                                    match fs::read_to_string(&room_path) {
+                                        Ok(room_content) => {
+                                            match toml::from_str::<RoomTemplate>(&room_content) {
+                                                Ok(room) => {
+                                                    let room_id = room.id.clone();
+                                                    if !room_id.is_empty() {
+                                                        area.rooms.insert(room_id.clone(), room);
+                                                        // Use composite key to avoid collisions
+                                                        room_path_map.insert(
+                                                            format!("{area_id}:{room_id}"),
+                                                            room_path,
+                                                        );
+                                                    }
+                                                }
+                                                Err(e) => errors.push(ContentLoadError {
+                                                    category: "rooms".to_string(),
+                                                    path: room_path.clone(),
+                                                    message: e.to_string(),
+                                                }),
+                                            }
                                         }
+                                        Err(e) => errors.push(ContentLoadError {
+                                            category: "rooms".to_string(),
+                                            path: room_path.clone(),
+                                            message: format!("read error: {e}"),
+                                        }),
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                map.insert(area_id.clone(), area);
+                    map.insert(area_id.clone(), area);
 
-                // Recurse into <dir>/<area_id>/areas/* for sub-areas
-                let sub_areas_dir = path.join("areas");
-                if sub_areas_dir.exists() {
-                    load_areas_recursive(&sub_areas_dir, map, path_map, room_path_map, &area_id);
+                    // Recurse into <dir>/<area_id>/areas/* for sub-areas
+                    let sub_areas_dir = path.join("areas");
+                    if sub_areas_dir.exists() {
+                        load_areas_recursive(
+                            &sub_areas_dir,
+                            map,
+                            path_map,
+                            room_path_map,
+                            &area_id,
+                            errors,
+                        );
+                    }
                 }
-            }
+                Err(e) => errors.push(ContentLoadError {
+                    category: "areas".to_string(),
+                    path: area_file.clone(),
+                    message: e.to_string(),
+                }),
+            },
+            Err(e) => errors.push(ContentLoadError {
+                category: "areas".to_string(),
+                path: area_file.clone(),
+                message: format!("read error: {e}"),
+            }),
         }
     }
 }
@@ -347,6 +477,40 @@ mod tests {
         assert!(assert_within_content_dir(&tmp, &safe_path).is_ok());
         let escape_path = tmp.join("..").join("escape.toml");
         assert!(assert_within_content_dir(&tmp, &escape_path).is_err());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn broken_toml_is_collected_not_silent() {
+        let tmp = std::env::temp_dir().join("oxidemud_test_broken_content");
+        let mobs = tmp.join("mobs");
+        let races = tmp.join("races");
+        fs::create_dir_all(&mobs).unwrap();
+        fs::create_dir_all(&races).unwrap();
+
+        // One syntactically valid but schema-wrong file, one unreadable-garbage file
+        fs::write(mobs.join("goblin.toml"), "this is not = = valid toml [").unwrap();
+        fs::write(races.join("human.toml"), "[wrong_section]\nfoo = 1\n").unwrap();
+
+        let report = load_registry_report(&tmp);
+        assert_eq!(report.errors.len(), 2, "both broken files reported");
+        assert!(report.errors.iter().any(|e| e.category == "mobs"));
+        assert!(report.errors.iter().any(|e| e.category == "races"));
+        assert!(report.errors.iter().all(|e| !e.message.is_empty()));
+        // Broken files are excluded from the registry
+        assert!(report.registry.mobs.is_empty());
+        assert!(report.registry.races.is_empty());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn valid_content_loads_without_errors() {
+        let tmp = std::env::temp_dir().join("oxidemud_test_valid_content");
+        fs::create_dir_all(&tmp).unwrap();
+        // Empty tree: no files, no errors
+        let report = load_registry_report(&tmp);
+        assert!(report.errors.is_empty());
         let _ = fs::remove_dir_all(&tmp);
     }
 }

@@ -120,7 +120,7 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 - **Quests & Factions:** Objective tracking (kill, gather, deliver, explore, escort), reward delivery, and faction standing propagation matrices.
 - **Time & Weather Systems:** Independent in-game clock (configurable minutes per game hour, 8 named time periods, seasons). Data-driven composition weather model (base + modifier, area/room overrides, season weights) in `content/weather.toml`.
 - **Telnet & Communication:** Telnet IAC state machine parser (ANSI, 256-color, NAWS, Keepalive). Channels (say, tell, shout, emote, ooc, gtell, etc.) and TOML socials (`content/socials.toml`).
-- **Persistence & Content Loading:** Two-tier SQLite persistence in WAL mode with dirty flushing every 5s and automated hot backups. Content is loaded from TOML files into `TemplateRegistry` with hot-reloading via `notify`.
+- **Persistence & Content Loading:** Two-tier SQLite persistence in WAL mode with dirty flushing every 5s and automated hot backups. Content is loaded from TOML files into `TemplateRegistry` with hot-reloading via `notify`; files that fail to parse are reported (never silently skipped) via startup warnings and `oxide-server --validate-content` preflight checks.
 - **Zone & Area System:** Areas group rooms into directories (`content/areas/<area_id>/`). Handles doors/locks, area flags, room flags, and automated area resets.
 - **spade (Builder TUI & Client):** Terminal tool providing world building and game client capabilities across four distinct operational modes:
   - **Offline Mode:** Full-screen offline content creation (tree sidebar with substring search highlighting, structured form editor, raw TOML editor, 5-column sortable validation panel, room grid, cross-category search, and script console).
@@ -223,7 +223,29 @@ Outline for an offline transpiler and runner architecture (`lpc-to-oxide`) to co
 
 ---
 
-### 5. Development Roadmap Summary
+### 5. Content Format Versioning & Migration (Planned)
+
+**Problem:** The TOML template format is implicitly versioned by the engine binary that parses it. Early versions will introduce breaking changes to template fields and `server.toml` keys; today such changes surface only as parse failures at load time, with no in-file signal of which engine version a content tree targets.
+
+**Current state (implemented):**
+
+- The loader never silently drops content: every TOML file that fails to parse is recorded with its path, category, and the serde error, logged as a `tracing::warn!` at startup, and reported by `oxide-server --validate-content` (see below). Content that parses but fails cross-reference validation is reported by the existing `TemplateRegistry::validate()` rules.
+- `oxide-server --validate-content` is a preflight mode: it parses `server.toml`, loads the entire content tree, runs all validation rules, prints a per-file and per-rule report, and exits `0` (clean) or `1` (any error) without opening the database, binding ports, or starting the game loop. Deployment pipelines run it against the staged content directory before cutover.
+- The SQLite schema is versioned via the `schema_version` table with sequential, guard-checked migrations in `data/`.
+
+**Long-term design:**
+
+1. **`format_version` field.** Every template file gains an optional top-level `format_version` integer (absent = legacy/current). The engine declares `CURRENT_FORMAT_VERSION` per template category. Loading a file whose `format_version` exceeds the engine's is a hard validation error; loading one below it triggers the migration path rather than a parse failure.
+2. **Versioned template enums.** When a category's shape changes, the previous shape is retained as a versioned deserializable struct (e.g. `ItemTemplateV1` → `ItemTemplateV2`) and upgraded via a pure `From` impl at load time. The in-memory representation is always the latest version; older files parse into their pinned struct and migrate in memory.
+3. **Content migration tool.** A `oxide-mcp migrate-content` subcommand (or standalone `just migrate-content`) rewrites on-disk files from older format versions to the current one, preserving comments/ordering where TOML round-trip allows. It operates on a copy or with a `--write` flag, prints a per-file diff summary, and refuses to downgrade. This is the sanctioned path for upgrading a live content tree after a breaking release; `content.default/` remains the reference for manual comparison.
+4. **Compatibility window.** Each engine release supports loading the current format plus at least one prior format version per category, giving operators a one-release grace window to run the migration tool. Removal of an old format version is itself a breaking change and called out in the changelog.
+5. **Config versioning.** `server.toml` adopts the same scheme with an optional `config_version`; unknown or removed keys produce startup warnings (never silent) and missing required keys produce preflight errors from `--validate-content`.
+
+**Interaction with deployments:** The deploy flow stages new binaries + `content.default/` without touching the live `content/` dir. Operators run `oxide-server --validate-content` against the live content with the new binary before rebooting; if a breaking format change ships, the release notes must say so and the migration tool is run during the maintenance window before cutover.
+
+---
+
+### 6. Development Roadmap Summary
 
 - **Phase 0–3 (Core Engine & Content Baseline) ✓:** Cargo workspace, ECS, TCP/Telnet, Login/Char creation, combat, items, mobs, skills, races, classes, durability baseline.
 - **Phase 4 (Advanced Gameplay) ✓:** Crafting, quests, factions, prestige, multi-classing, spells, economy, regeneration, time & weather.

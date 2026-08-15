@@ -4,6 +4,7 @@ mod console;
 mod init;
 mod signals;
 mod templates;
+mod validate;
 
 use config::Config;
 use init::{init_world, spawn_area};
@@ -45,6 +46,23 @@ fn notify_report_replies(world: &oxide_core::World, conn: &mut dyn oxide_server:
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
+
+    // Preflight mode: validate server.toml + content tree, print report, exit.
+    // Runs before any logging/DB/network setup — zero side effects.
+    if config.validate_content {
+        let config_path = config
+            .config_path
+            .clone()
+            .unwrap_or_else(|| Path::new("content/server.toml").to_path_buf());
+        let content_path = config
+            .motd_path
+            .as_ref()
+            .and_then(|p| Path::new(p).parent())
+            .unwrap_or_else(|| Path::new("content"))
+            .to_path_buf();
+        std::process::exit(validate::run_preflight(&content_path, &config_path));
+    }
+
     oxide_server::config::init(
         config
             .config_path

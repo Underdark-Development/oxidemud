@@ -177,6 +177,18 @@ pub fn get() -> &'static ServerConfig {
     CONFIG.get().expect("ServerConfig not initialized")
 }
 
+/// Strictly parse a `server.toml` file for preflight validation.
+///
+/// Unlike `init`, this does not fall back to defaults on error and does not
+/// touch the global config — it returns the parse/IO error for reporting.
+pub fn validate_file(path: &Path) -> Result<(), String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    toml::from_str::<ServerConfig>(&content)
+        .map(|_| ())
+        .map_err(|e| format!("failed to parse {}: {e}", path.display()))
+}
+
 pub fn prune_old_logs(retention_days: u32) {
     let temp_dir = std::env::temp_dir();
     let entries = match std::fs::read_dir(&temp_dir) {

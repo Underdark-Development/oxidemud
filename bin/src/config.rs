@@ -8,6 +8,8 @@ pub struct Config {
     pub motd_path: Option<PathBuf>,
     pub banner_path: Option<PathBuf>,
     pub config_path: Option<PathBuf>,
+    /// Preflight mode: validate server.toml + content tree, print report, exit.
+    pub validate_content: bool,
 }
 
 impl Config {
@@ -26,10 +28,14 @@ impl Config {
         let mut banner_path = Some(PathBuf::from("content/banner.txt"));
 
         let mut config_path: Option<PathBuf> = None;
+        let mut validate_content = false;
 
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
+                "--validate-content" => {
+                    validate_content = true;
+                }
                 "--host" | "-h" => {
                     i += 1;
                     if let Some(val) = args.get(i) {
@@ -78,6 +84,7 @@ impl Config {
             motd_path,
             banner_path,
             config_path,
+            validate_content,
         }
     }
 
