@@ -3,13 +3,13 @@ name = "a venomous serpent dagger"
 description = "A curved steel dagger dipped in potent wyrm poison."
 item_type = "weapon"
 subtype = "dagger"
-quality = "rare"
+rarity = "rare"
 level_requirement = 3
 weight = 1.5
 value = 750
 flags = ["metal", "magic"]
 
-allowed_classes = ["rogue", "assassin", "warrior"]
+allowed_classes = ["warrior"]
 allowed_races = []
 
 [weapon]

@@ -348,7 +348,8 @@ name = "a steel shortsword"
 description = "A serviceable steel shortsword."
 item_type = "weapon"
 subtype = "sword"
-quality = "common"
+rarity = "common"
+quality = "standard"
 level_requirement = 1
 weight = 3.0
 value = 500
@@ -414,7 +415,8 @@ affects_display = "The keen blade grants +1 to attack rolls."
 | `description`        | String       | Description seen when looking at the item. Supports formatting/color codes.                                                                         |
 | `item_type`          | String       | Broad item category: `weapon`, `armor`, `container`, `potion`, `scroll`, `wand`, `food`, `drink`, `key`, `quest`, `treasure`, `light`, `furniture`. |
 | `subtype`            | String       | Sub-category details (e.g., `sword`, `shield`, `vest`).                                                                                             |
-| `quality`            | String       | Base quality tier: `poor`, `common`, `magic`, `rare`, `epic`, `legendary`.                                                                          |
+| `rarity`             | String       | Rarity tier (loot rolls, affix budget, display color): `common`, `uncommon`, `rare`, `epic`, `legendary`, `artifact`.                               |
+| `quality`            | String       | Craftsmanship quality (flavor/price modifier): `poor`, `standard`, `fine`, `masterwork`. Distinct from rarity.                                      |
 | `level_requirement`  | Integer      | Minimum level required to equip/use.                                                                                                                |
 | `weight`             | Float        | Weight of the item in pounds.                                                                                                                       |
 | `value`              | Integer      | Vendor value in copper pieces (10,000 cp = 1 gp).                                                                                                   |
@@ -746,11 +748,14 @@ If no `price_mods` entry matches a player's current rank, Neutral pricing (1.0) 
 
 ---
 
-### Item Quality & Affixes
+### Item Rarity, Quality & Affixes
 
-Items have a quality tier that determines how many affixes they can roll when spawned as loot.
+Items have two independent tier axes:
 
-#### Quality Tiers & Affix Counts
+- **Rarity** (`rarity`) — how unusual the item is: `common`, `uncommon`, `rare`, `epic`, `legendary`, `artifact`. Rarity determines how many affixes an item can roll when spawned as loot, and its display color.
+- **Quality** (`quality`) — craftsmanship of the individual item: `poor`, `standard`, `fine`, `masterwork`. A purely descriptive/price modifier; a masterwork common item and a poor rare item are both valid.
+
+#### Rarity Tiers & Affix Counts
 
 | Tier      | Max Affixes | Color  |
 | --------- | ----------- | ------ |
@@ -771,7 +776,7 @@ description = "+2 Strength"
 type = "suffix"                # prefix or suffix
 stat = "strength"              # target attribute to modify
 amount = "2"                   # modifier value
-quality_min = "uncommon"       # minimum item quality required to roll this affix
+quality_min = "uncommon"       # minimum item rarity required to roll this affix
 slot = ["weapon", "torso"]     # item slots eligible for this affix
 weight = 5                     # relative selection weight
 ```

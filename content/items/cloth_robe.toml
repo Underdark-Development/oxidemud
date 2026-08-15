@@ -3,7 +3,7 @@ name = "Cloth Robe"
 description = "A simple undyed robe of rough-spun cloth, belted at the waist."
 item_type = "armor"
 subtype = "robe"
-quality = "common"
+rarity = "common"
 weight = 1.0
 value = 3
 

@@ -12,6 +12,7 @@ impl EntityInspectorScreen {
         Self::add_field(table, "description", &item.description);
         Self::add_field(table, "item_type", &item.item_type);
         Self::add_field(table, "subtype", &item.subtype);
+        Self::add_field(table, "rarity", &item.rarity);
         Self::add_field(table, "quality", &item.quality);
         Self::add_field(table, "level_requirement", item.level_requirement);
         Self::add_field(table, "weight", item.weight);
@@ -146,6 +147,7 @@ impl EntityInspectorScreen {
             "description" => item.description = value.to_string(),
             "item_type" => item.item_type = value.to_string(),
             "subtype" => item.subtype = value.to_string(),
+            "rarity" => item.rarity = value.to_string(),
             "quality" => item.quality = value.to_string(),
             "level_requirement" => {
                 item.level_requirement = value.parse().map_err(|_| "invalid number")?

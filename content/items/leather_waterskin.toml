@@ -2,7 +2,7 @@ id = "leather_waterskin"
 name = "Leather Waterskin"
 description = "A supple cured-hide waterskin fitted with a brass stopper."
 item_type = "container"
-quality = "common"
+rarity = "common"
 weight = 1.5
 value = 15
 

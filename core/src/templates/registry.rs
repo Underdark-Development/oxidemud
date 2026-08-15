@@ -127,7 +127,9 @@ impl TemplateRegistry {
                 }
             }
 
-            // Item type validation
+            // Item type validation. item_type is a free-form label at runtime
+            // (systems only ever compare it against shop buy-type lists), so
+            // this list is advisory and tracks types shipped in content/.
             let valid_types = [
                 "weapon",
                 "armor",
@@ -139,6 +141,9 @@ impl TemplateRegistry {
                 "key",
                 "quest",
                 "misc",
+                "treasure",
+                "light",
+                "wand",
             ];
             if !item.item_type.is_empty() && !valid_types.contains(&item.item_type.as_str()) {
                 errors.push(ValidationError {
@@ -149,8 +154,8 @@ impl TemplateRegistry {
                 });
             }
 
-            // Quality validation
-            let valid_qualities = [
+            // Rarity validation (drop tier: affix budget, display color)
+            let valid_rarities = [
                 "common",
                 "uncommon",
                 "rare",
@@ -158,6 +163,17 @@ impl TemplateRegistry {
                 "legendary",
                 "artifact",
             ];
+            if !item.rarity.is_empty() && !valid_rarities.contains(&item.rarity.as_str()) {
+                errors.push(ValidationError {
+                    template_type: "item",
+                    template_id: id.clone(),
+                    field: "rarity".into(),
+                    message: format!("invalid rarity '{}'", item.rarity),
+                });
+            }
+
+            // Quality validation (craftsmanship: poor/standard/fine/masterwork)
+            let valid_qualities = ["poor", "standard", "fine", "masterwork"];
             if !item.quality.is_empty() && !valid_qualities.contains(&item.quality.as_str()) {
                 errors.push(ValidationError {
                     template_type: "item",
@@ -954,7 +970,8 @@ description = "A test blade."
 item_type = "weapon"
 "#;
         let item: ItemTemplate = toml::from_str(toml_str).unwrap();
-        assert_eq!(item.quality, "common");
+        assert_eq!(item.rarity, "common");
+        assert_eq!(item.quality, "standard");
         assert_eq!(item.level_requirement, 0);
         assert!(item.weapon.is_none());
         assert!(item.equipment.is_none());

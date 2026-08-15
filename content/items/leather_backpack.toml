@@ -2,7 +2,7 @@ id = "leather_backpack"
 name = "Leather Backpack"
 description = "A sturdy traveler's backpack crafted from tough boiled leather with iron buckles."
 item_type = "container"
-quality = "common"
+rarity = "common"
 weight = 3.0
 value = 40
 

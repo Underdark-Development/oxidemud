@@ -3,7 +3,7 @@ name = "Wooden Cudgel"
 description = "A stout branch worn smooth by countless hands."
 item_type = "weapon"
 subtype = "club"
-quality = "common"
+rarity = "common"
 weight = 2.5
 value = 5
 

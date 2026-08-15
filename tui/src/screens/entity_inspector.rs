@@ -202,7 +202,7 @@ impl EntityInspectorScreen {
                     {
                         errors.push(format!("item_type: invalid item type '{}'", item.item_type));
                     }
-                    let valid_qualities = [
+                    let valid_rarities = [
                         "common",
                         "uncommon",
                         "rare",
@@ -210,6 +210,10 @@ impl EntityInspectorScreen {
                         "legendary",
                         "artifact",
                     ];
+                    if !item.rarity.is_empty() && !valid_rarities.contains(&item.rarity.as_str()) {
+                        errors.push(format!("rarity: invalid rarity '{}'", item.rarity));
+                    }
+                    let valid_qualities = ["poor", "standard", "fine", "masterwork"];
                     if !item.quality.is_empty() && !valid_qualities.contains(&item.quality.as_str())
                     {
                         errors.push(format!("quality: invalid quality '{}'", item.quality));

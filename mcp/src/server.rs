@@ -1220,8 +1220,8 @@ impl OxideMcpServer {
         let (registry, _file_map) = self.load();
         match registry.get_item(&p.id) {
             Some(item) => format!(
-                "id: {}\nname: {}\ntype: {}\nquality: {}\ndescription: {}",
-                p.id, item.name, item.item_type, item.quality, item.description
+                "id: {}\nname: {}\ntype: {}\nrarity: {}\nquality: {}\ndescription: {}",
+                p.id, item.name, item.item_type, item.rarity, item.quality, item.description
             ),
             None => format!("Error: item '{}' not found", p.id),
         }
@@ -1247,7 +1247,8 @@ impl OxideMcpServer {
             description: String::new(),
             item_type: "misc".to_string(),
             subtype: String::new(),
-            quality: "common".to_string(),
+            rarity: "common".to_string(),
+            quality: "standard".to_string(),
             level_requirement: 1,
             weight: 1.0,
             value: 0,

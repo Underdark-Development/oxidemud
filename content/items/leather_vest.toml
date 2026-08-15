@@ -3,7 +3,7 @@ name = "Leather Vest"
 description = "A toughened leather vest scarred from use."
 item_type = "armor"
 subtype = "vest"
-quality = "common"
+rarity = "common"
 weight = 3.0
 value = 15
 

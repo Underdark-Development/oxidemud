@@ -656,7 +656,11 @@ pub struct TriggerDef {
     pub event: String,
     #[serde(default)]
     pub chance: u8,
+    /// Skill/spell to cast when the trigger fires. Optional for script-driven
+    /// triggers (`script` set) where the script performs its own effects.
+    #[serde(default)]
     pub cast: String,
+    #[serde(default)]
     pub target: String,
     #[serde(default)]
     pub script: Option<String>,
@@ -741,7 +745,14 @@ pub struct ItemTemplate {
     pub item_type: String,
     #[serde(default)]
     pub subtype: String,
-    #[serde(default = "default_quality")]
+    /// Rarity tier (drop rates, affix budget, display color). Values:
+    /// common, uncommon, rare, epic, legendary, artifact.
+    #[serde(default = "default_rarity")]
+    pub rarity: String,
+    /// Craftsmanship quality (flavor/price modifier). Values: poor, standard,
+    /// fine, masterwork. Distinct from `rarity` — a masterwork common item and
+    /// a shoddy rare item are both valid.
+    #[serde(default = "default_item_quality")]
     pub quality: String,
     #[serde(default)]
     pub level_requirement: u8,
@@ -777,8 +788,12 @@ pub struct ItemTemplate {
     pub params: HashMap<String, String>,
 }
 
-fn default_quality() -> String {
+fn default_rarity() -> String {
     "common".to_string()
+}
+
+fn default_item_quality() -> String {
+    "standard".to_string()
 }
 
 // ---------------------------------------------------------------------------

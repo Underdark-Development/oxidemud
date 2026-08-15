@@ -2,7 +2,7 @@ id = "copper_coin"
 name = "copper coin"
 description = "A dull copper coin stamped with a faded crown."
 item_type = "treasure"
-quality = "common"
+rarity = "common"
 weight = 0.01
 value = 1
 
