@@ -116,7 +116,36 @@ This playbook:
 3. Automatically copies the local precompiled binaries, templates, scripts, and container definitions to the remote VPS temporary folder `/tmp/oxide_deploy`.
 4. Executes remote installation steps and starts the server based on your selection.
 
-### 4. CLI Command Options
+### 4. GitHub Actions CI/CD
+
+The repository ships two GitHub Actions workflows under `.github/workflows/`.
+
+**CI** (`ci.yml`) runs on every push to `main` and every pull request. It enforces the same gate as the local pre-commit hook: `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, and the full workspace test suite.
+
+**Release & Deploy** (`release.yml`) runs when a version tag (`v*`) is pushed, e.g. after `just release` / `cog bump --auto`. It always cross-compiles the Linux release tarball (`x86_64-unknown-linux-musl`) and attaches it to a GitHub Release. If the deploy secrets below are configured, it also uploads the tarball to your VPS over SSH and installs it.
+
+Two deploy modes are supported, selected with the `VPS_DEPLOY_MODE` variable:
+
+- **`docker`** (default) — runs the installer to stage binaries, content, `Dockerfile`, and `docker-compose.yml` under the install dir, stops any legacy host systemd services, and starts the stack with `docker compose up -d --build`. If the `TUNNEL_TOKEN` secret is set, it is written to `<install-dir>/.env` and the `cloudflared` service is started via the compose `tunnel` profile for HTTPS/WSS ingress.
+- **`systemd`** — installs host systemd services directly instead of using Docker.
+
+To enable automatic VPS deployment, create a dedicated SSH keypair on your admin machine (`ssh-keygen -t ed25519 -f oxide-deploy`), add the public key to the VPS user's `~/.ssh/authorized_keys`, then configure these on GitHub under **Settings → Secrets and variables → Actions**:
+
+| Kind     | Name                 | Value                                                               |
+| :------- | :------------------- | :------------------------------------------------------------------ |
+| Secret   | `VPS_HOST`           | VPS IP or hostname                                                  |
+| Secret   | `VPS_USER`           | SSH user with sudo rights (e.g. `root`)                             |
+| Secret   | `VPS_PORT`           | SSH port (e.g. `22`)                                                |
+| Secret   | `VPS_SSH_KEY`        | Full private key contents (`oxide-deploy` file)                     |
+| Secret   | `TUNNEL_TOKEN`       | (Docker mode) Cloudflare Tunnel token from the Zero Trust dashboard |
+| Variable | `VPS_DEPLOY_ENABLED` | Set to `true` to turn the deploy job on                             |
+| Variable | `VPS_DEPLOY_MODE`    | `docker` (default) or `systemd`                                     |
+| Variable | `VPS_INSTALL_DIR`    | (Optional) Remote install dir, default `/opt/oxide`                 |
+| Variable | `VPS_RUN_AS_USER`    | (Optional) Service owner on the VPS, default `oxide`                |
+
+The VPS needs Docker Engine with the Compose plugin installed for `docker` mode. The deploy job binds to a `production` GitHub environment, so you can optionally require manual approval on deployments via **Settings → Environments → production → Required reviewers**.
+
+### 5. CLI Command Options
 
 You can customize the server behavior at launch using the following command-line flags:
 
@@ -139,7 +168,7 @@ Startup configuration parameters are applied in the following order of precedenc
 3. **Configuration File** (`content/server.toml`)
 4. **Built-in Defaults**
 
-### 5. Deployment & Host Environment Considerations
+### 6. Deployment & Host Environment Considerations
 
 #### Host Firewall Configuration
 

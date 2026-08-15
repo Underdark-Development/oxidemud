@@ -1,0 +1,180 @@
+# OxideMUD Release & Deploy
+#
+# Triggered by version tags (e.g. `v0.4.1`) created by `just release` / `cog bump`.
+#
+# Always:
+#   1. Builds the x86_64-unknown-linux-musl release tarball via scripts/package.sh
+#   2. Publishes a GitHub Release with the tarball attached
+#
+# Deploy job (runs only when the VPS_* secrets are configured — see
+# docs/server_admin.md or .github/workflows/README for setup):
+#   3. Uploads the tarball to the VPS over SSH and runs install.sh
+#      (non-interactive, systemd install). This reuses the exact same
+#      packaging + install path as `just deploy`.
+#
+# Required repo secrets for the deploy job:
+#   VPS_HOST        — VPS IP or hostname
+#   VPS_USER        — SSH user (needs sudo for install.sh / docker)
+#   VPS_PORT        — SSH port (e.g. 22)
+#   VPS_SSH_KEY     — private key contents (PEM) for that user
+#
+# Optional:
+#   VPS_DEPLOY_MODE   — 'docker' (default) or 'systemd' — how the server runs on the VPS
+#   VPS_INSTALL_DIR   — remote install dir (default /opt/oxide)
+#   VPS_RUN_AS_USER   — (remote script var) service owner, default 'oxide'
+#   TUNNEL_TOKEN      — (secret, docker mode only) Cloudflare Tunnel token,
+#                       written to <install-dir>/.env for the cloudflared compose service
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-unknown-linux-musl
+
+jobs:
+  package:
+    name: Build release tarball
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      archive: ${{ steps.meta.outputs.archive }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-release-
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
+
+      - name: Package release
+        run: ./scripts/package.sh -t ${{ env.TARGET }}
+
+      - name: Resolve package metadata
+        id: meta
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          ARCHIVE="oxide-v${VERSION}-${TARGET}.tar.gz"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          test -f "target/release/$ARCHIVE"
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.archive }}
+          path: target/release/${{ steps.meta.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/release/${{ steps.meta.outputs.archive }}
+
+  deploy:
+    name: Deploy to VPS
+    needs: package
+    runs-on: ubuntu-latest
+    # Skip silently when secrets are not configured (e.g. forks, dry-run releases)
+    if: vars.VPS_DEPLOY_ENABLED == 'true'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download tarball artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.package.outputs.archive }}
+          path: target/release
+
+      - name: Install SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.VPS_PORT }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload tarball to VPS
+        run: |
+          scp -P "${{ secrets.VPS_PORT }}" \
+            "target/release/${{ needs.package.outputs.archive }}" \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/"
+
+      - name: Extract and run installer
+        env:
+          DEPLOY_MODE: ${{ vars.VPS_DEPLOY_MODE || 'docker' }}
+          INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '/opt/oxide' }}
+          RUN_AS_USER: ${{ vars.VPS_RUN_AS_USER || 'oxide' }}
+          TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
+        run: |
+          # Build the remote script locally so secrets/vars interpolate
+          # without leaking into the SSH command line / process list.
+          cat > /tmp/oxide-deploy-remote.sh <<'REMOTE'
+          set -euo pipefail
+          INSTALL_DIR="__INSTALL_DIR__"
+          DEPLOY_MODE="__DEPLOY_MODE__"
+          RUN_AS_USER="__RUN_AS_USER__"
+
+          cd /tmp
+          rm -rf oxide-pkg-extract
+          mkdir oxide-pkg-extract
+          tar -xzf "__ARCHIVE__" -C oxide-pkg-extract
+          rm "__ARCHIVE__"
+          # Tarball contains a single top-level dir (oxide-v<version>-<target>/)
+          cd oxide-pkg-extract/*/
+
+          if [ "$DEPLOY_MODE" = "docker" ]; then
+            if ! sudo docker compose version >/dev/null 2>&1; then
+              echo "ERROR: 'docker compose' not available on VPS."
+              echo "Install Docker Engine + Compose plugin: https://docs.docker.com/engine/install/"
+              exit 1
+            fi
+            # Stop any legacy host systemd services so they don't fight Docker for ports
+            sudo systemctl disable --now oxide-server oxide-mcp 2>/dev/null || true
+            # Install binaries/content/Dockerfile/compose without systemd units
+            sudo ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --no-spade --non-interactive
+            # Cloudflare Tunnel token for the cloudflared compose service (optional)
+            COMPOSE_PROFILE_ARGS=""
+            if [ -n "__TUNNEL_TOKEN__" ]; then
+              echo "TUNNEL_TOKEN=__TUNNEL_TOKEN__" | sudo tee "$INSTALL_DIR/.env" >/dev/null
+              sudo chmod 600 "$INSTALL_DIR/.env"
+              COMPOSE_PROFILE_ARGS="--profile tunnel"
+            fi
+            # Compose file resolves paths relative to its own directory (OXIDE_DIR)
+            sudo docker compose -f "$INSTALL_DIR/docker-compose.yml" $COMPOSE_PROFILE_ARGS up -d --build
+          else
+            sudo ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --install-service --non-interactive
+          fi
+
+          cd /tmp
+          rm -rf oxide-pkg-extract
+          REMOTE
+
+          # Fill in placeholders (| sed delimiter to survive / in paths)
+          sed -i \
+            -e "s|__INSTALL_DIR__|${INSTALL_DIR}|g" \
+            -e "s|__DEPLOY_MODE__|${DEPLOY_MODE}|g" \
+            -e "s|__RUN_AS_USER__|${RUN_AS_USER}|g" \
+            -e "s|__ARCHIVE__|${{ needs.package.outputs.archive }}|g" \
+            -e "s|__TUNNEL_TOKEN__|${TUNNEL_TOKEN}|g" \
+            /tmp/oxide-deploy-remote.sh
+
+          ssh -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-deploy-remote.sh
+          rm -f /tmp/oxide-deploy-remote.sh
