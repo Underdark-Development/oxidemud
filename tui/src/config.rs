@@ -20,6 +20,10 @@ pub struct Config {
     #[arg(long)]
     pub connect_port: Option<u16>,
 
+    /// API key for authenticated server connections
+    #[arg(long)]
+    pub api_key: Option<String>,
+
     #[command(subcommand)]
     pub subcommand: Option<SubCommand>,
 }

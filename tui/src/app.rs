@@ -4,6 +4,7 @@ use crate::components::menu_bar::MenuBar;
 use crate::components::CommandAction;
 use crate::config_file::{PrefsConfig, SpadeConfig};
 use crate::content::{self, FileMap};
+use crate::network::ConnectionStatus;
 use crate::screens::entities::EntitiesScreen;
 use crate::screens::file_browser::FileBrowserScreen;
 use crate::screens::live_dashboard::LiveDashboardScreen;
@@ -56,6 +57,8 @@ pub struct App {
     pub quit_dialog: Option<crate::components::Dialog>,
     pub notification_history: Vec<(String, String)>,
     pub notification_dialog: Option<crate::components::Dialog>,
+    pub connect_dialog: Option<crate::components::Dialog>,
+    pub network_client: Option<crate::network::SpadeNetworkClient>,
 }
 
 struct TerminalGuard;
@@ -97,7 +100,7 @@ impl App {
             should_quit: false,
             mouse_pos: None,
             status_message: None,
-            connection_host: host,
+            connection_host: host.clone(),
             connection_port: port,
             sidebar_visible: file_config.prefs.sidebar_open,
             prefs: file_config.prefs,
@@ -114,6 +117,16 @@ impl App {
             quit_dialog: None,
             notification_history: Vec::new(),
             notification_dialog: None,
+            connect_dialog: None,
+            network_client: if cli.mode != Mode::Offline {
+                Some(crate::network::SpadeNetworkClient::connect(
+                    host,
+                    port,
+                    cli.api_key.clone(),
+                ))
+            } else {
+                None
+            },
         }
     }
 
@@ -144,6 +157,10 @@ impl App {
 
     pub fn switch_screen(&mut self, id: ScreenId) {
         self.active_screen = id;
+        if id == ScreenId::LiveDashboard {
+            self.sidebar_visible = false;
+            self.sidebar_focused = false;
+        }
         let entities_idx = ScreenId::Entities.as_index();
         if let Some(registry) = self.screens[entities_idx].registry() {
             let registry = registry.clone();
@@ -192,15 +209,20 @@ impl App {
                 }
             }
             CommandAction::ToggleSidebar => {
-                self.sidebar_visible = !self.sidebar_visible;
-                if self.sidebar_visible {
-                    self.sidebar_focused = true;
-                }
-                self.set_status(if self.sidebar_visible {
-                    "Sidebar shown"
+                if self.active_screen == ScreenId::LiveDashboard {
+                    self.sidebar_visible = false;
+                    self.sidebar_focused = false;
                 } else {
-                    "Sidebar hidden"
-                });
+                    self.sidebar_visible = !self.sidebar_visible;
+                    if self.sidebar_visible {
+                        self.sidebar_focused = true;
+                    }
+                    self.set_status(if self.sidebar_visible {
+                        "Sidebar shown"
+                    } else {
+                        "Sidebar hidden"
+                    });
+                }
             }
             CommandAction::ShowNotificationHistory => {
                 let history_text = if self.notification_history.is_empty() {
@@ -227,6 +249,22 @@ impl App {
             CommandAction::SwitchMode(mode) => {
                 self.mode = mode;
                 self.set_status(format!("Switched execution mode to {:?}", mode));
+            }
+            CommandAction::ConnectServer => {
+                let host = self.connection_host.clone();
+                let port = self.connection_port;
+                self.network_client = Some(crate::network::SpadeNetworkClient::connect(
+                    host.clone(),
+                    port,
+                    None,
+                ));
+                self.mode = Mode::Online;
+                self.set_status(format!("Connecting to {}:{}...", host, port));
+            }
+            CommandAction::DisconnectServer => {
+                self.network_client = None;
+                self.mode = Mode::Offline;
+                self.set_status("Disconnected from server.");
             }
             ref action => {
                 let active = self.active_screen;
@@ -305,6 +343,46 @@ impl App {
         let mut event_loop = crate::event::EventLoop::new()?;
 
         while !self.should_quit {
+            if let Some(ref mut client) = self.network_client {
+                let status = client.status();
+                let ping = client.ping_ms();
+                if let Some(telemetry) = client.poll_telemetry() {
+                    let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                    if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
+                        dash.update_telemetry(telemetry, status, ping);
+                    }
+                }
+                while let Some(log_line) = client.poll_log() {
+                    let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                    if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
+                        dash.add_log(log_line);
+                    }
+                }
+            } else {
+                let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
+                    if dash.status == ConnectionStatus::Connecting {
+                        let target = dash.connect_input.trim().to_string();
+                        let parts: Vec<&str> = target.split(':').collect();
+                        let host = parts.first().copied().unwrap_or("127.0.0.1").to_string();
+                        let port = parts
+                            .get(1)
+                            .and_then(|p| p.parse::<u16>().ok())
+                            .unwrap_or(8080);
+
+                        self.connection_host = host.clone();
+                        self.connection_port = port;
+                        self.network_client = Some(crate::network::SpadeNetworkClient::connect(
+                            host.clone(),
+                            port,
+                            None,
+                        ));
+                        self.mode = Mode::Online;
+                        self.set_status(format!("Connecting to {}:{}...", host, port));
+                    }
+                }
+            }
+
             terminal.draw(|f| crate::ui::render(self, f))?;
 
             match event_loop.next().await? {

@@ -289,21 +289,107 @@ async fn handle_ws_play_socket(mut socket: WebSocket) {
 async fn ws_spade_handler(ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(|mut socket| async move {
         tracing::info!("New Spade WebSocket session established");
-        let greeting = serde_json::json!({
-            "status": "connected",
-            "mode": "online",
-            "service": "spade"
-        })
-        .to_string();
-        let _ = socket.send(AxumWsMessage::Text(greeting)).await;
 
-        while let Some(res) = socket.recv().await {
-            match res {
-                Ok(AxumWsMessage::Text(txt)) if txt.trim() == "ping" => {
-                    let _ = socket.send(AxumWsMessage::Text("pong".into())).await;
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let total_mem = sysinfo::System::new_all().total_memory();
+                    let used_mem = sysinfo::System::new_all().used_memory();
+
+
+
+                    let uptime_secs = crate::get_uptime_secs();
+
+                    let wal_size_bytes = if let Some(db_lock) = crate::get_db() {
+                        if let Ok(db) = db_lock.try_lock() {
+                            match db.path() {
+                                Some(path) => {
+                                    let wal_path = format!("{}-wal", path.display());
+                                    std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0)
+                                }
+                                None => 0,
+                            }
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    };
+
+                    let (room_count, mob_count, item_count, dirty_count, game_time_str, season_str, weather_str, players_info) = match crate::get_world() {
+                        Some(w_lock) => {
+                            if let Ok(w) = w_lock.try_lock() {
+                                let rooms = w.query::<&oxide_core::RoomKey>().into_iter().count();
+                                let mobs = w.query::<&oxide_core::Npc>().into_iter().count();
+                                let items = w.query::<&oxide_core::Item>().into_iter().count();
+                                let dirty = w.query::<&oxide_core::Dirty>().into_iter().count();
+
+                                let (gt_str, s_str) = w.query::<&oxide_core::GameTime>().into_iter().next()
+                                    .map(|(_, gt)| (format!("{}:00 {:?}", gt.hour, gt.period()), format!("{:?}", gt.season)))
+                                    .unwrap_or_else(|| ("12:00 PM".into(), "Spring".into()));
+
+                                let mut players = Vec::new();
+                                for (entity, (_player, room_key, _db_id)) in w.query::<(&oxide_core::Player, &oxide_core::RoomKey, &oxide_core::DbId)>().iter() {
+                                    let level = w.query_one::<&oxide_core::Level>(entity).ok().and_then(|mut q| q.get().copied()).map(|l| l.0).unwrap_or(1);
+                                    let class_name = w.query_one::<&oxide_core::Class>(entity).ok().and_then(|mut q| q.get().cloned()).map(|c| c.0).unwrap_or_else(|| "Unknown".into());
+                                    let race_name = w.query_one::<&oxide_core::Race>(entity).ok().and_then(|mut q| q.get().cloned()).map(|r| r.0).unwrap_or_else(|| "Human".into());
+                                    let name = oxide_core::get_name(&w, entity).map(|n| n.0.clone()).unwrap_or_else(|| "Player".into());
+
+                                    players.push(serde_json::json!({
+                                        "name": name,
+                                        "level": level,
+                                        "class": class_name,
+                                        "race": race_name,
+                                        "room": room_key.0,
+                                        "idle_secs": 0,
+                                        "protocol": "Telnet"
+                                    }));
+                                }
+                                (rooms, mobs, items, dirty, gt_str, s_str, "Clear".to_string(), players)
+                            } else {
+                                (0, 0, 0, 0, "12:00 PM".into(), "Spring".into(), "Clear".into(), Vec::new())
+                            }
+                        }
+                        None => (0, 0, 0, 0, "12:00 PM".into(), "Spring".into(), "Clear".into(), Vec::new()),
+                    };
+
+                    let telemetry = serde_json::json!({
+                        "status": "connected",
+                        "uptime_secs": uptime_secs,
+                        "memory_used_bytes": used_mem,
+                        "total_memory_bytes": total_mem,
+                        "wal_size_bytes": wal_size_bytes,
+                        "dirty_entities": dirty_count,
+                        "pulse_drift_ms": 0.0,
+                        "room_count": room_count,
+                        "mob_count": mob_count,
+                        "item_count": item_count,
+                        "game_time": game_time_str,
+                        "season": season_str,
+                        "weather": weather_str,
+                        "rhai_timers": 0,
+                        "players": players_info,
+                        "logs": []
+                    });
+
+                    if socket.send(AxumWsMessage::Text(telemetry.to_string())).await.is_err() {
+                        break;
+                    }
                 }
-                Ok(AxumWsMessage::Close(_)) | Err(_) => break,
-                _ => {}
+                res = socket.recv() => {
+                    match res {
+                        Some(Ok(AxumWsMessage::Text(txt))) => {
+                            let trimmed = txt.trim();
+                            if trimmed == "ping" || trimmed.contains("\"Ping\"") {
+                                let _ = socket.send(AxumWsMessage::Text("pong".into())).await;
+                            }
+                        }
+                        Some(Ok(AxumWsMessage::Close(_))) | None | Some(Err(_)) => break,
+                        _ => {}
+                    }
+                }
             }
         }
     })

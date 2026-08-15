@@ -171,6 +171,8 @@ impl CommandPalette {
                 None,
                 CommandAction::CreateEntity("loot_table".to_string()),
             ),
+            PaletteItem::new("Connect to Server", None, CommandAction::ConnectServer),
+            PaletteItem::new("Disconnect Server", None, CommandAction::DisconnectServer),
             PaletteItem::new("Expand All Nodes", None, CommandAction::ExpandAll),
             PaletteItem::new("Collapse All Nodes", None, CommandAction::CollapseAll),
             PaletteItem::new("Search Entities", Some("/"), CommandAction::ToggleSearch),
@@ -289,7 +291,8 @@ impl CommandPalette {
             }
             KeyCode::PageDown => {
                 if !filtered.is_empty() {
-                    self.selected_index = (self.selected_index + list_height).min(filtered.len() - 1);
+                    self.selected_index =
+                        (self.selected_index + list_height).min(filtered.len() - 1);
                     self.ensure_selected_visible(list_height);
                 }
                 None

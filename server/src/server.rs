@@ -1213,9 +1213,12 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
 // Server greeting — banner, uptime, player count
 // ---------------------------------------------------------------------------
 
+pub fn get_uptime_secs() -> u64 {
+    SERVER_START.get_or_init(Instant::now).elapsed().as_secs()
+}
+
 fn format_uptime() -> String {
-    let elapsed = SERVER_START.get_or_init(Instant::now).elapsed();
-    let total_secs = elapsed.as_secs();
+    let total_secs = get_uptime_secs();
     let days = total_secs / 86400;
     let hours = (total_secs % 86400) / 3600;
     let minutes = (total_secs % 3600) / 60;

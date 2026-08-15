@@ -6,12 +6,12 @@
 
 ## Invocation Modes & WebSocket Connectivity
 
-| Command                               | Mode            | Status      | Description                                                                      |
-| :------------------------------------ | :-------------- | :---------- | :------------------------------------------------------------------------------- |
-| `spade`                               | Offline Builder | Implemented | Opens local TOML template editor, room grid, file browser, and validation suite. |
-| `spade --mode online --url wss://...` | Online Client   | Implemented | Connects to a running game server via WebSockets (`wss://` / `ws://`).           |
-| `spade --mode split`                  | Split Mode      | Implemented | Opens builder tools and real-time MUD client side-by-side.                       |
-| `spade connect wss://<host>:<port>`   | Quick Connect   | Implemented | Connects directly to a game server WebSocket endpoint.                           |
+| Command                               | Mode              | Status      | Description                                                                    |
+| :------------------------------------ | :---------------- | :---------- | :----------------------------------------------------------------------------- |
+| `spade` / `spade --mode offline`      | Offline Builder   | Implemented | Full-screen local TOML template editor, room grid, file browser, & validation. |
+| `spade --mode online --url wss://...` | Online Builder    | Implemented | Full-screen online builder syncing template edits to server via WebSockets.    |
+| `spade connect wss://<host>:<port>`   | Standalone Client | Implemented | Full-screen MUD player client (telnet/WebSocket stream, macros, scrollback).   |
+| `spade --mode split`                  | Split Mode        | Planned     | Dual-pane view: horizontal split with builder tools top & MUD client bottom.   |
 
 ### Runtime Mode Switching
 
@@ -19,10 +19,31 @@ You can switch execution modes dynamically while Spade is running without restar
 
 1. Open the Command Palette using `Ctrl + P`.
 2. Type `Switch Mode` to select:
-   - `Switch Mode to Online (WSS)`
    - `Switch Mode to Offline`
+   - `Switch Mode to Online (WSS)`
+   - `Switch Mode to Client`
    - `Switch Mode to Split`
-3. The bottom status bar immediately updates to reflect the active mode (e.g. `[OFFLINE]`, `[ONLINE]`, `[SPLIT]`).
+3. The bottom status bar immediately updates to reflect the active mode (e.g. `[OFFLINE]`, `[ONLINE]`, `[CLIENT]`, `[SPLIT]`).
+
+---
+
+## Workspace Layout & Execution Modes
+
+Spade supports four primary operational modes designed for different workflows:
+
+1. **Offline Builder Mode (`spade` / `spade --mode offline`)**:
+   - Dedicated full-screen workspace for offline content creation.
+   - Access to the Entity Inspector (`F1`), Room Grid (`F2`), Template Validator (`F3`), File Browser (`F4`), and Rhai Script Console (`F5`).
+2. **Online Builder Mode (`spade --mode online`)**:
+   - Full-screen builder environment connected to a live server via WebSockets.
+   - Synchronizes template changes, area edits, and live validation results directly with the server runtime.
+3. **Standalone Client Mode (`spade connect` / `spade --mode client`)**:
+   - Full-screen player terminal interface focused purely on playing the game.
+   - Provides clean ANSI output stream, command input history, macros, and scrollback navigation.
+4. **Split Mode (`spade --mode split`)**:
+   - Hybrid workspace combining world builder tools and the live game client into a single interface.
+   - **Horizontal Split Layout**: The screen is divided vertically into top and bottom regions (builder tools occupying the top pane, live game client stream occupying the bottom pane).
+   - _Design Rationale_: A vertical (side-by-side) split is intentionally avoided because narrow column bounds make builder tree views, form inspectors, and client text log outputs unreadably cramped in standard terminal widths.
 
 ---
 
@@ -139,22 +160,22 @@ sidebar_open = true
 
 ## Feature Status Summary
 
-| Category              | Feature                          | Status      |
-| :-------------------- | :------------------------------- | :---------- |
-| **Offline Builder**   | Entity tree + inline inspector   | Implemented |
-| **Offline Builder**   | Room grid (BFS map)              | Implemented |
-| **Offline Builder**   | Template validation              | Implemented |
-| **Offline Builder**   | File browser with preview        | Implemented |
-| **Offline Builder**   | Script console (editor + runner) | Implemented |
-| **Offline Builder**   | Command Palette (Ctrl+P)         | Implemented |
-| **Offline Builder**   | Menu bar (File/Edit/View)        | Implemented |
-| **Offline Builder**   | Mouse support (click, scroll)    | Implemented |
-| **Offline Builder**   | TOML save-to-disk                | Implemented |
-| **Online Client**     | Telnet connection                | Planned     |
-| **Online Client**     | Macro sidebar                    | Planned     |
-| **Online Client**     | Scrollback buffer                | Planned     |
-| **Online Client**     | Command history                  | Planned     |
-| **Split Mode**        | Side-by-side builder + client    | Planned     |
-| **F6 Live Dashboard** | Performance gauges, log tail     | Planned     |
-| **Right-click Menus** | Context menus on entities        | Planned     |
-| **Pane Resizing**     | Drag panel borders               | Planned     |
+| Category              | Feature                                       | Status      |
+| :-------------------- | :-------------------------------------------- | :---------- |
+| **Offline Builder**   | Entity tree + inline inspector                | Implemented |
+| **Offline Builder**   | Room grid (BFS map)                           | Implemented |
+| **Offline Builder**   | Template validation                           | Implemented |
+| **Offline Builder**   | File browser with preview                     | Implemented |
+| **Offline Builder**   | Script console (editor + runner)              | Implemented |
+| **Offline Builder**   | Command Palette (Ctrl+P)                      | Implemented |
+| **Offline Builder**   | Menu bar (File/Edit/View)                     | Implemented |
+| **Offline Builder**   | Mouse support (click, scroll)                 | Implemented |
+| **Offline Builder**   | TOML save-to-disk                             | Implemented |
+| **Online Client**     | Telnet connection                             | Planned     |
+| **Online Client**     | Macro sidebar                                 | Planned     |
+| **Online Client**     | Scrollback buffer                             | Planned     |
+| **Online Client**     | Command history                               | Planned     |
+| **Split Mode**        | Top/bottom split (builder top, client bottom) | Planned     |
+| **F6 Live Dashboard** | Performance gauges, log tail                  | Planned     |
+| **Right-click Menus** | Context menus on entities                     | Planned     |
+| **Pane Resizing**     | Drag panel borders                            | Planned     |

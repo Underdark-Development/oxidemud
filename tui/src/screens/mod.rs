@@ -164,6 +164,10 @@ pub trait Screen {
 
     fn update_registry(&mut self, _registry: &TemplateRegistry) {}
 
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        unimplemented!()
+    }
+
     fn inspect_entity(&mut self, _category: &str, _id: &str) {}
 
     fn load_script_file(&mut self, _path: &std::path::Path) {}

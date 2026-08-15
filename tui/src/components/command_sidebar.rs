@@ -35,6 +35,8 @@ pub enum CommandAction {
     ShowAbout,
     Quit,
     SwitchMode(crate::app::Mode),
+    ConnectServer,
+    DisconnectServer,
     MoveToRoom(String),
     DigRoom(String),
     Separator,

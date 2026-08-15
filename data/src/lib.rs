@@ -11,13 +11,17 @@ use std::path::Path;
 
 pub struct Database {
     conn: Connection,
+    path: Option<std::path::PathBuf>,
 }
 
 impl Database {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, rusqlite::Error> {
-        let conn = Connection::open(path)?;
+        let conn = Connection::open(path.as_ref())?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
-        let mut db = Database { conn };
+        let mut db = Database {
+            conn,
+            path: Some(path.as_ref().to_path_buf()),
+        };
         db.run_migrations()?;
         Ok(db)
     }
@@ -25,9 +29,14 @@ impl Database {
     pub fn open_in_memory() -> Result<Self, rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
-        let mut db = Database { conn };
+        let mut db = Database { conn, path: None };
         db.run_migrations()?;
         Ok(db)
+    }
+
+    /// Filesystem path of the underlying SQLite database, if file-backed.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     fn run_migrations(&mut self) -> Result<(), rusqlite::Error> {
@@ -788,7 +797,7 @@ mod tests {
         .unwrap();
 
         // 3. Wrap in Database struct and run migrations (which will run Migration 15)
-        let mut db = Database { conn };
+        let mut db = Database { conn, path: None };
         db.run_migrations().unwrap();
 
         // 4. Verify results

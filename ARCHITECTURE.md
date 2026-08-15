@@ -122,7 +122,12 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 - **Telnet & Communication:** Telnet IAC state machine parser (ANSI, 256-color, NAWS, Keepalive). Channels (say, tell, shout, emote, ooc, gtell, etc.) and TOML socials (`content/socials.toml`).
 - **Persistence & Content Loading:** Two-tier SQLite persistence in WAL mode with dirty flushing every 5s and automated hot backups. Content is loaded from TOML files into `TemplateRegistry` with hot-reloading via `notify`.
 - **Zone & Area System:** Areas group rooms into directories (`content/areas/<area_id>/`). Handles doors/locks, area flags, room flags, and automated area resets.
-- **spade (Builder TUI & Client):** Terminal tool providing offline world building (tree sidebar with substring search highlighting, structured form editor with multi-line text modals and array reordering, raw TOML editor with undo/redo stack and drag-selection clipboard support, 5-column interactive sortable validation panel, room grid, cross-category search, entity duplication, and fuzzy command palette) and MUD client connection features. Enforces strict overlay input event isolation, floating error tooltips, and persistent notification history.
+- **spade (Builder TUI & Client):** Terminal tool providing world building and game client capabilities across four distinct operational modes:
+  - **Offline Mode:** Full-screen offline content creation (tree sidebar with substring search highlighting, structured form editor, raw TOML editor, 5-column sortable validation panel, room grid, cross-category search, and script console).
+  - **Online Mode:** Full-screen online builder tool connected to a live server via WebSockets for live area editing and synchronization.
+  - **Client Mode:** Full-screen standalone player client terminal interface (ANSI streaming, scrollback buffer, macros, command history).
+  - **Split Mode:** Dual-pane hybrid workspace combining builder tools and live client testing. Enforces a **horizontal split (top/bottom)** where builder tools occupy the top pane and the MUD client stream occupies the bottom pane, avoiding vertical side-by-side splits that cause extreme column width compression in terminal displays.
+  - Features strict overlay input event isolation, floating error tooltips, and persistent notification history.
 
 - **MCP Server:** Stdio Model Context Protocol server in `mcp/` exposing content CRUD tools, validation, search, and local gameplay simulators to AI agents.
 

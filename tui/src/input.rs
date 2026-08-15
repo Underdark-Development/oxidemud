@@ -201,6 +201,7 @@ mod tests {
             url: None,
             connect_host: None,
             connect_port: None,
+            api_key: None,
             subcommand: None,
         };
         let config = SpadeConfig {

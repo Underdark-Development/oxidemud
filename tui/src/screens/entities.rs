@@ -1680,7 +1680,11 @@ impl Screen for EntitiesScreen {
                 &search_text,
                 Style::default().fg(Color::Cyan).bg(Color::Indexed(236)),
             );
-            let s_len = self.search.as_deref().map(|s| s.chars().count()).unwrap_or(0);
+            let s_len = self
+                .search
+                .as_deref()
+                .map(|s| s.chars().count())
+                .unwrap_or(0);
             let cursor_x = area.x + 3 + s_len as u16;
             if cursor_x < area.x + area.width {
                 buf.set_string(

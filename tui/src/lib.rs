@@ -5,5 +5,6 @@ pub mod config_file;
 pub mod content;
 mod event;
 mod input;
+pub mod network;
 pub mod screens;
 mod ui;
