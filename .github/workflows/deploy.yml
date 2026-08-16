@@ -142,8 +142,6 @@ jobs:
               echo "Install Docker Engine + Compose plugin: https://docs.docker.com/engine/install/"
               exit 1
             fi
-            # Stop any legacy host systemd services so they don't fight Docker for ports
-            systemctl disable --now oxide-server oxide-mcp 2>/dev/null || true
             # Install binaries/content/Dockerfile/compose without systemd units
             ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --no-spade --non-interactive
             # Cloudflare Tunnel token for the cloudflared compose service (optional)

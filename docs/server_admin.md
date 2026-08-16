@@ -128,7 +128,7 @@ The repository ships three GitHub Actions workflows under `.github/workflows/`.
 
 Two deploy modes are supported, selected with the `VPS_DEPLOY_MODE` variable:
 
-- **`docker`** (default) — runs the installer to stage binaries, content, `Dockerfile`, and `docker-compose.yml` under the install dir, stops any legacy host systemd services, and starts the stack with `docker compose up -d --build`. If the `TUNNEL_TOKEN` secret is set, it is written to `<install-dir>/.env` and the `cloudflared` service is started via the compose `tunnel` profile for HTTPS/WSS ingress.
+- **`docker`** (default) — runs the installer to stage binaries, content, `Dockerfile`, and `docker-compose.yml` under the install dir, and starts the stack with `docker compose up -d --build`. If the `TUNNEL_TOKEN` secret is set, it is written to `<install-dir>/.env` and the `cloudflared` service is started via the compose `tunnel` profile for HTTPS/WSS ingress.
 - **`systemd`** — installs host systemd services directly instead of using Docker.
 
 To enable automatic VPS deployment, create a dedicated SSH keypair on your admin machine (`ssh-keygen -t ed25519 -f oxide-deploy`), add the public key to the VPS user's `~/.ssh/authorized_keys`, then configure these on GitHub under **Settings → Secrets and variables → Actions**:
