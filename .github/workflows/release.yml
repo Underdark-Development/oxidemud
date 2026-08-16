@@ -1,54 +1,138 @@
-# OxideMUD Release & Deploy
+# OxideMUD Manual Release
 #
-# Triggered by version tags (e.g. `v0.4.1`) created by `just release` / `cog bump`.
+# Triggered manually (workflow_dispatch) with a bump level. This is the
+# canonical release path:
+#   1. cocogitto bumps the version (pre_bump hook updates Cargo.toml/Cargo.lock),
+#      tags it (prefix-less tag, e.g. `0.4.1`), and regenerates CHANGELOG.md
+#   2. The bump commit + tag are pushed to origin/main
+#   3. The x86_64-unknown-linux-musl tarball is built via scripts/package.sh
+#   4. A GitHub Release is published with the tarball and changelog body
 #
-# Always:
-#   1. Builds the x86_64-unknown-linux-musl release tarball via scripts/package.sh
-#   2. Publishes a GitHub Release with the tarball attached
+# Deploying to the VPS is handled separately by deploy.yml, which triggers on
+# `release: published`.
 #
-# Deploy job (runs only when the VPS_* secrets are configured — see
-# docs/server_admin.md or .github/workflows/README for setup):
-#   3. Uploads the tarball to the VPS over SSH and runs install.sh
-#      (non-interactive, systemd install). This reuses the exact same
-#      packaging + install path as `just deploy`.
-#
-# Required repo secrets for the deploy job:
-#   VPS_HOST        — VPS IP or hostname
-#   VPS_USER        — SSH user (needs sudo for install.sh / docker)
-#   VPS_PORT        — SSH port (e.g. 22)
-#   VPS_SSH_KEY     — private key contents (PEM) for that user
-#
-# Optional:
-#   VPS_DEPLOY_MODE   — 'docker' (default) or 'systemd' — how the server runs on the VPS
-#   VPS_INSTALL_DIR   — remote install dir (default /opt/oxide)
-#   VPS_RUN_AS_USER   — (remote script var) service owner, default 'oxide'
-#   TUNNEL_TOKEN      — (secret, docker mode only) Cloudflare Tunnel token,
-#                       written to <install-dir>/.env for the cloudflared compose service
+# Required repo permissions:
+#   contents: write — create the tag/release and push the bump commit
 
 name: Release
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Bump level
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
   TARGET: x86_64-unknown-linux-musl
 
 jobs:
-  package:
-    name: Build release tarball
+  bump:
+    name: Version bump (cocogitto)
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
-      archive: ${{ steps.meta.outputs.archive }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          fetch-depth: 0
+
+      # Pull anything that landed after the dispatch so the computed version
+      # reflects the full main history. Must run before `cog bump`.
+      - name: Sync with origin main
+        run: git pull --rebase origin main
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-bump-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-bump-cargo-
+
+      - name: Cache cocogitto
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: cog-${{ runner.os }}-cocogitto
+          restore-keys: cog-${{ runner.os }}-
+
+      - name: Install cocogitto
+        run: |
+          if ! command -v cog >/dev/null 2>&1; then
+            cargo install cocogitto --locked
+          fi
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # Dry-run is side-effect free: cocogitto returns before running
+      # pre-bump hooks or modifying any files. It also exits non-zero when
+      # there are no commits to bump, so the guard aborts with a clear message.
+      - name: Guard - ensure releasable commits
+        run: |
+          CURRENT=$(cog get-version | tail -n1)
+          NEXT=$(cog bump --${{ inputs.bump }} --dry-run 2>/dev/null || true)
+          echo "current=$CURRENT next=$NEXT"
+          if ! [[ "$NEXT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::No releasable commits since ${CURRENT}. Use an explicit bump level or push feat/fix commits first."
+            exit 1
+          fi
+
+      - name: Bump version
+        run: cog bump --${{ inputs.bump }}
+
+      - name: Resolve version
+        id: meta
+        run: |
+          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Push the tag explicitly: cocogitto creates lightweight tags, which
+      # `git push --follow-tags` would silently skip.
+      - name: Push bump commit and tag
+        run: |
+          git push origin main
+          git push origin "${{ steps.meta.outputs.version }}"
+
+      - name: Generate release notes
+        run: cog changelog --at "${{ steps.meta.outputs.version }}" > release_notes.md
+
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release_notes.md
+          if-no-files-found: error
+
+  build:
+    name: Package Linux musl release
+    needs: bump
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -66,115 +150,40 @@ jobs:
       - name: Package release
         run: ./scripts/package.sh -t ${{ env.TARGET }}
 
-      - name: Resolve package metadata
-        id: meta
+      # Fail fast if the archive name ever diverges from the packaging contract
+      # (scripts/package.sh naming is matched by the website download page).
+      - name: Verify artifact
         run: |
-          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-          ARCHIVE="oxide-v${VERSION}-${TARGET}.tar.gz"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          ARCHIVE="oxide-v${{ needs.bump.outputs.version }}-${{ env.TARGET }}.tar.gz"
           test -f "target/release/$ARCHIVE"
+          echo "Verified: target/release/$ARCHIVE"
 
       - name: Upload tarball artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.meta.outputs.archive }}
-          path: target/release/${{ steps.meta.outputs.archive }}
+          name: linux-musl
+          path: target/release/oxide-v${{ needs.bump.outputs.version }}-${{ env.TARGET }}.tar.gz
           if-no-files-found: error
           retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [bump, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage assets
+        run: |
+          mkdir -p assets
+          cp artifacts/linux-musl/* assets/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/release/${{ steps.meta.outputs.archive }}
-
-  deploy:
-    name: Deploy to VPS
-    needs: package
-    runs-on: ubuntu-latest
-    # Skip silently when secrets are not configured (e.g. forks, dry-run releases)
-    if: vars.VPS_DEPLOY_ENABLED == 'true'
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download tarball artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.package.outputs.archive }}
-          path: target/release
-
-      - name: Install SSH key
-        run: |
-          install -m 700 -d ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -p "${{ secrets.VPS_PORT }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
-
-      - name: Upload tarball to VPS
-        run: |
-          scp -P "${{ secrets.VPS_PORT }}" \
-            "target/release/${{ needs.package.outputs.archive }}" \
-            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/"
-
-      - name: Extract and run installer
-        env:
-          DEPLOY_MODE: ${{ vars.VPS_DEPLOY_MODE || 'docker' }}
-          INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '/opt/oxide' }}
-          RUN_AS_USER: ${{ vars.VPS_RUN_AS_USER || 'oxide' }}
-          TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
-        run: |
-          # Build the remote script locally so secrets/vars interpolate
-          # without leaking into the SSH command line / process list.
-          cat > /tmp/oxide-deploy-remote.sh <<'REMOTE'
-          set -euo pipefail
-          INSTALL_DIR="__INSTALL_DIR__"
-          DEPLOY_MODE="__DEPLOY_MODE__"
-          RUN_AS_USER="__RUN_AS_USER__"
-
-          cd /tmp
-          rm -rf oxide-pkg-extract
-          mkdir oxide-pkg-extract
-          tar -xzf "__ARCHIVE__" -C oxide-pkg-extract
-          rm "__ARCHIVE__"
-          # Tarball contains a single top-level dir (oxide-v<version>-<target>/)
-          cd oxide-pkg-extract/*/
-
-          if [ "$DEPLOY_MODE" = "docker" ]; then
-            if ! sudo docker compose version >/dev/null 2>&1; then
-              echo "ERROR: 'docker compose' not available on VPS."
-              echo "Install Docker Engine + Compose plugin: https://docs.docker.com/engine/install/"
-              exit 1
-            fi
-            # Stop any legacy host systemd services so they don't fight Docker for ports
-            sudo systemctl disable --now oxide-server oxide-mcp 2>/dev/null || true
-            # Install binaries/content/Dockerfile/compose without systemd units
-            sudo ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --no-spade --non-interactive
-            # Cloudflare Tunnel token for the cloudflared compose service (optional)
-            COMPOSE_PROFILE_ARGS=""
-            if [ -n "__TUNNEL_TOKEN__" ]; then
-              echo "TUNNEL_TOKEN=__TUNNEL_TOKEN__" | sudo tee "$INSTALL_DIR/.env" >/dev/null
-              sudo chmod 600 "$INSTALL_DIR/.env"
-              COMPOSE_PROFILE_ARGS="--profile tunnel"
-            fi
-            # Compose file resolves paths relative to its own directory (OXIDE_DIR)
-            sudo docker compose -f "$INSTALL_DIR/docker-compose.yml" $COMPOSE_PROFILE_ARGS up -d --build
-          else
-            sudo ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --install-service --non-interactive
-          fi
-
-          cd /tmp
-          rm -rf oxide-pkg-extract
-          REMOTE
-
-          # Fill in placeholders (| sed delimiter to survive / in paths)
-          sed -i \
-            -e "s|__INSTALL_DIR__|${INSTALL_DIR}|g" \
-            -e "s|__DEPLOY_MODE__|${DEPLOY_MODE}|g" \
-            -e "s|__RUN_AS_USER__|${RUN_AS_USER}|g" \
-            -e "s|__ARCHIVE__|${{ needs.package.outputs.archive }}|g" \
-            -e "s|__TUNNEL_TOKEN__|${TUNNEL_TOKEN}|g" \
-            /tmp/oxide-deploy-remote.sh
-
-          ssh -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-deploy-remote.sh
-          rm -f /tmp/oxide-deploy-remote.sh
+          tag_name: ${{ needs.bump.outputs.version }}
+          files: assets/*
+          body_path: artifacts/release-notes/release_notes.md
+          generate_release_notes: false
