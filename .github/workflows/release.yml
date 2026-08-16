@@ -85,13 +85,17 @@ jobs:
       # Dry-run is side-effect free: cocogitto returns before running
       # pre-bump hooks or modifying any files. It also exits non-zero when
       # there are no commits to bump, so the guard aborts with a clear message.
+      # The CURRENT check catches a clone with no version tags (cog would
+      # otherwise "bump" from nothing to 0.0.1).
       - name: Guard - ensure releasable commits
         run: |
-          CURRENT=$(cog get-version | tail -n1)
+          CURRENT=$(cog get-version 2>/dev/null | tail -n1 || true)
           NEXT=$(cog bump --${{ inputs.bump }} --dry-run 2>/dev/null || true)
           echo "current=$CURRENT next=$NEXT"
-          if ! [[ "$NEXT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            echo "::error::No releasable commits since ${CURRENT}. Use an explicit bump level or push feat/fix commits first."
+          if ! [[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] \
+             || ! [[ "$NEXT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] \
+             || [[ "$NEXT" == "$CURRENT" ]]; then
+            echo "::error::Cannot resolve a clean version bump (current='${CURRENT}', next='${NEXT}'). Push feat/fix commits and make sure version tags exist on origin."
             exit 1
           fi
 
@@ -144,8 +148,14 @@ jobs:
           key: ${{ runner.os }}-release-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ runner.os }}-release-
 
+      - name: Install zig
+        run: |
+          curl -sSfL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
+          tar -xJf /tmp/zig.tar.xz -C /tmp
+          sudo ln -sf /tmp/zig-x86_64-linux-0.16.0/zig /usr/local/bin/zig
+
       - name: Install cargo-zigbuild
-        run: cargo install cargo-zigbuild --locked
+        run: cargo install cargo-zigbuild --version 0.23.0 --locked
 
       - name: Package release
         run: ./scripts/package.sh -t ${{ env.TARGET }}
