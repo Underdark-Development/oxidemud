@@ -124,7 +124,7 @@ The repository ships three GitHub Actions workflows under `.github/workflows/`.
 
 **Release** (`release.yml`) is the canonical release path and runs manually from the Actions tab with a bump level (`auto`, `patch`, `minor`, or `major`). It bumps the version with cocogitto (updating `Cargo.toml`, `Cargo.lock`, and `CHANGELOG.md`), creates a prefix-less tag (e.g. `0.4.1`), pushes both the bump commit and the tag to `main`, cross-compiles the Linux release tarball (`x86_64-unknown-linux-musl`), and publishes a GitHub Release with the tarball and the changelog body. A dry-run guard aborts early when there are no releasable commits. `just release` remains available as a local/offline fallback.
 
-**Deploy** (`deploy.yml`) runs automatically whenever a Release is published. It downloads the release tarball straight from the GitHub Release, verifies its contents, uploads it to the VPS over SSH, and runs the installer. The job is skipped silently unless the `VPS_DEPLOY_ENABLED` variable is `true`.
+**Deploy** (`deploy.yml`) runs automatically when a Release is published. Because GitHub suppresses `release` events created via `GITHUB_TOKEN`, the Release workflow dispatches it explicitly with `workflow_dispatch` instead (passing the version); it can also be dispatched manually from the Actions tab. The job downloads the release tarball straight from the GitHub Release, verifies its contents, uploads it to the VPS over SSH, and runs the installer. It is skipped silently unless the `VPS_DEPLOY_ENABLED` variable is `true`.
 
 Two deploy modes are supported, selected with the `VPS_DEPLOY_MODE` variable:
 
@@ -136,7 +136,7 @@ To enable automatic VPS deployment, create a dedicated SSH keypair on your admin
 | Kind     | Name                 | Value                                                               |
 | :------- | :------------------- | :------------------------------------------------------------------ |
 | Secret   | `VPS_HOST`           | VPS IP or hostname                                                  |
-| Secret   | `VPS_USER`           | SSH user with sudo rights (e.g. `root`)                             |
+| Secret   | `VPS_USER`           | SSH user on the VPS (e.g. `root`)                                   |
 | Secret   | `VPS_PORT`           | SSH port (e.g. `22`)                                                |
 | Secret   | `VPS_SSH_KEY`        | Full private key contents (`oxide-deploy` file)                     |
 | Secret   | `TUNNEL_TOKEN`       | (Docker mode) Cloudflare Tunnel token from the Zero Trust dashboard |
@@ -145,7 +145,7 @@ To enable automatic VPS deployment, create a dedicated SSH keypair on your admin
 | Variable | `VPS_INSTALL_DIR`    | (Optional) Remote install dir, default `/opt/oxide`                 |
 | Variable | `VPS_RUN_AS_USER`    | (Optional) Service owner on the VPS, default `oxide`                |
 
-The VPS needs Docker Engine with the Compose plugin installed for `docker` mode. The deploy job binds to a `production` GitHub environment, so you can optionally require manual approval on deployments via **Settings → Environments → production → Required reviewers**.
+The VPS needs Docker Engine with the Compose plugin installed for `docker` mode, and the deploy SSH user must be able to run `docker` without `sudo` (e.g. a member of the `docker` group). The docker-mode installer stages files into `VPS_INSTALL_DIR` and needs no root; the `systemd` mode does require root. The deploy job binds to a `production` GitHub environment, so you can optionally require manual approval on deployments via **Settings → Environments → production → Required reviewers**.
 
 A few invariants worth knowing:
 
