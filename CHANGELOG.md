@@ -2,6 +2,103 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.5.0 - 2026-08-16
+#### Features
+- (**account**) add per-player alias command and case-insensitive dispatch - (a8b42e7) - Kevin Lanni
+- (**auth**) scoped API key authentication for MCP and Spade online mode - (59254e9) - Kevin Lanni
+- (**combat/skills**) Enforce active parrying stance check for parry and auto-deactivate stance when combat ends - (dad9b38) - Kevin Lanni
+- (**commands**) decentralize command help with self-registering modules - (c758bfb) - Kevin Lanni
+- (**communication**) add channels system with group chat, scope-based propagation, and channel shortcuts - (087953d) - Kevin Lanni
+- (**content**) report content parse failures and add --validate-content preflight - (a7a920f) - Kevin Lanni
+- (**economy**) add shop system with buy/sell/haggle and reputation pricing - (f2f26fa) - Kevin Lanni
+- (**economy**) add banking system with banker NPCs and gold deposits - (2f672ba) - Kevin Lanni
+- <span style="background-color: #d73a49; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 0.85em;">BREAKING</span>(**items**) split item quality into rarity and craftsmanship quality - (98c0bff) - Kevin Lanni
+- (**items**) add consumables, containers, durability, and target indexing - (1979324) - Kevin Lanni
+- (**mcp**) implement remaining imm REST API handlers and MCP tools - (3c588bc) - Kevin Lanni
+- (**meta**) make docker-compose paths portable and gate cloudflared behind tunnel profile - (7476999) - Kevin Lanni
+- (**reports**) add player bug/idea/typo/complaint reporting and @report builder management - (cc122f4) - Kevin Lanni
+- (**scripting**) Fully dynamic combat hit/damage hooks, script predicate evaluation, and builder error reporting - (969d22f) - Kevin Lanni
+- (**scripting**) Complete zero-world Rhai API refactoring, EffectExpireCondition decoupling, and comprehensive documentation - (d569b17) - Kevin Lanni
+- (**scripting**) Add echo_to and echo_to_except for remote room messaging - (f643c7d) - Kevin Lanni
+- (**scripting**) Add echo_room_except to filter out actor/actee from room broadcasts - (0bacd4d) - Kevin Lanni
+- (**server**) add websocket and tls support across workspace - (49a1152) - Kevin Lanni
+- (**skill**) Scale parry deflect chance with practice level up to 60% max - (e0741f5) - Kevin Lanni
+- (**socials**) add socials system with TOML-based definitions and variable interpolation - (70fa636) - Kevin Lanni
+- (**spade**) add F6 live dashboard with server telemetry over WebSocket - (b154d53) - Kevin Lanni
+- (**spade**) complete UI/UX roadmap with tree substring highlighting, deep auto-scroll, and notification history log - (d24b872) - Kevin Lanni
+- (**spade**) isolate menu bar dropdown mouse events and bind Ctrl+Shift+P / Ctrl+P to Command Palette - (9a24622) - Kevin Lanni
+- (**spade**) add cross-category search and entity duplication (Ctrl+D) - (71d59b9) - Kevin Lanni
+- (**spade**) implement form editor and inspector improvements - (7e0bf5b) - Kevin Lanni
+- (**spade**) enforce strict overlay input capture - (b0030ad) - Kevin Lanni
+- (**spade**) improve entity validation, raw toml editor, and tui inspector UX - (b33a9f2) - Kevin Lanni
+- (**weather**) implement Weather System Phase 4 (Gameplay Effects) - (c75d6ba) - Kevin Lanni
+- (**weather**) implement Weather System Phase 3 (ECS Integration) - (cd527f6) - Kevin Lanni
+- (**weather**) implement Weather System Core Phase 2 - (af67feb) - Kevin Lanni
+- (**weather**) implement Weather & Time System Phase 1 (Time System) - (8f520aa) - Kevin Lanni
+- (**weather**) implement Phase 0 — config & content types for weather/time system - (1a39962) - Kevin Lanni
+- Add dynamic script skills, spells, entity commands, restriction parameters, active/permanent affects, and affects command - (9771a14) - Kevin Lanni
+#### Bug Fixes
+- (**ci**) install zig for cargo-zigbuild and harden bump guard - (aa392bb) - Kevin Lanni
+- (**hooks**) make pre_bump.sh sed portable across GNU and BSD - (614a424) - Kevin Lanni
+- (**scripting**) Support inline expressions and file paths in evaluate_script_predicate - (e131818) - Kevin Lanni
+- (**scripting**) Register name method for Entity - (020e748) - Kevin Lanni
+- (**scripting**) Register name getter for Entity to support dot notation in scripts - (b78ec93) - Kevin Lanni
+- (**scripting**) Register attacker, target, and is_offhand field getters on HitContext - (0dd860f) - Kevin Lanni
+- (**scripting**) Fix unit test imports and re-export transition_combat_state - (b908b23) - Kevin Lanni
+- (**server**) Add missing closing brace in registry.rs - (60f1223) - Kevin Lanni
+- (**skill**) Send parry success notifications to defender, attacker, and room occupants - (0e07553) - Kevin Lanni
+- (**skill**) Update parry success message to 'You parry X's attack!' - (632a2f2) - Kevin Lanni
+- (**spade**) fix search prompt cursor offset and slash double-capture in entities screen - (c566fe7) - Kevin Lanni
+- (**spade**) deactivate search focus on mouse click and clean search input character handling - (eeb882d) - Kevin Lanni
+- (**spade**) support wrap-around navigation with viewport auto-scrolling and mouse wheel scroll in CommandPalette - (4e6f7ac) - Kevin Lanni
+- (**spade**) restore Ctrl+D as global quit shortcut and rebind entity duplication to Ctrl+Shift+D - (bfab92a) - Kevin Lanni
+- (**spade**) enable CSI u keyboard enhancement and add Ctrl+R / Ctrl+Y / Ctrl+Shift+Z Redo handlers - (0bb1c74) - Kevin Lanni
+- (**spade**) fix Ctrl+Shift+Z terminal keycode matching for Redo in raw editor - (7d0551a) - Kevin Lanni
+- (**spade**) tighten Error Kind column width in validation panel - (f7c7586) - Kevin Lanni
+- (**spade**) calculate dynamic column widths in validation panel with tightened field column - (0da7de0) - Kevin Lanni
+- (**spade**) expand Error Kind column width in validation panel for sort indicator - (9799112) - Kevin Lanni
+- (**tests**) Use target/ for temporary backup and script test directories - (d0ed0a1) - Kevin Lanni
+#### Documentation
+- (**agents**) defer architectural tasks and phase tracking to ARCHITECTURE.md - (9983eb2) - Kevin Lanni
+- (**builder**) document content directory structure and sub-area hierarchy - (c8193b9) - Kevin Lanni
+- (**content**) expand area directory structure in content README - (e4e88cc) - Kevin Lanni
+- (**content**) update content README with full directory and server file guide - (2a1f7f7) - Kevin Lanni
+- (**weather**) remove completed weather implementation tasks section - (d4aa3f7) - Kevin Lanni
+- (**weather**) implement Weather System Phase 6 (Documentation) - (0efb2c6) - Kevin Lanni
+- update server_admin.md for manual release and release-triggered deploy - (c8d46b1) - Kevin Lanni
+- compact Spade builder architecture guidance in ARCHITECTURE.md - (8d6e62e) - Kevin Lanni
+- compact architecture further - (fbd51e1) - Kevin Lanni
+- update docs, and improve agents/architecture - (cfbb86d) - Kevin Lanni
+- compact and update arch and agents details - (d486929) - Kevin Lanni
+- Clarify DIKU MUD engine heritage and driver/content architecture - (fe965c0) - Kevin Lanni
+- Update scripting_guide.md, builder_manual.md, and ARCHITECTURE.md with clean zero-world APIs and EffectExpireCondition decoupling - (47ba438) - Kevin Lanni
+#### Refactoring
+- (**commands**) colocate help with commands and modularize commands - (c4a85ef) - Kevin Lanni
+- (**console**) rewrite help output to MUD-style formatting - (50719c4) - Kevin Lanni
+- (**core**) replace glob re-exports with explicit item re-exports - (6badcd2) - Kevin Lanni
+- (**core**) replace glob re-exports with explicit item re-exports - (64663a3) - Kevin Lanni
+- (**core**) unify OnceLock RwLock singleton patterns across templates and scripting - (c004899) - Kevin Lanni
+- (**core**) modularize templates god module - (de49630) - Kevin Lanni
+- (**core**) remove dead event bus, replace with inline system outcomes - (57bfdbf) - Kevin Lanni
+- (**core**) decouple script discovery and condition parsing from scripting crate - (1b1f8a8) - Kevin Lanni
+- (**core/combat**) Decouple core system from skills via EffectExpireCondition enum - (ce7a075) - Kevin Lanni
+- (**data**) bind component persistence save and load queries to unified column arrays - (2c63667) - Kevin Lanni
+- (**examples**) Update example scripts to use built-in engine CommandRestrictions instead of hardcoded class checks - (d527c54) - Kevin Lanni
+- (**scripting**) modularize scripting crate into domain submodules - (694751f) - Kevin Lanni
+- (**scripting**) eliminate unsafe code and runtime panics - (1a616d6) - Kevin Lanni
+- (**scripting**) Remove legacy world-parameter overloads from Rhai engine - (46e67b6) - Kevin Lanni
+- (**scripting**) Infer world, actor, and room context implicitly across all Rhai script functions - (5d530c3) - Kevin Lanni
+- (**server**) modularize login character creation god object - (0066000) - Kevin Lanni
+- (**server**) extract combat dispatch and persistence from game_loop - (af9e42a) - Kevin Lanni
+- (**spade**) replace numeric screen indices with typed ScreenId enum - (5e9a775) - Kevin Lanni
+- (**weather**) make weather damage type modifiers dynamic - (1fb65cd) - Kevin Lanni
+- consolidate parameter structs across data, mcp, and server - (58bba03) - Kevin Lanni
+- rename category->topic - (2ec585d) - Kevin Lanni
+#### Style
+- apply cargo fmt and dprint formatting fixes - (1433abf) - Kevin Lanni
+
+- - -
+
 ## 0.4.0 - 2026-07-22
 #### Features
 - (**console**) expand console commands, live session sync, and registry-driven help - (98d7013) - Kevin Lanni
