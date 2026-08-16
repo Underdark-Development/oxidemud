@@ -8,8 +8,9 @@ fi
 
 NEW_VERSION="$1"
 
-# Update version in root Cargo.toml (compatible with macOS sed)
-sed -i '' 's/^version = ".*"/version = "'"$NEW_VERSION"'"/g' Cargo.toml
+# Update version in root Cargo.toml (portable across GNU and BSD sed)
+sed -i.bak 's/^version = ".*"/version = "'"$NEW_VERSION"'"/g' Cargo.toml
+rm -f Cargo.toml.bak
 
 # Update Cargo.lock to match the new version
 cargo check --workspace
