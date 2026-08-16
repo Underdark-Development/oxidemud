@@ -441,7 +441,7 @@ pub fn run_cooldown_decay(world: &mut World, elapsed_secs: u32) {
         let mut new_cds = cd.cooldowns.clone();
         let mut changed = false;
 
-        for (_, rem) in new_cds.iter_mut() {
+        for rem in new_cds.values_mut() {
             if *rem > 0 {
                 *rem = rem.saturating_sub(elapsed_secs);
                 changed = true;
