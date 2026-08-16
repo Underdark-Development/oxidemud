@@ -118,11 +118,13 @@ This playbook:
 
 ### 4. GitHub Actions CI/CD
 
-The repository ships two GitHub Actions workflows under `.github/workflows/`.
+The repository ships three GitHub Actions workflows under `.github/workflows/`.
 
 **CI** (`ci.yml`) runs on every push to `main` and every pull request. It enforces the same gate as the local pre-commit hook: `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, and the full workspace test suite.
 
-**Release & Deploy** (`release.yml`) runs when a version tag (`v*`) is pushed, e.g. after `just release` / `cog bump --auto`. It always cross-compiles the Linux release tarball (`x86_64-unknown-linux-musl`) and attaches it to a GitHub Release. If the deploy secrets below are configured, it also uploads the tarball to your VPS over SSH and installs it.
+**Release** (`release.yml`) is the canonical release path and runs manually from the Actions tab with a bump level (`auto`, `patch`, `minor`, or `major`). It bumps the version with cocogitto (updating `Cargo.toml`, `Cargo.lock`, and `CHANGELOG.md`), creates a prefix-less tag (e.g. `0.4.1`), pushes both the bump commit and the tag to `main`, cross-compiles the Linux release tarball (`x86_64-unknown-linux-musl`), and publishes a GitHub Release with the tarball and the changelog body. A dry-run guard aborts early when there are no releasable commits. `just release` remains available as a local/offline fallback.
+
+**Deploy** (`deploy.yml`) runs automatically whenever a Release is published. It downloads the release tarball straight from the GitHub Release, verifies its contents, uploads it to the VPS over SSH, and runs the installer. The job is skipped silently unless the `VPS_DEPLOY_ENABLED` variable is `true`.
 
 Two deploy modes are supported, selected with the `VPS_DEPLOY_MODE` variable:
 
@@ -144,6 +146,12 @@ To enable automatic VPS deployment, create a dedicated SSH keypair on your admin
 | Variable | `VPS_RUN_AS_USER`    | (Optional) Service owner on the VPS, default `oxide`                |
 
 The VPS needs Docker Engine with the Compose plugin installed for `docker` mode. The deploy job binds to a `production` GitHub environment, so you can optionally require manual approval on deployments via **Settings → Environments → production → Required reviewers**.
+
+A few invariants worth knowing:
+
+- **Asset naming is a contract.** The release tarball is named `oxide-v<version>-x86_64-unknown-linux-musl.tar.gz` by `scripts/package.sh`; the website download page matches assets by this naming, so renaming the archive breaks downloads.
+- **Tags are prefix-less** (`0.4.1`, not `v0.4.1`). The website's _fallback_ download URL assumes `v`-prefixed tags and would 404 for prefix-less releases; the primary asset-matching path is unaffected. If that fallback path is ever needed, apply a website-side fix in the `oxidemud-website` repo.
+- **Linux only.** The release pipeline publishes a single `x86_64-unknown-linux-musl` tarball; macOS and Windows users run the server via Docker. If OS-specific binaries for `mcp`/`spade` are ever needed, that would be a future change to `scripts/package.sh` and the release workflow.
 
 ### 5. CLI Command Options
 
@@ -295,7 +303,7 @@ The recommended production deployment for OxideMUD uses **Docker Compose** with 
 
 #### Telnet vs. WebSockets Traffic Flow
 
-- **Telnet (Port 4000):** Exposed directly on the host VPS. Desktop clients (TinTin++, Mudlet) connect to `mud.example.com:4000`.
+- **Telnet (Port 4000):** A direct TCP port exposed on the host VPS. It is **not** tunneled through Cloudflare — tunnels only carry HTTP/WebSocket, and Cloudflare's edge does not forward raw TCP, so the proxied tunnel hostname (`mud.example.com`) cannot serve telnet. Desktop clients (TinTin++, Mudlet) must connect to either a **DNS-only (grey cloud)** record pointing at the VPS (e.g. `telnet.mud.example.com:4000`) or the VPS's raw IP. The host firewall must still allow inbound `4000/tcp` (see Host Firewall Configuration); the tunnel provides no filtering or rate limiting for raw TCP.
 - **WebSockets & REST API (Port 8080):** Bound internally to loopback (`127.0.0.1:8080`) and encrypted at Cloudflare Edge. Web clients, Spade, and MCP connect to `wss://mud.example.com/ws/*`.
 
 #### Alternate Setup 1: Caddy Reverse Proxy (Non-Cloudflare)
