@@ -13,6 +13,8 @@
 #
 # Required repo permissions:
 #   contents: write — create the tag/release and push the bump commit
+#   actions: write  — dispatch the Deploy workflow (workflow_dispatch is
+#                     exempt from GitHub's GITHUB_TOKEN event suppression)
 
 name: Release
 
@@ -27,6 +29,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: release
@@ -197,3 +200,11 @@ jobs:
           files: assets/*
           body_path: artifacts/release-notes/release_notes.md
           generate_release_notes: false
+
+      # Deploy cannot be triggered by the `release` event above because GitHub
+      # suppresses events created via GITHUB_TOKEN. workflow_dispatch is exempt,
+      # so dispatch the Deploy workflow explicitly.
+      - name: Dispatch deploy workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml -f version=${{ needs.bump.outputs.version }} --repo ${{ github.repository }}

@@ -1,10 +1,11 @@
 # OxideMUD VPS Deploy
 #
-# Triggered automatically when a Release is published (deploy.yml is the
-# counterpart to the manual Release workflow; there is no checkout here
-# because nothing from the repository is used — the deploy consumes the
+# Triggered automatically when a Release is published, or manually via
+# workflow_dispatch (used by the Release workflow's publish job to bypass
+# GitHub's GITHUB_TOKEN suppression of release events). There is no checkout
+# here because nothing from the repository is used — the deploy consumes the
 # x86_64-unknown-linux-musl tarball straight from the GitHub Release and
-# installs it on the VPS over SSH via install.sh).
+# installs it on the VPS over SSH via install.sh.
 #
 # Job is skipped silently unless the VPS_DEPLOY_ENABLED repo variable is
 # 'true' (see docs/server_admin.md for setup).
@@ -27,6 +28,11 @@ name: Deploy
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag/version to deploy (e.g. 0.5.0)
+        required: false
 
 permissions:
   contents: read
@@ -41,12 +47,24 @@ jobs:
     runs-on: ubuntu-latest
     if: vars.VPS_DEPLOY_ENABLED == 'true'
     environment: production
+    env:
+      INPUT_VERSION: ${{ inputs.version || '' }}
+      EVENT_TAG: ${{ github.event.release.tag_name || '' }}
     steps:
+      - name: Resolve release tag
+        id: tag
+        run: |
+          TAG="${INPUT_VERSION:-${EVENT_TAG:-}}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag available. Pass a version input or trigger from a published release."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Download release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
           ARCHIVE="oxide-v${VERSION}-x86_64-unknown-linux-musl.tar.gz"
           echo "tag=$TAG version=$VERSION archive=$ARCHIVE"
@@ -63,7 +81,7 @@ jobs:
 
       - name: Verify release asset
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
           ARCHIVE="oxide-v${VERSION}-x86_64-unknown-linux-musl.tar.gz"
           rm -rf target/verify
@@ -84,7 +102,7 @@ jobs:
 
       - name: Upload tarball to VPS
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
           ARCHIVE="oxide-v${VERSION}-x86_64-unknown-linux-musl.tar.gz"
           scp -P "${{ secrets.VPS_PORT }}" \
@@ -98,7 +116,7 @@ jobs:
           RUN_AS_USER: ${{ vars.VPS_RUN_AS_USER || 'oxide' }}
           TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
           ARCHIVE="oxide-v${VERSION}-x86_64-unknown-linux-musl.tar.gz"
           # Build the remote script locally so secrets/vars interpolate
