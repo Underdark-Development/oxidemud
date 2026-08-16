@@ -1,0 +1,146 @@
+# OxideMUD VPS Restart (human-initiated)
+#
+# The companion to deploy.yml. Deploy stages a new release on the VPS but
+# never touches the running server; this workflow is the human action that
+# actually restarts onto the staged version. Trigger it manually from the
+# Actions tab after a release has been deployed (staged).
+#
+# It connects to the running server's in-container console via `docker attach`
+# (the container runs with stdin_open + tty), verifies console reachability
+# with a harmless `who`, builds the new image from the staged files, then
+# broadcasts a 5-minute per-minute countdown to players before issuing a
+# graceful shutdown through the console (watch-signal shutdown that flushes
+# the database) and starting the newly staged version.
+#
+# Any failed broadcast or failed image build aborts BEFORE the server is
+# touched, so a broken release never restarts over a missed countdown.
+#
+# No inputs: the version to restart onto is read from the staged
+# <install-dir>/.version. Currently supports docker deploy mode only.
+#
+# Skipped silently unless the VPS_DEPLOY_ENABLED repo variable is 'true'.
+#
+# Required repo secrets (same as deploy.yml):
+#   VPS_HOST        — VPS IP or hostname
+#   VPS_USER        — SSH user (docker group member)
+#   VPS_PORT        — SSH port (e.g. 22)
+#   VPS_SSH_KEY     — private key contents (PEM) for that user
+
+name: Restart Server
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  restart:
+    name: Restart server on VPS
+    runs-on: ubuntu-latest
+    if: vars.VPS_DEPLOY_ENABLED == 'true'
+    environment: production
+    env:
+      INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '/opt/oxide' }}
+      DEPLOY_MODE: ${{ vars.VPS_DEPLOY_MODE || 'docker' }}
+    steps:
+      - name: Install SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.VPS_PORT }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Broadcast countdown and restart server
+        run: |
+          cat > /tmp/oxide-restart-remote.sh <<'REMOTE'
+          set -euo pipefail
+          INSTALL_DIR="__INSTALL_DIR__"
+          DEPLOY_MODE="__DEPLOY_MODE__"
+          CONTAINER="oxide-server"
+          COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
+
+          if [ "$DEPLOY_MODE" != "docker" ]; then
+            echo "ERROR: Restart Server currently supports docker mode only (VPS_DEPLOY_MODE)." >&2
+            exit 1
+          fi
+
+          if ! docker compose version >/dev/null 2>&1; then
+            echo "ERROR: 'docker compose' not available on VPS." >&2
+            echo "Install Docker Engine + Compose plugin: https://docs.docker.com/engine/install/" >&2
+            exit 1
+          fi
+
+          if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo missing)" != "true" ]; then
+            echo "ERROR: '$CONTAINER' container is not running. Nothing to restart." >&2
+            exit 1
+          fi
+
+          VERSION="$(cat "$INSTALL_DIR/.version")"
+          echo "Staged version: $VERSION"
+
+          # Console reachability check — proves `docker attach` input piping
+          # works before any countdown is broadcast or the server is touched.
+          if ! printf 'who\n' | timeout 15 docker attach --sig-proxy=false "$CONTAINER" | grep -qi 'online'; then
+            echo "ERROR: could not reach the server console via 'docker attach'." >&2
+            exit 1
+          fi
+          echo "Console reachable via docker attach."
+
+          # Build the new image from the staged files BEFORE any shutdown so a
+          # failed build aborts with the old server still running untouched.
+          # The container's restart policy would otherwise bring the old image
+          # back after shutdown; pre-building then --force-recreate closes that
+          # window.
+          echo "Building new image from staged files..."
+          docker compose -f "$COMPOSE_FILE" build "$CONTAINER"
+
+          send_console() {
+            printf '%s\n' "$1" | timeout 15 docker attach --sig-proxy=false "$CONTAINER"
+          }
+
+          echo "Broadcasting 5-minute countdown..."
+          send_console "New server version upgrade (v${VERSION}), server will restart in 5 minutes..."
+          sleep 60
+          send_console "Server will restart in 4 minutes..."
+          sleep 60
+          send_console "Server will restart in 3 minutes..."
+          sleep 60
+          send_console "Server will restart in 2 minutes..."
+          sleep 60
+          send_console "Server will restart in 1 minute..."
+          sleep 60
+
+          # Graceful shutdown via the server console (watch signal -> clean DB
+          # flush + disconnect). Failure to reach the console is tolerated: the
+          # force-recreate below stops the old container with SIGTERM, which
+          # drives the same graceful path.
+          echo "Initiating graceful shutdown..."
+          printf 'shutdown\ny\n' | timeout 15 docker attach --sig-proxy=false "$CONTAINER" || true
+
+          echo "Starting new version ($VERSION)..."
+          docker compose -f "$COMPOSE_FILE" up -d --force-recreate "$CONTAINER"
+
+          for i in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = "true" ]; then
+              echo "oxide-server is running again (staged $VERSION)."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: oxide-server did not come back up after restart." >&2
+          exit 1
+          REMOTE
+
+          # Fill in placeholders (| sed delimiter to survive / in paths)
+          sed -i \
+            -e "s|__INSTALL_DIR__|${INSTALL_DIR}|g" \
+            -e "s|__DEPLOY_MODE__|${DEPLOY_MODE}|g" \
+            /tmp/oxide-restart-remote.sh
+
+          ssh -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-restart-remote.sh
+          rm -f /tmp/oxide-restart-remote.sh
