@@ -10,12 +10,12 @@ build-release:
 
 # ─── Package & Deploy ────────────────────────────────────────────────
 
-# Bump version, generate changelog, tag, and package the release for macOS, Linux, and Windows
+# Local/offline fallback: bump version, tag, and package the Linux musl release.
+# The GitHub Actions "Release" workflow (.github/workflows/release.yml) is the
+# canonical release path — use `just release` only when you cannot run CI.
 release:
     cog bump --auto
-    just package
     just package x86_64-unknown-linux-musl
-    just package x86_64-pc-windows-gnu
 
 # Build and package all binaries + templates into a release tarball
 package target="":
@@ -30,7 +30,6 @@ deploy host port="22" *args="":
 # Deploy the packaged release to a remote VPS using Ansible (loads connection details from .env)
 deploy-ansible *args="":
     ansible-playbook ansible/deploy.yml {{ args }}
-
 
 # ─── Server ─────────────────────────────────────────────────────────
 
@@ -95,7 +94,7 @@ test-staged *files:
     #!/usr/bin/env bash
     set -euo pipefail
     dirs=""
-    for f in {{files}}; do
+    for f in {{ files }}; do
         case "$f" in
             */src/*.rs|*/Cargo.toml)
                 dir=$(echo "$f" | cut -d'/' -f1)
@@ -151,7 +150,7 @@ ci-check:
 
 # Lint a commit message against conventional commits spec
 lint-commit file:
-    cog verify --file {{file}}
+    cog verify --file {{ file }}
 
 # Generate CHANGELOG.md from git tags
 changelog:
