@@ -71,7 +71,7 @@ jobs:
           mkdir -p target/release
           # The release event can fire before asset upload completes; retry.
           for i in 1 2 3; do
-            gh release download "$TAG" --pattern "$ARCHIVE" --dir target/release --clobber && break
+            gh release download "$TAG" --pattern "$ARCHIVE" --dir target/release --clobber --repo "${{ github.repository }}" && break
             if [ "$i" -lt 3 ]; then
               echo "download attempt $i failed, retrying in 10s..."
               sleep 10
