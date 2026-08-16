@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.5.1 - 2026-08-16
+#### Bug Fixes
+- (**ci**) dispatch deploy via workflow_dispatch - (1306a6f) - Kevin Lanni
+#### Refactoring
+- (**meta**) satisfy clippy for_kv_map in cooldown decay - (45effb9) - Kevin Lanni
+
+- - -
+
 ## 0.5.0 - 2026-08-16
 #### Features
 - (**account**) add per-player alias command and case-insensitive dispatch - (a8b42e7) - Kevin Lanni
