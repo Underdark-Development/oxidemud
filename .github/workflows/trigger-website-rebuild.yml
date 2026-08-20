@@ -1,0 +1,31 @@
+# Trigger Website Rebuild
+#
+# Standalone workflow: fires on every published GitHub Release and pings the
+# Cloudflare Pages build hook, which rebuilds & redeploys the oxidemud-website
+# (its fetch-docs.js pulls the newly released docs from the public GitHub API).
+#
+# Intentionally kept separate from deploy.yml / release.yml — the website
+# rebuild has no dependency on VPS deployment and must never be coupled to it.
+#
+# Skipped silently when the repo secret CF_PAGES_BUILD_HOOK_URL is not set.
+
+name: Trigger Website Rebuild
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: none
+
+jobs:
+  trigger:
+    name: Trigger Cloudflare Pages build
+    runs-on: ubuntu-latest
+    if: secrets.CF_PAGES_BUILD_HOOK_URL != ''
+    steps:
+      - name: POST to Cloudflare Pages build hook
+        run: |
+          set -e
+          curl -fsS -X POST "${{ secrets.CF_PAGES_BUILD_HOOK_URL }}"
+          echo "Cloudflare Pages rebuild triggered."
