@@ -2,6 +2,28 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.5.2 - 2026-08-21
+#### Bug Fixes
+- (**ci**) drop systemctl stop from deploy script - (2c586ef) - Kevin Lanni
+- (**ci**) run docker deploy without sudo on VPS - (7db4432) - Kevin Lanni
+- (**ci**) pass --repo to gh release download in deploy job - (b30341f) - Kevin Lanni
+- (**config**) restrict = form to long options only - (fe8e317) - Kevin Lanni
+- (**config**) support --flag=value, fix help/version disambiguation, drop dead Docker ENV - (f3a4405) - Kevin Lanni
+- (**config**) honor [content].path in preflight and harden CLI parsing - (aa772eb) - Kevin Lanni
+- (**config**) add --content-path, comprehensive config, and CLI help - (5d3e024) - Kevin Lanni
+- (**install**) use --base-dir in Windows installer launch commands - (2664cd3) - Kevin Lanni
+- (**tui**) resolve needless-late-init clippy lints in entity inspector - (71d3f79) - Kevin Lanni
+#### Documentation
+- (**server**) note banner/motd are fixed base-dir conventions - (67cf1c6) - Kevin Lanni
+- (**server**) drop breaking-change note from CLI table - (3222f07) - Kevin Lanni
+- (**server**) document CLI flags, content path, and config precedence - (dba22fc) - Kevin Lanni
+- treat scripts as content substructure, not a server path - (eaea5d2) - Kevin Lanni
+#### Refactoring
+- (**config**) relocate server.toml to the base dir root - (a129275) - Kevin Lanni
+- (**config**) unify all server paths under a single --base-dir anchor - (1e62fd5) - Kevin Lanni
+
+- - -
+
 ## 0.5.1 - 2026-08-16
 #### Bug Fixes
 - (**ci**) dispatch deploy via workflow_dispatch - (1306a6f) - Kevin Lanni
