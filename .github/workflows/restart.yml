@@ -77,11 +77,15 @@ jobs:
             exit 1
           fi
 
+          # Resolve running container ID from Docker Compose dynamically
+          CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q oxide-server 2>/dev/null || echo "oxide-server")"
+
           # Ensure container is running before attempting restart
-          if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo missing)" != "true" ]; then
-            echo "ERROR: '$CONTAINER' container is not running. Nothing to restart." >&2
+          if [ -z "$CONTAINER" ] || [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo missing)" != "true" ]; then
+            echo "ERROR: oxide-server container is not running. Nothing to restart." >&2
             exit 1
           fi
+
 
           VERSION="$(cat "$INSTALL_DIR/.version")"
           echo "Staged version: $VERSION"
