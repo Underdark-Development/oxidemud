@@ -26,21 +26,25 @@ IS_ROOT=false
 if [ "$EUID" -eq 0 ]; then
     IS_ROOT=true
     echo -e "${YELLOW}Running as root. This is only needed for systemd service installation or system-wide paths (e.g. /opt/oxide).${NC}"
-    echo -e "${YELLOW}For a local install, consider running as a regular user with: ./install.sh --install-dir ~/.oxide${NC}"
+    echo -e "${YELLOW}For a local install, consider running as a regular user with: ./install.sh --install-dir ~/.oxidemud${NC}"
 fi
 
 # Defaults
-INSTALL_DIR="$HOME/.oxide"
-BIN_INSTALL_PATH="$HOME/.local/bin"
+INSTALL_DIR="$HOME/.oxidemud"
+BIN_DIR=""
+SYMLINK_DIR=""
+CREATE_SYMLINKS=""  # unset by default, prompting in interactive mode if unset
 MCP_PORT=5000
 SYSTEMD_DIR="/etc/systemd/system"
-RUN_AS_USER="$(id -un)"
+RUN_AS_USER="${SUDO_USER:-$(id -un)}"
 INSTALL_GAME_SERVICE=false  # OPT-IN
 INSTALL_MCP_SERVICE=false   # OPT-IN
 INSTALL_SPADE=true          # Default to install spade
 NON_INTERACTIVE=false
+ASSUME_YES=false
 API_URL="${OXIDE_API_URL:-http://127.0.0.1:8080}"
 API_KEY="${OXIDE_API_KEY:-}"
+
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -50,8 +54,20 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --bin-dir)
-            BIN_INSTALL_PATH="$2"
+            BIN_DIR="$2"
             shift 2
+            ;;
+        --symlink-dir)
+            SYMLINK_DIR="$2"
+            shift 2
+            ;;
+        --create-symlinks)
+            CREATE_SYMLINKS=true
+            shift
+            ;;
+        --no-symlinks)
+            CREATE_SYMLINKS=false
+            shift
             ;;
         --mcp-port)
             MCP_PORT="$2"
@@ -81,23 +97,32 @@ while [[ $# -gt 0 ]]; do
             INSTALL_SPADE=false
             shift
             ;;
+        -y|--yes)
+            ASSUME_YES=true
+            shift
+            ;;
         --non-interactive)
             NON_INTERACTIVE=true
+            ASSUME_YES=true
             shift
             ;;
         -h|--help)
             echo "Usage: ./install.sh [options]"
             echo ""
             echo "Options:"
-            echo "  --install-dir <path>       Install path. Default: ~/.oxide"
-            echo "  --bin-dir <path>           Path for public executables (spade). Default: ~/.local/bin"
+            echo "  --install-dir <path>       Install path. Default: ~/.oxidemud"
+            echo "  --bin-dir <path>           Path for binary executables. Default: <install-dir>/bin"
+            echo "  --symlink-dir <path>       Path for public symlinks in PATH. Default: auto-detected"
+            echo "  --create-symlinks          Opt-in: Symlink binaries to system PATH"
+            echo "  --no-symlinks              Opt-out: Skip symlinking binaries to system PATH"
             echo "  --mcp-port <port>          Port for on-demand MCP socket. Default: 5000"
             echo "  --user <username>          Unix user to run services as. Default: current user"
             echo "  --api-url <url>            REST API URL of the game server. Default: http://127.0.0.1:8080"
             echo "  --api-key <key>            API key for the game server (immortal key)"
             echo "  --install-service          Opt-in: Install game server systemd service"
             echo "  --install-mcp              Opt-in: Install MCP server on-demand systemd socket service"
-            echo "  --no-spade                 Skip copying 'spade' TUI editor to executable path"
+            echo "  --no-spade                 Skip installing 'spade' TUI editor"
+            echo "  -y, --yes                  Automatic yes to prompts (skip confirmation)"
             echo "  --non-interactive          Do not prompt for interactive inputs"
             exit 0
             ;;
@@ -109,26 +134,98 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# If BIN_DIR was not explicitly passed via --bin-dir, set default based on finalized INSTALL_DIR
+if [ -z "$BIN_DIR" ]; then
+    BIN_DIR="$INSTALL_DIR/bin"
+fi
+
+# Auto-detect symlink dir in PATH if not provided
+detect_symlink_dir() {
+    local candidate
+    local candidates=()
+
+    if [ "$IS_ROOT" = "true" ]; then
+        candidates=("/usr/local/bin" "/usr/bin" "$HOME/.local/bin")
+    else
+        candidates=("/usr/local/bin" "$HOME/.local/bin" "$HOME/bin")
+    fi
+
+    for candidate in "${candidates[@]}"; do
+        # Check if directory is in PATH
+        if [[ ":$PATH:" == *":$candidate:"* ]]; then
+            if [ -w "$candidate" ] || { [ ! -d "$candidate" ] && [ -w "$(dirname "$candidate")" ]; }; then
+                echo "$candidate"
+                return 0
+            fi
+        fi
+    done
+
+    # Fallback to ~/.local/bin if none in PATH are writable
+    echo "$HOME/.local/bin"
+}
+
+if [ -z "$SYMLINK_DIR" ]; then
+    SYMLINK_DIR=$(detect_symlink_dir)
+fi
+
+SYMLINK_IN_PATH=false
+if [[ ":$PATH:" == *":$SYMLINK_DIR:"* ]]; then
+    SYMLINK_IN_PATH=true
+fi
+
 if [ "$NON_INTERACTIVE" = "false" ]; then
     # Interactive Prompts
     echo -n "Enter installation path [$INSTALL_DIR]: "
     read -r user_install_dir
     if [ -n "$user_install_dir" ]; then
-        INSTALL_DIR="$user_install_dir"
+        # Only update BIN_DIR if user hadn't passed a custom --bin-dir
+        if [ "$BIN_DIR" = "$INSTALL_DIR/bin" ]; then
+            INSTALL_DIR="$user_install_dir"
+            BIN_DIR="$INSTALL_DIR/bin"
+        else
+            INSTALL_DIR="$user_install_dir"
+        fi
     fi
+
+    echo -n "Enter binary installation path [$BIN_DIR]: "
+    read -r user_bin_dir
+    if [ -n "$user_bin_dir" ]; then
+        BIN_DIR="$user_bin_dir"
+    fi
+
+    if [ -z "$CREATE_SYMLINKS" ]; then
+        echo -n "Symlink binaries to your path automatically? [y/N]: "
+        read -r user_symlink_opt
+        if [[ "$user_symlink_opt" =~ ^[yY](es)?$ ]]; then
+            CREATE_SYMLINKS=true
+        else
+            CREATE_SYMLINKS=false
+        fi
+    fi
+
+    if [ "$CREATE_SYMLINKS" = "true" ]; then
+        echo -n "Enter public symlink directory (in PATH) [$SYMLINK_DIR]: "
+        read -r user_symlink_dir
+        if [ -n "$user_symlink_dir" ]; then
+            SYMLINK_DIR="$user_symlink_dir"
+            SYMLINK_IN_PATH=false
+            if [[ ":$PATH:" == *":$SYMLINK_DIR:"* ]]; then
+                SYMLINK_IN_PATH=true
+            fi
+        fi
+    fi
+else
+    # Default to true in non-interactive unless --no-symlinks was explicitly passed
+    if [ -z "$CREATE_SYMLINKS" ]; then
+        CREATE_SYMLINKS=true
+    fi
+fi
+
 
     # Detect upgrade after install dir is finalized
     IS_UPGRADE=false
     if [ -d "$INSTALL_DIR/content" ]; then
         IS_UPGRADE=true
-    fi
-
-    if [ "$INSTALL_SPADE" = "true" ]; then
-        echo -n "Enter global executable path (for spade) [$BIN_INSTALL_PATH]: "
-        read -r user_bin_path
-        if [ -n "$user_bin_path" ]; then
-            BIN_INSTALL_PATH="$user_bin_path"
-        fi
     fi
 
     echo -n "Enter MCP server listen port [$MCP_PORT]: "
@@ -185,43 +282,106 @@ else
     fi
 fi
 
-# Confirming parameters
-echo -e "\nParameters:"
-echo -e "  Installation Directory:  ${YELLOW}$INSTALL_DIR${NC}"
-echo -e "  Run as User:             ${YELLOW}$RUN_AS_USER${NC}"
-echo -e "  Install Type:            ${YELLOW}${IS_UPGRADE:+upgrade}${IS_UPGRADE:-fresh install}${NC}"
-echo -e "  Install Spade Editor:    ${YELLOW}$INSTALL_SPADE${NC}"
-if [ "$INSTALL_SPADE" = "true" ]; then
-    echo -e "  Executable Binary Path:  ${YELLOW}$BIN_INSTALL_PATH${NC}"
-fi
-echo -e "  MCP Server Port:         ${YELLOW}$MCP_PORT${NC}"
-if [ "$IS_UPGRADE" = "true" ] && [ -n "$API_KEY" ]; then
-    echo -e "  Game Server API URL:     ${YELLOW}$API_URL${NC}"
-    echo -e "  API Key:                 ${YELLOW}${API_KEY:-(not set)}${NC}"
-fi
-if [ "$IS_ROOT" = "true" ]; then
-    echo -e "  Install Game Service:    ${YELLOW}$INSTALL_GAME_SERVICE${NC}"
-    echo -e "  Install MCP Socket:      ${YELLOW}$INSTALL_MCP_SERVICE${NC}"
-fi
-echo ""
-
-# 2. Check permissions for root paths
+# Check permissions for root paths
 if [ "$IS_ROOT" = "false" ] && { [ "$INSTALL_GAME_SERVICE" = "true" ] || [ "$INSTALL_MCP_SERVICE" = "true" ]; }; then
     echo -e "${RED}Error: Installing systemd services requires root privileges. Please run with sudo or remove service options.${NC}"
     exit 1
 fi
 
+# 2. Line-by-line planned operations preview
+echo -e "\n${BLUE}=== Installation & Symlink Plan ===${NC}"
+echo -e "Installation Directory:      ${YELLOW}$INSTALL_DIR${NC}"
+echo -e "Binary Directory:            ${YELLOW}$BIN_DIR${NC}"
+echo -e "Create Symlinks in PATH:     ${YELLOW}$CREATE_SYMLINKS${NC}"
+if [ "$CREATE_SYMLINKS" = "true" ]; then
+    echo -e "Public Symlink Directory:    ${YELLOW}$SYMLINK_DIR${NC}"
+    if [ "$SYMLINK_IN_PATH" = "false" ]; then
+        echo -e "                       ${YELLOW}(Warning: $SYMLINK_DIR is currently NOT in your PATH)${NC}"
+    fi
+fi
+echo -e "Run as User:                 ${YELLOW}$RUN_AS_USER${NC}"
+echo -e "Install Type:                ${YELLOW}${IS_UPGRADE:+upgrade}${IS_UPGRADE:-fresh install}${NC}"
+echo -e "MCP Server Port:             ${YELLOW}$MCP_PORT${NC}"
+if [ "$IS_ROOT" = "true" ]; then
+    echo -e "Install Game Service:        ${YELLOW}$INSTALL_GAME_SERVICE${NC}"
+    echo -e "Install MCP Socket:          ${YELLOW}$INSTALL_MCP_SERVICE${NC}"
+fi
+echo ""
+echo -e "${BLUE}Planned File Operations:${NC}"
+echo -e "  [Create Directory] ${GREEN}$INSTALL_DIR${NC}"
+echo -e "  [Create Directory] ${GREEN}$BIN_DIR${NC}"
+echo -e "  [Create Directory] ${GREEN}$INSTALL_DIR/data${NC}"
+echo -e "  [Create Directory] ${GREEN}$INSTALL_DIR/logs${NC}"
+echo -e "  [Copy Binary]      bin/oxide-server -> ${GREEN}$BIN_DIR/oxide-server${NC}"
+echo -e "  [Copy Binary]      bin/oxide-mcp    -> ${GREEN}$BIN_DIR/oxide-mcp${NC}"
+if [ "$INSTALL_SPADE" = "true" ]; then
+    echo -e "  [Copy Binary]      bin/spade        -> ${GREEN}$BIN_DIR/spade${NC}"
+fi
+if [ "$CREATE_SYMLINKS" = "true" ]; then
+    echo -e "  [Symlink]          ${GREEN}$SYMLINK_DIR/oxide-server${NC} -> $BIN_DIR/oxide-server"
+    echo -e "  [Symlink]          ${GREEN}$SYMLINK_DIR/oxide-mcp${NC}    -> $BIN_DIR/oxide-mcp"
+    if [ "$INSTALL_SPADE" = "true" ]; then
+        echo -e "  [Symlink]          ${GREEN}$SYMLINK_DIR/spade${NC}        -> $BIN_DIR/spade"
+    fi
+fi
+echo ""
+
+# Confirm before taking action
+if [ "$ASSUME_YES" = "false" ]; then
+    echo -n "Proceed with installation? [y/N]: "
+    read -r user_confirm
+    if [[ ! "$user_confirm" =~ ^[yY](es)?$ ]]; then
+        echo -e "${YELLOW}Installation aborted by user.${NC}"
+        exit 0
+    fi
+fi
+
 # 3. Create target directory structures
-echo -e "Setting up directory structure..."
-mkdir -p "$INSTALL_DIR/bin"
+echo -e "\nSetting up directory structure..."
+mkdir -p "$INSTALL_DIR"
+mkdir -p "$BIN_DIR"
 mkdir -p "$INSTALL_DIR/data"
+mkdir -p "$INSTALL_DIR/logs"
+if [ "$CREATE_SYMLINKS" = "true" ]; then
+    mkdir -p "$SYMLINK_DIR" 2>/dev/null || true
+fi
 
 # 4. Copy Binaries
-echo -e "Installing binaries..."
-cp bin/oxide-server "$INSTALL_DIR/bin/"
-cp bin/oxide-mcp "$INSTALL_DIR/bin/"
-chmod +x "$INSTALL_DIR/bin/oxide-server"
-chmod +x "$INSTALL_DIR/bin/oxide-mcp"
+echo -e "Installing binaries to $BIN_DIR..."
+cp bin/oxide-server "$BIN_DIR/"
+cp bin/oxide-mcp "$BIN_DIR/"
+chmod +x "$BIN_DIR/oxide-server"
+chmod +x "$BIN_DIR/oxide-mcp"
+
+if [ "$INSTALL_SPADE" = "true" ]; then
+    cp bin/spade "$BIN_DIR/"
+    chmod +x "$BIN_DIR/spade"
+    echo -e "  Installed spade binary to ${GREEN}$BIN_DIR/spade${NC}"
+fi
+
+# Symlink binaries into PATH directory
+if [ "$CREATE_SYMLINKS" = "true" ]; then
+    echo -e "Creating symlinks in $SYMLINK_DIR..."
+    if mkdir -p "$SYMLINK_DIR" 2>/dev/null || [ -w "$SYMLINK_DIR" ]; then
+        ln -sf "$BIN_DIR/oxide-server" "$SYMLINK_DIR/oxide-server"
+        ln -sf "$BIN_DIR/oxide-mcp" "$SYMLINK_DIR/oxide-mcp"
+        echo -e "  Symlinked: ${GREEN}$SYMLINK_DIR/oxide-server${NC}"
+        echo -e "  Symlinked: ${GREEN}$SYMLINK_DIR/oxide-mcp${NC}"
+        if [ "$INSTALL_SPADE" = "true" ]; then
+            ln -sf "$BIN_DIR/spade" "$SYMLINK_DIR/spade"
+            echo -e "  Symlinked: ${GREEN}$SYMLINK_DIR/spade${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Could not write symlinks to $SYMLINK_DIR (permission denied).${NC}"
+        echo -e "${YELLOW}You can manually create symlinks with:${NC}"
+        echo -e "${YELLOW}  sudo ln -sf $BIN_DIR/oxide-server $SYMLINK_DIR/oxide-server${NC}"
+        echo -e "${YELLOW}  sudo ln -sf $BIN_DIR/oxide-mcp $SYMLINK_DIR/oxide-mcp${NC}"
+        if [ "$INSTALL_SPADE" = "true" ]; then
+            echo -e "${YELLOW}  sudo ln -sf $BIN_DIR/spade $SYMLINK_DIR/spade${NC}"
+        fi
+    fi
+fi
+
 
 # Copy Docker files
 if [ -f "Dockerfile" ]; then
@@ -231,17 +391,6 @@ fi
 if [ -f "docker-compose.yml" ]; then
     cp "docker-compose.yml" "$INSTALL_DIR/docker-compose.yml"
     echo -e "  Added docker-compose.yml"
-fi
-
-# Install Spade
-if [ "$INSTALL_SPADE" = "true" ]; then
-    if mkdir -p "$BIN_INSTALL_PATH" 2>/dev/null && cp bin/spade "$BIN_INSTALL_PATH/" 2>/dev/null; then
-        chmod +x "$BIN_INSTALL_PATH/spade"
-        echo -e "  Installed: ${GREEN}$BIN_INSTALL_PATH/spade${NC}"
-    else
-        echo -e "${YELLOW}Could not write to $BIN_INSTALL_PATH/spade. Skipping spade install.${NC}"
-        echo -e "${YELLOW}You can manually copy bin/spade to a directory in your PATH.${NC}"
-    fi
 fi
 
 # 5. Handle Content Upgrades
@@ -271,8 +420,6 @@ if [ -d "$INSTALL_DIR/content" ]; then
     cp -r content "$INSTALL_DIR/content.default"
     echo -e "  Placed new default templates in ${GREEN}$INSTALL_DIR/content.default/${NC} for reference."
 
-    # Update server.toml to the new default (preserving any custom edits is out of
-    # scope for the automatic path; the existing file is left in place if present).
     if [ -f "server.toml" ] && [ ! -f "$INSTALL_DIR/server.toml" ]; then
         cp server.toml "$INSTALL_DIR/server.toml"
     fi
@@ -282,14 +429,13 @@ else
     cp -r content "$INSTALL_DIR/content"
     echo -e "  Installed example templates to: ${GREEN}$INSTALL_DIR/content/${NC}"
 
-    # Copy the default server config to the base dir
     if [ -f "server.toml" ]; then
         cp server.toml "$INSTALL_DIR/server.toml"
         echo -e "  Installed server config to: ${GREEN}$INSTALL_DIR/server.toml${NC}"
     fi
 fi
 
-# Ensure content is writable (MCP, OLC, and Spade write TOML files at runtime)
+# Ensure content is writable
 chmod 775 "$INSTALL_DIR/content"
 find "$INSTALL_DIR/content" -type d -exec chmod 775 {} +
 find "$INSTALL_DIR/content" -type f -exec chmod 664 {} +
@@ -297,7 +443,7 @@ find "$INSTALL_DIR/content" -type f -exec chmod 664 {} +
 # Ensure data dir is writable
 chmod 775 "$INSTALL_DIR/data"
 
-# Write MCP config on upgrade (preserves API connection settings)
+# Write MCP config on upgrade
 if [ "$IS_UPGRADE" = "true" ] && [ -n "$API_KEY" ]; then
     cat > "$INSTALL_DIR/mcp_config.toml" <<EOF
 url = "$API_URL"
@@ -315,8 +461,19 @@ if [ "$IS_ROOT" = "true" ]; then
         echo -e "Creating system user: ${YELLOW}$RUN_AS_USER${NC}..."
         useradd -r -s /bin/false "$RUN_AS_USER"
     fi
+
+    # Set ownership of installation directory
     chown -R "$RUN_AS_USER":"$RUN_AS_USER" "$INSTALL_DIR"
+
+    # If running via sudo and RUN_AS_USER is different from SUDO_USER, ensure SUDO_USER has group access
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "$RUN_AS_USER" ] && id "$SUDO_USER" &>/dev/null; then
+        SUDO_GROUP=$(id -gn "$SUDO_USER" 2>/dev/null || echo "$SUDO_USER")
+        chgrp -R "$SUDO_GROUP" "$INSTALL_DIR"
+        chmod -R g+w "$INSTALL_DIR"
+        echo -e "  Granted group write permissions to calling user: ${GREEN}$SUDO_USER${NC} ($SUDO_GROUP)"
+    fi
 fi
+
 
 # 7. Setup systemd Services
 if [ "$IS_ROOT" = "true" ] && command -v systemctl &>/dev/null; then
@@ -335,7 +492,7 @@ Type=simple
 User=$RUN_AS_USER
 Group=$RUN_AS_USER
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/bin/oxide-server --base-dir $INSTALL_DIR
+ExecStart=$BIN_DIR/oxide-server --base-dir $INSTALL_DIR
 Restart=always
 RestartSec=5
 LimitNOFILE=2048
@@ -369,13 +526,11 @@ Accept=yes
 WantedBy=sockets.target
 EOF
 
-        # Build MCP args for ExecStart
         MCP_EXEC_ARGS="$INSTALL_DIR/content"
         if [ -n "$API_KEY" ]; then
             MCP_EXEC_ARGS="$MCP_EXEC_ARGS --url $API_URL --key $API_KEY"
         fi
 
-        # Write oxide-mcp@.service (MCP server instances)
         cat <<EOF > "$SYSTEMD_DIR/oxide-mcp@.service"
 [Unit]
 Description=OxideMUD MCP Instance
@@ -385,7 +540,7 @@ Requires=oxide-mcp.socket
 Type=simple
 User=$RUN_AS_USER
 Group=$RUN_AS_USER
-ExecStart=$INSTALL_DIR/bin/oxide-mcp $MCP_EXEC_ARGS
+ExecStart=$BIN_DIR/oxide-mcp $MCP_EXEC_ARGS
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal
@@ -407,10 +562,10 @@ if [ "$INSTALL_GAME_SERVICE" = "false" ] || [ "$INSTALL_MCP_SERVICE" = "false" ]
     echo -e "\nManual Launch Commands (services not installed):"
     if [ "$INSTALL_GAME_SERVICE" = "false" ]; then
         echo -e "  To start the game server manually:"
-        echo -e "    ${GREEN}$INSTALL_DIR/bin/oxide-server --base-dir $INSTALL_DIR${NC}"
+        echo -e "    ${GREEN}$BIN_DIR/oxide-server --base-dir $INSTALL_DIR${NC}"
     fi
     if [ "$INSTALL_MCP_SERVICE" = "false" ]; then
-        MCP_CMD="$INSTALL_DIR/bin/oxide-mcp $INSTALL_DIR/content"
+        MCP_CMD="$BIN_DIR/oxide-mcp $INSTALL_DIR/content"
         if [ -n "$API_KEY" ]; then
             MCP_CMD="$MCP_CMD --url $API_URL --key $API_KEY"
         fi
@@ -418,5 +573,12 @@ if [ "$INSTALL_GAME_SERVICE" = "false" ] || [ "$INSTALL_MCP_SERVICE" = "false" ]
         echo -e "    ${GREEN}$MCP_CMD${NC}"
     fi
 fi
+
+if [ "$CREATE_SYMLINKS" = "true" ] && [ "$SYMLINK_IN_PATH" = "false" ]; then
+    echo -e "\n${YELLOW}Notice: $SYMLINK_DIR is not in your shell PATH environment variable.${NC}"
+    echo -e "To run Oxide commands from anywhere, add it to your PATH by adding this line to your shell profile (~/.bashrc or ~/.zshrc):"
+    echo -e "  ${GREEN}export PATH=\"$SYMLINK_DIR:\$PATH\"${NC}"
+fi
+
 
 echo -e "\n${GREEN}Installation Complete!${NC}"

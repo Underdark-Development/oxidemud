@@ -136,7 +136,7 @@
       become: true
       ansible.builtin.command:
         cmd: >
-          ./install.sh
+          ./install.sh -y --create-symlinks
           --install-dir "{{ install_dir }}"
           --user "{{ run_as_user }}"
           --install-game-service "{{ install_game_service | string | lower }}"
@@ -150,7 +150,7 @@
       become: true
       ansible.builtin.command:
         cmd: >
-          ./install.sh
+          ./install.sh -y --create-symlinks
           --install-dir "{{ install_dir }}"
           --user "{{ run_as_user }}"
           --install-game-service "false"
@@ -159,6 +159,8 @@
       register: installer_docker_out
       changed_when: true
       when: use_docker
+
+
 
     - name: Copy Docker deployment files to installation directory
       become: true

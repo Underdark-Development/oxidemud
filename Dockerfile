@@ -1,7 +1,7 @@
 # OxideMUD Container Runtime Dockerfile
 # Builds a lightweight image using precompiled binaries from the distribution package.
 #
-# Build context should be the install directory (default: ~/.oxide) containing
+# Build context should be the install directory (default: ~/.oxidemud) containing
 # bin/ and content/ subdirectories.
 
 FROM debian:bookworm-slim AS runtime

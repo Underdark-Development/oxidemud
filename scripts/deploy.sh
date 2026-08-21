@@ -110,7 +110,7 @@ if [ "$NATIVE_BUILD" = "true" ]; then
         # Execute installer
         cd release-pkg
         echo -e \"=== Running Installer ===\"
-        NON_INTERACTIVE=true sudo ./install.sh
+        sudo ./install.sh -y --create-symlinks --non-interactive
         
         # Cleanup
         cd /tmp
@@ -151,12 +151,14 @@ else
         cd oxide-pkg-extract
         
         # Run the installer with sudo in non-interactive mode
-        NON_INTERACTIVE=true sudo ./install.sh
+        sudo ./install.sh -y --create-symlinks --non-interactive
         
         # Cleanup
         cd /tmp
         rm -rf oxide-pkg-extract
     '"
 fi
+
+
 
 echo -e "${GREEN}=== Deployment Finished! ===${NC}"
