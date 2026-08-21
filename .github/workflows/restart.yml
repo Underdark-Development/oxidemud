@@ -77,41 +77,38 @@ jobs:
             exit 1
           fi
 
-          # Resolve running container ID from Docker Compose dynamically
-          CONTAINER="$(docker compose -f "$COMPOSE_FILE" ps -q oxide-server 2>/dev/null || echo "oxide-server")"
-
-          # Ensure container is running before attempting restart
-          if [ -z "$CONTAINER" ] || [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo missing)" != "true" ]; then
-            echo "ERROR: oxide-server container is not running. Nothing to restart." >&2
-            exit 1
-          fi
-
+          # Check if container is currently running
+          RUNNING_CONTAINER="$(docker ps -q -f name=oxide-server 2>/dev/null || true)"
 
           VERSION="$(cat "$INSTALL_DIR/.version")"
           echo "Staged version: $VERSION"
 
-          # Build the new image from the staged files BEFORE stopping the container
-          # so a failed build aborts with the old server still running untouched.
-          echo "Building new image from staged files..."
-          docker compose -f "$COMPOSE_FILE" build --no-cache "$CONTAINER"
+          # Build the new image from staged files
+          echo "Building image from staged files..."
+          docker compose -f "$COMPOSE_FILE" build --no-cache
 
-          # Stop and remove container cleanly (flushes DB + prevents name conflicts)
-          echo "Stopping old container..."
-          docker compose -f "$COMPOSE_FILE" down
+          if [ -n "$RUNNING_CONTAINER" ]; then
+            echo "Stopping running container..."
+            docker compose -f "$COMPOSE_FILE" down
+          else
+            echo "Notice: oxide-server container was not currently running. Starting staged version..."
+          fi
 
           # Start newly built image
-          echo "Starting new version ($VERSION)..."
-          docker compose -f "$COMPOSE_FILE" up -d "$CONTAINER"
+          echo "Starting version $VERSION..."
+          docker compose -f "$COMPOSE_FILE" up -d
 
           for i in $(seq 1 30); do
-            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo false)" = "true" ]; then
-              echo "oxide-server is running again (staged $VERSION)."
+            NEW_CONTAINER="$(docker ps -q -f name=oxide-server 2>/dev/null || true)"
+            if [ -n "$NEW_CONTAINER" ] && [ "$(docker inspect -f '{{.State.Running}}' "$NEW_CONTAINER" 2>/dev/null || echo false)" = "true" ]; then
+              echo "oxide-server is running (v$VERSION)."
               exit 0
             fi
             sleep 2
           done
-          echo "ERROR: oxide-server did not come back up after restart." >&2
+          echo "ERROR: oxide-server container did not come up successfully." >&2
           exit 1
+
 
 
           REMOTE
