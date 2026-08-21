@@ -211,6 +211,16 @@ pub fn validate_file(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("failed to parse {}: {e}", path.display()))
 }
 
+/// Read just the `[content].path` value from a server.toml file without
+/// initializing the global config. Used by the preflight path so it resolves
+/// the content directory identically to normal startup. Returns `None` on any
+/// read/parse error or if the key is absent (caller falls back to default).
+pub fn content_path_from_file(path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let config: ServerConfig = toml::from_str(&content).ok()?;
+    Some(config.content.path)
+}
+
 pub fn prune_old_logs(retention_days: u32) {
     let temp_dir = std::env::temp_dir();
     let entries = match std::fs::read_dir(&temp_dir) {
