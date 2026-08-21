@@ -121,7 +121,7 @@ if ($InstallService -eq $true) {
     Write-Host "`nSetting up background Scheduled Task for the MUD server..." -ForegroundColor Green
 
     $TaskName = "OxideMUDServer"
-    $Action = New-ScheduledTaskAction -Execute "$InstallDir\bin\oxide-server.exe" -Argument "--config-path $InstallDir\content\server.toml --db-path $InstallDir\data\oxide.db" -WorkingDirectory "$InstallDir"
+    $Action = New-ScheduledTaskAction -Execute "$InstallDir\bin\oxide-server.exe" -Argument "--base-dir `$InstallDir`" -WorkingDirectory "$InstallDir"
     $Trigger = New-ScheduledTaskTrigger -AtStartup
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
@@ -148,7 +148,7 @@ if ($InstallService -eq $true) {
 } else {
     Write-Host "`nManual Launch Commands (startup task not installed):" -ForegroundColor Yellow
     Write-Host "  To start the game server manually, run:" -ForegroundColor Green
-    Write-Host "    $InstallDir\bin\oxide-server.exe --config-path $InstallDir\content\server.toml --db-path $InstallDir\data\oxide.db" -ForegroundColor Yellow
+    Write-Host "    $InstallDir\bin\oxide-server.exe --base-dir $InstallDir" -ForegroundColor Yellow
 }
 
 Write-Host "`nInstallation Complete!" -ForegroundColor Green
