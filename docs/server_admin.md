@@ -172,8 +172,6 @@ You can customize the server behavior at launch using the following command-line
 | `--config-path <path>` | `-c`  | `content/server.toml` | Path to the server configuration file.                   |
 | `--validate-content`   | —     | —                     | Validate server.toml + content tree, print report, exit. |
 
-> **Breaking change (0.5.x):** `-h` is now `--help`. The short flag for `--host` moved to `-H`. Update any scripts or aliases that used `-h <host>`.
-
 #### Precedence Order
 
 Startup configuration parameters are applied in the following order of precedence (highest to lowest):
