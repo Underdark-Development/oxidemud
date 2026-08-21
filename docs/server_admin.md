@@ -440,14 +440,14 @@ The server displays an optional welcome ASCII banner and a Message of the Day (M
 
 - Displayed first during the connection handshake.
 - If the file is missing, empty, or fails to load, nothing is displayed.
-- Defaults to `content/banner.txt`, but can be customized with `--banner-path <path>`.
+- Defaults to `<base>/content/banner.txt` as a fixed convention under the base directory.
 
 ### MOTD File (`content/motd.txt`)
 
 - Displayed right after the server name, uptime, and game stats line.
 - Available to players in-game via the `motd` command.
 - If the file is missing, empty, or fails to load, nothing is displayed (and the `motd` command remains silent).
-- Defaults to `content/motd.txt`, but can be customized with `--motd-path <path>`.
+- Defaults to `<base>/content/motd.txt` as a fixed convention under the base directory.
 
 ### Styling and Markup Format
 
