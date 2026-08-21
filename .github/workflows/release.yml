@@ -59,7 +59,10 @@ jobs:
       - name: Sync with origin main
         run: git pull --rebase origin main
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          targets: ${{ env.TARGET }}
+
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -146,12 +149,13 @@ jobs:
         with:
           ref: ${{ needs.bump.outputs.version }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
           targets: ${{ env.TARGET }}
 
       - name: Add musl target
         run: rustup target add ${{ env.TARGET }}
+
 
 
       - name: Cache cargo
