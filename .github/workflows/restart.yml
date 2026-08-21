@@ -45,7 +45,7 @@ jobs:
     if: vars.VPS_DEPLOY_ENABLED == 'true'
     environment: production
     env:
-      INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '/opt/oxide' }}
+      INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '$HOME/.oxidemud' }}
       DEPLOY_MODE: ${{ vars.VPS_DEPLOY_MODE || 'docker' }}
     steps:
       - name: Install SSH key
@@ -63,6 +63,8 @@ jobs:
           DEPLOY_MODE="__DEPLOY_MODE__"
           CONTAINER="oxide-server"
           COMPOSE_FILE="$INSTALL_DIR/docker-compose.yml"
+          cd "$INSTALL_DIR"
+
 
           if [ "$DEPLOY_MODE" != "docker" ]; then
             echo "ERROR: Restart Server currently supports docker mode only (VPS_DEPLOY_MODE)." >&2

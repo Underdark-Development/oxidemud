@@ -118,9 +118,10 @@ jobs:
       - name: Extract and run installer
         env:
           DEPLOY_MODE: ${{ vars.VPS_DEPLOY_MODE || 'docker' }}
-          INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '/opt/oxide' }}
+          INSTALL_DIR: ${{ vars.VPS_INSTALL_DIR || '$HOME/.oxidemud' }}
           RUN_AS_USER: ${{ vars.VPS_RUN_AS_USER || 'oxide' }}
           TUNNEL_TOKEN: ${{ secrets.TUNNEL_TOKEN }}
+
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${TAG#v}"
