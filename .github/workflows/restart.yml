@@ -91,16 +91,16 @@ jobs:
           echo "Building new image from staged files..."
           docker compose -f "$COMPOSE_FILE" build --no-cache "$CONTAINER"
 
-          # Initiate graceful shutdown (SIGTERM triggers database flush + clean exit)
-          echo "Initiating graceful shutdown of $CONTAINER..."
-          docker kill -s SIGTERM "$CONTAINER" || true
+          # Stop and remove container cleanly (flushes DB + prevents name conflicts)
+          echo "Stopping old container..."
+          docker compose -f "$COMPOSE_FILE" down
 
           # Start newly built image
           echo "Starting new version ($VERSION)..."
-          docker compose -f "$COMPOSE_FILE" up -d --force-recreate "$CONTAINER"
+          docker compose -f "$COMPOSE_FILE" up -d "$CONTAINER"
 
           for i in $(seq 1 30); do
-            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = "true" ]; then
+            if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo false)" = "true" ]; then
               echo "oxide-server is running again (staged $VERSION)."
               exit 0
             fi
@@ -108,6 +108,7 @@ jobs:
           done
           echo "ERROR: oxide-server did not come back up after restart." >&2
           exit 1
+
 
           REMOTE
 
