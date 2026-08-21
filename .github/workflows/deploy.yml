@@ -145,15 +145,16 @@ jobs:
             # Install binaries/content/Dockerfile/compose without systemd units.
             # Staging only — the running server is untouched; a human triggers
             # the restart (restart.yml) once the release is staged.
-            ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --no-spade --non-interactive
+            ./install.sh -y --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --no-spade --non-interactive
             # Cloudflare Tunnel token for the cloudflared compose service (optional)
             if [ -n "__TUNNEL_TOKEN__" ]; then
               echo "TUNNEL_TOKEN=__TUNNEL_TOKEN__" | tee "$INSTALL_DIR/.env" >/dev/null
               chmod 600 "$INSTALL_DIR/.env"
             fi
           else
-            sudo ./install.sh --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --install-service --non-interactive
+            sudo ./install.sh -y --install-dir "$INSTALL_DIR" --user "$RUN_AS_USER" --install-service --non-interactive
           fi
+
 
           cd /tmp
           rm -rf oxide-pkg-extract
