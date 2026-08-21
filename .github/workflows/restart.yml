@@ -142,5 +142,6 @@ jobs:
             -e "s|__DEPLOY_MODE__|${DEPLOY_MODE}|g" \
             /tmp/oxide-restart-remote.sh
 
-          ssh -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-restart-remote.sh
+          ssh -tt -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-restart-remote.sh
           rm -f /tmp/oxide-restart-remote.sh
+
