@@ -1124,9 +1124,7 @@ impl EntityInspectorScreen {
         {
             return;
         }
-        let row;
-        let cursor;
-        match &self.edit_mode {
+        let (row, cursor) = match &self.edit_mode {
             EditMode::Text {
                 row: r, cursor: c2, ..
             }
@@ -1135,12 +1133,9 @@ impl EntityInspectorScreen {
             }
             | EditMode::Multiline {
                 row: r, cursor: c2, ..
-            } => {
-                row = *r;
-                cursor = *c2;
-            }
+            } => (*r, *c2),
             _ => return,
-        }
+        };
         self.table.rows[row][1].insert(cursor, c);
         match &mut self.edit_mode {
             EditMode::Text { cursor: c2, .. }
@@ -1151,9 +1146,7 @@ impl EntityInspectorScreen {
     }
 
     fn delete_char(&mut self) {
-        let row;
-        let cursor;
-        match &self.edit_mode {
+        let (row, cursor) = match &self.edit_mode {
             EditMode::Text {
                 row: r, cursor: c, ..
             }
@@ -1162,12 +1155,9 @@ impl EntityInspectorScreen {
             }
             | EditMode::Multiline {
                 row: r, cursor: c, ..
-            } => {
-                row = *r;
-                cursor = *c;
-            }
+            } => (*r, *c),
             _ => return,
-        }
+        };
         let s = &mut self.table.rows[row][1];
         if cursor < s.len() {
             s.remove(cursor);
@@ -1175,9 +1165,7 @@ impl EntityInspectorScreen {
     }
 
     fn backspace_char(&mut self) {
-        let row;
-        let cursor;
-        match &self.edit_mode {
+        let (row, cursor) = match &self.edit_mode {
             EditMode::Text {
                 row: r, cursor: c, ..
             }
@@ -1186,12 +1174,9 @@ impl EntityInspectorScreen {
             }
             | EditMode::Multiline {
                 row: r, cursor: c, ..
-            } => {
-                row = *r;
-                cursor = *c;
-            }
+            } => (*r, *c),
             _ => return,
-        }
+        };
         if cursor == 0 {
             return;
         }
@@ -1216,9 +1201,7 @@ impl EntityInspectorScreen {
     }
 
     fn cursor_right(&mut self) {
-        let row;
-        let cursor;
-        match &self.edit_mode {
+        let (row, cursor) = match &self.edit_mode {
             EditMode::Text {
                 row: r, cursor: c, ..
             }
@@ -1227,12 +1210,9 @@ impl EntityInspectorScreen {
             }
             | EditMode::Multiline {
                 row: r, cursor: c, ..
-            } => {
-                row = *r;
-                cursor = *c;
-            }
+            } => (*r, *c),
             _ => return,
-        }
+        };
         let len = self.table.rows[row][1].len();
         if cursor < len {
             match &mut self.edit_mode {
@@ -1421,17 +1401,12 @@ impl EntityInspectorScreen {
     }
 
     fn multiline_newline(&mut self) {
-        let row;
-        let cursor;
-        match &self.edit_mode {
+        let (row, cursor) = match &self.edit_mode {
             EditMode::Multiline {
                 row: r, cursor: c, ..
-            } => {
-                row = *r;
-                cursor = *c;
-            }
+            } => (*r, *c),
             _ => return,
-        }
+        };
         self.table.rows[row][1].insert(cursor, '\n');
         if let EditMode::Multiline { cursor: c2, .. } = &mut self.edit_mode {
             *c2 += 1
