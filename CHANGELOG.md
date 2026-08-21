@@ -6,6 +6,22 @@ All notable changes to this project will be documented in this file. See [conven
 #### Features
 - (**install**) symlink binaries to system PATH with interactive confirmation and smart defaults - (db1a39c) - Kevin Lanni
 #### Bug Fixes
+- (**ci**) pass explicit toolchain version 1.98 to dtolnay/rust-toolchain action - (cb322c6) - Kevin Lanni
+- (**ci**) honor rust-toolchain.toml pinned Rust version in workflows - (e6b78b2) - Kevin Lanni
+- (**ci**) explicitly add musl target via rustup in release workflow - (0042876) - Kevin Lanni
+- (**ci**) pass -y flag to install.sh in deploy workflow for automated staging - (ded326e) - Kevin Lanni
+- (**ci**) add --no-cache to docker compose build in restart workflow to rebuild image with newly staged binary - (7899931) - Kevin Lanni
+- (**ci**) pipe restart commands to container stdin via /proc/1/fd/0 - (9d9a16b) - Kevin Lanni
+- (**ci**) allocate pseudo-TTY in restart workflow for docker attach console communication - (fb0cb75) - Kevin Lanni
+#### Refactoring
+- (**mcp**) modularize 3919-line server.rs monolith into 12 modules (#1) - (7e6ccd6) - Kevin Lanni
+
+- - -
+
+## 0.6.0 - 2026-08-21
+#### Features
+- (**install**) symlink binaries to system PATH with interactive confirmation and smart defaults - (db1a39c) - Kevin Lanni
+#### Bug Fixes
 - (**ci**) pass -y flag to install.sh in deploy workflow for automated staging - (ded326e) - Kevin Lanni
 - (**ci**) add --no-cache to docker compose build in restart workflow to rebuild image with newly staged binary - (7899931) - Kevin Lanni
 - (**ci**) pipe restart commands to container stdin via /proc/1/fd/0 - (9d9a16b) - Kevin Lanni
