@@ -17,7 +17,7 @@ use crate::params::*;
 
 pub fn list_areas(ctx: &HandlerContext<'_>) -> String {
     let (registry, _) = ctx.load();
-    HandlerContext::entity_list(
+    crate::context::entity_list(
         &registry
             .areas
             .iter()

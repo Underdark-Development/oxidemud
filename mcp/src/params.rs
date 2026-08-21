@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 
-use rmcp::schemars;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -135,7 +134,6 @@ pub(crate) struct SimulateShopTransactionParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct PutItemParams {
     pub(crate) player_name: String,
     pub(crate) item_template_id: String,
@@ -143,14 +141,12 @@ pub(crate) struct PutItemParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct TeleportParams {
     pub(crate) player_name: String,
     pub(crate) room_key: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct ForceCommandParams {
     pub(crate) player_name: String,
     pub(crate) command: String,
@@ -159,7 +155,6 @@ pub(crate) struct ForceCommandParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct SetStatParams {
     pub(crate) player_name: String,
     pub(crate) strength: Option<u8>,
@@ -176,14 +171,12 @@ pub(crate) struct SetStatParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct LoadMobParams {
     pub(crate) room_key: String,
     pub(crate) mob_template_id: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct LoadItemParams {
     pub(crate) room_key: String,
     pub(crate) item_template_id: String,
@@ -191,39 +184,33 @@ pub(crate) struct LoadItemParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct GechoParams {
     pub(crate) message: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct AdvanceParams {
     pub(crate) player_name: String,
     pub(crate) target_level: u8,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct StatParams {
     pub(crate) target_name: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct HealParams {
     pub(crate) target_name: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct DamageParams {
     pub(crate) target_name: String,
     pub(crate) amount: i32,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct KillParams {
     pub(crate) target_name: String,
     #[schemars(description = "Must be true to confirm this destructive operation")]
@@ -231,20 +218,17 @@ pub(crate) struct KillParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct ReviveParams {
     pub(crate) target_name: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct SetAlignmentParams {
     pub(crate) player_name: String,
     pub(crate) alignment: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct SetFactionParams {
     pub(crate) player_name: String,
     pub(crate) faction_id: String,
@@ -252,7 +236,6 @@ pub(crate) struct SetFactionParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct PurgeRoomParams {
     pub(crate) room_key: String,
     #[schemars(description = "Must be true to confirm this destructive operation")]
@@ -260,7 +243,6 @@ pub(crate) struct PurgeRoomParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-#[allow(dead_code)]
 pub(crate) struct RebootParams {
     #[schemars(description = "Must be true to confirm this destructive operation")]
     pub(crate) confirm: bool,
@@ -358,7 +340,6 @@ pub(crate) struct SimulateDeathParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct LoadedPlayer {
     pub(crate) name: String,
     pub(crate) race_id: String,
@@ -370,12 +351,14 @@ pub(crate) struct LoadedPlayer {
     pub(crate) skills: HashMap<String, u16>,
     pub(crate) completed_quests: Vec<String>,
     pub(crate) faction_standings: HashMap<String, i32>,
+    // Present in the server response; retained for deserialization completeness.
+    #[allow(dead_code)]
     pub(crate) inventory: Vec<String>,
+    #[allow(dead_code)]
     pub(crate) equipment: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub(crate) struct LoadedAttributes {
     pub(crate) strength: u8,
     pub(crate) dexterity: u8,

@@ -4,6 +4,23 @@ use std::path::Path;
 use crate::content;
 use crate::params::LoadedPlayer;
 
+const OFFLINE_ERR: &str =
+    "Offline mode: cannot fetch real player data. Provide --url and --key to connect to the MUD server.";
+
+/// Render a sorted `label:` block of id → name entries (used by list tools).
+pub(crate) fn entity_list(items: &HashMap<String, impl AsRef<str>>, label: &str) -> String {
+    if items.is_empty() {
+        return format!("No {} found.", label);
+    }
+    let mut ids: Vec<&String> = items.keys().collect();
+    ids.sort();
+    let mut out = format!("{}:\n", label);
+    for id in ids {
+        out.push_str(&format!("  {id}: {}\n", items[id].as_ref()));
+    }
+    out.trim().to_string()
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct HandlerContext<'a> {
     content_path: &'a Path,
@@ -26,12 +43,6 @@ impl<'a> HandlerContext<'a> {
     pub(crate) fn content_path(&self) -> &Path {
         self.content_path
     }
-    pub(crate) fn api_url(&self) -> &Option<String> {
-        self.api_url
-    }
-    pub(crate) fn api_key(&self) -> &Option<String> {
-        self.api_key
-    }
     pub(crate) fn load(&self) -> (oxide_core::templates::TemplateRegistry, content::FileMap) {
         content::load_registry(self.content_path)
     }
@@ -42,20 +53,16 @@ impl<'a> HandlerContext<'a> {
         content::validate_content_id(id)?;
         content::assert_within_content_dir(self.content_path, path)
     }
-    pub(crate) fn entity_list(items: &HashMap<String, impl AsRef<str>>, label: &str) -> String {
-        if items.is_empty() {
-            return format!("No {} found.", label);
+
+    /// Resolve the configured API credentials, or return an offline-mode error.
+    fn creds(&self) -> Result<(&str, &str), String> {
+        match (self.api_url.as_deref(), self.api_key.as_deref()) {
+            (Some(u), Some(k)) => Ok((u, k)),
+            _ => Err(OFFLINE_ERR.to_string()),
         }
-        let mut ids: Vec<&String> = items.keys().collect();
-        ids.sort();
-        let mut out = format!("{}:\n", label);
-        for id in ids {
-            out.push_str(&format!("  {id}: {}\n", items[id].as_ref()));
-        }
-        out.trim().to_string()
     }
+
     pub(crate) async fn fetch_player_state(&self, name: &str) -> Result<LoadedPlayer, String> {
-        let (_url, _key) = match (self.api_url, self.api_key) { (Some(u), Some(k)) => (u,k), _ => return Err("Offline mode: cannot fetch real player data. Provide --url and --key to connect to the MUD server.".to_string()) };
         let resp = self
             .authenticated_request(reqwest::Method::GET, format!("/api/character/{name}"))
             .await?;
@@ -76,7 +83,7 @@ impl<'a> HandlerContext<'a> {
         method: reqwest::Method,
         path: String,
     ) -> Result<reqwest::Response, String> {
-        let (url,key)=match (self.api_url,self.api_key) { (Some(u),Some(k))=>(u,k), _=>return Err("Offline mode: cannot fetch real player data. Provide --url and --key to connect to the MUD server.".to_string()) };
+        let (url, key) = self.creds()?;
         reqwest::Client::new()
             .request(method, format!("{}{}", url.trim_end_matches('/'), path))
             .header("Authorization", format!("Bearer {key}"))
@@ -90,7 +97,7 @@ impl<'a> HandlerContext<'a> {
         path: String,
         body: Option<&serde_json::Value>,
     ) -> Result<reqwest::Response, String> {
-        let (url,key)=match (self.api_url,self.api_key) { (Some(u),Some(k))=>(u,k), _=>return Err("Offline mode: cannot fetch real player data. Provide --url and --key to connect to the MUD server.".to_string()) };
+        let (url, key) = self.creds()?;
         let mut req = reqwest::Client::new()
             .request(method, format!("{}{}", url.trim_end_matches('/'), path))
             .header("Authorization", format!("Bearer {key}"));

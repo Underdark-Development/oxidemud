@@ -1,4 +1,4 @@
-//! Simulation / validation / search handler implementations.
+//! Gameplay simulation handler implementations.
 
 use rmcp::handler::server::wrapper::Parameters;
 

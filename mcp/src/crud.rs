@@ -56,5 +56,5 @@ pub fn list(
 ) -> String {
     let (registry, _) = ctx.load();
     let items = collect(&registry);
-    HandlerContext::entity_list(&items, label)
+    crate::context::entity_list(&items, label)
 }
