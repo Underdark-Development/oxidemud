@@ -83,13 +83,13 @@ jobs:
           VERSION="$(cat "$INSTALL_DIR/.version")"
           echo "Staged version: $VERSION"
 
-          # Console reachability check — proves `docker attach` input piping
-          # works before any countdown is broadcast or the server is touched.
-          if ! printf 'who\n' | timeout 15 docker attach --sig-proxy=false "$CONTAINER" | grep -qi 'online'; then
-            echo "ERROR: could not reach the server console via 'docker attach'." >&2
+          # Console reachability check — proves input piping to PID 1 stdin works
+          # before any countdown is broadcast or the server is touched.
+          if ! docker exec -i "$CONTAINER" sh -c 'echo "who" > /proc/1/fd/0' >/dev/null 2>&1; then
+            echo "ERROR: could not reach the server console via /proc/1/fd/0." >&2
             exit 1
           fi
-          echo "Console reachable via docker attach."
+          echo "Console reachable via /proc/1/fd/0."
 
           # Build the new image from the staged files BEFORE any shutdown so a
           # failed build aborts with the old server still running untouched.
@@ -100,7 +100,7 @@ jobs:
           docker compose -f "$COMPOSE_FILE" build "$CONTAINER"
 
           send_console() {
-            printf '%s\n' "$1" | timeout 15 docker attach --sig-proxy=false "$CONTAINER"
+            docker exec -i "$CONTAINER" sh -c "echo '$1' > /proc/1/fd/0"
           }
 
           echo "Broadcasting 5-minute countdown..."
@@ -120,7 +120,7 @@ jobs:
           # force-recreate below stops the old container with SIGTERM, which
           # drives the same graceful path.
           echo "Initiating graceful shutdown..."
-          printf 'shutdown\ny\n' | timeout 15 docker attach --sig-proxy=false "$CONTAINER" || true
+          docker exec -i "$CONTAINER" sh -c 'printf "shutdown\ny\n" > /proc/1/fd/0' || true
 
           echo "Starting new version ($VERSION)..."
           docker compose -f "$COMPOSE_FILE" up -d --force-recreate "$CONTAINER"
@@ -142,6 +142,7 @@ jobs:
             -e "s|__DEPLOY_MODE__|${DEPLOY_MODE}|g" \
             /tmp/oxide-restart-remote.sh
 
-          ssh -tt -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-restart-remote.sh
+          ssh -p "${{ secrets.VPS_PORT }}" "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" 'bash -s' < /tmp/oxide-restart-remote.sh
           rm -f /tmp/oxide-restart-remote.sh
+
 
