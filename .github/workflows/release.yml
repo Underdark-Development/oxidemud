@@ -150,6 +150,10 @@ jobs:
         with:
           targets: ${{ env.TARGET }}
 
+      - name: Add musl target
+        run: rustup target add ${{ env.TARGET }}
+
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
