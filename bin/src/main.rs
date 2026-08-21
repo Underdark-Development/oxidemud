@@ -9,7 +9,7 @@ mod validate;
 use config::Config;
 use init::{init_world, spawn_area};
 use oxide_server::Server;
-use std::path::{Path, PathBuf};
+use std::fs;
 
 fn pluralize(count: usize, singular: &str, plural: &str) -> String {
     if count == 1 {
@@ -17,19 +17,6 @@ fn pluralize(count: usize, singular: &str, plural: &str) -> String {
     } else {
         format!("{} {count}", plural)
     }
-}
-
-/// Resolve the content directory in one place so preflight and normal startup
-/// cannot diverge. Precedence: CLI `--content-path` > configured server.toml
-/// `[content].path` > default `"content"`.
-fn resolve_content_path(config: &Config, configured: Option<&str>) -> PathBuf {
-    if let Some(cp) = &config.content_path {
-        return cp.clone();
-    }
-    if let Some(configured) = configured {
-        return PathBuf::from(configured);
-    }
-    PathBuf::from("content")
 }
 
 fn notify_report_replies(world: &oxide_core::World, conn: &mut dyn oxide_server::Connection) {
@@ -60,28 +47,27 @@ fn notify_report_replies(world: &oxide_core::World, conn: &mut dyn oxide_server:
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
 
-    // Resolve the server config path once: CLI --config-path wins, else default.
-    let config_path = config
-        .config_path
-        .clone()
-        .unwrap_or_else(|| Path::new("content/server.toml").to_path_buf());
+    // All paths derive from base_dir as fixed conventions.
+    let config_path = config.config_path();
+    let content_path = config.content_path();
 
     // Preflight mode: validate server.toml + content tree, print report, exit.
     // Runs before any logging/DB/network setup — zero side effects.
     if config.validate_content {
-        // Resolve content dir from CLI flag or the server.toml [content].path
-        // (load the config early so preflight and normal startup agree).
-        let configured_content = oxide_server::config::content_path_from_file(&config_path);
-        let content_path = resolve_content_path(&config, configured_content.as_deref());
         std::process::exit(validate::run_preflight(&content_path, &config_path));
     }
 
     oxide_server::config::init(&config_path);
-    oxide_server::load_motd(config.motd_path.as_deref());
-    oxide_server::load_banner(config.banner_path.as_deref());
+    oxide_server::load_motd(Some(&config.motd_path()));
+    oxide_server::load_banner(Some(&config.banner_path()));
 
     // Initialize custom rolling file logging + stdout
-    let rolling_writer = std::sync::Arc::new(std::sync::Mutex::new(RollingFileWriter::new()?));
+    let log_dir = config.log_dir();
+    fs::create_dir_all(&log_dir)
+        .unwrap_or_else(|e| panic!("Failed to create log dir {}: {e}", log_dir.display()));
+    oxide_server::config::set_log_dir(log_dir.clone());
+    let rolling_writer =
+        std::sync::Arc::new(std::sync::Mutex::new(RollingFileWriter::new(&log_dir)?));
     let file_writer = TracingWriter {
         writer: rolling_writer.clone(),
     };
@@ -100,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initial prune of old logs
     let retention_days = oxide_server::config::get().logging.retention_days;
-    oxide_server::config::prune_old_logs(retention_days);
+    oxide_server::config::prune_old_logs(retention_days, &log_dir);
 
     let log_path = rolling_writer.lock().unwrap().current_path.clone();
     tracing::info!(
@@ -108,21 +94,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log_path.display()
     );
 
-    let db = oxide_data::Database::open(&config.db_path).unwrap_or_else(|e| {
+    let db_path = config.db_path();
+    // Ensure the database directory exists before opening (SQLite won't create parents).
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent)
+            .unwrap_or_else(|e| panic!("Failed to create db dir {}: {e}", parent.display()));
+    }
+    let db = oxide_data::Database::open(db_path).unwrap_or_else(|e| {
         panic!(
             "Failed to open database at {}: {e}",
-            config.db_path.display()
+            config.db_path().display()
         )
     });
 
     let mut world = init_world();
 
-    // Resolve content directory: CLI --content-path wins, else server.toml
-    // [content].path (already loaded via config::init above), else default
-    // "content".
-    let content_path =
-        resolve_content_path(&config, Some(&oxide_server::config::get().content.path));
-
+    // Content path is a fixed convention under base_dir (computed early).
     let templates = templates::load_templates(&content_path);
     tracing::info!(
         "Loaded {}",
@@ -229,9 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let commands_cmd_look = commands::cmd_look;
 
     // Instantiate and register ScriptEngine and MessageOutputBridge
-    let script_engine = Box::new(oxide_scripting::ScriptEngine::new(
-        content_path.join("scripts"),
-    ));
+    let script_engine = Box::new(oxide_scripting::ScriptEngine::new(config.scripts_path()));
     oxide_scripting::register_award_xp_callback(oxide_server::award_xp);
     oxide_core::scripting::register_scripting_bridge(script_engine);
     oxide_core::scripting::register_message_bridge(Box::new(oxide_server::ServerMessageBridge));
@@ -280,9 +265,9 @@ struct RollingFileWriter {
 }
 
 impl RollingFileWriter {
-    pub fn new() -> std::io::Result<Self> {
+    pub fn new(log_dir: &std::path::Path) -> std::io::Result<Self> {
         use chrono::Datelike;
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = log_dir.to_path_buf();
         let now = chrono::Local::now();
         let timestamp = now.format("%Y%m%d_%H%M%S").to_string();
         let filename = format!("oxide_server_log_{}.log", timestamp);

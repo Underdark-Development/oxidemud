@@ -228,7 +228,9 @@ pub fn spawn_game_loop(
                     }
 
                     let retention = crate::config::get().logging.retention_days;
-                    crate::config::prune_old_logs(retention);
+                    if let Some(log_dir) = crate::config::log_dir() {
+                        crate::config::prune_old_logs(retention, log_dir);
+                    }
 
                     if last_backup.elapsed() >= Duration::from_secs(3600) {
                         last_backup = Instant::now();
