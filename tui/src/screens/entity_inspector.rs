@@ -2102,7 +2102,7 @@ impl EntityInspectorScreen {
             return;
         }
 
-        let show = (self.cursor_char / 8) % 2 == 0;
+        let show = (self.cursor_char / 8).is_multiple_of(2);
         if show {
             buf.set_string(x, y, "▎", Style::default().fg(Color::Cyan));
         }
@@ -2205,7 +2205,7 @@ impl EntityInspectorScreen {
             let y = inner.y + render_row as u16;
             let x = inner.x + cursor_visual_col as u16;
             if x < inner.x + inner.width && y < inner.y + inner.height {
-                let show = (self.cursor_char / 8) % 2 == 0;
+                let show = (self.cursor_char / 8).is_multiple_of(2);
                 if show {
                     buf.set_string(x, y, "▎", Style::default().fg(Color::Cyan));
                 }
