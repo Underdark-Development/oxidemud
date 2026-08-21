@@ -13,10 +13,23 @@ use std::path::{Path, PathBuf};
 
 fn pluralize(count: usize, singular: &str, plural: &str) -> String {
     if count == 1 {
-        format!("{} {}", count, singular)
+        format!("{} {count}", singular)
     } else {
-        format!("{} {}", count, plural)
+        format!("{} {count}", plural)
     }
+}
+
+/// Resolve the content directory in one place so preflight and normal startup
+/// cannot diverge. Precedence: CLI `--content-path` > configured server.toml
+/// `[content].path` > default `"content"`.
+fn resolve_content_path(config: &Config, configured: Option<&str>) -> PathBuf {
+    if let Some(cp) = &config.content_path {
+        return cp.clone();
+    }
+    if let Some(configured) = configured {
+        return PathBuf::from(configured);
+    }
+    PathBuf::from("content")
 }
 
 fn notify_report_replies(world: &oxide_core::World, conn: &mut dyn oxide_server::Connection) {
@@ -47,26 +60,23 @@ fn notify_report_replies(world: &oxide_core::World, conn: &mut dyn oxide_server:
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
 
+    // Resolve the server config path once: CLI --config-path wins, else default.
+    let config_path = config
+        .config_path
+        .clone()
+        .unwrap_or_else(|| Path::new("content/server.toml").to_path_buf());
+
     // Preflight mode: validate server.toml + content tree, print report, exit.
     // Runs before any logging/DB/network setup — zero side effects.
     if config.validate_content {
-        let config_path = config
-            .config_path
-            .clone()
-            .unwrap_or_else(|| Path::new("content/server.toml").to_path_buf());
-        let content_path = config
-            .content_path
-            .clone()
-            .unwrap_or_else(|| Path::new("content").to_path_buf());
+        // Resolve content dir from CLI flag or the server.toml [content].path
+        // (load the config early so preflight and normal startup agree).
+        let configured_content = oxide_server::config::content_path_from_file(&config_path);
+        let content_path = resolve_content_path(&config, configured_content.as_deref());
         std::process::exit(validate::run_preflight(&content_path, &config_path));
     }
 
-    oxide_server::config::init(
-        config
-            .config_path
-            .as_deref()
-            .unwrap_or(Path::new("content/server.toml")),
-    );
+    oxide_server::config::init(&config_path);
     oxide_server::load_motd(config.motd_path.as_deref());
     oxide_server::load_banner(config.banner_path.as_deref());
 
@@ -108,13 +118,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut world = init_world();
 
     // Resolve content directory: CLI --content-path wins, else server.toml
-    // [content].path, else default "content".
-    let content_path = match &config.content_path {
-        Some(cp) => cp.clone(),
-        None => PathBuf::from(
-            oxide_server::config::get().content.path.clone(),
-        ),
-    };
+    // [content].path (already loaded via config::init above), else default
+    // "content".
+    let content_path =
+        resolve_content_path(&config, Some(&oxide_server::config::get().content.path));
 
     let templates = templates::load_templates(&content_path);
     tracing::info!(

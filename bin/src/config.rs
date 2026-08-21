@@ -44,10 +44,7 @@ impl Config {
             std::process::exit(0);
         }
 
-        if args
-            .iter()
-            .any(|arg| arg == "--help" || arg == "-h" || arg == "help")
-        {
+        if args.iter().any(|arg| arg == "--help" || arg == "-h") {
             print_help();
             std::process::exit(0);
         }
@@ -70,47 +67,61 @@ impl Config {
                 }
                 "--host" | "-H" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        host = val.clone();
+                    match args.get(i) {
+                        Some(val) => host = val.clone(),
+                        None => missing_value_arg("--host"),
                     }
                 }
                 "--port" | "-p" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        port = val.parse().unwrap_or(4000);
+                    match args.get(i) {
+                        Some(val) => match val.parse::<u16>() {
+                            Ok(p) => port = p,
+                            Err(_) => invalid_value_arg("--port", val),
+                        },
+                        None => missing_value_arg("--port"),
                     }
                 }
                 "--db-path" | "-d" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        db_path = PathBuf::from(val);
+                    match args.get(i) {
+                        Some(val) => db_path = PathBuf::from(val),
+                        None => missing_value_arg("--db-path"),
                     }
                 }
                 "--content-path" | "-C" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        content_path = Some(PathBuf::from(val));
+                    match args.get(i) {
+                        Some(val) => content_path = Some(PathBuf::from(val)),
+                        None => missing_value_arg("--content-path"),
                     }
                 }
                 "--motd-path" | "-m" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        motd_path = Some(PathBuf::from(val));
+                    match args.get(i) {
+                        Some(val) => motd_path = Some(PathBuf::from(val)),
+                        None => missing_value_arg("--motd-path"),
                     }
                 }
                 "--banner-path" | "-b" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        banner_path = Some(PathBuf::from(val));
+                    match args.get(i) {
+                        Some(val) => banner_path = Some(PathBuf::from(val)),
+                        None => missing_value_arg("--banner-path"),
                     }
                 }
                 "--config-path" | "-c" => {
                     i += 1;
-                    if let Some(val) = args.get(i) {
-                        config_path = Some(PathBuf::from(val));
+                    match args.get(i) {
+                        Some(val) => config_path = Some(PathBuf::from(val)),
+                        None => missing_value_arg("--config-path"),
                     }
                 }
-                _ => {}
+                other => {
+                    eprintln!("Unknown argument: {other}");
+                    print_help();
+                    std::process::exit(2);
+                }
             }
             i += 1;
         }
@@ -130,4 +141,16 @@ impl Config {
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+}
+
+fn missing_value_arg(flag: &str) -> ! {
+    eprintln!("Error: '{}' requires a value.", flag);
+    print_help();
+    std::process::exit(2);
+}
+
+fn invalid_value_arg(flag: &str, value: &str) -> ! {
+    eprintln!("Error: invalid value '{value}' for '{}'.", flag);
+    print_help();
+    std::process::exit(2);
 }
