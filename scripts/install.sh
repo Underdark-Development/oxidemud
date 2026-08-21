@@ -323,7 +323,7 @@ Type=simple
 User=$RUN_AS_USER
 Group=$RUN_AS_USER
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/bin/oxide-server --config-path $INSTALL_DIR/content/server.toml --db-path $INSTALL_DIR/data/oxide.db
+ExecStart=$INSTALL_DIR/bin/oxide-server --content-path $INSTALL_DIR/content --config-path $INSTALL_DIR/content/server.toml --db-path $INSTALL_DIR/data/oxide.db
 Restart=always
 RestartSec=5
 LimitNOFILE=2048
@@ -395,7 +395,7 @@ if [ "$INSTALL_GAME_SERVICE" = "false" ] || [ "$INSTALL_MCP_SERVICE" = "false" ]
     echo -e "\nManual Launch Commands (services not installed):"
     if [ "$INSTALL_GAME_SERVICE" = "false" ]; then
         echo -e "  To start the game server manually:"
-        echo -e "    ${GREEN}$INSTALL_DIR/bin/oxide-server --config-path $INSTALL_DIR/content/server.toml --db-path $INSTALL_DIR/data/oxide.db${NC}"
+        echo -e "    ${GREEN}$INSTALL_DIR/bin/oxide-server --content-path $INSTALL_DIR/content --config-path $INSTALL_DIR/content/server.toml --db-path $INSTALL_DIR/data/oxide.db${NC}"
     fi
     if [ "$INSTALL_MCP_SERVICE" = "false" ]; then
         MCP_CMD="$INSTALL_DIR/bin/oxide-mcp $INSTALL_DIR/content"

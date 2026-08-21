@@ -101,6 +101,24 @@ fn default_ws_max_message_size() -> usize {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ContentConfig {
+    #[serde(default = "default_content_path")]
+    pub path: String,
+}
+
+impl Default for ContentConfig {
+    fn default() -> Self {
+        Self {
+            path: default_content_path(),
+        }
+    }
+}
+
+fn default_content_path() -> String {
+    "content".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub server_name: String,
     #[serde(default)]
@@ -112,6 +130,8 @@ pub struct ServerConfig {
     pub default_prompt: String,
     #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default)]
+    pub content: ContentConfig,
     #[serde(default)]
     pub api: ApiConfig,
     #[serde(default)]
@@ -144,6 +164,7 @@ pub fn init(path: &Path) {
             max_clients: 256,
             default_prompt: default_prompt(),
             logging: LoggingConfig::default(),
+            content: ContentConfig::default(),
             api: ApiConfig::default(),
             websocket: WebSocketConfig::default(),
             time: oxide_core::TimeConfig::default(),
@@ -161,6 +182,7 @@ pub fn init(path: &Path) {
                 max_clients: 256,
                 default_prompt: default_prompt(),
                 logging: LoggingConfig::default(),
+                content: ContentConfig::default(),
                 api: ApiConfig::default(),
                 websocket: WebSocketConfig::default(),
                 time: oxide_core::TimeConfig::default(),
