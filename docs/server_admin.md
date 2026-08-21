@@ -172,14 +172,14 @@ You can customize the server behavior at launch using the following command-line
 
 The server uses a single configurable base directory (`--base-dir`). All other paths are fixed conventions derived from it:
 
-| Path               | Resolves to                  |
-| :----------------- | :--------------------------- |
-| Server config      | `<base>/content/server.toml` |
-| Content root       | `<base>/content`             |
-| Message of the Day | `<base>/content/motd.txt`    |
-| Login banner       | `<base>/content/banner.txt`  |
-| Database           | `<base>/data/mud.db`         |
-| Logs               | `<base>/logs`                |
+| Path               | Resolves to                 |
+| :----------------- | :-------------------------- |
+| Server config      | `<base>/server.toml`        |
+| Content root       | `<base>/content`            |
+| Message of the Day | `<base>/content/motd.txt`   |
+| Login banner       | `<base>/content/banner.txt` |
+| Database           | `<base>/data/mud.db`        |
+| Logs               | `<base>/logs`               |
 
 Relative paths in the launch command therefore resolve deterministically against `--base-dir`, never against the process working directory. When `--base-dir` is not given, it defaults to the current working directory (useful for local development).
 
@@ -217,7 +217,7 @@ PowerShell -ExecutionPolicy Bypass -File .\install.ps1
 
 ---
 
-## Server Configuration (`content/server.toml`)
+## Server Configuration (`server.toml`)
 
 The server configuration file controls global settings. A sample configuration file is structured as follows:
 
@@ -345,7 +345,7 @@ mud.example.com {
 
 #### Alternate Setup 2: Built-in Native Let's Encrypt (Single Container)
 
-Set `acme_domain = "mud.example.com"` and `acme_email = "admin@example.com"` in `content/server.toml`, and map port `443:8080` and `80:80` in `docker-compose.yml`.
+Set `acme_domain = "mud.example.com"` and `acme_email = "admin@example.com"` in `server.toml`, and map port `443:8080` and `80:80` in `docker-compose.yml`.
 
 > [!NOTE]
 > Changes made directly to the `server.toml` file require a server restart to take effect. If you modify settings via the in-game `config` command, changes are written to the database and take effect immediately.

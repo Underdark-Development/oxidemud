@@ -19,6 +19,9 @@ COPY bin/oxide-server /app/bin/
 # Copy game content templates and configs
 COPY content/ /app/content/
 
+# Copy the default server config to the base dir root
+COPY server.toml /app/server.toml
+
 # Create directories for SQLite persistence and rotating logs
 RUN mkdir -p /app/data /app/logs
 

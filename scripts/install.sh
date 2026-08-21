@@ -270,11 +270,23 @@ if [ -d "$INSTALL_DIR/content" ]; then
     rm -rf "$INSTALL_DIR/content.default"
     cp -r content "$INSTALL_DIR/content.default"
     echo -e "  Placed new default templates in ${GREEN}$INSTALL_DIR/content.default/${NC} for reference."
+
+    # Update server.toml to the new default (preserving any custom edits is out of
+    # scope for the automatic path; the existing file is left in place if present).
+    if [ -f "server.toml" ] && [ ! -f "$INSTALL_DIR/server.toml" ]; then
+        cp server.toml "$INSTALL_DIR/server.toml"
+    fi
 else
     # Fresh Install scenario
     echo -e "Fresh install detected. Copying default example templates..."
     cp -r content "$INSTALL_DIR/content"
     echo -e "  Installed example templates to: ${GREEN}$INSTALL_DIR/content/${NC}"
+
+    # Copy the default server config to the base dir
+    if [ -f "server.toml" ]; then
+        cp server.toml "$INSTALL_DIR/server.toml"
+        echo -e "  Installed server config to: ${GREEN}$INSTALL_DIR/server.toml${NC}"
+    fi
 fi
 
 # Ensure content is writable (MCP, OLC, and Spade write TOML files at runtime)
