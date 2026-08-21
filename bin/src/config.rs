@@ -16,7 +16,10 @@ OPTIONS:
                                   [default: <current dir>]
     -H, --host <address>          Bind host address [default: 127.0.0.1]
     -p, --port <port>             Bind TCP port [default: 4000]
-        --validate-content        Validate content tree + server.toml, print report, exit",
+        --validate-content        Validate content tree + server.toml, print report, exit
+
+Values may be passed as a following argument (--base-dir /path) or with an
+equals sign (--base-dir=/path).",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -58,16 +61,6 @@ impl Config {
     pub fn parse() -> Self {
         let args: Vec<String> = env::args().collect();
 
-        if args.iter().any(|arg| arg == "--version" || arg == "-V") {
-            println!("OxideMUD Server v{}", env!("CARGO_PKG_VERSION"));
-            std::process::exit(0);
-        }
-
-        if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-            print_help();
-            std::process::exit(0);
-        }
-
         // Default base dir = current working directory (dev convenience).
         let mut base_dir = env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
         let mut host = "127.0.0.1".to_string();
@@ -76,32 +69,68 @@ impl Config {
 
         let mut i = 1;
         while i < args.len() {
-            match args[i].as_str() {
+            let arg = &args[i];
+
+            // Split `--flag=value` (or `-X=value`) into flag + inline value.
+            let (flag, inline_value) = match arg.split_once('=') {
+                Some((f, v)) if f.starts_with('-') && !v.is_empty() => {
+                    (f.to_string(), Some(v.to_string()))
+                }
+                _ => (arg.clone(), None),
+            };
+
+            // Resolve the value for a value-taking flag: inline (`=v`) wins,
+            // otherwise the next positional argument is consumed as the value.
+            // A next argument that is itself a flag is treated as "missing value".
+            macro_rules! take_value {
+                () => {
+                    match inline_value {
+                        Some(v) => {
+                            i += 1;
+                            v
+                        }
+                        None => {
+                            // Only consume the next arg if it looks like a value
+                            // (does not start with `-`). This prevents a flag from
+                            // being swallowed as another flag's value.
+                            match args.get(i + 1) {
+                                Some(next) if !next.starts_with('-') => {
+                                    i += 2;
+                                    next.clone()
+                                }
+                                _ => missing_value_arg(&flag),
+                            }
+                        }
+                    }
+                };
+            }
+
+            match flag.as_str() {
+                "-h" | "--help" => {
+                    print_help();
+                    std::process::exit(0);
+                }
+                "-V" | "--version" => {
+                    println!("OxideMUD Server v{}", env!("CARGO_PKG_VERSION"));
+                    std::process::exit(0);
+                }
                 "--validate-content" => {
                     validate_content = true;
-                }
-                "--base-dir" | "-B" => {
                     i += 1;
-                    match args.get(i) {
-                        Some(val) => base_dir = PathBuf::from(val),
-                        None => missing_value_arg("--base-dir"),
-                    }
                 }
-                "--host" | "-H" => {
-                    i += 1;
-                    match args.get(i) {
-                        Some(val) => host = val.clone(),
-                        None => missing_value_arg("--host"),
-                    }
+                "-B" | "--base-dir" => {
+                    let v = take_value!();
+                    base_dir = PathBuf::from(v);
                 }
-                "--port" | "-p" => {
-                    i += 1;
-                    match args.get(i) {
-                        Some(val) => match val.parse::<u16>() {
-                            Ok(p) => port = p,
-                            Err(_) => invalid_value_arg("--port", val),
-                        },
-                        None => missing_value_arg("--port"),
+                "-H" | "--host" => {
+                    let v = take_value!();
+                    host = v;
+                }
+                "-p" | "--port" => {
+                    let v = take_value!();
+                    match v.parse::<u16>() {
+                        Ok(p) => port = p,
+                        Err(_) => invalid_value_arg(&flag, &v),
                     }
                 }
                 other => {
@@ -110,7 +139,6 @@ impl Config {
                     std::process::exit(2);
                 }
             }
-            i += 1;
         }
 
         Config {

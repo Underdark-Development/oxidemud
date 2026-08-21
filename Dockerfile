@@ -28,9 +28,6 @@ RUN mkdir -p /app/data /app/logs
 # Expose the default MUD telnet port (4000) and REST API / WebSocket port (8080)
 EXPOSE 4000 8080
 
-# Set environment variable defaults
-ENV TMPDIR=/app/logs
-
 # Start the game server binding to 0.0.0.0 so Docker port forwarding works.
 # All paths resolve under the base dir (/app).
 CMD ["/app/bin/oxide-server", "--host", "0.0.0.0", "--port", "4000", "--base-dir", "/app"]
