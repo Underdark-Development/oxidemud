@@ -77,6 +77,7 @@ jobs:
             exit 1
           fi
 
+          # Ensure container is running before attempting restart
           if [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null || echo missing)" != "true" ]; then
             echo "ERROR: '$CONTAINER' container is not running. Nothing to restart." >&2
             exit 1
@@ -85,46 +86,16 @@ jobs:
           VERSION="$(cat "$INSTALL_DIR/.version")"
           echo "Staged version: $VERSION"
 
-          # Console reachability check — proves input piping to PID 1 stdin works
-          # before any countdown is broadcast or the server is touched.
-          if ! docker exec -u root -i "$CONTAINER" sh -c 'echo "who" > /proc/1/fd/0' >/dev/null 2>&1; then
-            echo "ERROR: could not reach the server console via /proc/1/fd/0." >&2
-            exit 1
-          fi
-          echo "Console reachable via /proc/1/fd/0."
-
-          # Build the new image from the staged files BEFORE any shutdown so a
-          # failed build aborts with the old server still running untouched.
-          # The container's restart policy would otherwise bring the old image
-          # back after shutdown; pre-building then --force-recreate closes that
-          # window.
+          # Build the new image from the staged files BEFORE stopping the container
+          # so a failed build aborts with the old server still running untouched.
           echo "Building new image from staged files..."
           docker compose -f "$COMPOSE_FILE" build --no-cache "$CONTAINER"
 
-          send_console() {
-            docker exec -u root -i "$CONTAINER" sh -c "echo '$1' > /proc/1/fd/0"
-          }
+          # Initiate graceful shutdown (SIGTERM triggers database flush + clean exit)
+          echo "Initiating graceful shutdown of $CONTAINER..."
+          docker kill -s SIGTERM "$CONTAINER" || true
 
-          echo "Broadcasting 5-minute countdown..."
-          send_console "broadcast New server version upgrade (v${VERSION}), server will restart in 5 minutes..."
-          sleep 60
-          send_console "broadcast Server will restart in 4 minutes..."
-          sleep 60
-          send_console "broadcast Server will restart in 3 minutes..."
-          sleep 60
-          send_console "broadcast Server will restart in 2 minutes..."
-          sleep 60
-          send_console "broadcast Server will restart in 1 minute..."
-          sleep 60
-
-          # Graceful shutdown via the server console (watch signal -> clean DB
-          # flush + disconnect). Failure to reach the console is tolerated: the
-          # force-recreate below stops the old container with SIGTERM, which
-          # drives the same graceful path.
-          echo "Initiating graceful shutdown..."
-          docker exec -u root -i "$CONTAINER" sh -c 'printf "shutdown\ny\n" > /proc/1/fd/0' || true
-
-
+          # Start newly built image
           echo "Starting new version ($VERSION)..."
           docker compose -f "$COMPOSE_FILE" up -d --force-recreate "$CONTAINER"
 
@@ -137,6 +108,7 @@ jobs:
           done
           echo "ERROR: oxide-server did not come back up after restart." >&2
           exit 1
+
           REMOTE
 
           # Fill in placeholders (| sed delimiter to survive / in paths)
