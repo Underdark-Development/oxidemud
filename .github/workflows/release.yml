@@ -26,6 +26,10 @@ on:
         type: choice
         options: [auto, patch, minor, major]
         default: auto
+      dry_run:
+        description: 'Dry run: compute and print the next version only, without bumping or publishing'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -90,38 +94,42 @@ jobs:
       # there are no commits to bump, so the guard aborts with a clear message.
       # The CURRENT check catches a clone with no version tags (cog would
       # otherwise "bump" from nothing to 0.0.1).
-      - name: Guard - ensure releasable commits
+      - name: Resolve next version (dry-run)
+        id: meta
         run: |
           CURRENT=$(cog get-version 2>/dev/null | tail -n1 || true)
           NEXT=$(cog bump --${{ inputs.bump }} --dry-run 2>/dev/null || true)
           echo "current=$CURRENT next=$NEXT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           if ! [[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] \
              || ! [[ "$NEXT" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] \
              || [[ "$NEXT" == "$CURRENT" ]]; then
             echo "::error::Cannot resolve a clean version bump (current='${CURRENT}', next='${NEXT}'). Push feat/fix commits and make sure version tags exist on origin."
             exit 1
           fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN: would release v${NEXT} (current v${CURRENT}). No changes were made."
+          fi
 
       - name: Bump version
+        if: inputs.dry_run == false
         run: cog bump --${{ inputs.bump }}
-
-      - name: Resolve version
-        id: meta
-        run: |
-          VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # Push the tag explicitly: cocogitto creates lightweight tags, which
       # `git push --follow-tags` would silently skip.
       - name: Push bump commit and tag
+        if: inputs.dry_run == false
         run: |
           git push origin main
           git push origin "${{ steps.meta.outputs.version }}"
 
       - name: Generate release notes
+        if: inputs.dry_run == false
         run: cog changelog --at "${{ steps.meta.outputs.version }}" > release_notes.md
 
       - name: Upload release notes artifact
+        if: inputs.dry_run == false
         uses: actions/upload-artifact@v4
         with:
           name: release-notes
@@ -132,6 +140,7 @@ jobs:
     name: Package Linux musl release
     needs: bump
     runs-on: ubuntu-latest
+    if: inputs.dry_run == false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -183,6 +192,7 @@ jobs:
     name: Publish GitHub Release
     needs: [bump, build]
     runs-on: ubuntu-latest
+    if: inputs.dry_run == false
     steps:
       - uses: actions/download-artifact@v4
         with:
