@@ -71,9 +71,10 @@ impl Config {
         while i < args.len() {
             let arg = &args[i];
 
-            // Split `--flag=value` (or `-X=value`) into flag + inline value.
+            // Split `--long=value` into flag + inline value. Only long options
+            // (double-dash) use the `=` form; short options use `-X value`.
             let (flag, inline_value) = match arg.split_once('=') {
-                Some((f, v)) if f.starts_with('-') && !v.is_empty() => {
+                Some((f, v)) if f.starts_with("--") && !v.is_empty() => {
                     (f.to_string(), Some(v.to_string()))
                 }
                 _ => (arg.clone(), None),
