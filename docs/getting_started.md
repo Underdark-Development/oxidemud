@@ -49,7 +49,7 @@ Once installed, you can start the game server directly from the command line:
 /opt/oxide/bin/oxide-server --base-dir /opt/oxide
 ```
 
-All server paths (content, config, motd, banner, scripts, database, logs) resolve under the base directory.
+All server paths (content, config, motd, banner, database, logs) resolve under the base directory.
 
 If you installed systemd services during the install setup, you can control the background process using standard system tools:
 

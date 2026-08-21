@@ -11,9 +11,9 @@ USAGE:
 OPTIONS:
     -h, --help                    Print help information and exit
     -V, --version                 Print version information and exit
-    -B, --base-dir <dir>          Base/root directory. All paths (config,
-                                  content, motd, banner, scripts, db, logs)
-                                  resolve under it. [default: <current dir>]
+    -B, --base-dir <dir>          Base/root directory. Config, content, db,
+                                  and logs resolve under it.
+                                  [default: <current dir>]
     -H, --host <address>          Bind host address [default: 127.0.0.1]
     -p, --port <port>             Bind TCP port [default: 4000]
         --validate-content        Validate content tree + server.toml, print report, exit",

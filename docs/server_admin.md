@@ -159,14 +159,14 @@ A few invariants worth knowing:
 
 You can customize the server behavior at launch using the following command-line flags:
 
-| Flag                 | Short | Default         | Description                                                                                         |
-| :------------------- | :---- | :-------------- | :-------------------------------------------------------------------------------------------------- |
-| `--help`             | `-h`  | —               | Print usage information and exit.                                                                   |
-| `--version`          | `-V`  | —               | Print version and exit.                                                                             |
-| `--base-dir <dir>`   | `-B`  | `<current dir>` | Base/root directory. All paths (config, content, motd, banner, scripts, db, logs) resolve under it. |
-| `--host <IP>`        | `-H`  | `127.0.0.1`     | The bind IP address for the game listener.                                                          |
-| `--port <port>`      | `-p`  | `4000`          | The bind TCP port.                                                                                  |
-| `--validate-content` | —     | —               | Validate server.toml + content tree, print report, exit.                                            |
+| Flag                 | Short | Default         | Description                                                                                |
+| :------------------- | :---- | :-------------- | :----------------------------------------------------------------------------------------- |
+| `--help`             | `-h`  | —               | Print usage information and exit.                                                          |
+| `--version`          | `-V`  | —               | Print version and exit.                                                                    |
+| `--base-dir <dir>`   | `-B`  | `<current dir>` | Base/root directory. All paths (config, content, motd, banner, db, logs) resolve under it. |
+| `--host <IP>`        | `-H`  | `127.0.0.1`     | The bind IP address for the game listener.                                                 |
+| `--port <port>`      | `-p`  | `4000`          | The bind TCP port.                                                                         |
+| `--validate-content` | —     | —               | Validate server.toml + content tree, print report, exit.                                   |
 
 #### Path Layout
 
@@ -178,7 +178,6 @@ The server uses a single configurable base directory (`--base-dir`). All other p
 | Content root       | `<base>/content`             |
 | Message of the Day | `<base>/content/motd.txt`    |
 | Login banner       | `<base>/content/banner.txt`  |
-| Scripts            | `<base>/content/scripts`     |
 | Database           | `<base>/data/mud.db`         |
 | Logs               | `<base>/logs`                |
 

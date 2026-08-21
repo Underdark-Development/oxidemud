@@ -141,10 +141,10 @@ The following sections detail features that are currently planned, partially imp
 
 The server uses a **single configurable base directory** for all paths.
 
-- **`--base-dir` / `-B`** (default: current working directory) anchors every server path. All other paths are fixed conventions under it: `content/`, `content/server.toml`, `content/motd.txt`, `content/banner.txt`, `content/scripts/`, `data/mud.db`, `logs/`. Relative paths never resolve against the process working directory when a base is given.
+- **`--base-dir` / `-B`** (default: current working directory) anchors every server path. All other paths are fixed conventions under it: `content/`, `content/server.toml`, `content/motd.txt`, `content/banner.txt`, `data/mud.db`, `logs/`. Relative paths never resolve against the process working directory when a base is given.
 - Only `--host`, `--port`, `--version`, `--help`, `--base-dir`, and `--validate-content` remain as CLI flags. `server.toml` holds non-path runtime settings (`server_name`, `max_clients`, `default_prompt`, `logging`, `api`, `websocket`, `time`); path configuration deliberately lives outside it to avoid a circular config-with-path dependency.
 - **Path-handling invariants to preserve:**
-  - A single `--base-dir` anchor is the only path knob; do not reintroduce per-item path flags (`--config-path`, `--content-path`, `--motd-path`, `--banner-path`, `--db-path`) or a `[content].path` section. Keep content-relative conventions (scripts dir) hardcoded under content rather than configurable.
+  - A single `--base-dir` anchor is the only path knob; do not reintroduce per-item path flags (`--config-path`, `--content-path`, `--motd-path`, `--banner-path`, `--db-path`) or a `[content].path` section. Scripts, like all content subdirectories, live under `content/` and are not separately configurable.
   - Config-loading order: `Config::parse()` (CLI) and `server::config::init()` (server.toml) must both run before any code reads configurable values.
   - No runtime config modification/saving exists (`CONFIG.set` only once at startup via `config::init`). Do not add config-saving unless explicitly requested; if added, keep it in the config module.
 
