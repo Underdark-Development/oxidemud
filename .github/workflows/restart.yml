@@ -97,7 +97,8 @@ jobs:
           # back after shutdown; pre-building then --force-recreate closes that
           # window.
           echo "Building new image from staged files..."
-          docker compose -f "$COMPOSE_FILE" build "$CONTAINER"
+          docker compose -f "$COMPOSE_FILE" build --no-cache "$CONTAINER"
+
 
           send_console() {
             docker exec -i "$CONTAINER" sh -c "echo '$1' > /proc/1/fd/0"
