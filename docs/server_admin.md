@@ -159,28 +159,30 @@ A few invariants worth knowing:
 
 You can customize the server behavior at launch using the following command-line flags:
 
-| Flag                   | Short | Default               | Description                                              |
-| :--------------------- | :---- | :-------------------- | :------------------------------------------------------- |
-| `--help`               | `-h`  | —                     | Print usage information and exit.                        |
-| `--version`            | `-V`  | —                     | Print version and exit.                                  |
-| `--host <IP>`          | `-H`  | `127.0.0.1`           | The bind IP address for the game listener.               |
-| `--port <port>`        | `-p`  | `4000`                | The bind TCP port.                                       |
-| `--db-path <path>`     | `-d`  | `data/mud.db`         | Path to the SQLite persistence database.                 |
-| `--content-path <dir>` | `-C`  | `content`             | Path to the content/asset directory.                     |
-| `--motd-path <path>`   | `-m`  | `content/motd.txt`    | Path to the Message of the Day file.                     |
-| `--banner-path <path>` | `-b`  | `content/banner.txt`  | Path to the welcome ASCII banner file.                   |
-| `--config-path <path>` | `-c`  | `content/server.toml` | Path to the server configuration file.                   |
-| `--validate-content`   | —     | —                     | Validate server.toml + content tree, print report, exit. |
+| Flag                 | Short | Default         | Description                                                                                         |
+| :------------------- | :---- | :-------------- | :-------------------------------------------------------------------------------------------------- |
+| `--help`             | `-h`  | —               | Print usage information and exit.                                                                   |
+| `--version`          | `-V`  | —               | Print version and exit.                                                                             |
+| `--base-dir <dir>`   | `-B`  | `<current dir>` | Base/root directory. All paths (config, content, motd, banner, scripts, db, logs) resolve under it. |
+| `--host <IP>`        | `-H`  | `127.0.0.1`     | The bind IP address for the game listener.                                                          |
+| `--port <port>`      | `-p`  | `4000`          | The bind TCP port.                                                                                  |
+| `--validate-content` | —     | —               | Validate server.toml + content tree, print report, exit.                                            |
 
-#### Precedence Order
+#### Path Layout
 
-Startup configuration parameters are applied in the following order of precedence (highest to lowest):
+The server uses a single configurable base directory (`--base-dir`). All other paths are fixed conventions derived from it:
 
-1. **Command Line Flags** (e.g., `--port 4001`)
-2. **`server.toml` Configuration File** (`[content].path` for the content directory, when no `--content-path` flag is given)
-3. **Built-in Defaults**
+| Path               | Resolves to                  |
+| :----------------- | :--------------------------- |
+| Server config      | `<base>/content/server.toml` |
+| Content root       | `<base>/content`             |
+| Message of the Day | `<base>/content/motd.txt`    |
+| Login banner       | `<base>/content/banner.txt`  |
+| Scripts            | `<base>/content/scripts`     |
+| Database           | `<base>/data/mud.db`         |
+| Logs               | `<base>/logs`                |
 
-The content directory resolves as: `--content-path` flag → `server.toml [content].path` → default `content`.
+Relative paths in the launch command therefore resolve deterministically against `--base-dir`, never against the process working directory. When `--base-dir` is not given, it defaults to the current working directory (useful for local development).
 
 ### 6. Deployment & Host Environment Considerations
 

@@ -250,13 +250,13 @@ if [ -d "$INSTALL_DIR/content" ]; then
     echo -e "Upgrade detected. Preserving existing content folder."
 
     # Backup active SQLite database before upgrade schema migrations trigger
-    if [ -f "$INSTALL_DIR/data/oxide.db" ]; then
+    if [ -f "$INSTALL_DIR/data/mud.db" ]; then
         BACKUP_TIME=$(date +%Y%m%d_%H%M%S)
         BACKUP_DIR="$INSTALL_DIR/data/backups"
         mkdir -p "$BACKUP_DIR"
-        cp "$INSTALL_DIR/data/oxide.db" "$BACKUP_DIR/oxide.db.pre-upgrade-$BACKUP_TIME"
-        chmod 600 "$BACKUP_DIR/oxide.db.pre-upgrade-$BACKUP_TIME"
-        echo -e "  Backed up active database to: ${GREEN}$BACKUP_DIR/oxide.db.pre-upgrade-$BACKUP_TIME${NC}"
+        cp "$INSTALL_DIR/data/mud.db" "$BACKUP_DIR/mud.db.pre-upgrade-$BACKUP_TIME"
+        chmod 600 "$BACKUP_DIR/mud.db.pre-upgrade-$BACKUP_TIME"
+        echo -e "  Backed up active database to: ${GREEN}$BACKUP_DIR/mud.db.pre-upgrade-$BACKUP_TIME${NC}"
     fi
 
     # Store old version if readable
@@ -323,7 +323,7 @@ Type=simple
 User=$RUN_AS_USER
 Group=$RUN_AS_USER
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/bin/oxide-server --content-path $INSTALL_DIR/content --config-path $INSTALL_DIR/content/server.toml --db-path $INSTALL_DIR/data/oxide.db
+ExecStart=$INSTALL_DIR/bin/oxide-server --base-dir $INSTALL_DIR
 Restart=always
 RestartSec=5
 LimitNOFILE=2048
@@ -395,7 +395,7 @@ if [ "$INSTALL_GAME_SERVICE" = "false" ] || [ "$INSTALL_MCP_SERVICE" = "false" ]
     echo -e "\nManual Launch Commands (services not installed):"
     if [ "$INSTALL_GAME_SERVICE" = "false" ]; then
         echo -e "  To start the game server manually:"
-        echo -e "    ${GREEN}$INSTALL_DIR/bin/oxide-server --content-path $INSTALL_DIR/content --config-path $INSTALL_DIR/content/server.toml --db-path $INSTALL_DIR/data/oxide.db${NC}"
+        echo -e "    ${GREEN}$INSTALL_DIR/bin/oxide-server --base-dir $INSTALL_DIR${NC}"
     fi
     if [ "$INSTALL_MCP_SERVICE" = "false" ]; then
         MCP_CMD="$INSTALL_DIR/bin/oxide-mcp $INSTALL_DIR/content"
