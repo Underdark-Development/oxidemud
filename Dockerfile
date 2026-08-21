@@ -26,8 +26,7 @@ RUN mkdir -p /app/data /app/logs
 EXPOSE 4000 8080
 
 # Set environment variable defaults
-ENV OXIDE_CONTENT=/app/content
 ENV TMPDIR=/app/logs
 
 # Start the game server binding to 0.0.0.0 so Docker port forwarding works
-CMD ["/app/bin/oxide-server", "--host", "0.0.0.0", "--port", "4000", "--config-path", "/app/content/server.toml", "--db-path", "/app/data/oxide.db"]
+CMD ["/app/bin/oxide-server", "--host", "0.0.0.0", "--port", "4000", "--content-path", "/app/content", "--config-path", "/app/content/server.toml", "--db-path", "/app/data/oxide.db"]

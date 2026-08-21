@@ -9,7 +9,7 @@ mod validate;
 use config::Config;
 use init::{init_world, spawn_area};
 use oxide_server::Server;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn pluralize(count: usize, singular: &str, plural: &str) -> String {
     if count == 1 {
@@ -55,11 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .clone()
             .unwrap_or_else(|| Path::new("content/server.toml").to_path_buf());
         let content_path = config
-            .motd_path
-            .as_ref()
-            .and_then(|p| Path::new(p).parent())
-            .unwrap_or_else(|| Path::new("content"))
-            .to_path_buf();
+            .content_path
+            .clone()
+            .unwrap_or_else(|| Path::new("content").to_path_buf());
         std::process::exit(validate::run_preflight(&content_path, &config_path));
     }
 
@@ -109,13 +107,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut world = init_world();
 
-    let content_path = config
-        .motd_path
-        .as_ref()
-        .and_then(|p| Path::new(p).parent())
-        .unwrap_or_else(|| Path::new("content"));
+    // Resolve content directory: CLI --content-path wins, else server.toml
+    // [content].path, else default "content".
+    let content_path = match &config.content_path {
+        Some(cp) => cp.clone(),
+        None => PathBuf::from(
+            oxide_server::config::get().content.path.clone(),
+        ),
+    };
 
-    let templates = templates::load_templates(content_path);
+    let templates = templates::load_templates(&content_path);
     tracing::info!(
         "Loaded {}",
         pluralize(templates.races.len(), "race", "races")

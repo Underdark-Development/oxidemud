@@ -137,6 +137,18 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 
 The following sections detail features that are currently planned, partially implemented, or scheduled for future phases. Because no source code exists yet for these features, these specifications remain the primary reference.
 
+### 0. Server Configuration & CLI Hardening (Planned)
+
+Several known gaps in server configuration and command-line handling need attention:
+
+- **Fully fleshed-out CLI arg support.** The `oxide-server` binary uses a hand-rolled arg parser (`bin/src/config.rs`) rather than a library like `clap`. All flags should have short switches, and the parser should be robust (unknown-arg errors, correct value handling). Currently `-h` is `--help` (recently added), `-H` is `--host`, `-p` is `--port`, `-d` is `--db-path`, `-C` is `--content-path`, `-c` is `--config-path`, `-m` is `--motd-path`, `-b` is `--banner-path`. Consider migrating to `clap` (or `clap_derive`) for a proper `--help`, `--version`, subcommand, and validated values.
+- **Server config must be comprehensive.** Every configurable server detail should have a corresponding option in `server.toml`. Currently the config covers `server_name`, `server_url`, `server_version`, `max_clients`, `default_prompt`, `logging`, `api` (incl. TLS), `websocket`, and `time`. Items that are currently CLI-only or hardcoded but should be configurable in `server.toml`: content path (now partially via `[content].path`), motd/banner file paths, bind host/port, db path, and any other runtime-tunable constants. Audit `bin/src/config.rs` + `server/src/config.rs` and move every tunable into `server.toml` so operators can configure the whole server from one file.
+- **Config loading order invariant.** `Config::parse()` (CLI) and `server::config::init()` (server.toml) MUST both run before any code reads configurable values (logging retention, content path, bind address, API/TLS, etc.). `main.rs` currently satisfies this — preserve it as config grows.
+- **Consolidate config loading in a `config` module.** Config parsing/loading currently lives split across `bin/src/config.rs` (CLI arg parsing) and `server/src/config.rs` (server.toml load + global registry). Consider consolidating all configuration loading (and validation) into a single dedicated config module so there is one clear source of truth for how config is parsed, validated, and made available. Note: there is currently **no runtime config modification or saving** (no in-game/console command writes `server.toml`); `CONFIG.set` only occurs once at startup via `config::init`. Do not add config-saving functionality unless explicitly requested — and if/when it is added, that logic should live in the same config module.
+- **Legacy/derived-path removal.** The content directory is now resolved via `--content-path` / `[content].path` instead of being derived from `motd_path`'s parent. Any remaining code deriving paths from unrelated config keys should be cleaned up so each path is explicit.
+
+---
+
 ### 1. Item Durability & Repair (Planned)
 
 - Weapons lose durability on hitting; armor loses durability on being hit.

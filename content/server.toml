@@ -8,6 +8,11 @@ default_prompt = "<%h/%Hhp %m/%Mmp> "
 retention_days = 5
 rotation = "daily"
 
+[content]
+# Path to the content/asset directory (templates, scripts, motd, banner).
+# Defaults to `content/` relative to the working directory if unset.
+path = "content"
+
 [api]
 enabled = true
 bind_addr = "127.0.0.1:8080"
