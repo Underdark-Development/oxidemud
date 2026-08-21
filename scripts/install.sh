@@ -214,13 +214,6 @@ if [ "$NON_INTERACTIVE" = "false" ]; then
             fi
         fi
     fi
-else
-    # Default to true in non-interactive unless --no-symlinks was explicitly passed
-    if [ -z "$CREATE_SYMLINKS" ]; then
-        CREATE_SYMLINKS=true
-    fi
-fi
-
 
     # Detect upgrade after install dir is finalized
     IS_UPGRADE=false
@@ -275,12 +268,16 @@ fi
         fi
     fi
 else
-    # Non-interactive: detect upgrade silently
+    # Non-interactive: default CREATE_SYMLINKS and detect upgrade silently
+    if [ -z "$CREATE_SYMLINKS" ]; then
+        CREATE_SYMLINKS=true
+    fi
     IS_UPGRADE=false
     if [ -d "$INSTALL_DIR/content" ]; then
         IS_UPGRADE=true
     fi
 fi
+
 
 # Check permissions for root paths
 if [ "$IS_ROOT" = "false" ] && { [ "$INSTALL_GAME_SERVICE" = "true" ] || [ "$INSTALL_MCP_SERVICE" = "true" ]; }; then
