@@ -87,7 +87,7 @@ jobs:
 
           # Console reachability check — proves input piping to PID 1 stdin works
           # before any countdown is broadcast or the server is touched.
-          if ! docker exec -i "$CONTAINER" sh -c 'echo "who" > /proc/1/fd/0' >/dev/null 2>&1; then
+          if ! docker exec -u root -i "$CONTAINER" sh -c 'echo "who" > /proc/1/fd/0' >/dev/null 2>&1; then
             echo "ERROR: could not reach the server console via /proc/1/fd/0." >&2
             exit 1
           fi
@@ -101,21 +101,20 @@ jobs:
           echo "Building new image from staged files..."
           docker compose -f "$COMPOSE_FILE" build --no-cache "$CONTAINER"
 
-
           send_console() {
-            docker exec -i "$CONTAINER" sh -c "echo '$1' > /proc/1/fd/0"
+            docker exec -u root -i "$CONTAINER" sh -c "echo '$1' > /proc/1/fd/0"
           }
 
           echo "Broadcasting 5-minute countdown..."
-          send_console "New server version upgrade (v${VERSION}), server will restart in 5 minutes..."
+          send_console "broadcast New server version upgrade (v${VERSION}), server will restart in 5 minutes..."
           sleep 60
-          send_console "Server will restart in 4 minutes..."
+          send_console "broadcast Server will restart in 4 minutes..."
           sleep 60
-          send_console "Server will restart in 3 minutes..."
+          send_console "broadcast Server will restart in 3 minutes..."
           sleep 60
-          send_console "Server will restart in 2 minutes..."
+          send_console "broadcast Server will restart in 2 minutes..."
           sleep 60
-          send_console "Server will restart in 1 minute..."
+          send_console "broadcast Server will restart in 1 minute..."
           sleep 60
 
           # Graceful shutdown via the server console (watch signal -> clean DB
@@ -123,7 +122,8 @@ jobs:
           # force-recreate below stops the old container with SIGTERM, which
           # drives the same graceful path.
           echo "Initiating graceful shutdown..."
-          docker exec -i "$CONTAINER" sh -c 'printf "shutdown\ny\n" > /proc/1/fd/0' || true
+          docker exec -u root -i "$CONTAINER" sh -c 'printf "shutdown\ny\n" > /proc/1/fd/0' || true
+
 
           echo "Starting new version ($VERSION)..."
           docker compose -f "$COMPOSE_FILE" up -d --force-recreate "$CONTAINER"
