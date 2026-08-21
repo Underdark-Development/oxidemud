@@ -115,6 +115,14 @@ else
     echo "Warning: content directory not found."
 fi
 
+# Copy the default server config to the archive root (base dir)
+if [ -f "server.toml" ]; then
+    cp "server.toml" "$STAGE_DIR/server.toml"
+    echo "  Added server config (server.toml)"
+else
+    echo "Warning: server.toml not found."
+fi
+
 if [ -f "mcp_config.toml" ]; then
     cp "mcp_config.toml" "$STAGE_DIR/mcp_config.toml"
     echo "  Added mcp_config.toml template"

@@ -27,7 +27,7 @@ Oxide MUD compiles into a set of standalone binaries. You can install it on your
 
 > See [Server Administration Guide](server_admin.md) for detailed configuration documentation.
 
-The installation script places default configurations under `/opt/oxide/content/server.toml` (or your custom directory). You can configure server name, client limits, logging, API/WebSocket, and time here. Content, database, and log locations are fixed conventions under the server's base directory (see the [Server Administration Guide](server_admin.md)):
+The installation script places the default configuration at `/opt/oxide/server.toml` (or your custom directory). You can configure server name, client limits, logging, API/WebSocket, and time here. Content, database, and log locations are fixed conventions under the server's base directory (see the [Server Administration Guide](server_admin.md)):
 
 ```toml
 # server.toml configuration example

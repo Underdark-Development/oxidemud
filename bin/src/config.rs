@@ -34,7 +34,7 @@ pub struct Config {
 impl Config {
     // Fixed conventions under base_dir.
     pub fn config_path(&self) -> PathBuf {
-        self.base_dir.join("content").join("server.toml")
+        self.base_dir.join("server.toml")
     }
     pub fn content_path(&self) -> PathBuf {
         self.base_dir.join("content")
