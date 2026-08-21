@@ -1,0 +1,49 @@
+# Trigger Website Rebuild
+#
+# Standalone workflow: fires when a GitHub Release is fully released (not a
+# prerelease) and pings the Cloudflare Pages build hook, which rebuilds &
+# redeploys the oxidemud-website (its fetch-docs.js pulls the newly released
+# docs from the public GitHub API).
+#
+# Intentionally kept separate from deploy.yml / release.yml — the website
+# rebuild has no dependency on VPS deployment and must never be coupled to it.
+#
+# Skipped silently when the repo secret CF_PAGES_BUILD_HOOK_URL is not set,
+# or when the release is a prerelease (their docs should not go live).
+
+name: Trigger Website Rebuild
+
+on:
+  release:
+    types: [released]
+
+permissions:
+  contents: none
+
+jobs:
+  trigger:
+    name: Trigger Cloudflare Pages build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: secrets.CF_PAGES_BUILD_HOOK_URL != ''
+    steps:
+      - name: POST to Cloudflare Pages build hook
+        env:
+          CF_HOOK_URL: ${{ secrets.CF_PAGES_BUILD_HOOK_URL }}
+        run: |
+          set -euo pipefail
+          # Retry transient failures (e.g. 429 while a build is in progress),
+          # with a bounded timeout on each attempt.
+          for i in 1 2 3; do
+            if curl -fsS --fail-with-body --max-time 30 --connect-timeout 10 \
+              -X POST "$CF_HOOK_URL"; then
+              echo "Cloudflare Pages rebuild triggered."
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then
+              echo "Attempt $i failed; retrying in 10s..."
+              sleep 10
+            fi
+          done
+          echo "::error::Cloudflare Pages rebuild hook failed after 3 attempts."
+          exit 1
