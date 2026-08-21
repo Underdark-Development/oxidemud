@@ -6,20 +6,15 @@ Welcome to Oxide MUD! This guide will walk you through the process of installing
 
 ## 1. Installation
 
-Oxide MUD compiles into a set of standalone binaries. You can install it on your host machine by downloading the release package matching your platform:
+The server ships as a single `x86_64-unknown-linux-musl` tarball. Unpack it and run the installer:
 
-- **macOS / Linux:** Unpack the `.tar.gz` archive and run the installer:
-  ```bash
-  tar -xzf oxide-v*.tar.gz
-  cd oxide-v*
-  ./install.sh
-  ```
-- **Windows:** Unpack the `.zip` archive and run the PowerShell installer:
-  ```powershell
-  Expand-Archive oxide-v*.zip
-  cd oxide-v*
-  .\install.ps1
-  ```
+```bash
+tar -xzf oxide-v*.tar.gz
+cd oxide-v*
+./install.sh
+```
+
+> For hosts that can't run the native binary (e.g. Windows, macOS), run the server with the bundled `Dockerfile` / `docker-compose.yml` instead.
 
 ---
 

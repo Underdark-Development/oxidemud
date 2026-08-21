@@ -95,13 +95,8 @@ BINS=("oxide-server" "oxide-mcp" "spade")
 for bin in "${BINS[@]}"; do
     SRC_BIN="$TARGET_DIR/$bin"
     if [ ! -f "$SRC_BIN" ]; then
-        # Try checking for executable with .exe for windows targets just in case
-        if [ -f "${SRC_BIN}.exe" ]; then
-            SRC_BIN="${SRC_BIN}.exe"
-        else
-            echo "Error: Binary not found at $SRC_BIN"
-            exit 1
-        fi
+        echo "Error: Binary not found at $SRC_BIN"
+        exit 1
     fi
     cp "$SRC_BIN" "$STAGE_DIR/bin/"
     echo "  Added binary: $(basename "$SRC_BIN")"
@@ -132,22 +127,11 @@ fi
 echo "$VERSION" > "$STAGE_DIR/.version"
 echo "  Written .version metadata file"
 
-# Determine target OS for packaging
-IS_WINDOWS=false
-if [[ "$ARCHIVE_TARGET" == *"windows"* ]]; then
-    IS_WINDOWS=true
-fi
-
-# Copy installer scripts (Unix shell only; Windows PowerShell only for Windows targets)
+# Copy installer script
 if [ -f "scripts/install.sh" ]; then
     cp "scripts/install.sh" "$STAGE_DIR/install.sh"
     chmod +x "$STAGE_DIR/install.sh"
     echo "  Added install.sh script"
-fi
-
-if [ "$IS_WINDOWS" = "true" ] && [ -f "scripts/install.ps1" ]; then
-    cp "scripts/install.ps1" "$STAGE_DIR/install.ps1"
-    echo "  Added install.ps1 script"
 fi
 
 # Copy Docker configurations for distribution
@@ -172,32 +156,12 @@ if [ -d "ansible" ]; then
     echo "  Added ansible deployment files"
 fi
 
-# 5. Archive package (ZIP for Windows, TAR.GZ for Unix)
-if [ "$IS_WINDOWS" = "true" ]; then
-    ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.zip"
-    ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
-    echo "Creating ZIP archive $ARCHIVE_PATH..."
-    
-    if command -v zip &> /dev/null; then
-        rm -f "$ARCHIVE_PATH"
-        # Navigate to temp folder and zip contents recursively
-        (cd "$(dirname "$STAGE_DIR")" && zip -q -r "$ARCHIVE_NAME" "$ARCHIVE_BASENAME")
-        echo "Package created successfully: $ARCHIVE_PATH"
-    else
-        echo "Warning: zip command not found. Falling back to TAR.GZ format for Windows package."
-        ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
-        ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
-        echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
-        COPYFILE_DISABLE=1 tar --no-xattrs -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
-        echo "Package created successfully: $ARCHIVE_PATH"
-    fi
-else
-    ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
-    ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
-    echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
-    COPYFILE_DISABLE=1 tar --no-xattrs -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
-    echo "Package created successfully: $ARCHIVE_PATH"
-fi
+# 5. Archive package
+ARCHIVE_NAME="oxide-v${VERSION}-${ARCHIVE_TARGET}.tar.gz"
+ARCHIVE_PATH="target/release/$ARCHIVE_NAME"
+echo "Creating TAR.GZ archive $ARCHIVE_PATH..."
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$ARCHIVE_PATH" -C "$(dirname "$STAGE_DIR")" "$ARCHIVE_BASENAME"
+echo "Package created successfully: $ARCHIVE_PATH"
 
 # Cleanup temp build directory
 rm -rf "$STAGE_DIR"

@@ -207,14 +207,6 @@ The persistence layer operates in SQLite **Write-Ahead Logging (WAL)** mode. WAL
   > **Do NOT use Network Volumes**: Do not place the database file or bind-mount the `./data` directory over network-mounted filesystems (e.g., NFS, AWS EFS, Samba/CIFS, or VM shared folders like VirtualBox/Vagrant folders). Doing so will prevent locking and lead to database corruption or engine crashes.
 - **Local Storage only**: Ensure the host `./data` folder is mounted on standard local filesystems (e.g., ext4, xfs, APFS, or NTFS).
 
-#### Windows PowerShell Installation Policy
-
-When deploying on Windows hosts, execution security policies will block the execution of the unsigned installer script by default. Run the installer by explicitly bypassing the execution policy for that session:
-
-```powershell
-PowerShell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
 ---
 
 ## Server Configuration (`server.toml`)
