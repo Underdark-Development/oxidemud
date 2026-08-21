@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.6.1 - 2026-08-21
+#### Bug Fixes
+- (**install**) restore clean interactive vs non-interactive block scoping in install.sh - (36e4ef9) - Kevin Lanni
+
+- - -
+
 ## 0.6.0 - 2026-08-21
 #### Features
 - (**install**) symlink binaries to system PATH with interactive confirmation and smart defaults - (db1a39c) - Kevin Lanni
