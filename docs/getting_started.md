@@ -27,14 +27,19 @@ Oxide MUD compiles into a set of standalone binaries. You can install it on your
 
 > See [Server Administration Guide](server_admin.md) for detailed configuration documentation.
 
-The installation script places default configurations under `/opt/oxide/content/server.toml` (or your custom directory). You can configure ports, database connections, and system tick rates here:
+The installation script places default configurations under `/opt/oxide/content/server.toml` (or your custom directory). You can configure server name, client limits, logging, API/WebSocket, time, and the content directory here. Bind host/port and database path are set at launch via CLI flags (see the [Server Administration Guide](server_admin.md)):
 
 ```toml
 # server.toml configuration example
-port = 4000
-db_path = "data/oxide.db"
-content_path = "content"
-motd_path = "content/motd.txt"
+server_name = "OxideMUD"
+max_clients = 256
+
+[content]
+path = "content"
+
+[logging]
+retention_days = 5
+rotation = "daily"
 ```
 
 ---
@@ -44,7 +49,7 @@ motd_path = "content/motd.txt"
 Once installed, you can start the game server directly from the command line:
 
 ```bash
-/opt/oxide/bin/oxide-server --config-path /opt/oxide/content/server.toml --db-path /opt/oxide/data/oxide.db
+/opt/oxide/bin/oxide-server --content-path /opt/oxide/content --config-path /opt/oxide/content/server.toml --db-path /opt/oxide/data/oxide.db
 ```
 
 If you installed systemd services during the install setup, you can control the background process using standard system tools:

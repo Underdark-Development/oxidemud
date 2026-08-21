@@ -159,24 +159,30 @@ A few invariants worth knowing:
 
 You can customize the server behavior at launch using the following command-line flags:
 
-| Flag                   | Short | Default               | Description                                |
-| :--------------------- | :---- | :-------------------- | :----------------------------------------- |
-| `--host <IP>`          | `-h`  | `127.0.0.1`           | The bind IP address for the game listener. |
-| `--port <port>`        | `-p`  | `4000`                | The bind TCP port.                         |
-| `--db-path <path>`     | `-d`  | `data/oxide.db`       | Path to the SQLite persistence database.   |
-| `--motd-path <path>`   | `-m`  | `content/motd.txt`    | Path to the Message of the Day file.       |
-| `--banner-path <path>` | `-b`  | `content/banner.txt`  | Path to the welcome ASCII banner file.     |
-| `--config-path <path>` | `-c`  | `content/server.toml` | Path to the server configuration file.     |
+| Flag                   | Short | Default               | Description                                              |
+| :--------------------- | :---- | :-------------------- | :------------------------------------------------------- |
+| `--help`               | `-h`  | —                     | Print usage information and exit.                        |
+| `--version`            | `-V`  | —                     | Print version and exit.                                  |
+| `--host <IP>`          | `-H`  | `127.0.0.1`           | The bind IP address for the game listener.               |
+| `--port <port>`        | `-p`  | `4000`                | The bind TCP port.                                       |
+| `--db-path <path>`     | `-d`  | `data/mud.db`         | Path to the SQLite persistence database.                 |
+| `--content-path <dir>` | `-C`  | `content`             | Path to the content/asset directory.                     |
+| `--motd-path <path>`   | `-m`  | `content/motd.txt`    | Path to the Message of the Day file.                     |
+| `--banner-path <path>` | `-b`  | `content/banner.txt`  | Path to the welcome ASCII banner file.                   |
+| `--config-path <path>` | `-c`  | `content/server.toml` | Path to the server configuration file.                   |
+| `--validate-content`   | —     | —                     | Validate server.toml + content tree, print report, exit. |
+
+> **Breaking change (0.5.x):** `-h` is now `--help`. The short flag for `--host` moved to `-H`. Update any scripts or aliases that used `-h <host>`.
 
 #### Precedence Order
 
 Startup configuration parameters are applied in the following order of precedence (highest to lowest):
 
 1. **Command Line Flags** (e.g., `--port 4001`)
-2. **Environment Variables**:
-   - `OXIDE_CONTENT` — Override the content directory path (default: `content/`)
-3. **Configuration File** (`content/server.toml`)
-4. **Built-in Defaults**
+2. **`server.toml` Configuration File** (`[content].path` for the content directory, when no `--content-path` flag is given)
+3. **Built-in Defaults**
+
+The content directory resolves as: `--content-path` flag → `server.toml [content].path` → default `content`.
 
 ### 6. Deployment & Host Environment Considerations
 
