@@ -101,7 +101,12 @@ impl RpcClient {
         let bytes = serde_json::to_vec(&request).map_err(|e| RpcError::Malformed(e.to_string()))?;
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
-        self.writer.send(bytes).map_err(|_| RpcError::Closed)?;
+        if self.writer.send(bytes).is_err() {
+            // Sending failed; no response can ever arrive for this id. Drop the
+            // pending entry so the map does not accumulate stale senders.
+            let _ = self.pending.lock().await.remove(&id);
+            return Err(RpcError::Closed);
+        }
 
         match tokio::time::timeout(CALL_TIMEOUT, rx).await {
             Ok(Ok(Ok(response))) => {
@@ -117,7 +122,12 @@ impl RpcClient {
             }
             Ok(Ok(Err(rpc_err))) => Err(rpc_err),
             Ok(Err(_recv_err)) => Err(RpcError::Closed),
-            Err(_elapsed) => Err(RpcError::Timeout),
+            Err(_elapsed) => {
+                // Request timed out; drop the pending entry so the map does not
+                // accumulate stale senders. Any late response is ignored safely.
+                let _ = self.pending.lock().await.remove(&id);
+                Err(RpcError::Timeout)
+            }
         }
     }
 
