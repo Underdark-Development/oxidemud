@@ -28,7 +28,7 @@ type PendingMap = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Response, RpcErr
 /// `call` methods are safe to drive concurrently from many tasks; request ids are
 /// allocated atomically and responses are correlated by id via the shared pending map.
 pub struct RpcClient {
-    writer: mpsc::UnboundedSender<Vec<u8>>,
+    writer: mpsc::UnboundedSender<String>,
     pending: PendingMap,
     next_id: AtomicU64,
 }
@@ -67,10 +67,12 @@ impl RpcClient {
         }
 
         // Writer task: owns the write half, draining an unbounded mpsc of serialized frames.
-        let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<String>();
         tokio::spawn(async move {
-            while let Some(bytes) = writer_rx.recv().await {
-                if write.send(Message::Binary(bytes.into())).await.is_err() {
+            while let Some(text) = writer_rx.recv().await {
+                // JSON-RPC-over-WebSocket conventionally uses text frames; both
+                // the server dispatcher and our own reader expect Text.
+                if write.send(Message::Text(text.into())).await.is_err() {
                     break;
                 }
             }
@@ -98,10 +100,11 @@ impl RpcClient {
             method: method.into(),
             params: Some(params),
         };
-        let bytes = serde_json::to_vec(&request).map_err(|e| RpcError::Malformed(e.to_string()))?;
+        let json =
+            serde_json::to_string(&request).map_err(|e| RpcError::Malformed(e.to_string()))?;
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
-        if self.writer.send(bytes).is_err() {
+        if self.writer.send(json).is_err() {
             // Sending failed; no response can ever arrive for this id. Drop the
             // pending entry so the map does not accumulate stale senders.
             let _ = self.pending.lock().await.remove(&id);
