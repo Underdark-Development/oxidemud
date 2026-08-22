@@ -89,5 +89,5 @@ To enable AI assistant world building, run the Model Context Protocol (MCP) serv
   ```
   or connect to a custom WSS server:
   ```bash
-  oxide-mcp --ws wss://mud.example.com/ws/mcp --key <API_KEY>
+  oxide-mcp --ws wss://mud.example.com/ws/rpc --key <API_KEY>
   ```
