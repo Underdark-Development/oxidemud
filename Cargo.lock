@@ -1597,7 +1597,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "oxide-bin"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "oxide-core",
@@ -1615,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-core"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "fastrand",
  "hecs",
@@ -1626,7 +1626,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-data"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "argon2",
  "chrono",
@@ -1638,7 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-mcp"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "fastrand",
@@ -1656,7 +1656,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-scripting"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "fastrand",
  "hecs",
@@ -1666,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-server"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "axum",
  "fastrand",
@@ -1689,7 +1689,7 @@ dependencies = [
 
 [[package]]
 name = "oxide-ws-rpc"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "futures-util",
  "serde",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "spade"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "clap",
  "color-eyre",

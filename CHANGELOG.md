@@ -2,6 +2,33 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.7.0 - 2026-08-22
+#### Features
+- (**mcp**) switch online tools from REST to /ws/rpc JSON-RPC bridge - (cef8340) - Kevin Lanni
+- (**server**) require confirm on content.delete and bound content size - (9dec106) - Kevin Lanni
+- (**server**) implement JSON-RPC WS bridge at /ws/rpc with auth and RBAC - (7829776) - Kevin Lanni
+- (**ws-rpc**) answer ping with pong and reject empty JSON-RPC responses - (56b0178) - Kevin Lanni
+- (**ws-rpc**) add async RpcClient with request correlation and timeout - (9127245) - Kevin Lanni
+- (**ws-rpc**) add oxide-ws-rpc crate with JSON-RPC 2.0 message types - (5e18cb1) - Kevin Lanni
+#### Bug Fixes
+- (**ci**) force remove existing containers with docker rm -f before docker compose up in restart workflow - (1391a83) - Kevin Lanni
+- (**ci**) update restart workflow to start staged release whether server was running or not - (cb29519) - Kevin Lanni
+- (**ci**) resolve running container ID dynamically via docker compose ps in restart workflow - (352b1a0) - Kevin Lanni
+- (**ci**) use docker compose down to eliminate container name conflict during restart - (9d23c7a) - Kevin Lanni
+- (**ci**) simplify restart workflow to build image and signal container with SIGTERM - (f854a42) - Kevin Lanni
+- (**ci**) run docker exec as root user to write console commands to /proc/1/fd/0 and prefix broadcasts - (ac040fa) - Kevin Lanni
+- (**ci**) cd to INSTALL_DIR before docker compose build in restart workflow - (0e02944) - Kevin Lanni
+- (**mcp**) append /ws/rpc to legacy base URLs without a path - (904f835) - Kevin Lanni
+- (**server**) harden /ws/rpc content write/delete against symlink escape, offload blocking FS, redact paths - (b9504ce) - Kevin Lanni
+- (**ws-rpc**) send requests as text frames to match the server and reader - (326343a) - Kevin Lanni
+- (**ws-rpc**) skip malformed inbound frames instead of tearing down the client - (64f46be) - Kevin Lanni
+- (**ws-rpc**) remove pending-map entry on call timeout and send failure - (25bb4d8) - Kevin Lanni
+#### Documentation
+- update getting_started MCP endpoint to /ws/rpc - (2297097) - Kevin Lanni
+- document /ws/rpc JSON-RPC bridge and oxide-ws-rpc crate - (5504616) - Kevin Lanni
+
+- - -
+
 ## 0.6.1 - 2026-08-21
 #### Bug Fixes
 - (**install**) restore clean interactive vs non-interactive block scoping in install.sh - (36e4ef9) - Kevin Lanni
