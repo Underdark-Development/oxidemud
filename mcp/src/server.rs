@@ -115,14 +115,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_mob(&ctx, params)
     }
     #[tool(description = "Create a new mob template")]
-    fn create_mob(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_mob(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_mob(&ctx, params)
+        crate::handlers::entities::create_mob(&ctx, params).await
     }
     #[tool(description = "Delete a mob template")]
-    fn delete_mob(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_mob(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_mob(&ctx, params)
+        crate::handlers::entities::delete_mob(&ctx, params).await
     }
     #[tool(description = "List all item templates")]
     fn list_items(&self) -> String {
@@ -135,14 +135,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_item(&ctx, params)
     }
     #[tool(description = "Create a new item template")]
-    fn create_item(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_item(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_item(&ctx, params)
+        crate::handlers::entities::create_item(&ctx, params).await
     }
     #[tool(description = "Delete an item template")]
-    fn delete_item(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_item(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_item(&ctx, params)
+        crate::handlers::entities::delete_item(&ctx, params).await
     }
     #[tool(description = "List all quest templates")]
     fn list_quests(&self) -> String {
@@ -155,14 +155,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_quest(&ctx, params)
     }
     #[tool(description = "Create a new quest template")]
-    fn create_quest(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_quest(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_quest(&ctx, params)
+        crate::handlers::entities::create_quest(&ctx, params).await
     }
     #[tool(description = "Delete a quest template")]
-    fn delete_quest(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_quest(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_quest(&ctx, params)
+        crate::handlers::entities::delete_quest(&ctx, params).await
     }
     #[tool(description = "List all faction templates")]
     fn list_factions(&self) -> String {
@@ -175,14 +175,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_faction(&ctx, params)
     }
     #[tool(description = "Create a new faction template")]
-    fn create_faction(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_faction(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_faction(&ctx, params)
+        crate::handlers::entities::create_faction(&ctx, params).await
     }
     #[tool(description = "Delete a faction template")]
-    fn delete_faction(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_faction(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_faction(&ctx, params)
+        crate::handlers::entities::delete_faction(&ctx, params).await
     }
     #[tool(description = "List all recipe templates")]
     fn list_recipes(&self) -> String {
@@ -195,14 +195,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_recipe(&ctx, params)
     }
     #[tool(description = "Create a new recipe template")]
-    fn create_recipe(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_recipe(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_recipe(&ctx, params)
+        crate::handlers::entities::create_recipe(&ctx, params).await
     }
     #[tool(description = "Delete a recipe template")]
-    fn delete_recipe(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_recipe(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_recipe(&ctx, params)
+        crate::handlers::entities::delete_recipe(&ctx, params).await
     }
     #[tool(description = "List all shop templates")]
     fn list_shops(&self) -> String {
@@ -215,14 +215,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_shop(&ctx, params)
     }
     #[tool(description = "Create a new shop template")]
-    fn create_shop(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_shop(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_shop(&ctx, params)
+        crate::handlers::entities::create_shop(&ctx, params).await
     }
     #[tool(description = "Delete a shop template")]
-    fn delete_shop(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_shop(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_shop(&ctx, params)
+        crate::handlers::entities::delete_shop(&ctx, params).await
     }
     #[tool(description = "List all deity templates")]
     fn list_deities(&self) -> String {
@@ -235,14 +235,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_deity(&ctx, params)
     }
     #[tool(description = "Create a new deity template")]
-    fn create_deity(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_deity(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_deity(&ctx, params)
+        crate::handlers::entities::create_deity(&ctx, params).await
     }
     #[tool(description = "Delete a deity template")]
-    fn delete_deity(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_deity(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_deity(&ctx, params)
+        crate::handlers::entities::delete_deity(&ctx, params).await
     }
     #[tool(description = "List all stance templates")]
     fn list_stances(&self) -> String {
@@ -255,14 +255,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_stance(&ctx, params)
     }
     #[tool(description = "Create a new stance template")]
-    fn create_stance(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_stance(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_stance(&ctx, params)
+        crate::handlers::entities::create_stance(&ctx, params).await
     }
     #[tool(description = "Delete a stance template")]
-    fn delete_stance(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_stance(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_stance(&ctx, params)
+        crate::handlers::entities::delete_stance(&ctx, params).await
     }
     #[tool(description = "List all item set templates")]
     fn list_sets(&self) -> String {
@@ -275,14 +275,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_set(&ctx, params)
     }
     #[tool(description = "Create a new item set template")]
-    fn create_set(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_set(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_set(&ctx, params)
+        crate::handlers::entities::create_set(&ctx, params).await
     }
     #[tool(description = "Delete an item set template")]
-    fn delete_set(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_set(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_set(&ctx, params)
+        crate::handlers::entities::delete_set(&ctx, params).await
     }
     #[tool(description = "List all affix templates")]
     fn list_affixes(&self) -> String {
@@ -295,14 +295,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_affix(&ctx, params)
     }
     #[tool(description = "Create a new affix template")]
-    fn create_affix(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_affix(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_affix(&ctx, params)
+        crate::handlers::entities::create_affix(&ctx, params).await
     }
     #[tool(description = "Delete an affix template")]
-    fn delete_affix(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_affix(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_affix(&ctx, params)
+        crate::handlers::entities::delete_affix(&ctx, params).await
     }
     #[tool(description = "List all passive templates")]
     fn list_passives(&self) -> String {
@@ -315,14 +315,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_passive(&ctx, params)
     }
     #[tool(description = "Create a new passive template")]
-    fn create_passive(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_passive(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_passive(&ctx, params)
+        crate::handlers::entities::create_passive(&ctx, params).await
     }
     #[tool(description = "Delete a passive template")]
-    fn delete_passive(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_passive(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_passive(&ctx, params)
+        crate::handlers::entities::delete_passive(&ctx, params).await
     }
     #[tool(description = "List all skill templates")]
     fn list_skills(&self) -> String {
@@ -335,14 +335,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_skill(&ctx, params)
     }
     #[tool(description = "Create a new skill template")]
-    fn create_skill(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_skill(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_skill(&ctx, params)
+        crate::handlers::entities::create_skill(&ctx, params).await
     }
     #[tool(description = "Delete a skill template")]
-    fn delete_skill(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_skill(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_skill(&ctx, params)
+        crate::handlers::entities::delete_skill(&ctx, params).await
     }
     #[tool(description = "List all race templates")]
     fn list_races(&self) -> String {
@@ -355,14 +355,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_race(&ctx, params)
     }
     #[tool(description = "Create a new race template")]
-    fn create_race(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_race(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_race(&ctx, params)
+        crate::handlers::entities::create_race(&ctx, params).await
     }
     #[tool(description = "Delete a race template")]
-    fn delete_race(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_race(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_race(&ctx, params)
+        crate::handlers::entities::delete_race(&ctx, params).await
     }
     #[tool(description = "List all class templates")]
     fn list_classes(&self) -> String {
@@ -375,14 +375,14 @@ impl OxideMcpServer {
         crate::handlers::entities::get_class(&ctx, params)
     }
     #[tool(description = "Create a new class template")]
-    fn create_class(&self, params: Parameters<CreateEntityParams>) -> String {
+    async fn create_class(&self, params: Parameters<CreateEntityParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::create_class(&ctx, params)
+        crate::handlers::entities::create_class(&ctx, params).await
     }
     #[tool(description = "Delete a class template")]
-    fn delete_class(&self, params: Parameters<IdParam>) -> String {
+    async fn delete_class(&self, params: Parameters<IdParam>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::entities::delete_class(&ctx, params)
+        crate::handlers::entities::delete_class(&ctx, params).await
     }
     #[tool(description = "Get template content as TOML for any type")]
     fn get_template_raw(&self, params: Parameters<UpdateFieldsParams>) -> String {

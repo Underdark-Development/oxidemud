@@ -32,7 +32,7 @@ fn resolve_connect_config(args: &[String]) -> (PathBuf, Option<String>, Option<S
         match args[i].as_str() {
             "--online" => {
                 if url.is_none() {
-                    url = Some("http://127.0.0.1:8080".to_string());
+                    url = Some("ws://127.0.0.1:8080/ws/rpc".to_string());
                 }
                 i += 1;
             }
@@ -41,7 +41,7 @@ fn resolve_connect_config(args: &[String]) -> (PathBuf, Option<String>, Option<S
                     url = Some(args[i + 1].clone());
                     i += 2;
                 } else {
-                    url = Some("ws://127.0.0.1:8080/ws/mcp".to_string());
+                    url = Some("ws://127.0.0.1:8080/ws/rpc".to_string());
                     i += 1;
                 }
             }
@@ -87,6 +87,16 @@ fn resolve_connect_config(args: &[String]) -> (PathBuf, Option<String>, Option<S
                 .or_else(|| read_mcp_config_toml("content/mcp_config.toml"))
                 .map(|c| c.key)
         });
+
+    // Normalize any legacy http(s) API base URL to a WebSocket scheme so it can
+    // be handed to `RpcClient::connect` (which requires ws:// or wss://).
+    let resolved_url = resolved_url.map(|u| match u.strip_prefix("http://") {
+        Some(rest) => format!("ws://{rest}"),
+        None => match u.strip_prefix("https://") {
+            Some(rest) => format!("wss://{rest}"),
+            None => u,
+        },
+    });
 
     (resolved_path, resolved_url, resolved_key)
 }
