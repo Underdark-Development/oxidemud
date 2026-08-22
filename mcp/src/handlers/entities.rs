@@ -60,7 +60,10 @@ pub fn get_mob(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String 
     }
 }
 
-pub fn create_mob(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_mob(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let mob = MobTemplate {
@@ -101,12 +104,12 @@ pub fn create_mob(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParam
         scripts: Vec::new(),
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "mobs", "mob", mob)
+    crate::crud::create(ctx, &p.id, "mobs", "mob", mob).await
 }
 
-pub fn delete_mob(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_mob(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "mobs", "mob")
+    crate::crud::delete(ctx, &p.id, "mobs", "mob").await
 }
 
 pub fn list_items(ctx: &HandlerContext<'_>) -> String {
@@ -130,7 +133,10 @@ pub fn get_item(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String
     }
 }
 
-pub fn create_item(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_item(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let item = ItemTemplate {
@@ -156,12 +162,12 @@ pub fn create_item(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPara
         params: HashMap::new(),
         ..Default::default()
     };
-    crate::crud::create(ctx, &p.id, "items", "item", item)
+    crate::crud::create(ctx, &p.id, "items", "item", item).await
 }
 
-pub fn delete_item(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_item(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "items", "item")
+    crate::crud::delete(ctx, &p.id, "items", "item").await
 }
 
 pub fn list_quests(ctx: &HandlerContext<'_>) -> String {
@@ -213,7 +219,10 @@ pub fn get_quest(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Strin
     }
 }
 
-pub fn create_quest(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_quest(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let quest = QuestDef {
@@ -236,12 +245,12 @@ pub fn create_quest(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPar
         scripts: None,
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "quests", "quest", quest)
+    crate::crud::create(ctx, &p.id, "quests", "quest", quest).await
 }
 
-pub fn delete_quest(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_quest(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "quests", "quest")
+    crate::crud::delete(ctx, &p.id, "quests", "quest").await
 }
 
 pub fn list_factions(ctx: &HandlerContext<'_>) -> String {
@@ -274,7 +283,10 @@ pub fn get_faction(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Str
     }
 }
 
-pub fn create_faction(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_faction(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let faction = FactionDef {
@@ -288,12 +300,12 @@ pub fn create_faction(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityP
         relationships: HashMap::new(),
         aggro_below: -500,
     };
-    crate::crud::create(ctx, &p.id, "factions", "faction", faction)
+    crate::crud::create(ctx, &p.id, "factions", "faction", faction).await
 }
 
-pub fn delete_faction(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_faction(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "factions", "faction")
+    crate::crud::delete(ctx, &p.id, "factions", "faction").await
 }
 
 pub fn list_recipes(ctx: &HandlerContext<'_>) -> String {
@@ -334,7 +346,10 @@ pub fn get_recipe(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Stri
     }
 }
 
-pub fn create_recipe(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_recipe(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let recipe = RecipeDef {
@@ -353,12 +368,12 @@ pub fn create_recipe(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPa
         quality_scaling: false,
         script: None,
     };
-    crate::crud::create(ctx, &p.id, "recipes", "recipe", recipe)
+    crate::crud::create(ctx, &p.id, "recipes", "recipe", recipe).await
 }
 
-pub fn delete_recipe(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_recipe(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "recipes", "recipe")
+    crate::crud::delete(ctx, &p.id, "recipes", "recipe").await
 }
 
 pub fn list_shops(ctx: &HandlerContext<'_>) -> String {
@@ -404,7 +419,10 @@ pub fn get_shop(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String
     }
 }
 
-pub fn create_shop(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_shop(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let shop = oxide_core::templates::ShopTemplate {
@@ -418,12 +436,12 @@ pub fn create_shop(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPara
         price_mods: HashMap::new(),
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "shops", "shop", shop)
+    crate::crud::create(ctx, &p.id, "shops", "shop", shop).await
 }
 
-pub fn delete_shop(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_shop(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "shops", "shop")
+    crate::crud::delete(ctx, &p.id, "shops", "shop").await
 }
 
 pub fn list_deities(ctx: &HandlerContext<'_>) -> String {
@@ -464,7 +482,10 @@ pub fn get_deity(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Strin
     }
 }
 
-pub fn create_deity(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_deity(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let deity = oxide_core::templates::DeityTemplate {
@@ -482,12 +503,12 @@ pub fn create_deity(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPar
         prayer_effect: None,
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "deities", "deity", deity)
+    crate::crud::create(ctx, &p.id, "deities", "deity", deity).await
 }
 
-pub fn delete_deity(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_deity(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "deities", "deity")
+    crate::crud::delete(ctx, &p.id, "deities", "deity").await
 }
 
 pub fn list_stances(ctx: &HandlerContext<'_>) -> String {
@@ -511,7 +532,10 @@ pub fn get_stance(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Stri
         }
 }
 
-pub fn create_stance(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_stance(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let stance = StanceDef {
@@ -524,12 +548,12 @@ pub fn create_stance(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPa
         min_level: 1,
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "stances", "stance", stance)
+    crate::crud::create(ctx, &p.id, "stances", "stance", stance).await
 }
 
-pub fn delete_stance(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_stance(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "stances", "stance")
+    crate::crud::delete(ctx, &p.id, "stances", "stance").await
 }
 
 pub fn list_sets(ctx: &HandlerContext<'_>) -> String {
@@ -576,7 +600,10 @@ pub fn get_set(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String 
     }
 }
 
-pub fn create_set(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_set(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let set = SetDef {
@@ -585,12 +612,12 @@ pub fn create_set(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParam
         bonuses: Vec::new(),
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "sets", "set", set)
+    crate::crud::create(ctx, &p.id, "sets", "set", set).await
 }
 
-pub fn delete_set(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_set(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "sets", "set")
+    crate::crud::delete(ctx, &p.id, "sets", "set").await
 }
 
 pub fn list_affixes(ctx: &HandlerContext<'_>) -> String {
@@ -618,7 +645,10 @@ pub fn get_affix(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Strin
         }
 }
 
-pub fn create_affix(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_affix(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let affix = AffixDef {
@@ -634,12 +664,12 @@ pub fn create_affix(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPar
         weight: 1,
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "affixes", "affix", affix)
+    crate::crud::create(ctx, &p.id, "affixes", "affix", affix).await
 }
 
-pub fn delete_affix(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_affix(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "affixes", "affix")
+    crate::crud::delete(ctx, &p.id, "affixes", "affix").await
 }
 
 pub fn list_passives(ctx: &HandlerContext<'_>) -> String {
@@ -673,7 +703,10 @@ pub fn get_passive(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Str
     }
 }
 
-pub fn create_passive(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_passive(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let passive = PassiveDef {
@@ -683,12 +716,12 @@ pub fn create_passive(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityP
         effects: Vec::new(),
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "passives", "passive", passive)
+    crate::crud::create(ctx, &p.id, "passives", "passive", passive).await
 }
 
-pub fn delete_passive(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_passive(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "passives", "passive")
+    crate::crud::delete(ctx, &p.id, "passives", "passive").await
 }
 
 pub fn list_skills(ctx: &HandlerContext<'_>) -> String {
@@ -715,7 +748,10 @@ pub fn get_skill(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Strin
         }
 }
 
-pub fn create_skill(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_skill(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let skill = oxide_core::SkillDef::new(
@@ -724,12 +760,12 @@ pub fn create_skill(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPar
         String::new(),
         oxide_core::SkillType::Combat,
     );
-    crate::crud::create(ctx, &p.id, "skills", "skill", skill)
+    crate::crud::create(ctx, &p.id, "skills", "skill", skill).await
 }
 
-pub fn delete_skill(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_skill(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "skills", "skill")
+    crate::crud::delete(ctx, &p.id, "skills", "skill").await
 }
 
 pub fn list_races(ctx: &HandlerContext<'_>) -> String {
@@ -757,7 +793,10 @@ pub fn get_race(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String
         }
 }
 
-pub fn create_race(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_race(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let race = RaceTemplate {
@@ -774,12 +813,12 @@ pub fn create_race(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPara
         age_max: 100,
         params: HashMap::new(),
     };
-    crate::crud::create(ctx, &p.id, "races", "race", race)
+    crate::crud::create(ctx, &p.id, "races", "race", race).await
 }
 
-pub fn delete_race(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_race(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "races", "race")
+    crate::crud::delete(ctx, &p.id, "races", "race").await
 }
 
 pub fn list_classes(ctx: &HandlerContext<'_>) -> String {
@@ -806,7 +845,10 @@ pub fn get_class(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> Strin
         }
 }
 
-pub fn create_class(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityParams>) -> String {
+pub async fn create_class(
+    ctx: &HandlerContext<'_>,
+    params: Parameters<CreateEntityParams>,
+) -> String {
     let p = params.0;
     let name = p.name.unwrap_or_else(|| p.id.clone());
     let class = ClassTemplate {
@@ -831,10 +873,10 @@ pub fn create_class(ctx: &HandlerContext<'_>, params: Parameters<CreateEntityPar
         starting_gold: oxide_core::templates::WalletAmount::default(),
         deity_policy: oxide_core::templates::DeityPolicy::Any,
     };
-    crate::crud::create(ctx, &p.id, "classes", "class", class)
+    crate::crud::create(ctx, &p.id, "classes", "class", class).await
 }
 
-pub fn delete_class(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
+pub async fn delete_class(ctx: &HandlerContext<'_>, params: Parameters<IdParam>) -> String {
     let p = params.0;
-    crate::crud::delete(ctx, &p.id, "classes", "class")
+    crate::crud::delete(ctx, &p.id, "classes", "class").await
 }

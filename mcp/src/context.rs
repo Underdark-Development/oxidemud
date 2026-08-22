@@ -1,5 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
+
+use oxide_ws_rpc::{RpcClient, RpcError};
 
 use crate::content;
 use crate::params::LoadedPlayer;
@@ -62,35 +65,73 @@ impl<'a> HandlerContext<'a> {
         }
     }
 
+    /// Whether an online WS connection is configured (both URL and API key).
+    pub(crate) fn has_creds(&self) -> bool {
+        self.api_url.is_some() && self.api_key.is_some()
+    }
+
+    /// Open a fresh WS RPC client for the configured endpoint, or return the
+    /// offline-mode / connection error as a String.
+    pub(crate) async fn rpc(&self) -> Result<Arc<RpcClient>, String> {
+        let (url, key) = self.creds()?;
+        RpcClient::connect(url, Some(key))
+            .await
+            .map(Arc::new)
+            .map_err(|e| format!("Failed to connect to MUD server: {e}"))
+    }
+
     pub(crate) async fn fetch_player_state(&self, name: &str) -> Result<LoadedPlayer, String> {
-        let resp = self
-            .authenticated_request(reqwest::Method::GET, format!("/api/character/{name}"))
-            .await?;
-        if resp.status().is_success() {
-            resp.json::<LoadedPlayer>()
-                .await
-                .map_err(|e| format!("Failed to parse MUD Server response as JSON: {e}"))
-        } else {
-            let status = resp.status();
-            match resp.text().await {
-                Ok(t) => Err(format!("Error from server: {t}")),
-                Err(_) => Err(format!("Server returned error status: {}", status)),
+        let client = self.rpc().await?;
+        match client
+            .call_typed::<LoadedPlayer>("player.state", serde_json::json!({ "name": name }))
+            .await
+        {
+            Ok(player) => Ok(player),
+            Err(e) => Err(rpc_typed_error(e)),
+        }
+    }
+
+    /// Run an `imm.*` method and return its human `message` on success. On
+    /// failure returns the offline/connection error or the server's raw error
+    /// message, matching the old REST error body.
+    pub(crate) async fn call_imm(&self, method: &str, params: serde_json::Value) -> String {
+        self.run_imm(method, params, false).await
+    }
+
+    /// Like [`call_imm`](Self::call_imm), but server errors are prefixed with
+    /// `Error from server: ` to match the former REST handlers that did so.
+    pub(crate) async fn call_imm_prefixed(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> String {
+        self.run_imm(method, params, true).await
+    }
+
+    async fn run_imm(&self, method: &str, params: serde_json::Value, prefix: bool) -> String {
+        let client = match self.rpc().await {
+            Ok(c) => c,
+            Err(e) => return e,
+        };
+        match client.call(method, params).await {
+            Ok(value) => value
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Success")
+                .to_string(),
+            Err(e) => {
+                let msg = rpc_error_message(e);
+                if prefix {
+                    format!("Error from server: {msg}")
+                } else {
+                    msg
+                }
             }
         }
     }
-    pub(crate) async fn authenticated_request(
-        &self,
-        method: reqwest::Method,
-        path: String,
-    ) -> Result<reqwest::Response, String> {
-        let (url, key) = self.creds()?;
-        reqwest::Client::new()
-            .request(method, format!("{}{}", url.trim_end_matches('/'), path))
-            .header("Authorization", format!("Bearer {key}"))
-            .send()
-            .await
-            .map_err(|e| format!("Failed to connect to MUD server: {e}"))
-    }
+
+    /// Read-only REST call kept for the `simulate_character_creation` online
+    /// branch (`/api/character/simulate`), which has no WS equivalent.
     pub(crate) async fn authenticated_request_with_body(
         &self,
         method: reqwest::Method,
@@ -107,5 +148,26 @@ impl<'a> HandlerContext<'a> {
         req.send()
             .await
             .map_err(|e| format!("Failed to connect to MUD server: {e}"))
+    }
+}
+
+/// Format an `imm.*` RPC failure into the raw server message (or a transport
+/// fallback), mirroring the old REST error-body text.
+pub(crate) fn rpc_error_message(e: RpcError) -> String {
+    match e {
+        RpcError::Server(m) | RpcError::MethodNotFound(m) => m,
+        other => format!("Failed to connect to MUD server: {other}"),
+    }
+}
+
+/// Format a typed-RPC (e.g. `player.state`) failure, matching the old REST
+/// error wording used by `fetch_player_state`.
+pub(crate) fn rpc_typed_error(e: RpcError) -> String {
+    match e {
+        RpcError::Malformed(m) => format!("Failed to parse MUD Server response as JSON: {m}"),
+        RpcError::Server(m) | RpcError::MethodNotFound(m) => {
+            format!("Error from server: {m}")
+        }
+        other => format!("Failed to connect to MUD server: {other}"),
     }
 }

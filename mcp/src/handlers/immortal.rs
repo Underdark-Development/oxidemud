@@ -2,43 +2,41 @@
 
 use rmcp::handler::server::wrapper::Parameters;
 
-use crate::context::HandlerContext;
+use crate::context::{rpc_error_message, HandlerContext};
 use crate::params::*;
 
 pub async fn list_connected_players(ctx: &HandlerContext<'_>) -> String {
-    let resp = match ctx
-        .authenticated_request(reqwest::Method::GET, "/api/players".to_string())
-        .await
-    {
-        Ok(r) => r,
+    let client = match ctx.rpc().await {
+        Ok(c) => c,
         Err(e) => return e,
     };
-    if resp.status().is_success() {
-        if let Ok(players) = resp.json::<Vec<serde_json::Value>>().await {
-            if players.is_empty() {
-                return "No players currently online.".to_string();
+    match client.call("players.list", serde_json::json!({})).await {
+        Ok(value) => {
+            if let Some(players) = value.as_array() {
+                if players.is_empty() {
+                    return "No players currently online.".to_string();
+                }
+                let mut out = "### Connected Players:\n\n".to_string();
+                out.push_str("| Name | Level | Class | Race | Room Key |\n");
+                out.push_str("|---|---|---|---|---|\n");
+                for p in players {
+                    out.push_str(&format!(
+                        "| {} | {} | {} | {} | {} |\n",
+                        p.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                        p.get("level").and_then(|v| v.as_i64()).unwrap_or(1),
+                        p.get("class").and_then(|v| v.as_str()).unwrap_or("None"),
+                        p.get("race").and_then(|v| v.as_str()).unwrap_or("None"),
+                        p.get("room_key")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Unknown")
+                    ));
+                }
+                out
+            } else {
+                "Error parsing players list from server.".to_string()
             }
-            let mut out = "### Connected Players:\n\n".to_string();
-            out.push_str("| Name | Level | Class | Race | Room Key |\n");
-            out.push_str("|---|---|---|---|---|\n");
-            for p in players {
-                out.push_str(&format!(
-                    "| {} | {} | {} | {} | {} |\n",
-                    p.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"),
-                    p.get("level").and_then(|v| v.as_i64()).unwrap_or(1),
-                    p.get("class").and_then(|v| v.as_str()).unwrap_or("None"),
-                    p.get("race").and_then(|v| v.as_str()).unwrap_or("None"),
-                    p.get("room_key")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Unknown")
-                ));
-            }
-            out
-        } else {
-            "Error parsing players list from server.".to_string()
         }
-    } else {
-        format!("Server returned error status: {}", resp.status())
+        Err(e) => rpc_error_message(e),
     }
 }
 
@@ -50,33 +48,7 @@ pub async fn imm_put_item(ctx: &HandlerContext<'_>, params: Parameters<PutItemPa
         "count": p.count
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/put_item".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse MUD Server response as JSON: {e}"),
-        }
-    } else {
-        match resp.text().await {
-            Ok(err_text) => format!("Error from server: {err_text}"),
-            Err(_) => format!("Server returned error status: {}", status),
-        }
-    }
+    ctx.call_imm_prefixed("imm.put_item", payload).await
 }
 
 pub async fn imm_teleport(ctx: &HandlerContext<'_>, params: Parameters<TeleportParams>) -> String {
@@ -86,33 +58,7 @@ pub async fn imm_teleport(ctx: &HandlerContext<'_>, params: Parameters<TeleportP
         "room_key": p.room_key
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/teleport".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse MUD Server response as JSON: {e}"),
-        }
-    } else {
-        match resp.text().await {
-            Ok(err_text) => format!("Error from server: {err_text}"),
-            Err(_) => format!("Server returned error status: {}", status),
-        }
-    }
+    ctx.call_imm_prefixed("imm.teleport", payload).await
 }
 
 pub async fn imm_force_command(
@@ -131,33 +77,7 @@ pub async fn imm_force_command(
         "command": p.command
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/force_command".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse MUD Server response as JSON: {e}"),
-        }
-    } else {
-        match resp.text().await {
-            Ok(err_text) => format!("Error from server: {err_text}"),
-            Err(_) => format!("Server returned error status: {}", status),
-        }
-    }
+    ctx.call_imm_prefixed("imm.force_command", payload).await
 }
 
 pub async fn imm_set_stat(ctx: &HandlerContext<'_>, params: Parameters<SetStatParams>) -> String {
@@ -177,32 +97,7 @@ pub async fn imm_set_stat(ctx: &HandlerContext<'_>, params: Parameters<SetStatPa
         "xp": p.xp
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/set_stat".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.set_stat", payload).await
 }
 
 pub async fn imm_load_mob(ctx: &HandlerContext<'_>, params: Parameters<LoadMobParams>) -> String {
@@ -212,32 +107,7 @@ pub async fn imm_load_mob(ctx: &HandlerContext<'_>, params: Parameters<LoadMobPa
         "mob_template_id": p.mob_template_id
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/load_mob".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.load_mob", payload).await
 }
 
 pub async fn imm_load_item(ctx: &HandlerContext<'_>, params: Parameters<LoadItemParams>) -> String {
@@ -248,32 +118,7 @@ pub async fn imm_load_item(ctx: &HandlerContext<'_>, params: Parameters<LoadItem
         "count": p.count
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/load_item".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.load_item", payload).await
 }
 
 pub async fn imm_gecho(ctx: &HandlerContext<'_>, params: Parameters<GechoParams>) -> String {
@@ -282,32 +127,7 @@ pub async fn imm_gecho(ctx: &HandlerContext<'_>, params: Parameters<GechoParams>
         "message": p.message
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/gecho".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.gecho", payload).await
 }
 
 pub async fn imm_advance(ctx: &HandlerContext<'_>, params: Parameters<AdvanceParams>) -> String {
@@ -317,32 +137,7 @@ pub async fn imm_advance(ctx: &HandlerContext<'_>, params: Parameters<AdvancePar
         "target_level": p.target_level
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/advance".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.advance", payload).await
 }
 
 pub async fn imm_stat(ctx: &HandlerContext<'_>, params: Parameters<StatParams>) -> String {
@@ -351,27 +146,16 @@ pub async fn imm_stat(ctx: &HandlerContext<'_>, params: Parameters<StatParams>) 
         "target_name": p.target_name
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/stat".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
+    let client = match ctx.rpc().await {
+        Ok(c) => c,
         Err(e) => return e,
     };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.text().await {
-            Ok(t) => t,
+    match client.call("imm.stat", payload).await {
+        Ok(value) => match serde_json::to_string(&value) {
+            Ok(s) => s,
             Err(e) => format!("Failed to read response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
+        },
+        Err(e) => rpc_error_message(e),
     }
 }
 
@@ -381,32 +165,7 @@ pub async fn imm_heal(ctx: &HandlerContext<'_>, params: Parameters<HealParams>) 
         "target_name": p.target_name
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/heal".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.heal", payload).await
 }
 
 pub async fn imm_damage(ctx: &HandlerContext<'_>, params: Parameters<DamageParams>) -> String {
@@ -416,32 +175,7 @@ pub async fn imm_damage(ctx: &HandlerContext<'_>, params: Parameters<DamageParam
         "amount": p.amount
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/damage".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.damage", payload).await
 }
 
 pub async fn imm_kill(ctx: &HandlerContext<'_>, params: Parameters<KillParams>) -> String {
@@ -456,32 +190,7 @@ pub async fn imm_kill(ctx: &HandlerContext<'_>, params: Parameters<KillParams>) 
         "confirm": p.confirm
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/kill".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.kill", payload).await
 }
 
 pub async fn imm_revive(ctx: &HandlerContext<'_>, params: Parameters<ReviveParams>) -> String {
@@ -490,32 +199,7 @@ pub async fn imm_revive(ctx: &HandlerContext<'_>, params: Parameters<ReviveParam
         "target_name": p.target_name
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/revive".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.revive", payload).await
 }
 
 pub async fn imm_set_alignment(
@@ -528,32 +212,7 @@ pub async fn imm_set_alignment(
         "alignment": p.alignment
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/set_alignment".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.set_alignment", payload).await
 }
 
 pub async fn imm_set_faction(
@@ -567,32 +226,7 @@ pub async fn imm_set_faction(
         "standing": p.standing
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/set_faction".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.set_faction", payload).await
 }
 
 pub async fn imm_purge_room(
@@ -610,32 +244,7 @@ pub async fn imm_purge_room(
         "confirm": p.confirm
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/purge_room".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.purge_room", payload).await
 }
 
 pub async fn imm_reboot(ctx: &HandlerContext<'_>, params: Parameters<RebootParams>) -> String {
@@ -650,30 +259,5 @@ pub async fn imm_reboot(ctx: &HandlerContext<'_>, params: Parameters<RebootParam
         "delay_secs": p.delay_secs
     });
 
-    let resp = match ctx
-        .authenticated_request_with_body(
-            reqwest::Method::POST,
-            "/api/imm/reboot".to_string(),
-            Some(&payload),
-        )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-    let status = resp.status();
-    if status.is_success() {
-        match resp.json::<serde_json::Value>().await {
-            Ok(res) => res
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
-            Err(e) => format!("Failed to parse response: {e}"),
-        }
-    } else {
-        resp.text()
-            .await
-            .unwrap_or_else(|_| format!("Error status: {status}"))
-    }
+    ctx.call_imm("imm.reboot", payload).await
 }
