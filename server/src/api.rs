@@ -667,23 +667,62 @@ fn require_confirm(params: &Option<serde_json::Value>) -> Result<(), RpcErrorBod
     }
 }
 
+/// Render a path relative to `base` for client-facing messages, so absolute
+/// content-root or temp staging paths never leak back to a remote RPC caller.
+/// Falls back to just the file name (never a full server path).
+fn redacted_rel_path(path: &FsPath, base: &FsPath) -> String {
+    path.strip_prefix(base)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| {
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "<path>".to_string())
+        })
+}
+
+/// Defense-in-depth against a symlinked *final* path component. The
+/// containment check canonicalizes an existing trailing directory, but a FILE
+/// symlink as the last component is not canonicalized, so `fs::write`/unlink
+/// through it could escape the content root. Reject it here (a *missing*
+/// target is fine — it just gets created).
+fn reject_final_symlink(resolved: &FsPath, rel: &str) -> Result<(), RpcErrorBody> {
+    if fs::symlink_metadata(resolved)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(rpc_error(
+            ERR_CONTENT_VALIDATION,
+            format!("refusing to operate through a symlink: {rel}"),
+            None,
+        ));
+    }
+    Ok(())
+}
+
 /// Copy a directory tree (used to build a throwaway staging area for the
-/// content-validation gate).
-fn copy_dir_recursive(src: &FsPath, dst: &PathBuf) -> Result<(), String> {
+/// content-validation gate). Error messages reference paths relative to `base`
+/// (the content root) so no absolute server path is surfaced.
+fn copy_dir_recursive(src: &FsPath, dst: &FsPath, base: &FsPath) -> Result<(), String> {
     fs::create_dir_all(dst).map_err(|e| format!("failed to create staging dir: {e}"))?;
-    let entries =
-        fs::read_dir(src).map_err(|e| format!("failed to read dir {}: {e}", src.display()))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("failed to read dir: {e}"))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("failed to read dir entry: {e}"))?;
-        let ft = entry
-            .file_type()
-            .map_err(|e| format!("failed to stat {}: {e}", entry.path().display()))?;
+        let ft = entry.file_type().map_err(|e| {
+            format!(
+                "failed to stat {}: {e}",
+                redacted_rel_path(&entry.path(), base)
+            )
+        })?;
         let to = dst.join(entry.file_name());
         if ft.is_dir() {
-            copy_dir_recursive(&entry.path(), &to)?;
+            copy_dir_recursive(&entry.path(), &to, base)?;
         } else if ft.is_file() {
-            fs::copy(entry.path(), &to)
-                .map_err(|e| format!("failed to copy {}: {e}", entry.path().display()))?;
+            fs::copy(entry.path(), &to).map_err(|e| {
+                format!(
+                    "failed to copy {}: {e}",
+                    redacted_rel_path(&entry.path(), base)
+                )
+            })?;
         }
     }
     Ok(())
@@ -718,8 +757,20 @@ fn resolve_content_path(content_dir: &FsPath, rel: &str) -> Result<PathBuf, RpcE
         ));
     }
     let resolved = content_dir.join(p);
-    oxide_core::content::assert_within_content_dir(content_dir, &resolved)
-        .map_err(|e| rpc_error(ERR_INVALID_PARAMS, e, None))?;
+    // Map the containment check's error (which embeds the absolute content
+    // path) to a caller-relative message, so no server path leaks to the RPC
+    // client. The server-side absolute path is still logged below.
+    if let Err(e) = oxide_core::content::assert_within_content_dir(content_dir, &resolved) {
+        tracing::error!(
+            "Content path containment check failed for {rel}: {e} (resolved {:?})",
+            resolved
+        );
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            format!("path escapes the content directory: {rel}"),
+            None,
+        ));
+    }
     Ok(resolved)
 }
 
@@ -764,21 +815,49 @@ async fn content_write_method(
             None,
         )
     })?;
-    let resolved = resolve_content_path(&content_dir, rel)?;
 
-    // Write the requested file into the staging tree only.
-    let is_script = rel.ends_with(".rhai");
-    if is_script {
-        // Rhai scripts are not part of the template registry, so the template
-        // gate does not apply; still write so the hot-reloader can compile it.
-        write_file_nested(&resolved, content).map_err(|e| rpc_error(ERR_INTERNAL, e, None))?;
-        return Ok(serde_json::json!({"success": true, "message": format!("written {rel}")}));
+    // All file-system work (resolve, symlink check, staging copy, registry
+    // parse/validate, and the final write) is blocking and off the tokio
+    // worker: the closure is `Send + 'static`, owns its inputs, and returns a
+    // client-safe result. Errors already carry caller-relative paths only.
+    let content_dir = content_dir.clone();
+    let rel = rel.to_string();
+    let content = content.to_string();
+    tokio::task::spawn_blocking(move || write_content_sync(&content_dir, &rel, &content))
+        .await
+        .map_err(|e| {
+            rpc_error(
+                ERR_INTERNAL,
+                format!("content write task failed: {e}"),
+                None,
+            )
+        })?
+        .map(|message| serde_json::json!({ "success": true, "message": message }))
+}
+
+/// Blocking half of `content.write` (run inside `spawn_blocking`): resolve the
+/// path, reject a symlinked final component, then apply the write behind the
+/// validation gate.
+fn write_content_sync(
+    content_dir: &FsPath,
+    rel: &str,
+    content: &str,
+) -> Result<String, RpcErrorBody> {
+    let resolved = resolve_content_path(content_dir, rel)?;
+    reject_final_symlink(&resolved, rel)?;
+
+    // Rhai scripts are not part of the template registry, so the template gate
+    // does not apply; still write so the hot-reloader can compile it.
+    if rel.ends_with(".rhai") {
+        write_file_nested(&resolved, rel, content).map_err(|e| rpc_error(ERR_INTERNAL, e, None))?;
+        return Ok(format!("written {rel}"));
     }
 
     // Build a staged copy of the content tree, apply the write, validate.
+    // The contaminated (copy + validate) tree is never trusted.
     let staging = std::env::temp_dir().join(format!("oxide_ws_rpc_stage_{}", uuid::Uuid::new_v4()));
-    if let Err(e) = copy_dir_recursive(&content_dir, &staging)
-        .and_then(|_| write_file_nested(&staging.join(rel), content))
+    if let Err(e) = copy_dir_recursive(content_dir, &staging, content_dir)
+        .and_then(|_| write_file_nested(&staging.join(rel), rel, content))
     {
         let _ = fs::remove_dir_all(&staging);
         return Err(rpc_error(ERR_INTERNAL, e, None));
@@ -790,10 +869,12 @@ async fn content_write_method(
 
     if !report.errors.is_empty() || !validation_errors.is_empty() {
         let mut errors = Vec::new();
+        // Report paths are under the UUID-temp staging dir; surface them
+        // relative to the caller, never the staging location.
         for e in &report.errors {
             errors.push(serde_json::json!({
                 "category": e.category,
-                "path": e.path.display().to_string(),
+                "path": redacted_rel_path(e.path.as_path(), &staging),
                 "message": e.message,
             }));
         }
@@ -813,20 +894,21 @@ async fn content_write_method(
     }
 
     // Validated: apply the write to the real content tree.
-    write_file_nested(&resolved, content).map_err(|e| rpc_error(ERR_INTERNAL, e, None))?;
+    write_file_nested(&resolved, rel, content).map_err(|e| rpc_error(ERR_INTERNAL, e, None))?;
     tracing::info!("Content write via /ws/rpc: {rel}");
-    Ok(serde_json::json!({"success": true, "message": format!("written {rel}")}))
+    Ok(format!("written {rel}"))
 }
 
 /// Create parent directories and write a file atomically enough for the
 /// hot-reloader (bytes then flush). Only ever called with an already
-/// containment-checked path.
-fn write_file_nested(path: &PathBuf, content: &str) -> Result<(), String> {
+/// containment-checked path; error messages use the caller-relative
+/// `display_name` so no absolute server/staging path leaks to the RPC client.
+fn write_file_nested(path: &FsPath, display_name: &str, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create parent dirs for {}: {e}", path.display()))?;
+            .map_err(|e| format!("failed to create parent dirs for {display_name}: {e}"))?;
     }
-    fs::write(path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))
+    fs::write(path, content).map_err(|e| format!("failed to write {display_name}: {e}"))
 }
 
 /// `content.delete` — params `{ path }`. Removes a template/script file inside
@@ -855,9 +937,32 @@ async fn content_delete_method(
             None,
         )
     })?;
-    let resolved = resolve_content_path(&content_dir, rel)?;
 
-    let md = fs::metadata(&resolved)
+    // The symlink check and unlink are blocking; run off the tokio worker.
+    let content_dir = content_dir.clone();
+    let rel = rel.to_string();
+    tokio::task::spawn_blocking(move || delete_content_sync(&content_dir, &rel))
+        .await
+        .map_err(|e| {
+            rpc_error(
+                ERR_INTERNAL,
+                format!("content delete task failed: {e}"),
+                None,
+            )
+        })?
+        .map(|message| serde_json::json!({ "success": true, "message": message }))
+}
+
+/// Blocking half of `content.delete` (run inside `spawn_blocking`): refuse to
+/// unlink through a symlinked final component, then unlink.
+fn delete_content_sync(content_dir: &FsPath, rel: &str) -> Result<String, RpcErrorBody> {
+    let resolved = resolve_content_path(content_dir, rel)?;
+    reject_final_symlink(&resolved, rel)?;
+
+    // `symlink_metadata` (not `metadata`): a trailing symlink was already
+    // rejected above, so this never resolves through one; a missing file maps
+    // to "not found".
+    let md = fs::symlink_metadata(&resolved)
         .map_err(|_| rpc_error(ERR_INVALID_PARAMS, format!("file not found: {rel}"), None))?;
     if !md.is_file() {
         return Err(rpc_error(
@@ -869,7 +974,7 @@ async fn content_delete_method(
     fs::remove_file(&resolved)
         .map_err(|e| rpc_error(ERR_INTERNAL, format!("failed to delete {rel}: {e}"), None))?;
     tracing::info!("Content delete via /ws/rpc: {rel}");
-    Ok(serde_json::json!({"success": true, "message": format!("deleted {rel}")}))
+    Ok(format!("deleted {rel}"))
 }
 
 async fn auth_middleware(
@@ -2425,6 +2530,48 @@ mod tests {
         // No `..` is present, but the path lands outside the content root via a
         // symlinked directory; the containment check must reject it.
         assert!(resolve_content_path(&content_dir, "linkdir/secret.toml").is_err());
+        let _ = fs::remove_dir_all(&content_dir);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn content_write_delete_rejects_final_component_symlink() {
+        // A FILE symlink as the FINAL path component is not canonicalized by
+        // the containment check (only existing dirs are), so it would otherwise
+        // pass through; `content.write`/`content.delete` must still refuse it.
+        // Tests `write_content_sync`/`delete_content_sync` directly (rather
+        // than via the RPC dispatch) so no other test's shared CONTENT_PATH
+        // OnceLock is disturbed.
+        let content_dir = test_content_dir("symlink-final");
+        let outside = test_content_dir("symlink-final-outside");
+        fs::create_dir_all(&outside).unwrap();
+        let outside_target = outside.join("pwned.toml");
+        fs::write(&outside_target, "ORIGINAL").unwrap();
+        std::os::unix::fs::symlink(&outside_target, content_dir.join("pwn.toml")).unwrap();
+
+        // `content.write` through the symlink is rejected with -32002 and the
+        // outside target is NOT overwritten.
+        let err = write_content_sync(&content_dir, "pwn.toml", "EVIL")
+            .expect_err("write through a symlink must be rejected");
+        assert_eq!(err.code, ERR_CONTENT_VALIDATION);
+        assert_eq!(
+            fs::read_to_string(&outside_target).unwrap(),
+            "ORIGINAL",
+            "the symlink target must not be overwritten"
+        );
+
+        // `content.delete` through the symlink is refused: the link itself is
+        // not unlinked and the outside target is untouched.
+        let err = delete_content_sync(&content_dir, "pwn.toml")
+            .expect_err("delete through a symlink must be rejected");
+        assert_eq!(err.code, ERR_CONTENT_VALIDATION);
+        assert!(
+            fs::symlink_metadata(content_dir.join("pwn.toml")).is_ok(),
+            "the symlink itself must not be unlinked"
+        );
+        assert_eq!(fs::read_to_string(&outside_target).unwrap(), "ORIGINAL");
+
         let _ = fs::remove_dir_all(&content_dir);
         let _ = fs::remove_dir_all(&outside);
     }
