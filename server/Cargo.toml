@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 oxide-core = { path = "../core" }
 oxide-data = { path = "../data" }
+oxide-ws-rpc = { path = "../ws-rpc" }
 tokio = { version = "1", features = ["net", "io-util", "macros", "sync", "time", "rt"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"

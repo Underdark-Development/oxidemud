@@ -1672,6 +1672,7 @@ dependencies = [
  "notify",
  "oxide-core",
  "oxide-data",
+ "oxide-ws-rpc",
  "rcgen",
  "rustls-pemfile",
  "serde",
