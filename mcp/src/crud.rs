@@ -90,8 +90,11 @@ async fn online_delete(ctx: &HandlerContext<'_>, category: &str, id: &str, noun:
         Ok(c) => c,
         Err(e) => return format!("Error: {e}"),
     };
+    // content.delete is a destructive op: the server requires an explicit
+    // `confirm: true` (same contract as the imm.* tools).
     let params = serde_json::json!({
         "path": format!("{category}/{id}.toml"),
+        "confirm": true,
     });
     match client.call("content.delete", params).await {
         Ok(_) => format!("Deleted {noun} '{id}'"),

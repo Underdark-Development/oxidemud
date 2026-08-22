@@ -419,6 +419,15 @@ const ERR_CONTENT_VALIDATION: i64 = -32002;
 const ERR_CONTENT_NOT_CONFIGURED: i64 = -32003;
 const ERR_CONFIRM_REQUIRED: i64 = -32004;
 
+/// Upper bound (bytes) on a single `content.write` `content` string. Content
+/// templates/scripts are far smaller; this caps per-message memory/disk use
+/// from a hostile or buggy client without touching valid writes.
+const MAX_CONTENT_BYTES: usize = 1024 * 1024;
+/// Upper bound on the number of path components in a content-relative `path`.
+const MAX_PATH_DEPTH: usize = 32;
+/// Upper bound on the total length (chars) of a content-relative `path`.
+const MAX_PATH_LEN: usize = 512;
+
 /// JSON-RPC 2.0-over-WebSocket dispatcher at `/ws/rpc`.
 ///
 /// The identity is attached by `auth_middleware` as an `AuthedUser` extension,
@@ -490,6 +499,8 @@ async fn handle_request(req: &RpcRequest, user: &AuthedUser) -> RpcResponse {
         }
         "content.delete" => {
             if let Err(e) = require_immortal(user) {
+                Err(e)
+            } else if let Err(e) = require_confirm(&req.params) {
                 Err(e)
             } else {
                 content_delete_method(user, req).await
@@ -783,6 +794,38 @@ fn resolve_content_path(content_dir: &FsPath, rel: &str) -> Result<PathBuf, RpcE
     Ok(resolved)
 }
 
+/// Cheap pre-write bounds for `content.write`: reject an oversized `content`
+/// payload and an overdeep/overlong `path` before any heavy FS work. Pure and
+/// unit-testable (no content path needed). Real templates, scripts, and their
+/// paths are far smaller than these caps.
+fn validate_content_write_bounds(rel: &str, content: &str) -> Result<(), RpcErrorBody> {
+    if content.len() > MAX_CONTENT_BYTES {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            format!(
+                "content too large: {} bytes exceeds limit of {MAX_CONTENT_BYTES}",
+                content.len()
+            ),
+            None,
+        ));
+    }
+    if rel.chars().count() > MAX_PATH_LEN {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            format!("path too long: exceeds limit of {MAX_PATH_LEN} chars"),
+            None,
+        ));
+    }
+    if FsPath::new(rel).components().count() > MAX_PATH_DEPTH {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            "path has too many components",
+            None,
+        ));
+    }
+    Ok(())
+}
+
 /// `content.write` — params `{ path, content }`. Enforces a hard validation
 /// gate: the proposed write is applied to a staged copy of the content tree,
 /// which is parsed and validated (templates only; `.rhai` scripts are written
@@ -816,6 +859,11 @@ async fn content_write_method(
                 None,
             )
         })?;
+
+    // Cheap bounds before any heavy work: cap per-message payload size and
+    // path depth/length so one hostile or buggy message cannot drive
+    // unbounded memory/disk use (see `validate_content_write_bounds`).
+    validate_content_write_bounds(rel, content)?;
 
     let content_dir = crate::get_content_path().ok_or_else(|| {
         rpc_error(
@@ -2709,6 +2757,70 @@ triggers = []\n";
         assert_eq!(err.code, ERR_INVALID_PARAMS);
 
         let _ = fs::remove_dir_all(&content_dir);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn content_delete_requires_confirm() {
+        // `content.delete` is destructive: like the imm.* ops it must demand
+        // `confirm: true` in params, else -32004. The confirm gate runs in the
+        // dispatcher BEFORE the content path is touched, so this is testable
+        // via handle_request without disturbing the shared CONTENT_PATH OnceLock.
+        let admin = AuthedUser {
+            username: "tester".into(),
+            access_level: "admin".into(),
+        };
+
+        // Without `confirm` (or with `confirm: false`) -> -32004.
+        for params in [
+            serde_json::json!({ "path": "scripts/gone.rhai" }),
+            serde_json::json!({ "path": "scripts/gone.rhai", "confirm": false }),
+        ] {
+            let resp = handle_request(&test_req("content.delete", params), &admin).await;
+            let err = resp.error.expect("delete without confirm must be rejected");
+            assert_eq!(err.code, ERR_CONFIRM_REQUIRED);
+        }
+
+        // With `confirm: true` the gate passes: the response is no longer a
+        // confirm-required error (it proceeds to the content handler, which
+        // either succeeds or fails for an unrelated reason depending on the
+        // shared content path). The actual unlink is covered by
+        // `content_write_delete_roundtrip`.
+        let resp = handle_request(
+            &test_req(
+                "content.delete",
+                serde_json::json!({ "path": "scripts/gone.rhai", "confirm": true }),
+            ),
+            &admin,
+        )
+        .await;
+        if let Some(err) = resp.error {
+            assert_ne!(
+                err.code, ERR_CONFIRM_REQUIRED,
+                "confirm:true must clear the confirm gate"
+            );
+        }
+    }
+
+    #[test]
+    fn content_write_enforces_size_and_path_bounds() {
+        // Cheap pre-write bounds are a pure function, so this needs no content
+        // path (and cannot race the shared CONTENT_PATH OnceLock).
+        let err = validate_content_write_bounds("items/x.toml", &"x".repeat(MAX_CONTENT_BYTES + 1))
+            .expect_err("oversized content must be rejected");
+        assert_eq!(err.code, ERR_INVALID_PARAMS);
+
+        let deep = vec!["a"; MAX_PATH_DEPTH + 1].join("/") + "/x.toml";
+        let err = validate_content_write_bounds(&deep, "id = \\\"x\\\"")
+            .expect_err("overdeep path must be rejected");
+        assert_eq!(err.code, ERR_INVALID_PARAMS);
+
+        let long_path = "a/".repeat(MAX_PATH_LEN) + "x.toml";
+        let err = validate_content_write_bounds(&long_path, "id = \\\"x\\\"")
+            .expect_err("overlong path must be rejected");
+        assert_eq!(err.code, ERR_INVALID_PARAMS);
+
+        // A normal short template path + modest content passes the bounds.
+        assert!(validate_content_write_bounds("items/x.toml", "id = \\\"x\\\"").is_ok());
     }
 
     #[test]
