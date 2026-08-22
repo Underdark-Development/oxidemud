@@ -5,9 +5,9 @@
 # actually restarts onto the staged version. Trigger it manually from the
 # Actions tab after a release has been deployed (staged).
 #
-# It connects to the running server's in-container console by writing to
-# `/proc/1/fd/0`, verifies console reachability with a harmless `who`, builds
-# the new image from the staged files, then
+# It connects to the running server's in-container console via bounded
+# `docker attach` sessions, verifies console reachability with a harmless
+# `who`, builds the new image from the staged files, then
 # broadcasts a 5-minute per-minute countdown to players before issuing a
 # graceful shutdown through the console (watch-signal shutdown that flushes
 # the database) and starting the newly staged version.
@@ -86,13 +86,19 @@ jobs:
 
           console_cmd() {
             local command="$1"
+            local label="${2:-$command}"
             local container_id
             container_id="$(running_container_id)"
             if [ -z "$container_id" ]; then
-              echo "ERROR: $CONTAINER is not running; cannot send console command: $command" >&2
+              echo "ERROR: $CONTAINER is not running; cannot send console command: $label" >&2
               return 1
             fi
-            printf '%s\n' "$command" | docker exec -i "$container_id" sh -c 'cat > /proc/1/fd/0'
+            echo "Sending console command: $label"
+            {
+              printf '%s\n' "$command"
+              sleep 1
+              printf '\020\021'
+            } | timeout 15s docker attach --sig-proxy=false "$container_id" >/tmp/oxide-console-command.log 2>&1
           }
 
           echo "Verifying live server console..."
@@ -105,11 +111,14 @@ jobs:
           echo "Broadcasting restart countdown..."
           for minutes in 5 4 3 2 1; do
             if [ "$minutes" -eq 5 ]; then
-              console_cmd "broadcast New server version upgrade (v$VERSION), server will restart in 5 minutes..."
+              echo "Broadcasting 5-minute restart warning..."
+              console_cmd "broadcast New server version upgrade (v$VERSION), server will restart in 5 minutes..." "broadcast 5-minute warning"
             elif [ "$minutes" -eq 1 ]; then
-              console_cmd "broadcast Server will restart in 1 minute..."
+              echo "Broadcasting 1-minute restart warning..."
+              console_cmd "broadcast Server will restart in 1 minute..." "broadcast 1-minute warning"
             else
-              console_cmd "broadcast Server will restart in $minutes minutes..."
+              echo "Broadcasting $minutes-minute restart warning..."
+              console_cmd "broadcast Server will restart in $minutes minutes..." "broadcast $minutes-minute warning"
             fi
             sleep 60
           done
@@ -122,7 +131,8 @@ jobs:
           fi
           docker update --restart=no "$OLD_CONTAINER_ID" >/dev/null
           console_cmd "shutdown"
-          console_cmd "yes"
+          sleep 1
+          console_cmd "yes" "confirm shutdown"
 
           for i in $(seq 1 60); do
             if [ -z "$(running_container_id)" ]; then
