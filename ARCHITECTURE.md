@@ -31,7 +31,7 @@ current_state → trigger_event → validate_transition(a, b) → emit StateChan
 
 ## Cargo Workspace
 
-The project is structured as a Rust Cargo workspace containing seven crates:
+The project is structured as a Rust Cargo workspace containing eight crates:
 
 ```
 oxidemud/
@@ -42,17 +42,19 @@ oxidemud/
 ├── scripting/              # Rhai engine integration, sandboxing, and script bindings
 ├── bin/                    # Executable server entrypoint, CLI, system initialization
 ├── tui/                    # spade visual terminal world builder & client
-└── mcp/                    # Model Context Protocol server bridge for AI agents
+├── mcp/                    # Model Context Protocol server bridge for AI agents
+└── ws-rpc/                 # Shared JSON-RPC 2.0 framing & WebSocket RPC client (server + mcp)
 ```
 
 ### Dependency DAG
 
 - `core` has no workspace dependencies.
 - `data` and `scripting` depend on `core`.
-- `server` depends on `core` and `data`.
+- `server` depends on `core`, `data`, and `ws-rpc`.
 - `bin` depends on `core`, `server`, `data`, and `scripting`.
 - `tui` (spade) depends on `core` and `scripting`.
-- `mcp` depends on `core`.
+- `mcp` depends on `core` and `ws-rpc`.
+- `ws-rpc` (`oxide-ws-rpc`) has no workspace dependencies; it provides the shared JSON-RPC 2.0 types and `RpcClient` used by both `server` and `mcp`.
 
 Game content TOML templates and Rhai scripts live outside the crates under the configurable `content/` directory.
 
@@ -180,7 +182,7 @@ Clickable links, entities, and status gauges formatted as XML tags (`<send>`, `<
 - **Endpoints:**
   - `/ws/play` — Direct web player connection (translates input/output frames).
   - `/ws/spade` — Spade TUI builder stream & live session synchronization.
-  - `/ws/mcp` — Real-time Model Context Protocol AI agent stream.
+  - `/ws/rpc` — JSON-RPC 2.0 bridge over WebSocket for live-server operations (immortal tools, player queries, content write/delete); authenticated via Bearer API key with per-method RBAC. This is a plain JSON-RPC channel, not an MCP protocol endpoint.
 - **TLS & Security Policy:** Supports Automatic ACME (Let's Encrypt), custom TLS certificates, and in-memory self-signed dev certs (`rcgen`). Rejects unencrypted HTTP/WS on non-loopback bindings by default unless `allow_insecure_http = true` is explicitly configured for reverse proxy deployments.
 
 #### REST API & Status (Phase 5/6)
@@ -198,7 +200,7 @@ Implemented via `axum` in `server/src/api.rs`. Provides HTTP endpoints for chara
 
 The MCP crate (`mcp/`) bridges AI agent operations with OxideMUD:
 
-- **Immortal Online Tools (`mcp/src/server.rs`):** Connects to a running game server via the REST API (`server/src/api.rs`). Enforces immortal+ role authentication via API tokens. Destructive operations require an explicit `confirm: true` parameter. Refer directly to `mcp/src/server.rs` for tool registrations.
+- **Immortal Online Tools (`mcp/src/server.rs`):** Connects to a running game server over the `/ws/rpc` WebSocket JSON-RPC bridge via `oxide_ws_rpc::RpcClient` to run live immortal operations, player queries, and generic `content.write`/`content.delete` calls. A validation gate validates content changes before they are written/hot-reloaded by the server. Enforces immortal+ role authentication via API keys with per-method RBAC. Destructive operations require an explicit `confirm: true` parameter. The REST API (`server/src/api.rs`) remains for the offline simulation path. Refer directly to `mcp/src/server.rs` for tool registrations.
 - **Gameplay Simulators (`mcp/src/simulator.rs`):** Local/offline simulation functions that hook into core game modules (loot, combat, progression, gear loadouts, AI wander, shops, crafting, skill use, prayer, group formation, death penalty) to perform balance analysis. Refer directly to `mcp/src/simulator.rs` for function signatures and simulation models.
 
 ---

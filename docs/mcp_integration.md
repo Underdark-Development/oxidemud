@@ -27,24 +27,26 @@ cargo run --bin oxide-mcp [options] [content_path]
 
 The MCP server supports two runtime modes:
 
-| Mode             | Trigger / CLI Flags            | Transport / Data Source                   | Description                                                                                             |
-| :--------------- | :----------------------------- | :---------------------------------------- | :------------------------------------------------------------------------------------------------------ |
-| **Offline Mode** | Default                        | Stdio / Local `content/` TOML files       | Direct atomic TOML file editing and local gameplay simulation without requiring a running server.       |
-| **Online Mode**  | `oxide-mcp --online` or `--ws` | WebSocket (`wss://.../ws/mcp`) / REST API | Connects to a live OxideMUD server over WebSockets for real-time agent execution and streaming updates. |
+| Mode             | Trigger / CLI Flags            | Transport / Data Source                   | Description                                                                                                                                                            |
+| :--------------- | :----------------------------- | :---------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Offline Mode** | Default                        | Stdio / Local `content/` TOML files       | Direct atomic TOML file editing and local gameplay simulation without requiring a running server.                                                                      |
+| **Online Mode**  | `oxide-mcp --online` or `--ws` | WebSocket (`wss://.../ws/rpc`) / JSON-RPC | Connects to a live OxideMUD server over a WebSocket JSON-RPC bridge for real-time agent execution, live immortal operations, player queries, and content write/delete. |
 
 #### Low-Friction Online Mode Execution
+
+In **Online Mode** the MCP tool opens a WebSocket connection to the running server's `/ws/rpc` bridge. Over that channel it runs live immortal operations (teleport, force command, spawning, echoes), looks up players, and writes or deletes game content — all authenticated with your API key. Because this is a streaming WebSocket link rather than one-off HTTP calls, live operations reach the game in real time.
 
 AI Agents and developer tools can connect to a running server effortlessly:
 
 ```bash
-# 1. Quick online connect to default local server (ws://127.0.0.1:8080/ws/mcp):
+# 1. Quick online connect to default local server (ws://127.0.0.1:8080/ws/rpc):
 oxide-mcp --online
 
 # 2. Connect to a custom WebSocket URL:
-oxide-mcp --ws wss://mud.example.com/ws/mcp --key <API_KEY>
+oxide-mcp --ws wss://mud.example.com/ws/rpc --key <API_KEY>
 
 # 3. Environment Variable configuration:
-export OXIDE_WS_URL="wss://mud.example.com/ws/mcp"
+export OXIDE_WS_URL="wss://mud.example.com/ws/rpc"
 export OXIDE_API_KEY="your-api-key"
 oxide-mcp
 ```
@@ -104,9 +106,9 @@ AI agents can execute the following tools via JSON-RPC calls:
 - `simulate_group_formation` — Simulates group formation positioning and tactical stat bonuses.
 - `simulate_death_penalty` — Simulates XP loss, corpse creation, and ghost state transitions upon death.
 
-### Online Immortal Tools (REST API Required)
+### Online Immortal Tools (WebSocket JSON-RPC Bridge)
 
-When configured with `--url` and `--key`, the MCP server connects to a live server via the REST API bridge (`/api/imm/*`):
+When configured with `--ws` (or `--online`) and `--key`, the MCP server connects to a live server over the WebSocket JSON-RPC bridge at `/ws/rpc`. Live immortal operations, player lookups, and content write/delete run over this channel:
 
 - `imm_put_item` — Spawns an item template directly into an online player's inventory.
 - `imm_teleport` — Teleports an online player to a target room key.
