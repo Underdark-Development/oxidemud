@@ -89,13 +89,23 @@ fn resolve_connect_config(args: &[String]) -> (PathBuf, Option<String>, Option<S
         });
 
     // Normalize any legacy http(s) API base URL to a WebSocket scheme so it can
-    // be handed to `RpcClient::connect` (which requires ws:// or wss://).
-    let resolved_url = resolved_url.map(|u| match u.strip_prefix("http://") {
-        Some(rest) => format!("ws://{rest}"),
-        None => match u.strip_prefix("https://") {
-            Some(rest) => format!("wss://{rest}"),
-            None => u,
-        },
+    // be handed to `RpcClient::connect` (which requires ws:// or wss://). A base
+    // URL with no path (scheme + host[:port] only) is assumed to be a legacy
+    // REST base and gets the JSON-RPC bridge path appended; a URL that already
+    // carries a path is left as-is (the caller supplied a full endpoint).
+    let resolved_url = resolved_url.map(|u| {
+        let (scheme, rest) = if let Some(r) = u.strip_prefix("http://") {
+            ("ws://", r)
+        } else if let Some(r) = u.strip_prefix("https://") {
+            ("wss://", r)
+        } else {
+            return u;
+        };
+        if rest.contains('/') {
+            format!("{scheme}{rest}")
+        } else {
+            format!("{scheme}{rest}/ws/rpc")
+        }
     });
 
     (resolved_path, resolved_url, resolved_key)
