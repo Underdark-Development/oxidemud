@@ -6,11 +6,17 @@ This guide is for developers and administrators setting up the **Model Context P
 
 ## Architecture Overview
 
-The MCP server connects AI workflows directly to the MUD content files. It runs as a separate process communicating via standard input/output (stdio) streams or server-sent events (SSE).
+The MCP server connects AI workflows directly to the MUD content files. It runs as a separate process communicating via standard input/output (stdio) streams or server-sent events (SSE). When connected to a running game server, it can also operate over a WebSocket connection to the server's MCP endpoint.
 
 ```
 [ AI Agent Client ] <--- stdio (JSON-RPC) ---> [ MCP Server Crate ] ---> [ Content TOMLs ]
                                                                      ---> [ SQLite Database ]
+```
+
+For live server administration, the running `oxide-server` exposes its own MCP endpoint over WebSocket at `/ws/mcp`. A remote `oxide-mcp` client (or any compliant MCP client) connects to that endpoint with an API key to operate on the live world in real time.
+
+```
+[ Remote MCP Client ] <--- WebSocket (JSON-RPC) ---> [ oxide-server /ws/mcp ] ---> [ Live World ]
 ```
 
 ---
@@ -34,20 +40,17 @@ The MCP server supports two runtime modes:
 
 #### Low-Friction Online Mode Execution
 
-AI Agents and developer tools can connect to a running server effortlessly:
+AI Agents and developer tools can connect to a running server effortlessly. The `oxide-server` exposes a live MCP endpoint at `/ws/mcp`, authenticated by an API key (bearer token). The `oxide-mcp-client` binary connects to it and lists the live server's tools:
 
 ```bash
 # 1. Quick online connect to default local server (ws://127.0.0.1:8080/ws/mcp):
-oxide-mcp --online
+oxide-mcp-client --ws ws://127.0.0.1:8080/ws/mcp --key <API_KEY>
 
 # 2. Connect to a custom WebSocket URL:
-oxide-mcp --ws wss://mud.example.com/ws/mcp --key <API_KEY>
-
-# 3. Environment Variable configuration:
-export OXIDE_WS_URL="wss://mud.example.com/ws/mcp"
-export OXIDE_API_KEY="your-api-key"
-oxide-mcp
+oxide-mcp-client --ws wss://mud.example.com/ws/mcp --key <API_KEY>
 ```
+
+The server-side MCP endpoint exposes live-world tools (connected players, player state, and a focused set of immortal operations) that operate directly on the running server's in-memory state — no separate process or REST hop required.
 
 ---
 

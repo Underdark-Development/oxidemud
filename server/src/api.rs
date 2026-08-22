@@ -396,23 +396,27 @@ async fn ws_spade_handler(ws: WebSocketUpgrade) -> Response {
 }
 
 async fn ws_mcp_handler(ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(|mut socket| async move {
+    ws.on_upgrade(|socket| async move {
         tracing::info!("New MCP WebSocket session established");
-        let greeting = serde_json::json!({
-            "status": "connected",
-            "service": "mcp",
-            "transport": "websocket"
-        })
-        .to_string();
-        let _ = socket.send(AxumWsMessage::Text(greeting)).await;
-
-        while let Some(res) = socket.recv().await {
-            match res {
-                Ok(AxumWsMessage::Text(txt)) if txt.trim() == "ping" => {
-                    let _ = socket.send(AxumWsMessage::Text("pong".into())).await;
+        // Build the in-process server handler; if the server singletons aren't
+        // ready yet, close the connection.
+        let Some(server) = crate::ws_mcp::OxideServerMcp::from_server() else {
+            tracing::warn!("MCP WebSocket rejected: server state not initialized");
+            return;
+        };
+        // Adapt the axum WebSocket into rmcp's server transport via the shared
+        // codec, then run the MCP server loop. rmcp handles initialize,
+        // tools/list, tools/call, notifications, and framing. `waiting()`
+        // keeps the session alive until the client disconnects.
+        let transport = oxide_ws_mcp::WsServerTransport::new(socket);
+        match rmcp::ServiceExt::serve(server, transport).await {
+            Ok(running) => {
+                if let Err(e) = running.waiting().await {
+                    tracing::debug!("MCP WebSocket session ended: {e}");
                 }
-                Ok(AxumWsMessage::Close(_)) | Err(_) => break,
-                _ => {}
+            }
+            Err(e) => {
+                tracing::warn!("MCP WebSocket session failed to initialize: {e}");
             }
         }
     })

@@ -53,6 +53,7 @@ oxidemud/
 - `bin` depends on `core`, `server`, `data`, and `scripting`.
 - `tui` (spade) depends on `core` and `scripting`.
 - `mcp` depends on `core`.
+- `ws-mcp` has no workspace dependencies (shared WebSocket↔rmcp codec used by `server` and `mcp`).
 
 Game content TOML templates and Rhai scripts live outside the crates under the configurable `content/` directory.
 
@@ -180,7 +181,7 @@ Clickable links, entities, and status gauges formatted as XML tags (`<send>`, `<
 - **Endpoints:**
   - `/ws/play` — Direct web player connection (translates input/output frames).
   - `/ws/spade` — Spade TUI builder stream & live session synchronization.
-  - `/ws/mcp` — Real-time Model Context Protocol AI agent stream.
+  - `/ws/mcp` — Real-time Model Context Protocol endpoint. Runs an rmcp server over the WebSocket (via the shared `ws-mcp` codec), exposing live-world tools to remote MCP clients (see `server/src/ws_mcp.rs`).
 - **TLS & Security Policy:** Supports Automatic ACME (Let's Encrypt), custom TLS certificates, and in-memory self-signed dev certs (`rcgen`). Rejects unencrypted HTTP/WS on non-loopback bindings by default unless `allow_insecure_http = true` is explicitly configured for reverse proxy deployments.
 
 #### REST API & Status (Phase 5/6)
@@ -200,6 +201,7 @@ The MCP crate (`mcp/`) bridges AI agent operations with OxideMUD:
 
 - **Immortal Online Tools (`mcp/src/server.rs`):** Connects to a running game server via the REST API (`server/src/api.rs`). Enforces immortal+ role authentication via API tokens. Destructive operations require an explicit `confirm: true` parameter. Refer directly to `mcp/src/server.rs` for tool registrations.
 - **Gameplay Simulators (`mcp/src/simulator.rs`):** Local/offline simulation functions that hook into core game modules (loot, combat, progression, gear loadouts, AI wander, shops, crafting, skill use, prayer, group formation, death penalty) to perform balance analysis. Refer directly to `mcp/src/simulator.rs` for function signatures and simulation models.
+- **WebSocket MCP Endpoint (`server/src/ws_mcp.rs`):** The running server exposes a live MCP server over WebSocket at `/ws/mcp`, backed by the shared `ws-mcp` codec and rmcp. It reads the in-process world/registry/templates directly (no REST hop) and exposes a focused set of live-world tools (connected players, player state, immortal broadcasts, item grants). The `oxide-mcp-client` binary in `mcp/` connects to this endpoint remotely.
 
 ---
 

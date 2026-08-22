@@ -10,6 +10,7 @@ pub mod prompt;
 pub mod registry;
 mod server;
 mod telnet;
+pub mod ws_mcp;
 
 pub use cmd::*;
 pub use connection::*;
