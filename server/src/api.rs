@@ -444,16 +444,7 @@ async fn dispatch_loop(mut socket: WebSocket, user: AuthedUser) {
                     // `id: null` for parse errors, but our `Response.id` is a
                     // `u64`; we use `0` as that sentinel (documented
                     // simplification).
-                    Err(_) => RpcResponse {
-                        jsonrpc: "2.0".to_string(),
-                        id: 0,
-                        result: None,
-                        error: Some(RpcErrorBody {
-                            code: ERR_PARSE,
-                            message: "parse error".to_string(),
-                            data: None,
-                        }),
-                    },
+                    Err(_) => build_parse_error_response(),
                 };
                 if let Ok(out) = serde_json::to_string(&response) {
                     let _ = socket.send(AxumWsMessage::Text(out)).await;
@@ -462,6 +453,24 @@ async fn dispatch_loop(mut socket: WebSocket, user: AuthedUser) {
             Some(Ok(_)) => continue, // ping/pong/binary frames are ignored
             Some(Err(_)) | None => break,
         }
+    }
+}
+
+/// Build the JSON-RPC parse-error response (`-32700`) for a malformed /
+/// non-Request inbound frame. JSON-RPC 2.0 wants `id: null` for parse errors,
+/// but our `Response.id` is a `u64`; we use `0` as that sentinel (documented
+/// simplification). Factored out so the parse-error path is unit-testable
+/// without constructing an axum `WebSocket`.
+fn build_parse_error_response() -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id: 0,
+        result: None,
+        error: Some(RpcErrorBody {
+            code: ERR_PARSE,
+            message: "parse error".to_string(),
+            data: None,
+        }),
     }
 }
 
@@ -2671,5 +2680,58 @@ triggers = []\n";
         assert!(written.contains("test_goblet"));
 
         let _ = fs::remove_dir_all(&content_dir);
+    }
+
+    #[test]
+    fn content_write_delete_roundtrip() {
+        // `content.delete` roundtrip. Uses `write_content_sync`/`delete_content_sync`
+        // directly (rather than via the RPC dispatch) so no other test's shared
+        // CONTENT_PATH OnceLock is disturbed, matching the symlink test.
+        let content_dir = test_content_dir("roundtrip");
+        // Seed a script file through the real write path, then delete it.
+        // `.rhai` bypasses the template validation gate (no registry), keeping
+        // the write both real and dependency-free.
+        write_content_sync(&content_dir, "scripts/thing.rhai", "fn main() {}\n")
+            .expect("seeding the file must succeed");
+        assert!(content_dir.join("scripts/thing.rhai").exists());
+
+        let msg = delete_content_sync(&content_dir, "scripts/thing.rhai")
+            .expect("deleting an existing file must succeed");
+        assert!(msg.contains("deleted"));
+        assert!(
+            !content_dir.join("scripts/thing.rhai").exists(),
+            "the file must be removed from the content tree"
+        );
+
+        // Deleting a non-existent path is an error (not found), not a no-op.
+        let err = delete_content_sync(&content_dir, "scripts/ghost.rhai")
+            .expect_err("deleting a missing file must fail");
+        assert_eq!(err.code, ERR_INVALID_PARAMS);
+
+        let _ = fs::remove_dir_all(&content_dir);
+    }
+
+    #[test]
+    fn dispatch_loop_rejects_malformed_frame() {
+        // A malformed frame (invalid JSON, or valid JSON that isn't a Request)
+        // must map to a JSON-RPC parse error (-32700) response and never panic
+        // in dispatch_loop. We exercise the exact parse branch: assert the
+        // frame fails `serde_json::from_str::<RpcRequest>` (the condition
+        // dispatch_loop dispatches on) and that it produces the parse-error
+        // response via `build_parse_error_response`.
+        let frames = ["not json {", r#"{"foo": 1}"#, r#"[1,2,3]"#];
+        for frame in frames {
+            assert!(
+                serde_json::from_str::<RpcRequest>(frame).is_err(),
+                "frame should not parse as a Request: {frame:?}"
+            );
+            let response = build_parse_error_response();
+            assert!(response.result.is_none(), "parse error carries no result");
+            let err = response
+                .error
+                .expect("parse-error branch must carry an error body");
+            assert_eq!(err.code, ERR_PARSE, "code must be -32700 (ERR_PARSE)");
+            assert_eq!(err.message, "parse error");
+        }
     }
 }
