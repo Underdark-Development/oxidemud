@@ -108,7 +108,7 @@ AI agents can execute the following tools via JSON-RPC calls:
 
 ### Online Immortal Tools (WebSocket JSON-RPC Bridge)
 
-When configured with `--ws` (or `--online`) and `--key`, the MCP server connects to a live server over the WebSocket JSON-RPC bridge at `/ws/rpc`. Live immortal operations, player lookups, and content write/delete run over this channel:
+When configured with `--ws` (or `--online`) and `--key`, the MCP server connects to a live server over the WebSocket JSON-RPC bridge at `/ws/rpc`. Live immortal operations, player lookups, and content write/delete run over this channel. As with the destructive `imm_*` tools, `content.delete` requires an explicit `confirm: true` parameter; `content.write` caps message size and path depth:
 
 - `imm_put_item` — Spawns an item template directly into an online player's inventory.
 - `imm_teleport` — Teleports an online player to a target room key.
