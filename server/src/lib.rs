@@ -9,6 +9,7 @@ pub mod persistence;
 pub mod prompt;
 pub mod registry;
 mod server;
+pub mod shutdown;
 mod telnet;
 
 pub use cmd::*;
@@ -18,6 +19,7 @@ pub use login::*;
 pub use persistence::*;
 pub use registry::*;
 pub use server::*;
+pub use shutdown::*;
 pub use telnet::*;
 
 use oxide_core::Entity;

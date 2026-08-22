@@ -2384,12 +2384,25 @@ async fn imm_reboot_core(params: RebootParams) -> Result<serde_json::Value, (Sta
     let delay = params.delay_secs.unwrap_or(0);
     tracing::info!("Server reboot initiated via REST API in {} seconds", delay);
 
-    tokio::spawn(async move {
-        if delay > 0 {
-            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
-        }
-        std::process::exit(0);
-    });
+    if delay == 0 {
+        crate::request_immediate_shutdown("REST API reboot").map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to request graceful reboot: {e}"),
+            )
+        })?;
+    } else {
+        crate::schedule_delayed_shutdown(
+            std::time::Duration::from_secs(delay),
+            "REST API reboot".to_string(),
+        )
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to schedule graceful reboot: {e}"),
+            )
+        })?;
+    }
 
     Ok(serde_json::json!({
         "success": true,

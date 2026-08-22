@@ -233,13 +233,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     commands::register_all_commands(&mut server);
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    if let Err(e) = oxide_server::install_shutdown_sender(shutdown_tx.clone()) {
+        tracing::error!(error = %e, "Failed to install shutdown control");
+    }
 
     // Spawn OS signal handler
-    let signal_shutdown = shutdown_tx.clone();
     tokio::spawn(async move {
-        signals::shutdown_signal().await;
-        tracing::info!("Shutdown requested");
-        let _ = signal_shutdown.send(true);
+        loop {
+            match signals::next_signal_request().await {
+                signals::SignalRequest::ImmediateShutdown => {
+                    if let Err(e) = oxide_server::request_immediate_shutdown("OS signal") {
+                        tracing::error!(error = %e, "Failed to request shutdown from OS signal");
+                    }
+                    break;
+                }
+                signals::SignalRequest::RestartCountdown => {
+                    match oxide_server::schedule_restart_countdown(None) {
+                        Ok(()) => tracing::info!("Restart countdown requested by SIGUSR1"),
+                        Err(oxide_server::ShutdownControlError::AlreadyScheduled) => {
+                            tracing::warn!("Restart countdown already active; ignoring SIGUSR1")
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, "Failed to schedule restart countdown")
+                        }
+                    }
+                }
+            }
+        }
     });
 
     // Spawn server console (stdin reader)

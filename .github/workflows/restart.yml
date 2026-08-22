@@ -5,15 +5,14 @@
 # actually restarts onto the staged version. Trigger it manually from the
 # Actions tab after a release has been deployed (staged).
 #
-# It connects to the running server's in-container console via bounded
-# `docker attach` sessions, verifies console reachability with a harmless
-# `who`, builds the new image from the staged files, then
-# broadcasts a 5-minute per-minute countdown to players before issuing a
-# graceful shutdown through the console (watch-signal shutdown that flushes
-# the database) and starting the newly staged version.
+# It builds the new image from the staged files, then sends SIGUSR1 to the
+# running server container. The server owns the 5-minute per-minute broadcast
+# countdown and graceful shutdown path internally, avoiding Docker TTY/stdin
+# fragility. Once the old container exits, this workflow starts the newly
+# staged version.
 #
-# Any failed broadcast or failed image build aborts BEFORE the server is
-# touched, so a broken release never restarts over a missed countdown.
+# Any failed image build aborts BEFORE the server is touched, so a broken
+# release never restarts over the running server.
 #
 # No inputs: the version to restart onto is read from the staged
 # <install-dir>/.version. Currently supports docker deploy mode only.
@@ -84,66 +83,33 @@ jobs:
             docker ps -q -f "name=^/${CONTAINER}$" 2>/dev/null || true
           }
 
-          console_cmd() {
-            local command="$1"
-            local label="${2:-$command}"
-            local container_id
-            container_id="$(running_container_id)"
-            if [ -z "$container_id" ]; then
-              echo "ERROR: $CONTAINER is not running; cannot send console command: $label" >&2
-              return 1
-            fi
-            echo "Sending console command: $label"
-            {
-              printf '%s\n' "$command"
-              sleep 1
-              printf '\020\021'
-            } | timeout 15s docker attach --sig-proxy=false "$container_id" >/tmp/oxide-console-command.log 2>&1
-          }
-
-          echo "Verifying live server console..."
-          console_cmd "who"
-
           # Build the new image from staged files
           echo "Building image from staged files..."
           docker compose -f "$COMPOSE_FILE" build --no-cache
 
-          echo "Broadcasting restart countdown..."
-          for minutes in 5 4 3 2 1; do
-            if [ "$minutes" -eq 5 ]; then
-              echo "Broadcasting 5-minute restart warning..."
-              console_cmd "broadcast New server version upgrade (v$VERSION), server will restart in 5 minutes..." "broadcast 5-minute warning"
-            elif [ "$minutes" -eq 1 ]; then
-              echo "Broadcasting 1-minute restart warning..."
-              console_cmd "broadcast Server will restart in 1 minute..." "broadcast 1-minute warning"
-            else
-              echo "Broadcasting $minutes-minute restart warning..."
-              console_cmd "broadcast Server will restart in $minutes minutes..." "broadcast $minutes-minute warning"
-            fi
-            sleep 60
-          done
-
-          echo "Requesting graceful shutdown through server console..."
           OLD_CONTAINER_ID="$(running_container_id)"
           if [ -z "$OLD_CONTAINER_ID" ]; then
-            echo "ERROR: $CONTAINER stopped before shutdown could be requested." >&2
+            echo "ERROR: $CONTAINER is not running; cannot request restart countdown." >&2
             exit 1
           fi
-          docker update --restart=no "$OLD_CONTAINER_ID" >/dev/null
-          console_cmd "shutdown"
-          sleep 1
-          console_cmd "yes" "confirm shutdown"
 
-          for i in $(seq 1 60); do
+          echo "Requesting in-server restart countdown with SIGUSR1..."
+          docker update --restart=no "$OLD_CONTAINER_ID" >/dev/null
+          docker kill --signal=SIGUSR1 "$OLD_CONTAINER_ID" >/dev/null
+
+          for elapsed in $(seq 0 2 420); do
             if [ -z "$(running_container_id)" ]; then
               echo "Old oxide-server container exited cleanly."
               break
+            fi
+            if [ $((elapsed % 60)) -eq 0 ]; then
+              echo "Waiting for in-server restart countdown to finish (${elapsed}s elapsed)..."
             fi
             sleep 2
           done
 
           if [ -n "$(running_container_id)" ]; then
-            echo "ERROR: $CONTAINER did not exit after graceful shutdown request." >&2
+            echo "ERROR: $CONTAINER did not exit after SIGUSR1 restart countdown request." >&2
             exit 1
           fi
 
