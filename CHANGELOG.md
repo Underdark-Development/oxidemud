@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.8.0 - 2026-08-22
+#### Features
+- (**server**) add better signal processing support and update restart workflow - (c0bc450) - Kevin Lanni
+#### Bug Fixes
+- (**ci**) send restart console commands through attach - (ab64951) - Kevin Lanni
+- (**hooks**) restore restart countdown workflow - (d5e3885) - Kevin Lanni
+
+- - -
+
 ## 0.7.0 - 2026-08-22
 #### Features
 - (**mcp**) switch online tools from REST to /ws/rpc JSON-RPC bridge - (cef8340) - Kevin Lanni
