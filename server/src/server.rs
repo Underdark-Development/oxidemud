@@ -35,6 +35,7 @@ pub(crate) static TEMPLATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::n
 pub(crate) static WORLD: OnceLock<Arc<Mutex<World>>> = OnceLock::new();
 pub(crate) static REGISTRY: OnceLock<Arc<Mutex<ConnectionRegistry>>> = OnceLock::new();
 static COMMANDS: OnceLock<Arc<CommandDispatch>> = OnceLock::new();
+static CONTENT_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
 
 pub type EntitySpawnedCb =
     dyn Fn(&mut World, &mut dyn Connection, &ConnectionRegistry) + Send + Sync;
@@ -307,6 +308,7 @@ impl Server {
 
         // Start the hot-reload file watcher if content_path is set
         if let Some(content_path) = self.content_path {
+            crate::set_content_path(content_path.clone());
             let tx = spawn_hot_reload_processor(content_path.clone());
 
             // Start the notify watcher
@@ -1591,6 +1593,18 @@ pub fn get_world() -> Option<Arc<Mutex<World>>> {
 /// Returns a clone of the connection registry, if initialized.
 pub fn get_registry() -> Option<Arc<Mutex<ConnectionRegistry>>> {
     REGISTRY.get().cloned()
+}
+
+/// Sets the root content directory (templates + scripts) for the API layer.
+///
+/// No-op if already set — the first non-empty value wins.
+pub fn set_content_path(path: std::path::PathBuf) {
+    let _ = CONTENT_PATH.set(path);
+}
+
+/// Returns a clone of the root content directory, if configured.
+pub fn get_content_path() -> Option<std::path::PathBuf> {
+    CONTENT_PATH.get().cloned()
 }
 
 /// Broadcast a message to all connected players from the server console.

@@ -1,7 +1,7 @@
 use axum::{
     extract::{
         ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade},
-        Path, Request,
+        Extension, Path, Request,
     },
     http::{HeaderMap, StatusCode},
     middleware::{self, Next},
@@ -9,13 +9,16 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use std::fs;
 use std::net::SocketAddr;
+use std::path::{Path as FsPath, PathBuf};
 use tokio::sync::watch;
 use tracing;
 
 use crate::config::ApiConfig;
 use crate::connection::{Connection, WsConnection};
 use oxide_core::Attributes;
+use oxide_ws_rpc::{Request as RpcRequest, Response as RpcResponse, RpcErrorBody};
 
 #[derive(Debug, serde::Deserialize)]
 struct SimulateParams {
@@ -169,6 +172,14 @@ struct RebootParams {
     delay_secs: Option<u64>,
 }
 
+/// Authenticated identity attached to requests by `auth_middleware` so
+/// WebSocket handlers can enforce per-method RBAC.
+#[derive(Clone)]
+struct AuthedUser {
+    username: String,
+    access_level: String,
+}
+
 pub async fn start_api_server(
     config: ApiConfig,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -204,7 +215,7 @@ pub async fn start_api_server(
     let app = Router::new()
         .route("/ws/play", get(ws_play_handler))
         .route("/ws/spade", get(ws_spade_handler))
-        .route("/ws/mcp", get(ws_mcp_handler))
+        .route("/ws/rpc", get(ws_rpc_handler))
         .route("/api/players", get(list_players))
         .route("/api/character/simulate", post(simulate_character))
         .route("/api/character/:name", get(get_character_state))
@@ -395,32 +406,475 @@ async fn ws_spade_handler(ws: WebSocketUpgrade) -> Response {
     })
 }
 
-async fn ws_mcp_handler(ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(|mut socket| async move {
-        tracing::info!("New MCP WebSocket session established");
-        let greeting = serde_json::json!({
-            "status": "connected",
-            "service": "mcp",
-            "transport": "websocket"
-        })
-        .to_string();
-        let _ = socket.send(AxumWsMessage::Text(greeting)).await;
+/// JSON-RPC 2.0 error codes.
+/// Standard codes per spec: parse -32700, invalid params -32602, method not
+/// found -32601, internal -32603.
+/// App-specific (custom range 32xxx, with method prefix codes):
+const ERR_PARSE: i64 = -32700;
+const ERR_INVALID_PARAMS: i64 = -32602;
+const ERR_METHOD_NOT_FOUND: i64 = -32601;
+const ERR_INTERNAL: i64 = -32603;
+const ERR_FORBIDDEN: i64 = -32001;
+const ERR_CONTENT_VALIDATION: i64 = -32002;
+const ERR_CONTENT_NOT_CONFIGURED: i64 = -32003;
+const ERR_CONFIRM_REQUIRED: i64 = -32004;
 
-        while let Some(res) = socket.recv().await {
-            match res {
-                Ok(AxumWsMessage::Text(txt)) if txt.trim() == "ping" => {
-                    let _ = socket.send(AxumWsMessage::Text("pong".into())).await;
+/// JSON-RPC 2.0-over-WebSocket dispatcher at `/ws/rpc`.
+///
+/// The identity is attached by `auth_middleware` as an `AuthedUser` extension,
+/// so per-method RBAC is enforced here (immortal-gated writes vs. read-only
+/// queries available to any `mcp`-scoped API key).
+async fn ws_rpc_handler(ws: WebSocketUpgrade, Extension(user): Extension<AuthedUser>) -> Response {
+    ws.on_upgrade(move |socket: WebSocket| async move {
+        tracing::info!(
+            "New JSON-RPC WebSocket session established (user: {})",
+            user.username
+        );
+        dispatch_loop(socket, user).await;
+    })
+}
+
+async fn dispatch_loop(mut socket: WebSocket, user: AuthedUser) {
+    loop {
+        match socket.recv().await {
+            Some(Ok(AxumWsMessage::Text(text))) => {
+                let response = match serde_json::from_str::<RpcRequest>(&text) {
+                    Ok(req) => handle_request(&req, &user).await,
+                    // Malformed JSON / non-request frame. JSON-RPC 2.0 wants
+                    // `id: null` for parse errors, but our `Response.id` is a
+                    // `u64`; we use `0` as that sentinel (documented
+                    // simplification).
+                    Err(_) => RpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        id: 0,
+                        result: None,
+                        error: Some(RpcErrorBody {
+                            code: ERR_PARSE,
+                            message: "parse error".to_string(),
+                            data: None,
+                        }),
+                    },
+                };
+                if let Ok(out) = serde_json::to_string(&response) {
+                    let _ = socket.send(AxumWsMessage::Text(out)).await;
                 }
-                Ok(AxumWsMessage::Close(_)) | Err(_) => break,
-                _ => {}
+            }
+            Some(Ok(_)) => continue, // ping/pong/binary frames are ignored
+            Some(Err(_)) | None => break,
+        }
+    }
+}
+
+/// Dispatch a single parsed request, applying per-method RBAC, and build the
+/// JSON-RPC response.
+async fn handle_request(req: &RpcRequest, user: &AuthedUser) -> RpcResponse {
+    let outcome = match req.method.as_str() {
+        "ping" => Ok(serde_json::json!("pong")),
+        "players.list" => players_list_method().await,
+        "player.state" => player_state_method(req.params.clone()).await,
+        "content.write" => {
+            if let Err(e) = require_immortal(user) {
+                Err(e)
+            } else {
+                content_write_method(user, req).await
             }
         }
+        "content.delete" => {
+            if let Err(e) = require_immortal(user) {
+                Err(e)
+            } else {
+                content_delete_method(user, req).await
+            }
+        }
+        _ => {
+            if let Some(op) = req.method.strip_prefix("imm.") {
+                // All imm.* methods require immortal+ access.
+                if let Err(e) = require_immortal(user) {
+                    return rpc_response_error(req.id, e);
+                }
+                // Destructive ops additionally require `confirm: true`
+                // (the core fns also enforce this — defense in depth).
+                let params = req.params.clone();
+                if matches!(op, "force_command" | "kill" | "purge_room" | "reboot") {
+                    if let Err(e) = require_confirm(&params) {
+                        return rpc_response_error(req.id, e);
+                    }
+                }
+                imm_dispatch(op, params).await
+            } else {
+                Err(RpcErrorBody {
+                    code: ERR_METHOD_NOT_FOUND,
+                    message: format!("method not found: {}", req.method),
+                    data: None,
+                })
+            }
+        }
+    };
+
+    match outcome {
+        Ok(value) => RpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: req.id,
+            result: Some(value),
+            error: None,
+        },
+        Err(e) => rpc_response_error(req.id, e),
+    }
+}
+
+fn rpc_response_error(id: u64, e: RpcErrorBody) -> RpcResponse {
+    RpcResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: None,
+        error: Some(e),
+    }
+}
+
+fn rpc_error(
+    code: i64,
+    message: impl Into<String>,
+    data: Option<serde_json::Value>,
+) -> RpcErrorBody {
+    RpcErrorBody {
+        code,
+        message: message.into(),
+        data,
+    }
+}
+
+/// Require immortal-level access for writes and imm methods.
+fn require_immortal(user: &AuthedUser) -> Result<(), RpcErrorBody> {
+    let allowed = matches!(
+        user.access_level.to_lowercase().as_str(),
+        "immortal" | "god" | "admin"
+    );
+    if allowed {
+        Ok(())
+    } else {
+        Err(rpc_error(
+            ERR_FORBIDDEN,
+            "forbidden: requires immortal access",
+            None,
+        ))
+    }
+}
+
+/// Dispatch an `imm.<op>` method to the shared REST core logic. The core fns
+/// were refactored to take typed params and return a raw JSON value, so both
+/// the HTTP handlers and this dispatcher reuse the same implementation.
+async fn imm_dispatch(
+    op: &str,
+    params: Option<serde_json::Value>,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    macro_rules! dispatch {
+        ($op:literal, $t:ty, $core:ident) => {
+            if op == $op {
+                let p: $t =
+                    serde_json::from_value(params.clone().unwrap_or(serde_json::Value::Null))
+                        .map_err(|e| {
+                            rpc_error(ERR_INVALID_PARAMS, format!("invalid params: {e}"), None)
+                        })?;
+                return $core(p).await.map_err(|(sc, m)| rpc_status_error(sc, m));
+            }
+        };
+    }
+
+    dispatch!("put_item", PutItemParams, imm_put_item_core);
+    dispatch!("teleport", TeleportParams, imm_teleport_core);
+    dispatch!("force_command", ForceCommandParams, imm_force_command_core);
+    dispatch!("set_stat", SetStatParams, imm_set_stat_core);
+    dispatch!("load_mob", LoadMobParams, imm_load_mob_core);
+    dispatch!("load_item", LoadItemParams, imm_load_item_core);
+    dispatch!("gecho", GechoParams, imm_gecho_core);
+    dispatch!("advance", AdvanceParams, imm_advance_core);
+    dispatch!("stat", StatParams, imm_stat_core);
+    dispatch!("heal", HealParams, imm_heal_core);
+    dispatch!("damage", DamageParams, imm_damage_core);
+    dispatch!("kill", KillParams, imm_kill_core);
+    dispatch!("revive", ReviveParams, imm_revive_core);
+    dispatch!("set_alignment", SetAlignmentParams, imm_set_alignment_core);
+    dispatch!("set_faction", SetFactionParams, imm_set_faction_core);
+    dispatch!("purge_room", PurgeRoomParams, imm_purge_room_core);
+    dispatch!("reboot", RebootParams, imm_reboot_core);
+
+    Err(rpc_error(
+        ERR_METHOD_NOT_FOUND,
+        format!("method not found: imm.{op}"),
+        None,
+    ))
+}
+
+fn rpc_status_error(code: StatusCode, msg: String) -> RpcErrorBody {
+    let rpc_code = match code {
+        StatusCode::BAD_REQUEST => ERR_INVALID_PARAMS,
+        StatusCode::NOT_FOUND => ERR_INVALID_PARAMS,
+        StatusCode::INTERNAL_SERVER_ERROR => ERR_INTERNAL,
+        _ => ERR_INTERNAL,
+    };
+    rpc_error(rpc_code, msg, None)
+}
+
+/// `players.list` — mirrors REST `list_players`, any authenticated key.
+async fn players_list_method() -> Result<serde_json::Value, RpcErrorBody> {
+    list_players().await.map(|j| j.0).map_err(|e| {
+        rpc_error(
+            ERR_INTERNAL,
+            "failed to list players",
+            Some(serde_json::json!({ "status": e.as_u16() })),
+        )
     })
+}
+
+/// `player.state` — mirrors REST `get_character_state` via the shared
+/// `load_player_data_from_db` helper. Params `{ name }`.
+async fn player_state_method(
+    params: Option<serde_json::Value>,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    let name = params
+        .as_ref()
+        .and_then(|p| p.get("name"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            rpc_error(
+                ERR_INVALID_PARAMS,
+                "invalid params: missing string 'name'",
+                None,
+            )
+        })?;
+    let db_lock =
+        crate::get_db().ok_or_else(|| rpc_error(ERR_INTERNAL, "database unavailable", None))?;
+    let db = db_lock.lock().await;
+    load_player_data_from_db(&db, &name).map_err(|(sc, m)| rpc_status_error(sc, m))
+}
+
+/// Destructive imm ops must carry `confirm: true` in params per JSON-RPC.
+fn require_confirm(params: &Option<serde_json::Value>) -> Result<(), RpcErrorBody> {
+    let ok = params
+        .as_ref()
+        .and_then(|p| p.get("confirm"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if ok {
+        Ok(())
+    } else {
+        Err(rpc_error(
+            ERR_CONFIRM_REQUIRED,
+            "confirmation required: set 'confirm' to true",
+            None,
+        ))
+    }
+}
+
+/// Copy a directory tree (used to build a throwaway staging area for the
+/// content-validation gate).
+fn copy_dir_recursive(src: &FsPath, dst: &PathBuf) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("failed to create staging dir: {e}"))?;
+    let entries =
+        fs::read_dir(src).map_err(|e| format!("failed to read dir {}: {e}", src.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("failed to read dir entry: {e}"))?;
+        let ft = entry
+            .file_type()
+            .map_err(|e| format!("failed to stat {}: {e}", entry.path().display()))?;
+        let to = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_recursive(&entry.path(), &to)?;
+        } else if ft.is_file() {
+            fs::copy(entry.path(), &to)
+                .map_err(|e| format!("failed to copy {}: {e}", entry.path().display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Resolve a user-supplied content-relative path against the content root,
+/// rejecting absolute paths and `..` traversal, and verifying the resolved
+/// path stays inside the content directory.
+fn resolve_content_path(content_dir: &FsPath, rel: &str) -> Result<PathBuf, RpcErrorBody> {
+    if rel.is_empty() {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            "path must not be empty",
+            None,
+        ));
+    }
+    let p = FsPath::new(rel);
+    if p.is_absolute() {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            "path must be relative to the content directory",
+            None,
+        ));
+    }
+    if p.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            "path traversal is not allowed",
+            None,
+        ));
+    }
+    let resolved = content_dir.join(p);
+    oxide_core::content::assert_within_content_dir(content_dir, &resolved)
+        .map_err(|e| rpc_error(ERR_INVALID_PARAMS, e, None))?;
+    Ok(resolved)
+}
+
+/// `content.write` — params `{ path, content }`. Enforces a hard validation
+/// gate: the proposed write is applied to a staged copy of the content tree,
+/// which is parsed and validated (templates only; `.rhai` scripts are written
+/// directly since they are not part of the template registry). On validation
+/// failure the real tree is untouched.
+async fn content_write_method(
+    _user: &AuthedUser,
+    req: &RpcRequest,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    let rel = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("path"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            rpc_error(
+                ERR_INVALID_PARAMS,
+                "invalid params: missing string 'path'",
+                None,
+            )
+        })?;
+    let content = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("content"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            rpc_error(
+                ERR_INVALID_PARAMS,
+                "invalid params: missing string 'content'",
+                None,
+            )
+        })?;
+
+    let content_dir = crate::get_content_path().ok_or_else(|| {
+        rpc_error(
+            ERR_CONTENT_NOT_CONFIGURED,
+            "content path not configured",
+            None,
+        )
+    })?;
+    let resolved = resolve_content_path(&content_dir, rel)?;
+
+    // Write the requested file into the staging tree only.
+    let is_script = rel.ends_with(".rhai");
+    if is_script {
+        // Rhai scripts are not part of the template registry, so the template
+        // gate does not apply; still write so the hot-reloader can compile it.
+        write_file_nested(&resolved, content).map_err(|e| rpc_error(ERR_INTERNAL, e, None))?;
+        return Ok(serde_json::json!({"success": true, "message": format!("written {rel}")}));
+    }
+
+    // Build a staged copy of the content tree, apply the write, validate.
+    let staging = std::env::temp_dir().join(format!("oxide_ws_rpc_stage_{}", uuid::Uuid::new_v4()));
+    if let Err(e) = copy_dir_recursive(&content_dir, &staging)
+        .and_then(|_| write_file_nested(&staging.join(rel), content))
+    {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(rpc_error(ERR_INTERNAL, e, None));
+    }
+
+    let report = oxide_core::content::load_registry_report(&staging);
+    let validation_errors = report.registry.validate();
+    let _ = fs::remove_dir_all(&staging);
+
+    if !report.errors.is_empty() || !validation_errors.is_empty() {
+        let mut errors = Vec::new();
+        for e in &report.errors {
+            errors.push(serde_json::json!({
+                "category": e.category,
+                "path": e.path.display().to_string(),
+                "message": e.message,
+            }));
+        }
+        for e in &validation_errors {
+            errors.push(serde_json::json!({
+                "template_type": e.template_type,
+                "template_id": e.template_id,
+                "field": e.field,
+                "message": e.message,
+            }));
+        }
+        return Err(rpc_error(
+            ERR_CONTENT_VALIDATION,
+            "content validation failed",
+            Some(serde_json::json!({ "errors": errors })),
+        ));
+    }
+
+    // Validated: apply the write to the real content tree.
+    write_file_nested(&resolved, content).map_err(|e| rpc_error(ERR_INTERNAL, e, None))?;
+    tracing::info!("Content write via /ws/rpc: {rel}");
+    Ok(serde_json::json!({"success": true, "message": format!("written {rel}")}))
+}
+
+/// Create parent directories and write a file atomically enough for the
+/// hot-reloader (bytes then flush). Only ever called with an already
+/// containment-checked path.
+fn write_file_nested(path: &PathBuf, content: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create parent dirs for {}: {e}", path.display()))?;
+    }
+    fs::write(path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))
+}
+
+/// `content.delete` — params `{ path }`. Removes a template/script file inside
+/// the content dir. No validation gate needed: deletion just unlinks the file
+/// and the hot-reloader drops it.
+async fn content_delete_method(
+    _user: &AuthedUser,
+    req: &RpcRequest,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    let rel = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("path"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            rpc_error(
+                ERR_INVALID_PARAMS,
+                "invalid params: missing string 'path'",
+                None,
+            )
+        })?;
+    let content_dir = crate::get_content_path().ok_or_else(|| {
+        rpc_error(
+            ERR_CONTENT_NOT_CONFIGURED,
+            "content path not configured",
+            None,
+        )
+    })?;
+    let resolved = resolve_content_path(&content_dir, rel)?;
+
+    let md = fs::metadata(&resolved)
+        .map_err(|_| rpc_error(ERR_INVALID_PARAMS, format!("file not found: {rel}"), None))?;
+    if !md.is_file() {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            "refusing to delete a directory",
+            None,
+        ));
+    }
+    fs::remove_file(&resolved)
+        .map_err(|e| rpc_error(ERR_INTERNAL, format!("failed to delete {rel}: {e}"), None))?;
+    tracing::info!("Content delete via /ws/rpc: {rel}");
+    Ok(serde_json::json!({"success": true, "message": format!("deleted {rel}")}))
 }
 
 async fn auth_middleware(
     headers: HeaderMap,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
     let auth_header = headers
@@ -474,6 +928,13 @@ async fn auth_middleware(
             return Err(StatusCode::FORBIDDEN);
         }
     }
+
+    // Attach the authenticated identity so WebSocket handlers can enforce
+    // per-method RBAC (e.g. /ws/rpc).
+    request.extensions_mut().insert(AuthedUser {
+        username: username.clone(),
+        access_level: access_level.clone(),
+    });
 
     Ok(next.run(request).await)
 }
@@ -824,9 +1285,9 @@ fn validate_attributes(attrs: &AttributesJson) -> Result<(), String> {
     Ok(())
 }
 
-async fn imm_put_item(
-    Json(params): Json<PutItemParams>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn imm_put_item_core(
+    params: PutItemParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let templates = crate::get_templates().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Templates registry unavailable".to_string(),
@@ -904,15 +1365,21 @@ async fn imm_put_item(
         let _ = tx.send(msg.into_bytes());
     }
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Placed {} (x{}) in {}'s inventory.", item_def.name, params.count.unwrap_or(1), params.player_name)
-    })))
+    }))
 }
 
-async fn imm_teleport(
-    Json(params): Json<TeleportParams>,
+async fn imm_put_item(
+    Json(params): Json<PutItemParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_put_item_core(params).await?))
+}
+
+async fn imm_teleport_core(
+    params: TeleportParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let templates = crate::get_templates().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Templates registry unavailable".to_string(),
@@ -998,15 +1465,21 @@ async fn imm_teleport(
         let _ = execute_forced_command(player_entity, "look").await;
     }
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Teleported {} to room key '{}'.", params.player_name, params.room_key)
-    })))
+    }))
 }
 
-async fn imm_force_command(
-    Json(params): Json<ForceCommandParams>,
+async fn imm_teleport(
+    Json(params): Json<TeleportParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_teleport_core(params).await?))
+}
+
+async fn imm_force_command_core(
+    params: ForceCommandParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     if !params.confirm {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1039,15 +1512,21 @@ async fn imm_force_command(
         .await
         .map_err(|e| (e, "Failed to execute forced command".to_string()))?;
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Forced {} to run command '{}'.", params.player_name, params.command)
-    })))
+    }))
 }
 
-async fn imm_set_stat(
-    Json(params): Json<SetStatParams>,
+async fn imm_force_command(
+    Json(params): Json<ForceCommandParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_force_command_core(params).await?))
+}
+
+async fn imm_set_stat_core(
+    params: SetStatParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1152,15 +1631,21 @@ async fn imm_set_stat(
 
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Updated stats for {}: {}", params.player_name, updated.join(", "))
-    })))
+    }))
 }
 
-async fn imm_load_mob(
-    Json(params): Json<LoadMobParams>,
+async fn imm_set_stat(
+    Json(params): Json<SetStatParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_set_stat_core(params).await?))
+}
+
+async fn imm_load_mob_core(
+    params: LoadMobParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let templates = crate::get_templates().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Templates registry unavailable".to_string(),
@@ -1186,15 +1671,21 @@ async fn imm_load_mob(
     let mob_entity = mob_tpl.spawn(&mut world, target_room, &templates);
     let _ = world.insert(mob_entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Spawned mob '{}' in room '{}'.", mob_tpl.name, params.room_key)
-    })))
+    }))
 }
 
-async fn imm_load_item(
-    Json(params): Json<LoadItemParams>,
+async fn imm_load_mob(
+    Json(params): Json<LoadMobParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_load_mob_core(params).await?))
+}
+
+async fn imm_load_item_core(
+    params: LoadItemParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let templates = crate::get_templates().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Templates registry unavailable".to_string(),
@@ -1235,15 +1726,19 @@ async fn imm_load_item(
     let _ = world.insert(item_entity, (oxide_core::Position::new(target_room),));
     let _ = world.insert(item_entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Spawned item '{}' (x{}) in room '{}'.", item_def.name, count, params.room_key)
-    })))
+    }))
 }
 
-async fn imm_gecho(
-    Json(params): Json<GechoParams>,
+async fn imm_load_item(
+    Json(params): Json<LoadItemParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_load_item_core(params).await?))
+}
+
+async fn imm_gecho_core(params: GechoParams) -> Result<serde_json::Value, (StatusCode, String)> {
     let registry_lock = crate::get_registry().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "Connection registry unavailable".to_string(),
@@ -1253,15 +1748,21 @@ async fn imm_gecho(
     let formatted_msg = format!("\r\n\x1b[1;33m[GLOBAL ECHO] {}\x1b[0m\r\n", params.message);
     reg.broadcast_all(&formatted_msg);
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Broadcasted global echo: '{}'", params.message)
-    })))
+    }))
 }
 
-async fn imm_advance(
-    Json(params): Json<AdvanceParams>,
+async fn imm_gecho(
+    Json(params): Json<GechoParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_gecho_core(params).await?))
+}
+
+async fn imm_advance_core(
+    params: AdvanceParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1287,15 +1788,19 @@ async fn imm_advance(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Advanced {} to level {}.", params.player_name, params.target_level)
-    })))
+    }))
 }
 
-async fn imm_stat(
-    Json(params): Json<StatParams>,
+async fn imm_advance(
+    Json(params): Json<AdvanceParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_advance_core(params).await?))
+}
+
+async fn imm_stat_core(params: StatParams) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1357,7 +1862,7 @@ async fn imm_stat(
             })
         });
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "target": name,
         "level": level,
@@ -1365,12 +1870,16 @@ async fn imm_stat(
         "mana": mana,
         "stamina": stamina,
         "attributes": attrs
-    })))
+    }))
 }
 
-async fn imm_heal(
-    Json(params): Json<HealParams>,
+async fn imm_stat(
+    Json(params): Json<StatParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_stat_core(params).await?))
+}
+
+async fn imm_heal_core(params: HealParams) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1406,15 +1915,19 @@ async fn imm_heal(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Fully healed target '{}'.", params.target_name)
-    })))
+    }))
 }
 
-async fn imm_damage(
-    Json(params): Json<DamageParams>,
+async fn imm_heal(
+    Json(params): Json<HealParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_heal_core(params).await?))
+}
+
+async fn imm_damage_core(params: DamageParams) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1442,15 +1955,19 @@ async fn imm_damage(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Dealt {} damage to {}. Remaining HP: {}.", params.amount, params.target_name, new_hp)
-    })))
+    }))
 }
 
-async fn imm_kill(
-    Json(params): Json<KillParams>,
+async fn imm_damage(
+    Json(params): Json<DamageParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_damage_core(params).await?))
+}
+
+async fn imm_kill_core(params: KillParams) -> Result<serde_json::Value, (StatusCode, String)> {
     if !params.confirm {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1483,15 +2000,19 @@ async fn imm_kill(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Instantly killed target '{}'.", params.target_name)
-    })))
+    }))
 }
 
-async fn imm_revive(
-    Json(params): Json<ReviveParams>,
+async fn imm_kill(
+    Json(params): Json<KillParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_kill_core(params).await?))
+}
+
+async fn imm_revive_core(params: ReviveParams) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1517,15 +2038,21 @@ async fn imm_revive(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Revived target '{}'.", params.target_name)
-    })))
+    }))
 }
 
-async fn imm_set_alignment(
-    Json(params): Json<SetAlignmentParams>,
+async fn imm_revive(
+    Json(params): Json<ReviveParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_revive_core(params).await?))
+}
+
+async fn imm_set_alignment_core(
+    params: SetAlignmentParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1570,15 +2097,21 @@ async fn imm_set_alignment(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Set alignment of {} to '{}'.", params.player_name, params.alignment)
-    })))
+    }))
 }
 
-async fn imm_set_faction(
-    Json(params): Json<SetFactionParams>,
+async fn imm_set_alignment(
+    Json(params): Json<SetAlignmentParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_set_alignment_core(params).await?))
+}
+
+async fn imm_set_faction_core(
+    params: SetFactionParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     let world_lock = crate::get_world().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         "World unavailable".to_string(),
@@ -1613,15 +2146,21 @@ async fn imm_set_faction(
     }
     let _ = world.insert(entity, (oxide_core::Dirty,));
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Set {}'s faction standing with '{}' to {}.", params.player_name, params.faction_id, params.standing)
-    })))
+    }))
 }
 
-async fn imm_purge_room(
-    Json(params): Json<PurgeRoomParams>,
+async fn imm_set_faction(
+    Json(params): Json<SetFactionParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_set_faction_core(params).await?))
+}
+
+async fn imm_purge_room_core(
+    params: PurgeRoomParams,
+) -> Result<serde_json::Value, (StatusCode, String)> {
     if !params.confirm {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1660,15 +2199,19 @@ async fn imm_purge_room(
         let _ = world.despawn(e);
     }
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Purged {} NPC(s) from room '{}'.", count, params.room_key)
-    })))
+    }))
 }
 
-async fn imm_reboot(
-    Json(params): Json<RebootParams>,
+async fn imm_purge_room(
+    Json(params): Json<PurgeRoomParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_purge_room_core(params).await?))
+}
+
+async fn imm_reboot_core(params: RebootParams) -> Result<serde_json::Value, (StatusCode, String)> {
     if !params.confirm {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -1686,10 +2229,16 @@ async fn imm_reboot(
         std::process::exit(0);
     });
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "success": true,
         "message": format!("Server reboot initiated in {} second(s).", delay)
-    })))
+    }))
+}
+
+async fn imm_reboot(
+    Json(params): Json<RebootParams>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    Ok(Json(imm_reboot_core(params).await?))
 }
 
 async fn execute_forced_command(
@@ -1831,5 +2380,149 @@ mod tests {
         let fail_res = load_player_data_from_db(&db, "Nobody");
         assert!(fail_res.is_err());
         assert_eq!(fail_res.unwrap_err().0, StatusCode::NOT_FOUND);
+    }
+
+    fn test_content_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("oxide_ws_rpc_{}_{}", name, uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn test_req(method: &str, params: serde_json::Value) -> RpcRequest {
+        RpcRequest {
+            jsonrpc: "2.0".to_string(),
+            id: 1,
+            method: method.to_string(),
+            params: Some(params),
+        }
+    }
+
+    #[test]
+    fn resolve_content_path_rejects_traversal_absolute_and_escape() {
+        let content_dir = test_content_dir("traversal");
+        // Empty path is rejected.
+        assert!(resolve_content_path(&content_dir, "").is_err());
+        // Absolute paths are not content-relative.
+        assert!(resolve_content_path(&content_dir, "/etc/shadow").is_err());
+        assert!(resolve_content_path(&content_dir, "//etc/passwd").is_err());
+        // `..` traversal in any position is rejected.
+        assert!(resolve_content_path(&content_dir, "../escape.toml").is_err());
+        assert!(resolve_content_path(&content_dir, "sub/../../escape.toml").is_err());
+        assert!(resolve_content_path(&content_dir, "a/b/../../../etc/motd").is_err());
+        // A benign relative path resolves inside the content directory.
+        let ok = resolve_content_path(&content_dir, "items/foo.toml").unwrap();
+        assert_eq!(ok, content_dir.join("items/foo.toml"));
+        let _ = fs::remove_dir_all(&content_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_content_path_rejects_symlink_escape() {
+        let content_dir = test_content_dir("symlink");
+        let outside = test_content_dir("outside");
+        std::os::unix::fs::symlink(&outside, content_dir.join("linkdir")).unwrap();
+        // No `..` is present, but the path lands outside the content root via a
+        // symlinked directory; the containment check must reject it.
+        assert!(resolve_content_path(&content_dir, "linkdir/secret.toml").is_err());
+        let _ = fs::remove_dir_all(&content_dir);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn content_write_validation_gate_never_touches_real_tree_on_error() {
+        // Single shared content dir, set once so the global CONTENT_PATH
+        // OnceLock is not raced across parallel tests.
+        let content_dir = test_content_dir("gate");
+        if crate::get_content_path().is_none() {
+            crate::set_content_path(content_dir.clone());
+        }
+        // Seed a valid area with a spawn point so the world passes the
+        // registry's "at least one [[spawns]]" validation. This also proves a
+        // pre-existing valid tree is copied into staging untouched by a failed
+        // write.
+        let area_dir = content_dir.join("areas/test_area");
+        fs::create_dir_all(area_dir.join("rooms")).unwrap();
+        fs::write(
+            area_dir.join("area.toml"),
+            "id = \"test_area\"\n\
+             name = \"Test Area\"\n\
+             description = \"A test area.\"\n\
+             [[spawns]]\n\
+             room = \"test_room\"\n\
+             label = \"Test Spawn\"\n\
+             description = \"Spawn here.\"\n",
+        )
+        .unwrap();
+        fs::write(
+            area_dir.join("rooms/test_room.toml"),
+            "id = \"test_room\"\n\
+             name = \"Test Room\"\n\
+             description = \"A test room.\"\n",
+        )
+        .unwrap();
+        let admin = AuthedUser {
+            username: "tester".into(),
+            access_level: "admin".into(),
+        };
+
+        // 1. RBAC: a non-immortal key is rejected before any write happens.
+        let lurker = AuthedUser {
+            username: "lurker".into(),
+            access_level: "player".into(),
+        };
+        let resp = handle_request(
+            &test_req(
+                "content.write",
+                serde_json::json!({ "path": "items/x.toml", "content": "id = \"x\"" }),
+            ),
+            &lurker,
+        )
+        .await;
+        let err = resp.error.expect("non-immortal write must be rejected");
+        assert_eq!(err.code, ERR_FORBIDDEN);
+        assert!(!content_dir.join("items/x.toml").exists());
+
+        // 2. Invalid template TOML: validation gate fails with -32002 and the
+        //    real content tree is left untouched (staging-only write).
+        let bad = test_req(
+            "content.write",
+            serde_json::json!({ "path": "items/broken.toml", "content": "id = \"unterminated" }),
+        );
+        let resp = handle_request(&bad, &admin).await;
+        let err = resp.error.expect("invalid content must fail validation");
+        assert_eq!(err.code, ERR_CONTENT_VALIDATION);
+        assert!(
+            !content_dir.join("items/broken.toml").exists(),
+            "invalid write must not reach the real content dir"
+        );
+
+        // 3. Valid template: gate passes and the file lands in the real tree.
+        let valid = "\
+id = \"test_goblet\"\n\
+name = \"Test Goblet\"\n\
+description = \"A test goblet.\"\n\
+item_type = \"misc\"\n\
+subtype = \"trash\"\n\
+rarity = \"common\"\n\
+level_requirement = 1\n\
+weight = 1.0\n\
+value = 0\n\
+flags = []\n\
+allowed_classes = []\n\
+allowed_races = []\n\
+allowed_alignments = []\n\
+triggers = []\n";
+        let ok = test_req(
+            "content.write",
+            serde_json::json!({ "path": "items/test_goblet.toml", "content": valid }),
+        );
+        let resp = handle_request(&ok, &admin).await;
+        assert!(resp.error.is_none(), "valid write failed: {:?}", resp.error);
+        let written = fs::read_to_string(content_dir.join("items/test_goblet.toml"))
+            .expect("valid write must be persisted");
+        assert!(written.contains("test_goblet"));
+
+        let _ = fs::remove_dir_all(&content_dir);
     }
 }
