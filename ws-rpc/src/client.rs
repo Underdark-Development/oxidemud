@@ -162,9 +162,11 @@ async fn reader(mut read: futures_util::stream::SplitStream<WsStream>, pending: 
                     }
                 }
                 Err(_) => {
-                    // Unexpected or malformed frame; release all waiters rather than hang.
-                    fail_all(&pending).await;
-                    break;
+                    // Unexpected or malformed frame: skip it and keep the
+                    // connection alive. A single bad/junk frame from a hostile
+                    // peer must not tear down the whole bridge (see hostile-input
+                    // posture) — only genuine EOF/error/close is fatal.
+                    continue;
                 }
             },
             Some(Ok(Message::Close(_))) => {
