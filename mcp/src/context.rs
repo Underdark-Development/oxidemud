@@ -114,11 +114,7 @@ impl<'a> HandlerContext<'a> {
             Err(e) => return e,
         };
         match client.call(method, params).await {
-            Ok(value) => value
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Success")
-                .to_string(),
+            Ok(value) => imm_message(&value).to_string(),
             Err(e) => {
                 let msg = rpc_error_message(e);
                 if prefix {
@@ -169,5 +165,93 @@ pub(crate) fn rpc_typed_error(e: RpcError) -> String {
             format!("Error from server: {m}")
         }
         other => format!("Failed to connect to MUD server: {other}"),
+    }
+}
+
+/// Extract the human-readable `message` from an `imm.*` RPC response, falling
+/// back to `"Success"` when the server omits or malforms it.
+fn imm_message(value: &serde_json::Value) -> &str {
+    value
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Success")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rpc_error_message_returns_raw_msg_for_server_errors() {
+        assert_eq!(rpc_error_message(RpcError::Server("boom".into())), "boom");
+        assert_eq!(
+            rpc_error_message(RpcError::MethodNotFound("no_such_method".into())),
+            "no_such_method"
+        );
+    }
+
+    #[test]
+    fn rpc_error_message_falls_back_on_transport_errors() {
+        assert_eq!(
+            rpc_error_message(RpcError::Malformed("bad frame".into())),
+            "Failed to connect to MUD server: malformed message: bad frame"
+        );
+        assert_eq!(
+            rpc_error_message(RpcError::Timeout),
+            "Failed to connect to MUD server: request timed out"
+        );
+        assert_eq!(
+            rpc_error_message(RpcError::Closed),
+            "Failed to connect to MUD server: connection closed"
+        );
+        assert_eq!(
+            rpc_error_message(RpcError::Io(std::io::Error::other("disk"))),
+            "Failed to connect to MUD server: io error: disk"
+        );
+    }
+
+    #[test]
+    fn rpc_typed_error_maps_malformed_to_parse_failure() {
+        assert_eq!(
+            rpc_typed_error(RpcError::Malformed("garbage".into())),
+            "Failed to parse MUD Server response as JSON: garbage"
+        );
+    }
+
+    #[test]
+    fn rpc_typed_error_passes_server_errors_through() {
+        assert_eq!(
+            rpc_typed_error(RpcError::Server("denied".into())),
+            "Error from server: denied"
+        );
+        assert_eq!(
+            rpc_typed_error(RpcError::MethodNotFound("player.state".into())),
+            "Error from server: player.state"
+        );
+    }
+
+    #[test]
+    fn rpc_typed_error_falls_back_on_transport_errors() {
+        assert_eq!(
+            rpc_typed_error(RpcError::Timeout),
+            "Failed to connect to MUD server: request timed out"
+        );
+        assert_eq!(
+            rpc_typed_error(RpcError::Closed),
+            "Failed to connect to MUD server: connection closed"
+        );
+    }
+
+    #[test]
+    fn imm_message_extracts_message_or_defaults_to_success() {
+        assert_eq!(imm_message(&serde_json::json!({"message": "done"})), "done");
+        assert_eq!(
+            imm_message(&serde_json::json!({"success": true})),
+            "Success"
+        );
+        // Non-object and non-string message -> default, no panic.
+        assert_eq!(imm_message(&serde_json::json!(42)), "Success");
+        assert_eq!(imm_message(&serde_json::json!("x")), "Success");
+        assert_eq!(imm_message(&serde_json::json!({"message": 42})), "Success");
     }
 }
