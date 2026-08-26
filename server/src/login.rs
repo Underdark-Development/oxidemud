@@ -2,7 +2,6 @@ mod handlers;
 mod prompt;
 mod state;
 
-pub(crate) use handlers::{class_starting_gold, compute_final_attributes};
 pub use state::{
     ChangePasswordSubstate, CharacterCreateSubstate, CharacterSelectSubstate, LoginState,
     LoginSubstate,

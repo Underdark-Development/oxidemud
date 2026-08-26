@@ -125,26 +125,6 @@ impl<'a> HandlerContext<'a> {
             }
         }
     }
-
-    /// Read-only REST call kept for the `simulate_character_creation` online
-    /// branch (`/api/character/simulate`), which has no WS equivalent.
-    pub(crate) async fn authenticated_request_with_body(
-        &self,
-        method: reqwest::Method,
-        path: String,
-        body: Option<&serde_json::Value>,
-    ) -> Result<reqwest::Response, String> {
-        let (url, key) = self.creds()?;
-        let mut req = reqwest::Client::new()
-            .request(method, format!("{}{}", url.trim_end_matches('/'), path))
-            .header("Authorization", format!("Bearer {key}"));
-        if let Some(b) = body {
-            req = req.json(b);
-        }
-        req.send()
-            .await
-            .map_err(|e| format!("Failed to connect to MUD server: {e}"))
-    }
 }
 
 /// Format an `imm.*` RPC failure into the raw server message (or a transport

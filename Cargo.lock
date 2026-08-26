@@ -1644,7 +1644,6 @@ dependencies = [
  "fastrand",
  "oxide-core",
  "oxide-ws-rpc",
- "reqwest",
  "rmcp",
  "schemars",
  "serde",
