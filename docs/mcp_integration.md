@@ -92,6 +92,8 @@ AI agents can execute the following tools via JSON-RPC calls:
 
 ### Simulation Tools
 
+All simulation tools run entirely inside the MCP server against the local content registry (`content/` TOML files). The OxideMUD API/WebSocket bridge is a data provider only — agents read content from the server and send content updates/creates to it, but simulation never round-trips through the server.
+
 - `simulate_combat` — Simulates `N` combat rounds between two mob templates (or a mob and a player-level character). Returns round-by-round hit/miss/damage results and aggregate stats.
 - `simulate_loot <mob_id> <iterations>` — Rolls loot drops from a mob template across multiple iterations and returns drop rate percentages.
 - `simulate_ai_wander <mob_id> <start_room> <ticks>` — Simulates an NPC's AI wander path across a given number of ticks, reporting room visit frequency.

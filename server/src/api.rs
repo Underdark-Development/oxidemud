@@ -17,44 +17,7 @@ use tracing;
 
 use crate::config::ApiConfig;
 use crate::connection::{Connection, WsConnection};
-use oxide_core::Attributes;
 use oxide_ws_rpc::{Request as RpcRequest, Response as RpcResponse, RpcErrorBody};
-
-#[derive(Debug, serde::Deserialize)]
-struct SimulateParams {
-    race_id: String,
-    class_id: String,
-    base_attributes: AttributesJson,
-    selected_skills: Option<Vec<String>>,
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct AttributesJson {
-    strength: u8,
-    dexterity: u8,
-    intelligence: u8,
-    wisdom: u8,
-    constitution: u8,
-    charisma: u8,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct SimulateResponse {
-    attributes: Attributes,
-    hp: i32,
-    mana: u16,
-    stamina: u16,
-    starting_gold: WalletJson,
-    auto_skills: Vec<String>,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct WalletJson {
-    copper: u64,
-    silver: u64,
-    gold: u64,
-    platinum: u64,
-}
 
 #[derive(Debug, serde::Deserialize)]
 struct PutItemParams {
@@ -217,7 +180,6 @@ pub async fn start_api_server(
         .route("/ws/spade", get(ws_spade_handler))
         .route("/ws/rpc", get(ws_rpc_handler))
         .route("/api/players", get(list_players))
-        .route("/api/character/simulate", post(simulate_character))
         .route("/api/character/:name", get(get_character_state))
         .route("/api/imm/put_item", post(imm_put_item))
         .route("/api/imm/teleport", post(imm_teleport))
@@ -1170,84 +1132,6 @@ async fn list_players() -> Result<Json<serde_json::Value>, StatusCode> {
     Ok(Json(serde_json::json!(players_list)))
 }
 
-async fn simulate_character(
-    Json(params): Json<SimulateParams>,
-) -> Result<Json<SimulateResponse>, (StatusCode, String)> {
-    let templates = crate::get_templates().ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "Templates registry unavailable".to_string(),
-    ))?;
-
-    // Validate race & class exist
-    if templates.get_race(&params.race_id).is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("Race '{}' not found", params.race_id),
-        ));
-    }
-    if templates.get_class(&params.class_id).is_none() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("Class '{}' not found", params.class_id),
-        ));
-    }
-
-    // Validate attributes
-    if let Err(e) = validate_attributes(&params.base_attributes) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            format!("Invalid base attributes: {e}"),
-        ));
-    }
-
-    let core_attributes = Attributes::new(
-        params.base_attributes.strength,
-        params.base_attributes.dexterity,
-        params.base_attributes.intelligence,
-        params.base_attributes.wisdom,
-        params.base_attributes.constitution,
-        params.base_attributes.charisma,
-    );
-
-    // Call actual character creation calculations
-    let (attrs, hp, mut learned_skills) = crate::login::compute_final_attributes(
-        Some(&templates),
-        &params.race_id,
-        &params.class_id,
-        &core_attributes,
-    );
-
-    // Apply any selected skills
-    if let Some(selected) = params.selected_skills {
-        for s in selected {
-            learned_skills.grant(&s);
-        }
-    }
-
-    let starting_gold = crate::login::class_starting_gold(Some(&templates), &params.class_id);
-
-    let mana = oxide_core::Mana::from_formula(1, attrs.intelligence as u16, attrs.wisdom as u16);
-    let stamina =
-        oxide_core::Stamina::from_formula(1, attrs.strength as u16, attrs.dexterity as u16);
-
-    // Collect list of granted skills
-    let auto_skills = learned_skills.skills.keys().cloned().collect();
-
-    Ok(Json(SimulateResponse {
-        attributes: attrs,
-        hp,
-        mana: mana.max,
-        stamina: stamina.max,
-        starting_gold: WalletJson {
-            copper: starting_gold.copper,
-            silver: starting_gold.silver,
-            gold: starting_gold.gold,
-            platinum: starting_gold.platinum,
-        },
-        auto_skills,
-    }))
-}
-
 fn load_player_data_from_db(
     db: &oxide_data::Database,
     name: &str,
@@ -1394,57 +1278,6 @@ async fn get_character_state(
     ))?;
     let db = db_lock.lock().await;
     load_player_data_from_db(&db, &name).map(Json)
-}
-
-const POINT_BUY_COST: [u8; 11] = [1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4];
-fn point_buy_cost(current: u8) -> Option<u8> {
-    if !(8..18).contains(&current) {
-        return None;
-    }
-    Some(POINT_BUY_COST[(current - 8) as usize])
-}
-
-fn validate_attributes(attrs: &AttributesJson) -> Result<(), String> {
-    // 1. Check standard array (any permutation of [15, 14, 13, 12, 10, 8])
-    let mut vals = [
-        attrs.strength,
-        attrs.dexterity,
-        attrs.intelligence,
-        attrs.wisdom,
-        attrs.constitution,
-        attrs.charisma,
-    ];
-    vals.sort();
-    let expected_array = [8, 10, 12, 13, 14, 15];
-    if vals == expected_array {
-        return Ok(());
-    }
-
-    // 2. Check Point-Buy
-    for &v in &vals {
-        if !(8..=18).contains(&v) {
-            return Err(format!("Stat value {v} must be between 8 and 18."));
-        }
-    }
-
-    let mut total_cost = 0;
-    for &v in &vals {
-        let mut current = 8;
-        let mut cost = 0;
-        while current < v {
-            cost += point_buy_cost(current).ok_or_else(|| "Invalid stat value".to_string())?;
-            current += 1;
-        }
-        total_cost += cost;
-    }
-
-    if total_cost != 27 {
-        return Err(format!(
-            "Base attributes must match either the Standard Array or Point-Buy with exactly 27 points spent (spent: {total_cost})."
-        ));
-    }
-
-    Ok(())
 }
 
 async fn imm_put_item_core(

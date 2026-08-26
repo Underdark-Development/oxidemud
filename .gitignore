@@ -4,3 +4,4 @@
 *.db-wal
 .env
 mcp_config.toml
+.hermes/
