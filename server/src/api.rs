@@ -2225,16 +2225,13 @@ async fn imm_reboot_core(params: RebootParams) -> Result<serde_json::Value, (Sta
             )
         })?;
     } else {
-        crate::schedule_delayed_shutdown(
-            std::time::Duration::from_secs(delay),
-            "REST API reboot".to_string(),
-        )
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to schedule graceful reboot: {e}"),
-            )
-        })?;
+        crate::schedule_delayed_shutdown(std::time::Duration::from_secs(delay), "REST API reboot")
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Failed to schedule graceful reboot: {e}"),
+                )
+            })?;
     }
 
     Ok(serde_json::json!({

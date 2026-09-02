@@ -111,6 +111,26 @@ fn default_ws_max_message_size() -> usize {
     65536
 }
 
+/// Server shutdown behaviour configuration.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ShutdownConfig {
+    /// Upper bound, in minutes, for accepted delayed shutdown requests.
+    #[serde(default = "default_max_delay_mins")]
+    pub max_delay_mins: u32,
+}
+
+impl Default for ShutdownConfig {
+    fn default() -> Self {
+        Self {
+            max_delay_mins: default_max_delay_mins(),
+        }
+    }
+}
+
+fn default_max_delay_mins() -> u32 {
+    300
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub server_name: String,
@@ -129,6 +149,8 @@ pub struct ServerConfig {
     pub websocket: WebSocketConfig,
     #[serde(default)]
     pub time: oxide_core::TimeConfig,
+    #[serde(default)]
+    pub shutdown: ShutdownConfig,
 }
 
 fn default_prompt() -> String {
@@ -158,6 +180,7 @@ pub fn init(path: &Path) {
             api: ApiConfig::default(),
             websocket: WebSocketConfig::default(),
             time: oxide_core::TimeConfig::default(),
+            shutdown: ShutdownConfig::default(),
         }
     } else {
         toml::from_str(&content).unwrap_or_else(|e| {
@@ -175,6 +198,7 @@ pub fn init(path: &Path) {
                 api: ApiConfig::default(),
                 websocket: WebSocketConfig::default(),
                 time: oxide_core::TimeConfig::default(),
+                shutdown: ShutdownConfig::default(),
             }
         })
     };
@@ -186,6 +210,15 @@ pub fn init(path: &Path) {
 
 pub fn get() -> &'static ServerConfig {
     CONFIG.get().expect("ServerConfig not initialized")
+}
+
+/// Maximum allowed shutdown delay in minutes, falling back to the default
+/// when the config has not been initialized (e.g. in unit tests).
+pub fn shutdown_max_delay_mins() -> u32 {
+    CONFIG
+        .get()
+        .map(|c| c.shutdown.max_delay_mins)
+        .unwrap_or_else(|| ShutdownConfig::default().max_delay_mins)
 }
 
 /// Strictly parse a `server.toml` file for preflight validation.

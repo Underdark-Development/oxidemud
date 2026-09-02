@@ -248,7 +248,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     break;
                 }
                 signals::SignalRequest::RestartCountdown => {
-                    match oxide_server::schedule_restart_countdown(None) {
+                    match oxide_server::schedule_restart_countdown() {
                         Ok(()) => tracing::info!("Restart countdown requested by SIGUSR1"),
                         Err(oxide_server::ShutdownControlError::AlreadyScheduled) => {
                             tracing::warn!("Restart countdown already active; ignoring SIGUSR1")

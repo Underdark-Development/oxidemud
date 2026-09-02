@@ -8,6 +8,11 @@ default_prompt = "<%h/%Hhp %m/%Mmp> "
 retention_days = 5
 rotation = "daily"
 
+[shutdown]
+# Maximum accepted delay (in minutes) for a delayed server shutdown or restart.
+# Callers requesting a longer delay get an error instead of an accepted schedule.
+max_delay_mins = 300
+
 [api]
 enabled = true
 bind_addr = "127.0.0.1:8080"
