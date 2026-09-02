@@ -1,4 +1,5 @@
 pub mod abilities;
+pub mod admin;
 pub mod alias;
 pub mod bank;
 pub mod builder;
@@ -20,6 +21,7 @@ use oxide_server::Server;
 
 pub fn register_all_commands(server: &mut Server) {
     general::register(server);
+    admin::register(server);
     movement::register(server);
     communication::register(server);
     combat::register(server);
