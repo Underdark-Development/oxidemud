@@ -263,9 +263,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Spawn server console (stdin reader)
-    let console_shutdown = shutdown_tx.clone();
+    let console_shutdown_rx = shutdown_tx.subscribe();
     tokio::spawn(async move {
-        console::run_console(console_shutdown).await;
+        console::run_console(console_shutdown_rx).await;
     });
 
     let _ = server.run(shutdown_rx).await;

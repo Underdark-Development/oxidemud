@@ -6,7 +6,7 @@ use tokio::sync::watch;
 use oxide_core::{AccessLevel, Dirty, Name, Player, Position, Room};
 
 /// Run the server console — reads commands from stdin and dispatches them.
-pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
+pub async fn run_console(mut shutdown_rx: watch::Receiver<bool>) {
     // Wait until the server is fully initialized
     while oxide_server::get_world().is_none() || oxide_server::get_db().is_none() {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -17,7 +17,6 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
     let stdin = tokio::io::stdin();
     let mut reader = BufReader::new(stdin);
     let mut line = String::new();
-    let mut shutdown_rx = shutdown_tx.subscribe();
 
     loop {
         line.clear();
@@ -60,20 +59,7 @@ pub async fn run_console(shutdown_tx: watch::Sender<bool>) {
             "apikey" => cmd_apikey(args).await,
             "online" | "who" => cmd_online().await,
             "kick" => cmd_kick(args).await,
-            "shutdown" => {
-                if confirm_destructive(&mut reader, "shutdown").await {
-                    tracing::info!("Console: initiating shutdown");
-                    let _ = shutdown_tx.send(true);
-                    break;
-                }
-            }
-            "restart" => {
-                if confirm_destructive(&mut reader, "restart").await {
-                    tracing::info!("Console: initiating restart");
-                    let _ = shutdown_tx.send(true);
-                    break;
-                }
-            }
+            "shutdown" => cmd_shutdown(&mut reader, args).await,
             _ => {
                 println!("Unknown command: {cmd}. Type 'help' for available commands.");
             }
@@ -151,16 +137,9 @@ static CONSOLE_COMMANDS: &[ConsoleCommand] = &[
     ConsoleCommand {
         name: "shutdown",
         topic: "General",
-        syntax: "shutdown",
-        description: "Gracefully stop the server",
-        example: "",
-    },
-    ConsoleCommand {
-        name: "restart",
-        topic: "General",
-        syntax: "restart",
-        description: "Gracefully stop (restart not yet implemented)",
-        example: "",
+        syntax: "shutdown [now|<minutes>|cancel]",
+        description: "Gracefully stop the server.\n  now       Shut down immediately\n  <minutes> Schedule an announced countdown\n  cancel    Cancel a pending scheduled shutdown",
+        example: "shutdown 30",
     },
     ConsoleCommand {
         name: "account list",
@@ -363,6 +342,53 @@ async fn cmd_broadcast(message: &str) {
         println!("Broadcast sent to {count} player(s).");
     }
     tracing::info!(message, sent = count, "Console broadcast");
+}
+
+async fn cmd_shutdown(reader: &mut BufReader<tokio::io::Stdin>, args: &str) {
+    let arg = args.trim().to_lowercase();
+    match arg.as_str() {
+        "" => {
+            if oxide_server::scheduled_shutdown_pending() {
+                println!(
+                    "A scheduled shutdown is already active. Type 'shutdown cancel' to cancel it."
+                );
+                return;
+            }
+            if !confirm_destructive(reader, "shut down the server").await {
+                return;
+            }
+            match oxide_server::request_immediate_shutdown("console") {
+                Ok(()) => println!("Shutdown signal sent."),
+                Err(e) => println!("Failed to request shutdown: {e}"),
+            }
+        }
+        "now" => {
+            if !confirm_destructive(reader, "shut down the server immediately").await {
+                return;
+            }
+            match oxide_server::request_immediate_shutdown("console") {
+                Ok(()) => println!("Shutdown signal sent."),
+                Err(e) => println!("Failed to request shutdown: {e}"),
+            }
+        }
+        "cancel" => {
+            if oxide_server::cancel_scheduled_shutdown("console") {
+                println!("Scheduled shutdown cancelled.");
+            } else {
+                println!("No scheduled shutdown is active.");
+            }
+        }
+        _ => match arg.parse::<u32>() {
+            Ok(mins) => match oxide_server::validate_delay_minutes(mins) {
+                Ok(delay) => match oxide_server::schedule_delayed_shutdown(delay, "console") {
+                    Ok(()) => println!("Shutdown scheduled in {mins} minute(s)."),
+                    Err(e) => println!("Failed to schedule shutdown: {e}"),
+                },
+                Err(e) => println!("Invalid delay: {e}"),
+            },
+            Err(_) => println!("Usage: shutdown [now|<minutes>|cancel]"),
+        },
+    }
 }
 
 async fn confirm_destructive(reader: &mut BufReader<tokio::io::Stdin>, action: &str) -> bool {
