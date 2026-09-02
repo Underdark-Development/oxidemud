@@ -464,14 +464,7 @@ impl EntityInspectorScreen {
         index: usize,
         total: usize,
     ) {
-        let mut buttons = String::new();
-        if index > 0 {
-            buttons.push_str("   [ ▲ ]");
-        }
-        if index + 1 < total {
-            buttons.push_str("   [ ▼ ]");
-        }
-        buttons.push_str("   [ ✕ ]");
+        let buttons = array_item_buttons(index, total);
         table.add_row(vec![format!("  {field}"), format!("{value}{buttons}")]);
     }
 
@@ -578,11 +571,29 @@ impl EntityInspectorScreen {
     fn start_edit(&mut self, row: usize) {
         if row < self.table.rows.len() {
             let val = self.table.rows[row][1].clone();
-            if let Some(pos) = val.rfind("   [ ✕ ]") {
-                self.table.rows[row][1] = val[..pos].to_string();
-            }
+            self.table.rows[row][1] = strip_array_buttons(&val);
         }
         self.edit_mode = self.detect_field_kind(row);
+    }
+
+    /// Re-append the `[ ▲ ]` / `[ ▼ ]` / `[ ✕ ]` action buttons to an array item
+    /// row's value after an edit commits or cancels, since `start_edit` strips
+    /// them out of the edit buffer.
+    fn reappend_array_buttons(&mut self, row: usize) {
+        if row >= self.table.rows.len() {
+            return;
+        }
+        let field = self.table.rows[row][0].trim().to_string();
+        let Some((prefix, idx)) = parse_array_field(&field) else {
+            return;
+        };
+        let total = self
+            .table
+            .rows
+            .iter()
+            .filter(|r| parse_array_field(r[0].trim()).is_some_and(|(p, _)| p == prefix))
+            .count();
+        self.table.rows[row][1].push_str(&array_item_buttons(idx, total));
     }
 
     fn commit_edit(&mut self) {
@@ -637,6 +648,7 @@ impl EntityInspectorScreen {
                 }
             }
         }
+        self.reappend_array_buttons(row);
     }
 
     /// Persist the entity to disk with round-trip validation.
@@ -1127,6 +1139,7 @@ impl EntityInspectorScreen {
             | EditMode::Dropdown { row, original, .. } => (*row, original.clone()),
         };
         self.table.rows[row][1] = original;
+        self.reappend_array_buttons(row);
         self.edit_mode = EditMode::Idle;
     }
 
@@ -2522,6 +2535,38 @@ fn cursor_visual_pos(text: &str, cursor: usize, line_width: usize) -> (usize, us
     let visual_row = lines_before + col / line_width;
     let visual_col = col % line_width;
     (visual_row, visual_col)
+}
+
+/// Build the action-button suffix (`[ ▲ ]` / `[ ▼ ]` / `[ ✕ ]`) for an array
+/// item row based on its index within the array.
+fn array_item_buttons(index: usize, total: usize) -> String {
+    let mut buttons = String::new();
+    if index > 0 {
+        buttons.push_str("   [ ▲ ]");
+    }
+    if index + 1 < total {
+        buttons.push_str("   [ ▼ ]");
+    }
+    buttons.push_str("   [ ✕ ]");
+    buttons
+}
+
+/// Remove the trailing action-button block from a value string so the buttons
+/// do not leak into the edit buffer.
+fn strip_array_buttons(value: &str) -> String {
+    let mut start: Option<usize> = None;
+    for marker in ["   [ ▲ ]", "   [ ▼ ]", "   [ ✕ ]"] {
+        if let Some(pos) = value.rfind(marker) {
+            start = Some(match start {
+                Some(existing) => existing.min(pos),
+                None => pos,
+            });
+        }
+    }
+    match start {
+        Some(pos) => value[..pos].to_string(),
+        None => value.to_string(),
+    }
 }
 
 fn parse_array_field(field: &str) -> Option<(String, usize)> {
