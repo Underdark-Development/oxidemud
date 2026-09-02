@@ -129,10 +129,10 @@ struct PurgeRoomParams {
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct RebootParams {
+struct ShutdownParams {
     #[serde(default)]
     confirm: bool,
-    delay_secs: Option<u64>,
+    delay_mins: Option<u32>,
 }
 
 /// Authenticated identity attached to requests by `auth_middleware` so
@@ -197,7 +197,7 @@ pub async fn start_api_server(
         .route("/api/imm/set_alignment", post(imm_set_alignment))
         .route("/api/imm/set_faction", post(imm_set_faction))
         .route("/api/imm/purge_room", post(imm_purge_room))
-        .route("/api/imm/reboot", post(imm_reboot))
+        .route("/api/imm/shutdown", post(imm_shutdown))
         .layer(middleware::from_fn(auth_middleware));
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -470,19 +470,25 @@ async fn handle_request(req: &RpcRequest, user: &AuthedUser) -> RpcResponse {
         }
         _ => {
             if let Some(op) = req.method.strip_prefix("imm.") {
-                // All imm.* methods require immortal+ access.
-                if let Err(e) = require_immortal(user) {
+                // The shutdown op is admin-only; all other imm.* methods require
+                // immortal+ access. The core fn enforces this as well (defense in
+                // depth).
+                if op == "shutdown" {
+                    if let Err(e) = require_admin(user) {
+                        return rpc_response_error(req.id, e);
+                    }
+                } else if let Err(e) = require_immortal(user) {
                     return rpc_response_error(req.id, e);
                 }
                 // Destructive ops additionally require `confirm: true`
                 // (the core fns also enforce this — defense in depth).
                 let params = req.params.clone();
-                if matches!(op, "force_command" | "kill" | "purge_room" | "reboot") {
+                if matches!(op, "force_command" | "kill" | "purge_room" | "shutdown") {
                     if let Err(e) = require_confirm(&params) {
                         return rpc_response_error(req.id, e);
                     }
                 }
-                imm_dispatch(op, params).await
+                imm_dispatch(op, params, user).await
             } else {
                 Err(RpcErrorBody {
                     code: ERR_METHOD_NOT_FOUND,
@@ -542,12 +548,27 @@ fn require_immortal(user: &AuthedUser) -> Result<(), RpcErrorBody> {
     }
 }
 
+/// Require admin-level access for the most destructive operations. Admin is an
+/// explicit exact match — immortal and god accounts do not qualify.
+fn require_admin(user: &AuthedUser) -> Result<(), RpcErrorBody> {
+    if user.access_level.eq_ignore_ascii_case("admin") {
+        Ok(())
+    } else {
+        Err(rpc_error(
+            ERR_FORBIDDEN,
+            "forbidden: requires admin access",
+            None,
+        ))
+    }
+}
+
 /// Dispatch an `imm.<op>` method to the shared REST core logic. The core fns
 /// were refactored to take typed params and return a raw JSON value, so both
 /// the HTTP handlers and this dispatcher reuse the same implementation.
 async fn imm_dispatch(
     op: &str,
     params: Option<serde_json::Value>,
+    user: &AuthedUser,
 ) -> Result<serde_json::Value, RpcErrorBody> {
     macro_rules! dispatch {
         ($op:literal, $t:ty, $core:ident) => {
@@ -578,7 +599,17 @@ async fn imm_dispatch(
     dispatch!("set_alignment", SetAlignmentParams, imm_set_alignment_core);
     dispatch!("set_faction", SetFactionParams, imm_set_faction_core);
     dispatch!("purge_room", PurgeRoomParams, imm_purge_room_core);
-    dispatch!("reboot", RebootParams, imm_reboot_core);
+
+    // `imm.shutdown` passes the authenticated user through to the core fn so it
+    // can enforce admin-only access on both REST and WS-RPC surfaces.
+    if op == "shutdown" {
+        let p: ShutdownParams =
+            serde_json::from_value(params.clone().unwrap_or(serde_json::Value::Null))
+                .map_err(|e| rpc_error(ERR_INVALID_PARAMS, format!("invalid params: {e}"), None))?;
+        return imm_shutdown_core(p, user)
+            .await
+            .map_err(|(sc, m)| rpc_status_error(sc, m));
+    }
 
     Err(rpc_error(
         ERR_METHOD_NOT_FOUND,
@@ -591,6 +622,7 @@ fn rpc_status_error(code: StatusCode, msg: String) -> RpcErrorBody {
     let rpc_code = match code {
         StatusCode::BAD_REQUEST => ERR_INVALID_PARAMS,
         StatusCode::NOT_FOUND => ERR_INVALID_PARAMS,
+        StatusCode::CONFLICT => ERR_INVALID_PARAMS,
         StatusCode::INTERNAL_SERVER_ERROR => ERR_INTERNAL,
         _ => ERR_INTERNAL,
     };
@@ -2206,7 +2238,11 @@ async fn imm_purge_room(
     Ok(Json(imm_purge_room_core(params).await?))
 }
 
-async fn imm_reboot_core(params: RebootParams) -> Result<serde_json::Value, (StatusCode, String)> {
+async fn imm_shutdown_core(
+    params: ShutdownParams,
+    user: &AuthedUser,
+) -> Result<serde_json::Value, (StatusCode, String)> {
+    require_admin(user).map_err(|e| (StatusCode::FORBIDDEN, e.message))?;
     if !params.confirm {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -2214,36 +2250,42 @@ async fn imm_reboot_core(params: RebootParams) -> Result<serde_json::Value, (Sta
         ));
     }
 
-    let delay = params.delay_secs.unwrap_or(0);
-    tracing::info!("Server reboot initiated via REST API in {} seconds", delay);
+    let delay = crate::validate_delay_minutes(params.delay_mins.unwrap_or(0)).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to request shutdown: {e}"),
+        )
+    })?;
+    tracing::info!(
+        delay_secs = delay.as_secs(),
+        "Server shutdown requested via API"
+    );
 
-    if delay == 0 {
-        crate::request_immediate_shutdown("REST API reboot").map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to request graceful reboot: {e}"),
-            )
-        })?;
-    } else {
-        crate::schedule_delayed_shutdown(std::time::Duration::from_secs(delay), "REST API reboot")
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("Failed to schedule graceful reboot: {e}"),
-                )
-            })?;
+    match crate::request_shutdown(delay, "REST API shutdown") {
+        Ok(crate::ShutdownDispatch::Immediate) => Ok(serde_json::json!({
+            "success": true,
+            "message": "Server is shutting down now."
+        })),
+        Ok(crate::ShutdownDispatch::Scheduled) => Ok(serde_json::json!({
+            "success": true,
+            "message": format!("Server shutdown scheduled in {} second(s).", delay.as_secs())
+        })),
+        Err(crate::ShutdownControlError::AlreadyScheduled) => Err((
+            StatusCode::CONFLICT,
+            "A scheduled shutdown is already active; cancel it first.".to_string(),
+        )),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to request graceful shutdown: {e}"),
+        )),
     }
-
-    Ok(serde_json::json!({
-        "success": true,
-        "message": format!("Server reboot initiated in {} second(s).", delay)
-    }))
 }
 
-async fn imm_reboot(
-    Json(params): Json<RebootParams>,
+async fn imm_shutdown(
+    Extension(user): Extension<AuthedUser>,
+    Json(params): Json<ShutdownParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    Ok(Json(imm_reboot_core(params).await?))
+    Ok(Json(imm_shutdown_core(params, &user).await?))
 }
 
 async fn execute_forced_command(
