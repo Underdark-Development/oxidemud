@@ -126,7 +126,7 @@ The repository ships three GitHub Actions workflows under `.github/workflows/`.
 
 **Deploy** (`deploy.yml`) runs automatically when a Release is published. Because GitHub suppresses `release` events created via `GITHUB_TOKEN`, the Release workflow dispatches it explicitly with `workflow_dispatch` instead (passing the version); it can also be dispatched manually from the Actions tab. The job downloads the release tarball straight from the GitHub Release, verifies its contents, uploads it to the VPS over SSH, and runs the installer. Deploy only **stages** the release on the VPS — it never starts or restarts the running server. It is skipped silently unless the `VPS_DEPLOY_ENABLED` variable is `true`.
 
-**Restart** (`restart.yml`) is the human-initiated companion to Deploy. After a release has been staged, a server admin dispatches it manually from the Actions tab (no inputs — the version is read from `<install-dir>/.version`). It verifies in-container console reachability through a bounded `docker attach` session, builds the new image from the staged files, then broadcasts a 5-minute countdown to players — one message per minute: `New server version upgrade (v<version>), server will restart in 5 minutes...`, then `Server will restart in 4 minutes...` down to `1 minute...` — before issuing a graceful shutdown through the console (watch-signal shutdown that flushes the database) and starting the newly staged version. The workflow temporarily disables the old container's restart policy before shutdown so Docker does not restart the previous image during the handoff. A failed broadcast or image build aborts before the server is touched. It currently supports `docker` deploy mode only, and requires the `oxide-server` container to be running.
+**Restart** (`restart.yml`) is the human-initiated companion to Deploy. After a release has been staged, a server admin dispatches it manually from the Actions tab (no inputs — the version is read from `<install-dir>/.version`). It verifies in-container console reachability through a bounded `docker attach` session, builds the new image from the staged files, then triggers a 5-minute restart countdown — `Server will restart in 5 minutes...`, per-minute announcements down to `1 minute...`, then the seconds tail (`30 seconds...`, `10 seconds...`, `5...` … `1...`) before `Restarting now!` — before issuing a graceful shutdown through the console (watch-signal shutdown that flushes the database) and starting the newly staged version. The workflow temporarily disables the old container's restart policy before shutdown so Docker does not restart the previous image during the handoff. A failed broadcast or image build aborts before the server is touched. It currently supports `docker` deploy mode only, and requires the `oxide-server` container to be running.
 
 Two deploy modes are supported, selected with the `VPS_DEPLOY_MODE` variable:
 
@@ -231,6 +231,11 @@ retention_days = 5
 
 # Rotation policy: "daily", "hourly", or "never"
 rotation = "daily"
+
+[shutdown]
+# Upper bound, in minutes, for accepted delayed shutdown requests
+# (console/in-game/API). Equivalent to 5 hours by default.
+max_delay_mins = 300
 
 [api]
 enabled = true
@@ -411,7 +416,12 @@ The tick intervals are not configurable at runtime. See `game_mechanics.md` for 
 
 ### Graceful Shutdown
 
-To trigger a graceful shutdown, administrators can send a `SIGINT` (Ctrl+C), a `SIGTERM` signal, or execute the in-game `shutdown` command.
+To trigger a graceful shutdown, administrators can send a `SIGINT` (Ctrl+C), a `SIGTERM` signal, run the console `shutdown` command, run the in-game `shutdown` command (admin accounts), or call the `imm.shutdown` API/MCP operation.
+
+- **Immediate**: `shutdown now` asks for a y/N confirmation from the console and stops the server right away; the API route drops confirmation to the `confirm: true` parameter.
+- **Delayed**: `shutdown <minutes>` (console), the in-game `shutdown <minutes>`, or the API `delay_mins` parameter schedules an announced countdown. The server broadcasts a message at schedule time, hourly while more than five minutes remain, every minute in the final five, then at 30s / 10s / 5-1s, and finally `Shutting down now!`. `shutdown cancel` (console or in-game) aborts a pending schedule and notifies players.
+- **Delays** are capped at `[shutdown] max_delay_mins` (default 300 minutes); larger values are rejected with an invalid-delay error.
+
 The server will:
 
 1. Close the TCP port listener.
@@ -488,8 +498,7 @@ Administrators executing commands directly from the server console can access th
   - `broadcast <message>` — Send an administrative broadcast message to all connected players.
   - `online` (or `who`) — List all currently connected players in a tabular format showing their Entity ID, Username, Character Name, Access Level, and Location.
   - `kick <username_or_character>` — Disconnect an active player by their account username or character name.
-  - `shutdown` — Gracefully stop the server.
-  - `restart` — Gracefully stop (restart behavior is MUD-client handled).
+  - `shutdown [now|<minutes>|cancel]` — `shutdown now` (or bare `shutdown`, after a y/N prompt) stops the server immediately; `shutdown <minutes>` broadcasts an announced countdown then stops; `shutdown cancel` aborts a pending schedule. The delay cap is set by `[shutdown] max_delay_mins`.
 
 - **Account Management**
   - `account list` — List all registered accounts in the SQLite database.

@@ -19,7 +19,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 > [!IMPORTANT]
 > Command execution checks permission levels dynamically: `connection.access_level() >= command.access`. If a staff member attempts to run a command above their access level, the system rejects it.
 >
-> **Remote & AI Agent Immortal Access**: Immortal operations (`set_stat`, `load_mob`, `load_item`, `gecho`, `advance`, `stat`, `heal`, `damage`, `kill`, `revive`, `set_alignment`, `set_faction`, `purge_room`, `reboot`) are also available via the REST API (`/api/imm/*`) and MCP tools (`imm_*`) when authenticated with an API bearer key having `immortal`+ authority. See [mcp_integration.md](mcp_integration.md).
+> **Remote & AI Agent Immortal Access**: Most Immortal operations (`set_stat`, `load_mob`, `load_item`, `gecho`, `advance`, `stat`, `heal`, `damage`, `kill`, `revive`, `set_alignment`, `set_faction`, `purge_room`) are also available via the REST API (`/api/imm/*`) and MCP tools (`imm_*`) when authenticated with an API bearer key having `immortal`+ authority. Server shutdown (`imm.shutdown`) is restricted to `admin` accounts only. See [mcp_integration.md](mcp_integration.md).
 
 ---
 
@@ -60,8 +60,7 @@ The engine organizes staff into five hierarchical access levels. Commands are ga
 
 ### Admin Commands (planned)
 
-- `shutdown` — Initiates a graceful shutdown of the server.
-- `restart` — Gracefully restarts the server.
+- `shutdown [now|<minutes>|cancel]` — `shutdown now` (or bare `shutdown`) stops the server immediately; `shutdown <minutes>` broadcasts an announced countdown before stopping; `shutdown cancel` aborts a pending schedule. Max delay is set by `[shutdown] max_delay_mins`.
 - `wizlock` — Locks the server, permitting only staff with `Builder` access or higher to connect.
 
 ---

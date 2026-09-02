@@ -96,6 +96,10 @@ When a player submits input, [`server/src/cmd/`](server/src/cmd) evaluates:
 3. **Dynamic Script Skills (`DynamicSkillRegistry`):** Custom Rhai script commands and abilities.
 4. **Static Engine Commands (`CommandDispatch`):** Built-in Rust handlers (movement, combat, info, builder, admin). Command lookup is case-insensitive.
 
+### Server Lifecycle & Shutdown
+
+`server/src/shutdown.rs` owns the single source of truth for server shutdown control. It exposes a registered `watch` channel, an immediate-shutdown request path, and an **announced countdown scheduler** with epoch-based cancellation. Delayed shutdowns (console `/api/imm/shutdown`, in-game `shutdown <minutes>`, MCP `imm_shutdown`, or the deploy `SIGUSR1` restart countdown) broadcast a shared mark schedule — schedule-time, hourly while more than five minutes remain, per-minute in the final five, a seconds tail, then the final "now" message — and fire the shutdown signal at the deadline. A delay cap is enforced from `[shutdown] max_delay_mins` (default 300). `cancel_scheduled_shutdown` bumps the epoch so any in-flight countdown task aborts before its next broadcast or fire.
+
 ### Scripting & Engine Decoupling
 
 Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hardcoded skill names, spell IDs, or content strings:

@@ -128,7 +128,7 @@ When configured with `--ws` (or `--online`) and `--key`, the MCP server connects
 - `imm_set_alignment` — Modifies a player's alignment.
 - `imm_set_faction` — Adjusts a player's standing with a faction.
 - `imm_purge_room` — Purges all NPCs and items from a room (requires `confirm: true`).
-- `imm_reboot` — Initiates a graceful server reboot (requires `confirm: true`).
+- `imm_shutdown` — Initiates a graceful server shutdown, optionally delayed (`delay_mins`, whole minutes; 0 or omitted shuts down immediately). Requires `confirm: true` and **admin** account access (immortal/god keys are rejected).
 
 ---
 
