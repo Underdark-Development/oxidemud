@@ -15,7 +15,7 @@ use super::Screen;
 use crate::components::dropdown::{
     dropdown_item_style, highlight_dropdown_row, render_dropdown_box,
 };
-use crate::components::{Dialog, ScrollState, Table};
+use crate::components::{Badge, BadgeKind, Dialog, RowBadges, ScrollState, Table};
 use crate::content::FileMap;
 
 mod affixes;
@@ -438,7 +438,8 @@ impl EntityInspectorScreen {
             .map(|r| UnicodeWidthStr::width(r[0].as_str()))
             .max()
             .unwrap_or(20);
-        let first_col_width = (max_field_len as u16 + 1).max(21);
+        // +1 for the leading cell space, +2 for the row-symbol prefix inside col 0.
+        let first_col_width = (max_field_len as u16 + 3).max(23);
         table.column_widths = vec![Constraint::Length(first_col_width), Constraint::Fill(1)];
 
         if table.rows.is_empty() {
@@ -455,12 +456,31 @@ impl EntityInspectorScreen {
 
     pub(super) fn add_array_header(table: &mut Table, name: &str, count: usize) {
         let val_str = if count == 0 {
-            "(array, 0 items)   [ + Add Entry ]".to_string()
+            "(array, 0 items)".to_string()
         } else {
             let item_str = if count == 1 { "item" } else { "items" };
-            format!("(array, {count} {item_str})   [ + Add Entry ]   [ 🗑 Clear ]")
+            format!("(array, {count} {item_str})")
         };
-        table.add_row(vec![name.to_string(), val_str]);
+        let row = table.rows.len();
+        Self::add_field(table, name, &val_str);
+        let mut badges = vec![Badge {
+            text: "[ + Add Entry ]",
+            kind: BadgeKind::AddEntry,
+        }];
+        if count > 0 {
+            badges.push(Badge {
+                text: "[ 🗑 Clear ]",
+                kind: BadgeKind::Clear,
+            });
+        }
+        table.set_row_badges(
+            row,
+            RowBadges {
+                col: 1,
+                gap: 3,
+                badges,
+            },
+        );
     }
 
     pub(super) fn add_array_item(
@@ -470,18 +490,40 @@ impl EntityInspectorScreen {
         index: usize,
         total: usize,
     ) {
-        let buttons = array_item_buttons(index, total);
-        table.add_row(vec![format!("  {field}"), format!("{value}{buttons}")]);
+        let row = table.rows.len();
+        table.add_row(vec![format!("  {field}"), value.to_string()]);
+        let mut badges = Vec::new();
+        if index > 0 {
+            badges.push(Badge {
+                text: "[ ▲ ]",
+                kind: BadgeKind::MoveUp,
+            });
+        }
+        if index + 1 < total {
+            badges.push(Badge {
+                text: "[ ▼ ]",
+                kind: BadgeKind::MoveDown,
+            });
+        }
+        badges.push(Badge {
+            text: "[ ✕ ]",
+            kind: BadgeKind::Remove,
+        });
+        table.set_row_badges(
+            row,
+            RowBadges {
+                col: 1,
+                gap: 3,
+                badges,
+            },
+        );
     }
 
     fn detect_field_kind(&self, row: usize) -> EditMode {
         let value = &self.table.rows[row][1];
         let clean_field = self.table.rows[row][0].trim();
 
-        if value.starts_with("(array")
-            || value.contains("[ + Add Entry ]")
-            || value.contains("press + to add")
-        {
+        if value.starts_with("(array") {
             return EditMode::Idle;
         }
 
@@ -575,31 +617,7 @@ impl EntityInspectorScreen {
     }
 
     fn start_edit(&mut self, row: usize) {
-        if row < self.table.rows.len() {
-            let val = self.table.rows[row][1].clone();
-            self.table.rows[row][1] = strip_array_buttons(&val);
-        }
         self.edit_mode = self.detect_field_kind(row);
-    }
-
-    /// Re-append the `[ ▲ ]` / `[ ▼ ]` / `[ ✕ ]` action buttons to an array item
-    /// row's value after an edit commits or cancels, since `start_edit` strips
-    /// them out of the edit buffer.
-    fn reappend_array_buttons(&mut self, row: usize) {
-        if row >= self.table.rows.len() {
-            return;
-        }
-        let field = self.table.rows[row][0].trim().to_string();
-        let Some((prefix, idx)) = parse_array_field(&field) else {
-            return;
-        };
-        let total = self
-            .table
-            .rows
-            .iter()
-            .filter(|r| parse_array_field(r[0].trim()).is_some_and(|(p, _)| p == prefix))
-            .count();
-        self.table.rows[row][1].push_str(&array_item_buttons(idx, total));
     }
 
     fn commit_edit(&mut self) {
@@ -654,7 +672,6 @@ impl EntityInspectorScreen {
                 }
             }
         }
-        self.reappend_array_buttons(row);
     }
 
     /// Persist the entity to disk with round-trip validation.
@@ -1145,7 +1162,6 @@ impl EntityInspectorScreen {
             | EditMode::Dropdown { row, original, .. } => (*row, original.clone()),
         };
         self.table.rows[row][1] = original;
-        self.reappend_array_buttons(row);
         self.edit_mode = EditMode::Idle;
     }
 
@@ -1828,7 +1844,16 @@ impl EntityInspectorScreen {
                 if let Some(row) = self.table.selected {
                     let field = self.table.rows[row][0].trim().to_string();
                     if let Some((prefix, idx)) = parse_array_field(&field) {
-                        if self.swap_array_entries(&prefix, idx, idx + 1).is_ok() {
+                        let total = self
+                            .table
+                            .rows
+                            .iter()
+                            .filter(|r| {
+                                parse_array_field(r[0].trim()).is_some_and(|(p, _)| p == prefix)
+                            })
+                            .count();
+                        if idx + 1 < total && self.swap_array_entries(&prefix, idx, idx + 1).is_ok()
+                        {
                             self.dirty = true;
                             self.load_table();
                             self.table.selected = Some(row + 1);
@@ -1849,8 +1874,8 @@ impl EntityInspectorScreen {
             }
             KeyCode::Char('+') | KeyCode::Char('=') => {
                 if let Some(row) = self.table.selected {
-                    let field = &self.table.rows[row][0];
-                    if let Some((prefix, idx)) = parse_array_field(field) {
+                    let field = self.table.rows[row][0].trim().to_string();
+                    if let Some((prefix, idx)) = parse_array_field(&field) {
                         match self.add_array_entry(&prefix, idx) {
                             Ok(_) => {
                                 self.dirty = true;
@@ -1866,8 +1891,8 @@ impl EntityInspectorScreen {
             }
             KeyCode::Char('-') => {
                 if let Some(row) = self.table.selected {
-                    let field = &self.table.rows[row][0];
-                    if let Some((prefix, idx)) = parse_array_field(field) {
+                    let field = self.table.rows[row][0].trim().to_string();
+                    if let Some((prefix, idx)) = parse_array_field(&field) {
                         match self.remove_array_entry(&prefix, idx) {
                             Ok(_) => {
                                 self.dirty = true;
@@ -1985,15 +2010,22 @@ impl EntityInspectorScreen {
                     .saturating_add(self.table.scroll.offset);
                 if row < self.table.rows.len() {
                     let field = self.table.rows[row][0].clone();
-                    let val = self.table.rows[row][1].clone();
-                    let col1_x = area.x + 2 + self.table.col_x(1, area);
-                    let relative_x = (mouse.column as usize).saturating_sub(col1_x as usize);
 
-                    // Check if click was on array header buttons: [ + Add Entry ] or [ 🗑 Clear ]
-                    if val.contains("[ + Add Entry ]") || val.contains("[ 🗑 Clear ]") {
-                        if let Some(start_add) = val.find("[ + Add Entry ]") {
-                            let end_add = start_add + "[ + Add Entry ]".len();
-                            if relative_x >= start_add && relative_x < end_add {
+                    // Route clicks on action badges trailing a cell's text.
+                    // Mirror the table render rect so a clipped badge is not clickable.
+                    let render_rect = Rect::new(
+                        area.x,
+                        area.y + 1,
+                        area.width.saturating_sub(1),
+                        area.height.saturating_sub(2),
+                    );
+                    let x = mouse.column;
+                    for span in self.table.badge_spans(row, render_rect) {
+                        if x < span.x0 || x >= span.x1 {
+                            continue;
+                        }
+                        match span.kind {
+                            BadgeKind::AddEntry => {
                                 let clean_field = field.trim();
                                 let prefix = clean_field.trim_end_matches("[]").to_string();
                                 let idx = self
@@ -2016,10 +2048,7 @@ impl EntityInspectorScreen {
                                 self.table.selected = Some(row);
                                 return;
                             }
-                        }
-                        if let Some(start_clear) = val.find("[ 🗑 Clear ]") {
-                            let end_clear = start_clear + "[ 🗑 Clear ]".len();
-                            if relative_x >= start_clear && relative_x < end_clear {
+                            BadgeKind::Clear => {
                                 let clean_field = field.trim();
                                 let prefix = clean_field.trim_end_matches("[]").to_string();
                                 if let Err(e) = self.clear_array(&prefix) {
@@ -2031,13 +2060,7 @@ impl EntityInspectorScreen {
                                 self.table.selected = Some(row);
                                 return;
                             }
-                        }
-                    }
-
-                    if val.contains("[ ▲ ]") {
-                        if let Some(start_up) = val.find("[ ▲ ]") {
-                            let end_up = start_up + "[ ▲ ]".len();
-                            if relative_x >= start_up && relative_x < end_up {
+                            BadgeKind::MoveUp => {
                                 let clean_field = field.trim();
                                 if let Some((prefix, idx)) = parse_array_field(clean_field) {
                                     if idx > 0
@@ -2050,12 +2073,7 @@ impl EntityInspectorScreen {
                                     return;
                                 }
                             }
-                        }
-                    }
-                    if val.contains("[ ▼ ]") {
-                        if let Some(start_dn) = val.find("[ ▼ ]") {
-                            let end_dn = start_dn + "[ ▼ ]".len();
-                            if relative_x >= start_dn && relative_x < end_dn {
+                            BadgeKind::MoveDown => {
                                 let clean_field = field.trim();
                                 if let Some((prefix, idx)) = parse_array_field(clean_field) {
                                     if self.swap_array_entries(&prefix, idx, idx + 1).is_ok() {
@@ -2066,14 +2084,7 @@ impl EntityInspectorScreen {
                                     return;
                                 }
                             }
-                        }
-                    }
-
-                    // Check if click was on array item delete button: [ ✕ ]
-                    if val.contains("[ ✕ ]") {
-                        if let Some(start_del) = val.rfind("[ ✕ ]") {
-                            let end_del = start_del + "[ ✕ ]".len();
-                            if relative_x >= start_del && relative_x < end_del {
+                            BadgeKind::Remove => {
                                 let clean_field = field.trim();
                                 if let Some((prefix, idx)) = parse_array_field(clean_field) {
                                     if let Err(e) = self.remove_array_entry(&prefix, idx) {
@@ -2087,6 +2098,7 @@ impl EntityInspectorScreen {
                                 }
                             }
                         }
+                        return;
                     }
 
                     let was_already_selected = self.table.selected == Some(row);
@@ -2155,7 +2167,7 @@ impl EntityInspectorScreen {
             return;
         }
 
-        let value_col_x = area.x + 2 + self.table.col_x(1, area) + 1;
+        let value_col_x = self.table.col_x(1, area) + 1;
         let y = area.y + 1 + 1 + visible_row as u16;
 
         if y >= area.y + area.height {
@@ -2385,7 +2397,7 @@ impl EntityInspectorScreen {
         let row_y = area.y + 1 + 1 + visible_row as u16;
 
         let max_option_len = options.iter().map(|o| o.len()).max().unwrap_or(10);
-        let col_width = self.table.col_x(1, area);
+        let col_width = self.table.col_width(1, area);
         let max_width = ((max_option_len + 7) as u16)
             .max(col_width)
             .max(25)
@@ -2397,7 +2409,7 @@ impl EntityInspectorScreen {
             box_y = row_y.saturating_sub(box_height);
         }
 
-        let mut box_x = area.x + 2 + self.table.col_x(1, area);
+        let mut box_x = self.table.col_x(1, area) + 1;
         if box_x + max_width > area.x + area.width {
             box_x = (area.x + area.width).saturating_sub(max_width);
         }
@@ -2541,38 +2553,6 @@ fn cursor_visual_pos(text: &str, cursor: usize, line_width: usize) -> (usize, us
     let visual_row = lines_before + col / line_width;
     let visual_col = col % line_width;
     (visual_row, visual_col)
-}
-
-/// Build the action-button suffix (`[ ▲ ]` / `[ ▼ ]` / `[ ✕ ]`) for an array
-/// item row based on its index within the array.
-fn array_item_buttons(index: usize, total: usize) -> String {
-    let mut buttons = String::new();
-    if index > 0 {
-        buttons.push_str("   [ ▲ ]");
-    }
-    if index + 1 < total {
-        buttons.push_str("   [ ▼ ]");
-    }
-    buttons.push_str("   [ ✕ ]");
-    buttons
-}
-
-/// Remove the trailing action-button block from a value string so the buttons
-/// do not leak into the edit buffer.
-fn strip_array_buttons(value: &str) -> String {
-    let mut start: Option<usize> = None;
-    for marker in ["   [ ▲ ]", "   [ ▼ ]", "   [ ✕ ]"] {
-        if let Some(pos) = value.rfind(marker) {
-            start = Some(match start {
-                Some(existing) => existing.min(pos),
-                None => pos,
-            });
-        }
-    }
-    match start {
-        Some(pos) => value[..pos].to_string(),
-        None => value.to_string(),
-    }
 }
 
 fn parse_array_field(field: &str) -> Option<(String, usize)> {

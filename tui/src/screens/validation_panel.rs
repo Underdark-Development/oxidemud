@@ -258,21 +258,14 @@ impl Screen for ValidationPanelScreen {
                 let content_lines = area.height.saturating_sub(2) as usize;
 
                 if mouse.row == header_y {
-                    let rel_x = mouse.column.saturating_sub(area.x + 2);
-                    // Column width bounds:
-                    // Category: 0..12, Entity ID: 12..34, Error Kind: 34..50, Field: 50..74, Message: 74+
-                    let col = if rel_x < 12 {
-                        0
-                    } else if rel_x < 34 {
-                        1
-                    } else if rel_x < 50 {
-                        2
-                    } else if rel_x < 74 {
-                        3
-                    } else {
-                        4
-                    };
-                    self.handle_header_click(col);
+                    let layout_rect = Rect::new(area.x, header_y, area.width.saturating_sub(1), 1);
+                    let col_areas = self.table.col_areas(layout_rect);
+                    for (col, r) in col_areas.iter().enumerate() {
+                        if mouse.column >= r.x && mouse.column < r.x + r.width {
+                            self.handle_header_click(col);
+                            break;
+                        }
+                    }
                 } else if mouse.row >= table_top && mouse.row < table_top + content_lines as u16 {
                     let clicked_row = (mouse.row - table_top) as usize + self.table.scroll.offset;
                     if clicked_row < self.table.rows.len() {

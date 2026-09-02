@@ -19,7 +19,7 @@ pub use dialog::Dialog;
 pub use form::{FieldType, Form, FormField};
 pub use modal::Modal;
 pub use scroll_state::ScrollState;
-pub use table::{RowErrorInfo, Table};
+pub use table::{Badge, BadgeKind, BadgeSpan, RowBadges, RowErrorInfo, Table};
 pub use tabs::Tabs;
 pub use tooltip::TooltipPopup;
 pub use tree::{Tree, TreeNode};
