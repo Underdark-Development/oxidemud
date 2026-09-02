@@ -247,7 +247,7 @@ pub async fn imm_purge_room(
     ctx.call_imm("imm.purge_room", payload).await
 }
 
-pub async fn imm_reboot(ctx: &HandlerContext<'_>, params: Parameters<RebootParams>) -> String {
+pub async fn imm_shutdown(ctx: &HandlerContext<'_>, params: Parameters<ShutdownParams>) -> String {
     let p = params.0;
     if !p.confirm {
         return "Error: This is a destructive operation. Set `confirm` to true to proceed."
@@ -256,8 +256,8 @@ pub async fn imm_reboot(ctx: &HandlerContext<'_>, params: Parameters<RebootParam
 
     let payload = serde_json::json!({
         "confirm": p.confirm,
-        "delay_secs": p.delay_secs
+        "delay_mins": p.delay_mins
     });
 
-    ctx.call_imm("imm.reboot", payload).await
+    ctx.call_imm("imm.shutdown", payload).await
 }

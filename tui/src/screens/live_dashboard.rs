@@ -473,7 +473,7 @@ impl LiveDashboardScreen {
         Widget::render(List::new(items).block(log_block), chunks[2], buf);
 
         // 4. Keybindings Footer Bar
-        let footer_text = " [Tab] Toggle Full Logs | [G] Global Echo | [R] Reboot | [K] Kick Player | [C] Reconnect | [Q] Quit ";
+        let footer_text = " [Tab] Toggle Full Logs | [G] Global Echo | [K] Kick Player | [C] Reconnect | [Q] Quit ";
         Paragraph::new(footer_text)
             .style(
                 Style::default()

@@ -49,7 +49,7 @@ pub struct SpadeTelemetry {
 #[serde(tag = "action", content = "payload")]
 pub enum SpadeControlCommand {
     Gecho { message: String },
-    Reboot { delay_secs: Option<u64> },
+    Shutdown { delay_mins: Option<u32> },
     Kick { player_name: String },
     Ping,
 }

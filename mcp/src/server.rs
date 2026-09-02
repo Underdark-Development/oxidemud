@@ -578,9 +578,9 @@ impl OxideMcpServer {
         let ctx = self.handler_context();
         crate::handlers::immortal::imm_purge_room(&ctx, params).await
     }
-    #[tool(description = "Initiate a graceful server reboot (Online Only)")]
-    async fn imm_reboot(&self, params: Parameters<RebootParams>) -> String {
+    #[tool(description = "Initiate a graceful server shutdown, optionally delayed (Admin only)")]
+    async fn imm_shutdown(&self, params: Parameters<ShutdownParams>) -> String {
         let ctx = self.handler_context();
-        crate::handlers::immortal::imm_reboot(&ctx, params).await
+        crate::handlers::immortal::imm_shutdown(&ctx, params).await
     }
 }

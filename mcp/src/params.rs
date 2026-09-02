@@ -243,10 +243,13 @@ pub(crate) struct PurgeRoomParams {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, JsonSchema)]
-pub(crate) struct RebootParams {
+pub(crate) struct ShutdownParams {
     #[schemars(description = "Must be true to confirm this destructive operation")]
     pub(crate) confirm: bool,
-    pub(crate) delay_secs: Option<u64>,
+    #[schemars(
+        description = "Optional delay in whole minutes. Omit or set 0 to shut down immediately."
+    )]
+    pub(crate) delay_mins: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
