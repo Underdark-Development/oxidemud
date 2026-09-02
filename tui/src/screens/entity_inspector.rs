@@ -457,8 +457,22 @@ impl EntityInspectorScreen {
         table.add_row(vec![name.to_string(), val_str]);
     }
 
-    pub(super) fn add_array_item(table: &mut Table, field: &str, value: impl std::fmt::Display) {
-        table.add_row(vec![format!("  {field}"), format!("{value}   [ ✕ ]")]);
+    pub(super) fn add_array_item(
+        table: &mut Table,
+        field: &str,
+        value: impl std::fmt::Display,
+        index: usize,
+        total: usize,
+    ) {
+        let mut buttons = String::new();
+        if index > 0 {
+            buttons.push_str("   [ ▲ ]");
+        }
+        if index + 1 < total {
+            buttons.push_str("   [ ▼ ]");
+        }
+        buttons.push_str("   [ ✕ ]");
+        table.add_row(vec![format!("  {field}"), format!("{value}{buttons}")]);
     }
 
     fn detect_field_kind(&self, row: usize) -> EditMode {
@@ -1779,6 +1793,30 @@ impl EntityInspectorScreen {
         }
 
         match key.code {
+            KeyCode::Up if key.modifiers.contains(KeyModifiers::ALT) => {
+                if let Some(row) = self.table.selected {
+                    let field = self.table.rows[row][0].trim().to_string();
+                    if let Some((prefix, idx)) = parse_array_field(&field) {
+                        if idx > 0 && self.swap_array_entries(&prefix, idx, idx - 1).is_ok() {
+                            self.dirty = true;
+                            self.load_table();
+                            self.table.selected = Some(row.saturating_sub(1));
+                        }
+                    }
+                }
+            }
+            KeyCode::Down if key.modifiers.contains(KeyModifiers::ALT) => {
+                if let Some(row) = self.table.selected {
+                    let field = self.table.rows[row][0].trim().to_string();
+                    if let Some((prefix, idx)) = parse_array_field(&field) {
+                        if self.swap_array_entries(&prefix, idx, idx + 1).is_ok() {
+                            self.dirty = true;
+                            self.load_table();
+                            self.table.selected = Some(row + 1);
+                        }
+                    }
+                }
+            }
             KeyCode::Up | KeyCode::Char('k') => self.table.select_prev(),
             KeyCode::Down | KeyCode::Char('j') => self.table.select_next(),
             KeyCode::Home => self.table.select_first(),
@@ -1902,7 +1940,18 @@ impl EntityInspectorScreen {
     fn swap_array_entries(&mut self, prefix: &str, i1: usize, i2: usize) -> Result<(), String> {
         match self.category.as_str() {
             "items" => self.swap_item_array(prefix, i1, i2),
-            _ => Ok(()),
+            "mobs" => self.swap_mob_array(prefix, i1, i2),
+            "rooms" => self.swap_room_array(prefix, i1, i2),
+            "quests" => self.swap_quest_array(prefix, i1, i2),
+            "factions" => self.swap_faction_array(prefix, i1, i2),
+            "recipes" => self.swap_recipe_array(prefix, i1, i2),
+            "areas" => self.swap_area_array(prefix, i1, i2),
+            "races" => self.swap_race_array(prefix, i1, i2),
+            "classes" => self.swap_class_array(prefix, i1, i2),
+            _ => Err(format!(
+                "swapping array entries for category {} not supported",
+                self.category
+            )),
         }
     }
 

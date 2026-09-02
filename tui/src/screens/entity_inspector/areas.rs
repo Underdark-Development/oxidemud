@@ -35,8 +35,15 @@ impl EntityInspectorScreen {
 
         // Spawns
         Self::add_array_header(table, "spawns", area.spawns.len());
+        let n_spawns = area.spawns.len();
         for (i, spawn) in area.spawns.iter().enumerate() {
-            Self::add_array_item(table, &format!("spawns[{i}].room"), &spawn.room);
+            Self::add_array_item(
+                table,
+                &format!("spawns[{i}].room"),
+                &spawn.room,
+                i,
+                n_spawns,
+            );
             Self::add_field(table, &format!("  spawns[{i}].label"), &spawn.label);
             Self::add_field(
                 table,
@@ -195,6 +202,28 @@ impl EntityInspectorScreen {
         match prefix {
             "spawns" => area.spawns.clear(),
             "flags" => area.flags.clear(),
+            _ => return Err(format!("unknown area array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_area_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let area = self
+            .registry
+            .areas
+            .get_mut(&self.template_id)
+            .ok_or("area not found")?;
+        match prefix {
+            "spawns" => {
+                if i1 < area.spawns.len() && i2 < area.spawns.len() {
+                    area.spawns.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown area array: {prefix}")),
         }
         Ok(())

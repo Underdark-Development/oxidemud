@@ -29,32 +29,55 @@ impl EntityInspectorScreen {
 
         // Allowed Races
         Self::add_array_header(table, "allowed_races", class.allowed_races.len());
+        let n_allowed_races = class.allowed_races.len();
         for (i, race) in class.allowed_races.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_races[{i}]"), race);
+            Self::add_array_item(
+                table,
+                &format!("allowed_races[{i}]"),
+                race,
+                i,
+                n_allowed_races,
+            );
         }
 
         // Allowed Alignments
         Self::add_array_header(table, "allowed_alignments", class.allowed_alignments.len());
+        let n_allowed_alignments = class.allowed_alignments.len();
         for (i, align) in class.allowed_alignments.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_alignments[{i}]"), align);
+            Self::add_array_item(
+                table,
+                &format!("allowed_alignments[{i}]"),
+                align,
+                i,
+                n_allowed_alignments,
+            );
         }
 
         // Auto Skills
         Self::add_array_header(table, "auto_skills", class.auto_skills.len());
+        let n_auto_skills = class.auto_skills.len();
         for (i, skill) in class.auto_skills.iter().enumerate() {
-            Self::add_array_item(table, &format!("auto_skills[{i}]"), skill);
+            Self::add_array_item(table, &format!("auto_skills[{i}]"), skill, i, n_auto_skills);
         }
 
         // Skill Pool
         Self::add_array_header(table, "skill_pool", class.skill_pool.len());
+        let n_skill_pool = class.skill_pool.len();
         for (i, skill) in class.skill_pool.iter().enumerate() {
-            Self::add_array_item(table, &format!("skill_pool[{i}]"), skill);
+            Self::add_array_item(table, &format!("skill_pool[{i}]"), skill, i, n_skill_pool);
         }
 
         // Starting Items
         Self::add_array_header(table, "starting_items", class.starting_items.len());
+        let n_starting_items = class.starting_items.len();
         for (i, item) in class.starting_items.iter().enumerate() {
-            Self::add_array_item(table, &format!("starting_items[{i}]"), item);
+            Self::add_array_item(
+                table,
+                &format!("starting_items[{i}]"),
+                item,
+                i,
+                n_starting_items,
+            );
         }
 
         Self::add_field(table, "starting_gold.copper", class.starting_gold.copper);
@@ -257,6 +280,48 @@ impl EntityInspectorScreen {
             "auto_skills" => cls.auto_skills.clear(),
             "skill_pool" => cls.skill_pool.clear(),
             "starting_items" => cls.starting_items.clear(),
+            _ => return Err(format!("unknown class array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_class_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let cls = self
+            .registry
+            .classes
+            .get_mut(&self.template_id)
+            .ok_or("class not found")?;
+        match prefix {
+            "allowed_races" => {
+                if i1 < cls.allowed_races.len() && i2 < cls.allowed_races.len() {
+                    cls.allowed_races.swap(i1, i2);
+                }
+            }
+            "allowed_alignments" => {
+                if i1 < cls.allowed_alignments.len() && i2 < cls.allowed_alignments.len() {
+                    cls.allowed_alignments.swap(i1, i2);
+                }
+            }
+            "auto_skills" => {
+                if i1 < cls.auto_skills.len() && i2 < cls.auto_skills.len() {
+                    cls.auto_skills.swap(i1, i2);
+                }
+            }
+            "skill_pool" => {
+                if i1 < cls.skill_pool.len() && i2 < cls.skill_pool.len() {
+                    cls.skill_pool.swap(i1, i2);
+                }
+            }
+            "starting_items" => {
+                if i1 < cls.starting_items.len() && i2 < cls.starting_items.len() {
+                    cls.starting_items.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown class array: {prefix}")),
         }
         Ok(())

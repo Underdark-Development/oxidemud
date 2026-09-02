@@ -23,11 +23,13 @@ impl EntityInspectorScreen {
         );
 
         Self::add_array_header(table, "prerequisites", quest.prerequisites.len());
+        let n_prereqs = quest.prerequisites.len();
         for (i, pre) in quest.prerequisites.iter().enumerate() {
-            Self::add_array_item(table, &format!("prerequisites[{i}]"), pre);
+            Self::add_array_item(table, &format!("prerequisites[{i}]"), pre, i, n_prereqs);
         }
 
         Self::add_array_header(table, "objectives", quest.objectives.len());
+        let n_objectives = quest.objectives.len();
         for (i, obj) in quest.objectives.iter().enumerate() {
             let formatted = match obj {
                 QuestObjective::Kill { mob, count } => format!("Kill: {mob} x{count}"),
@@ -36,27 +38,39 @@ impl EntityInspectorScreen {
                 QuestObjective::Explore { room } => format!("Explore: {room}"),
                 QuestObjective::Talk { npc } => format!("Talk: {npc}"),
             };
-            Self::add_array_item(table, &format!("objectives[{i}]"), formatted);
+            Self::add_array_item(
+                table,
+                &format!("objectives[{i}]"),
+                formatted,
+                i,
+                n_objectives,
+            );
         }
 
         Self::add_field(table, "rewards.xp", quest.rewards.xp);
         Self::add_field(table, "rewards.gold", quest.rewards.gold);
 
         Self::add_array_header(table, "rewards.items", quest.rewards.items.len());
+        let n_reward_items = quest.rewards.items.len();
         for (i, item) in quest.rewards.items.iter().enumerate() {
             Self::add_array_item(
                 table,
                 &format!("rewards.items[{i}]"),
                 format!("{} x{}", item.item_template_id, item.count),
+                i,
+                n_reward_items,
             );
         }
 
         Self::add_array_header(table, "rewards.faction", quest.rewards.faction.len());
+        let n_reward_faction = quest.rewards.faction.len();
         for (i, fac) in quest.rewards.faction.iter().enumerate() {
             Self::add_array_item(
                 table,
                 &format!("rewards.faction[{i}]"),
                 format!("{}: {}", fac.faction_id, fac.amount),
+                i,
+                n_reward_faction,
             );
         }
 
@@ -264,6 +278,43 @@ impl EntityInspectorScreen {
             "objectives" => quest.objectives.clear(),
             "rewards.items" => quest.rewards.items.clear(),
             "rewards.faction" => quest.rewards.faction.clear(),
+            _ => return Err(format!("unknown quest array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_quest_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let quest = self
+            .registry
+            .quests
+            .get_mut(&self.template_id)
+            .ok_or("quest not found")?;
+        match prefix {
+            "prerequisites" => {
+                if i1 < quest.prerequisites.len() && i2 < quest.prerequisites.len() {
+                    quest.prerequisites.swap(i1, i2);
+                }
+            }
+            "objectives" => {
+                if i1 < quest.objectives.len() && i2 < quest.objectives.len() {
+                    quest.objectives.swap(i1, i2);
+                }
+            }
+            "rewards.items" => {
+                if i1 < quest.rewards.items.len() && i2 < quest.rewards.items.len() {
+                    quest.rewards.items.swap(i1, i2);
+                }
+            }
+            "rewards.faction" => {
+                if i1 < quest.rewards.faction.len() && i2 < quest.rewards.faction.len() {
+                    quest.rewards.faction.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown quest array: {prefix}")),
         }
         Ok(())

@@ -19,20 +19,41 @@ impl EntityInspectorScreen {
 
         // Allowed Classes
         Self::add_array_header(table, "allowed_classes", race.allowed_classes.len());
+        let n_allowed_classes = race.allowed_classes.len();
         for (i, cls) in race.allowed_classes.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_classes[{i}]"), cls);
+            Self::add_array_item(
+                table,
+                &format!("allowed_classes[{i}]"),
+                cls,
+                i,
+                n_allowed_classes,
+            );
         }
 
         // Allowed Alignments
         Self::add_array_header(table, "allowed_alignments", race.allowed_alignments.len());
+        let n_allowed_alignments = race.allowed_alignments.len();
         for (i, align) in race.allowed_alignments.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_alignments[{i}]"), align);
+            Self::add_array_item(
+                table,
+                &format!("allowed_alignments[{i}]"),
+                align,
+                i,
+                n_allowed_alignments,
+            );
         }
 
         // Racial Abilities
         Self::add_array_header(table, "racial_abilities", race.racial_abilities.len());
+        let n_racial_abilities = race.racial_abilities.len();
         for (i, ability) in race.racial_abilities.iter().enumerate() {
-            Self::add_array_item(table, &format!("racial_abilities[{i}]"), ability);
+            Self::add_array_item(
+                table,
+                &format!("racial_abilities[{i}]"),
+                ability,
+                i,
+                n_racial_abilities,
+            );
         }
     }
 
@@ -166,6 +187,38 @@ impl EntityInspectorScreen {
             "allowed_classes" => race.allowed_classes.clear(),
             "allowed_alignments" => race.allowed_alignments.clear(),
             "racial_abilities" => race.racial_abilities.clear(),
+            _ => return Err(format!("unknown race array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_race_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let race = self
+            .registry
+            .races
+            .get_mut(&self.template_id)
+            .ok_or("race not found")?;
+        match prefix {
+            "allowed_classes" => {
+                if i1 < race.allowed_classes.len() && i2 < race.allowed_classes.len() {
+                    race.allowed_classes.swap(i1, i2);
+                }
+            }
+            "allowed_alignments" => {
+                if i1 < race.allowed_alignments.len() && i2 < race.allowed_alignments.len() {
+                    race.allowed_alignments.swap(i1, i2);
+                }
+            }
+            "racial_abilities" => {
+                if i1 < race.racial_abilities.len() && i2 < race.racial_abilities.len() {
+                    race.racial_abilities.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown race array: {prefix}")),
         }
         Ok(())

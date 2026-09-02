@@ -56,7 +56,7 @@ Use the function keys to switch between primary workspace panels:
 A split-pane editor:
 
 - **Left**: World tree listing all templates grouped by category (Races, Classes, Items, Mobs, Areas, Skills, Stances, Passives, Affixes, Sets).
-- **Right**: Inline field editor with text, number, multiline, and dropdown edit modes. Supports dirty tracking, undo for field edits, and delete with confirmation.
+- **Right**: Inline field editor with text, number, multiline, and dropdown edit modes. Supports dirty tracking, undo for field edits, and delete with confirmation. Array fields can be reordered with the `[ ▲ ]`/`[ ▼ ]` row buttons or `Alt+Up`/`Alt+Down` on a selected array item.
 - Context-sensitive **Command Sidebar** (right edge) showing available actions for the selected entity.
 
 ### F2: Room Grid
@@ -116,6 +116,7 @@ A diagnostics panel for running servers — **not yet implemented**:
 - `Ctrl+S` — Save modified templates (persists TOML to disk).
 - `Ctrl+Z` — Undo the last field edit.
 - `/` — Open a search box to filter the active panel list.
+- `Alt+Up` / `Alt+Down` — Move the selected array item up or down (reorder).
 
 ### Script Console
 

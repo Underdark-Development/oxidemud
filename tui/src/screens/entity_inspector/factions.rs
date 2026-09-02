@@ -17,11 +17,14 @@ impl EntityInspectorScreen {
         Self::add_field(table, "aggro_below", faction.aggro_below);
 
         Self::add_array_header(table, "ranks", faction.ranks.len());
+        let n_ranks = faction.ranks.len();
         for (i, r) in faction.ranks.iter().enumerate() {
             Self::add_array_item(
                 table,
                 &format!("ranks[{i}]"),
                 format!("{}: threshold {}", r.name, r.threshold),
+                i,
+                n_ranks,
             );
         }
     }
@@ -117,6 +120,28 @@ impl EntityInspectorScreen {
             .ok_or("faction not found")?;
         match prefix {
             "ranks" => faction.ranks.clear(),
+            _ => return Err(format!("unknown faction array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_faction_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let faction = self
+            .registry
+            .factions
+            .get_mut(&self.template_id)
+            .ok_or("faction not found")?;
+        match prefix {
+            "ranks" => {
+                if i1 < faction.ranks.len() && i2 < faction.ranks.len() {
+                    faction.ranks.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown faction array: {prefix}")),
         }
         Ok(())

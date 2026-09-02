@@ -27,8 +27,15 @@ impl EntityInspectorScreen {
 
                 // Portals
                 Self::add_array_header(table, "portal", room.portals.len());
+                let n_portals = room.portals.len();
                 for (i, portal) in room.portals.iter().enumerate() {
-                    Self::add_array_item(table, &format!("portal[{i}].keyword"), &portal.keyword);
+                    Self::add_array_item(
+                        table,
+                        &format!("portal[{i}].keyword"),
+                        &portal.keyword,
+                        i,
+                        n_portals,
+                    );
                     Self::add_field(table, &format!("  portal[{i}].destination"), &portal.dest);
                     Self::add_field(
                         table,
@@ -44,11 +51,14 @@ impl EntityInspectorScreen {
 
                 // Mobs Spawn
                 Self::add_array_header(table, "content.mobs", room.content.mobs.len());
+                let n_content_mobs = room.content.mobs.len();
                 for (i, spawn) in room.content.mobs.iter().enumerate() {
                     Self::add_array_item(
                         table,
                         &format!("content.mobs[{i}].template_id"),
                         &spawn.template_id,
+                        i,
+                        n_content_mobs,
                     );
                     Self::add_field(table, &format!("  content.mobs[{i}].count"), spawn.count);
                     let respawn_secs = spawn
@@ -64,11 +74,14 @@ impl EntityInspectorScreen {
 
                 // Items Spawn
                 Self::add_array_header(table, "content.items", room.content.items.len());
+                let n_content_items = room.content.items.len();
                 for (i, spawn) in room.content.items.iter().enumerate() {
                     Self::add_array_item(
                         table,
                         &format!("content.items[{i}].template_id"),
                         &spawn.template_id,
+                        i,
+                        n_content_items,
                     );
                     Self::add_field(table, &format!("  content.items[{i}].count"), spawn.count);
                 }
@@ -250,6 +263,39 @@ impl EntityInspectorScreen {
             "portal" => room.portals.clear(),
             "content.mobs" => room.content.mobs.clear(),
             "content.items" => room.content.items.clear(),
+            _ => return Err(format!("unknown room array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_room_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let room = self
+            .registry
+            .areas
+            .values_mut()
+            .find_map(|a| a.rooms.get_mut(&self.template_id))
+            .ok_or_else(|| "room not found".to_string())?;
+        match prefix {
+            "portal" => {
+                if i1 < room.portals.len() && i2 < room.portals.len() {
+                    room.portals.swap(i1, i2);
+                }
+            }
+            "content.mobs" => {
+                if i1 < room.content.mobs.len() && i2 < room.content.mobs.len() {
+                    room.content.mobs.swap(i1, i2);
+                }
+            }
+            "content.items" => {
+                if i1 < room.content.items.len() && i2 < room.content.items.len() {
+                    room.content.items.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown room array: {prefix}")),
         }
         Ok(())

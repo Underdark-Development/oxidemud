@@ -21,20 +21,41 @@ impl EntityInspectorScreen {
 
         // Allowed Classes
         Self::add_array_header(table, "allowed_classes", item.allowed_classes.len());
+        let n_allowed_classes = item.allowed_classes.len();
         for (i, cls) in item.allowed_classes.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_classes[{i}]"), cls);
+            Self::add_array_item(
+                table,
+                &format!("allowed_classes[{i}]"),
+                cls,
+                i,
+                n_allowed_classes,
+            );
         }
 
         // Allowed Races
         Self::add_array_header(table, "allowed_races", item.allowed_races.len());
+        let n_allowed_races = item.allowed_races.len();
         for (i, race) in item.allowed_races.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_races[{i}]"), race);
+            Self::add_array_item(
+                table,
+                &format!("allowed_races[{i}]"),
+                race,
+                i,
+                n_allowed_races,
+            );
         }
 
         // Allowed Alignments
         Self::add_array_header(table, "allowed_alignments", item.allowed_alignments.len());
+        let n_allowed_alignments = item.allowed_alignments.len();
         for (i, align) in item.allowed_alignments.iter().enumerate() {
-            Self::add_array_item(table, &format!("allowed_alignments[{i}]"), align);
+            Self::add_array_item(
+                table,
+                &format!("allowed_alignments[{i}]"),
+                align,
+                i,
+                n_allowed_alignments,
+            );
         }
 
         // Optionals: Requires Skill
@@ -127,8 +148,15 @@ impl EntityInspectorScreen {
 
         // Triggers
         Self::add_array_header(table, "triggers", item.triggers.len());
+        let n_triggers = item.triggers.len();
         for (i, trigger) in item.triggers.iter().enumerate() {
-            Self::add_array_item(table, &format!("triggers[{i}].event"), &trigger.event);
+            Self::add_array_item(
+                table,
+                &format!("triggers[{i}].event"),
+                &trigger.event,
+                i,
+                n_triggers,
+            );
             Self::add_field(table, &format!("  triggers[{i}].chance"), trigger.chance);
             Self::add_field(table, &format!("  triggers[{i}].cast"), &trigger.cast);
             Self::add_field(table, &format!("  triggers[{i}].target"), &trigger.target);

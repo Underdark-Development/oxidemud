@@ -60,8 +60,15 @@ impl EntityInspectorScreen {
 
         // Loot entries
         Self::add_array_header(table, "loot.entries", mob.loot.entries.len());
+        let n_entries = mob.loot.entries.len();
         for (i, entry) in mob.loot.entries.iter().enumerate() {
-            Self::add_array_item(table, &format!("loot.entries[{i}].item"), &entry.item);
+            Self::add_array_item(
+                table,
+                &format!("loot.entries[{i}].item"),
+                &entry.item,
+                i,
+                n_entries,
+            );
             Self::add_field(table, &format!("  loot.entries[{i}].chance"), entry.chance);
             if let Some(ref tc) = entry.treasure_class {
                 Self::add_field(table, &format!("  loot.entries[{i}].treasure_class"), tc);
@@ -74,33 +81,50 @@ impl EntityInspectorScreen {
 
         // Aggro race
         Self::add_array_header(table, "aggro_race", mob.aggro_race.len());
+        let n_aggro_race = mob.aggro_race.len();
         for (i, race_id) in mob.aggro_race.iter().enumerate() {
-            Self::add_array_item(table, &format!("aggro_race[{i}]"), race_id);
+            Self::add_array_item(table, &format!("aggro_race[{i}]"), race_id, i, n_aggro_race);
         }
 
         // Languages
         Self::add_array_header(table, "languages", mob.languages.len());
+        let n_languages = mob.languages.len();
         for (i, lang) in mob.languages.iter().enumerate() {
-            Self::add_array_item(table, &format!("languages[{i}]"), lang);
+            Self::add_array_item(table, &format!("languages[{i}]"), lang, i, n_languages);
         }
 
         // Skills
         Self::add_array_header(table, "skills", mob.skills.len());
+        let n_skills = mob.skills.len();
         for (i, skill) in mob.skills.iter().enumerate() {
-            Self::add_array_item(table, &format!("skills[{i}].id"), &skill.id);
+            Self::add_array_item(table, &format!("skills[{i}].id"), &skill.id, i, n_skills);
             Self::add_field(table, &format!("  skills[{i}].level"), skill.level);
         }
 
         // Trainer types
         Self::add_array_header(table, "trainer_types", mob.trainer_types.len());
+        let n_trainer_types = mob.trainer_types.len();
         for (i, trainer_type) in mob.trainer_types.iter().enumerate() {
-            Self::add_array_item(table, &format!("trainer_types[{i}]"), trainer_type);
+            Self::add_array_item(
+                table,
+                &format!("trainer_types[{i}]"),
+                trainer_type,
+                i,
+                n_trainer_types,
+            );
         }
 
         // Scripts/hooks
         Self::add_array_header(table, "scripts", mob.scripts.len());
+        let n_scripts = mob.scripts.len();
         for (i, script) in mob.scripts.iter().enumerate() {
-            Self::add_array_item(table, &format!("scripts[{i}].event"), &script.event);
+            Self::add_array_item(
+                table,
+                &format!("scripts[{i}].event"),
+                &script.event,
+                i,
+                n_scripts,
+            );
             Self::add_field(table, &format!("  scripts[{i}].script"), &script.script);
         }
     }
@@ -418,6 +442,53 @@ impl EntityInspectorScreen {
             "skills" => mob.skills.clear(),
             "trainer_types" => mob.trainer_types.clear(),
             "scripts" => mob.scripts.clear(),
+            _ => return Err(format!("unknown mob array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_mob_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let mob = self
+            .registry
+            .mobs
+            .get_mut(&self.template_id)
+            .ok_or("mob not found")?;
+        match prefix {
+            "loot.entries" => {
+                if i1 < mob.loot.entries.len() && i2 < mob.loot.entries.len() {
+                    mob.loot.entries.swap(i1, i2);
+                }
+            }
+            "aggro_race" => {
+                if i1 < mob.aggro_race.len() && i2 < mob.aggro_race.len() {
+                    mob.aggro_race.swap(i1, i2);
+                }
+            }
+            "languages" => {
+                if i1 < mob.languages.len() && i2 < mob.languages.len() {
+                    mob.languages.swap(i1, i2);
+                }
+            }
+            "skills" => {
+                if i1 < mob.skills.len() && i2 < mob.skills.len() {
+                    mob.skills.swap(i1, i2);
+                }
+            }
+            "trainer_types" => {
+                if i1 < mob.trainer_types.len() && i2 < mob.trainer_types.len() {
+                    mob.trainer_types.swap(i1, i2);
+                }
+            }
+            "scripts" => {
+                if i1 < mob.scripts.len() && i2 < mob.scripts.len() {
+                    mob.scripts.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown mob array: {prefix}")),
         }
         Ok(())

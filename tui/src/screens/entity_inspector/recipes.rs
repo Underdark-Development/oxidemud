@@ -26,11 +26,14 @@ impl EntityInspectorScreen {
         }
 
         Self::add_array_header(table, "materials", recipe.materials.len());
+        let n_materials = recipe.materials.len();
         for (i, mat) in recipe.materials.iter().enumerate() {
             Self::add_array_item(
                 table,
                 &format!("materials[{i}]"),
                 format!("{} x{}", mat.template_id, mat.quantity),
+                i,
+                n_materials,
             );
         }
 
@@ -140,6 +143,28 @@ impl EntityInspectorScreen {
             .ok_or("recipe not found")?;
         match prefix {
             "materials" => recipe.materials.clear(),
+            _ => return Err(format!("unknown recipe array: {prefix}")),
+        }
+        Ok(())
+    }
+
+    pub(super) fn swap_recipe_array(
+        &mut self,
+        prefix: &str,
+        i1: usize,
+        i2: usize,
+    ) -> Result<(), String> {
+        let recipe = self
+            .registry
+            .recipes
+            .get_mut(&self.template_id)
+            .ok_or("recipe not found")?;
+        match prefix {
+            "materials" => {
+                if i1 < recipe.materials.len() && i2 < recipe.materials.len() {
+                    recipe.materials.swap(i1, i2);
+                }
+            }
             _ => return Err(format!("unknown recipe array: {prefix}")),
         }
         Ok(())
