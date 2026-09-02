@@ -22,5 +22,6 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde_json = "1"
 http = "1"
 futures-util = "0.3"
+unicode-width = "0.2"
 
 

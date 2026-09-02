@@ -8,6 +8,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, Widget},
 };
+use unicode_width::UnicodeWidthStr;
 
 use super::entities::remove_from_registry;
 use super::Screen;
@@ -431,8 +432,13 @@ impl EntityInspectorScreen {
             }
         }
 
-        let max_field_len = table.rows.iter().map(|r| r[0].len()).max().unwrap_or(20);
-        let first_col_width = (max_field_len as u16).max(20);
+        let max_field_len = table
+            .rows
+            .iter()
+            .map(|r| UnicodeWidthStr::width(r[0].as_str()))
+            .max()
+            .unwrap_or(20);
+        let first_col_width = (max_field_len as u16 + 1).max(21);
         table.column_widths = vec![Constraint::Length(first_col_width), Constraint::Fill(1)];
 
         if table.rows.is_empty() {
