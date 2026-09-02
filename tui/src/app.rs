@@ -40,8 +40,11 @@ pub struct App {
     pub should_quit: bool,
     pub mouse_pos: Option<(u16, u16)>,
     pub status_message: Option<(String, Instant)>,
+    pub connection_url: Option<String>,
     pub connection_host: String,
     pub connection_port: u16,
+    pub connection_tls: bool,
+    pub api_key: Option<String>,
     pub prefs: PrefsConfig,
     pub content_path: PathBuf,
     pub screens: Vec<Box<dyn Screen>>,
@@ -75,6 +78,13 @@ impl App {
             .connect_host
             .unwrap_or_else(|| file_config.connection.host.clone());
         let port = cli.connect_port.unwrap_or(file_config.connection.port);
+        let url = cli.url.clone();
+        let tls = file_config.connection.tls
+            || url
+                .as_ref()
+                .map(|u| u.starts_with("wss://") || u.starts_with("https://"))
+                .unwrap_or(false);
+        let api_key = cli.api_key.or(file_config.connection.api_key);
         let content_path = PathBuf::from(file_config.content_path.clone());
 
         let (registry, file_map) = content::load_templates(&content_path);
@@ -100,8 +110,11 @@ impl App {
             should_quit: false,
             mouse_pos: None,
             status_message: None,
+            connection_url: url.clone(),
             connection_host: host.clone(),
             connection_port: port,
+            connection_tls: tls,
+            api_key: api_key.clone(),
             sidebar_visible: file_config.prefs.sidebar_open,
             prefs: file_config.prefs,
             content_path,
@@ -120,14 +133,20 @@ impl App {
             connect_dialog: None,
             network_client: if cli.mode != Mode::Offline {
                 Some(crate::network::SpadeNetworkClient::connect(
-                    host,
+                    url.as_deref(),
+                    &host,
                     port,
-                    cli.api_key.clone(),
+                    tls,
+                    api_key,
                 ))
             } else {
                 None
             },
         }
+    }
+
+    pub fn rpc(&self) -> Option<std::sync::Arc<oxide_ws_rpc::RpcClient>> {
+        self.network_client.as_ref().and_then(|c| c.rpc())
     }
 
     pub fn confirm_quit(&mut self) {
@@ -253,10 +272,15 @@ impl App {
             CommandAction::ConnectServer => {
                 let host = self.connection_host.clone();
                 let port = self.connection_port;
+                let url = self.connection_url.clone();
+                let tls = self.connection_tls;
+                let api_key = self.api_key.clone();
                 self.network_client = Some(crate::network::SpadeNetworkClient::connect(
-                    host.clone(),
+                    url.as_deref(),
+                    &host,
                     port,
-                    None,
+                    tls,
+                    api_key,
                 ));
                 self.mode = Mode::Online;
                 self.set_status(format!("Connecting to {}:{}...", host, port));
@@ -363,19 +387,39 @@ impl App {
                 if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
                     if dash.status == ConnectionStatus::Connecting {
                         let target = dash.connect_input.trim().to_string();
-                        let parts: Vec<&str> = target.split(':').collect();
-                        let host = parts.first().copied().unwrap_or("127.0.0.1").to_string();
-                        let port = parts
-                            .get(1)
-                            .and_then(|p| p.parse::<u16>().ok())
-                            .unwrap_or(8080);
+                        let (url_opt, host, port, tls) = if target.starts_with("ws://")
+                            || target.starts_with("wss://")
+                            || target.starts_with("http://")
+                            || target.starts_with("https://")
+                        {
+                            let tls =
+                                target.starts_with("wss://") || target.starts_with("https://");
+                            (
+                                Some(target.clone()),
+                                self.connection_host.clone(),
+                                self.connection_port,
+                                tls,
+                            )
+                        } else {
+                            let parts: Vec<&str> = target.split(':').collect();
+                            let host = parts.first().copied().unwrap_or("127.0.0.1").to_string();
+                            let port = parts
+                                .get(1)
+                                .and_then(|p| p.parse::<u16>().ok())
+                                .unwrap_or(8080);
+                            (None, host, port, self.connection_tls)
+                        };
 
                         self.connection_host = host.clone();
                         self.connection_port = port;
+                        self.connection_url = url_opt.clone();
+                        self.connection_tls = tls;
                         self.network_client = Some(crate::network::SpadeNetworkClient::connect(
-                            host.clone(),
+                            url_opt.as_deref(),
+                            &host,
                             port,
-                            None,
+                            tls,
+                            self.api_key.clone(),
                         ));
                         self.mode = Mode::Online;
                         self.set_status(format!("Connecting to {}:{}...", host, port));

@@ -2564,6 +2564,7 @@ dependencies = [
  "http",
  "oxide-core",
  "oxide-scripting",
+ "oxide-ws-rpc",
  "ratatui",
  "reqwest",
  "serde",
