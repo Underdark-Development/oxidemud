@@ -90,6 +90,19 @@ pub enum ScreenAction {
     None,
     Inspect(String, String),
     LoadScript(std::path::PathBuf),
+    RpcCall {
+        method: String,
+        params: serde_json::Value,
+        description: String,
+    },
+    Reconnect {
+        host: String,
+        port: u16,
+        tls: bool,
+        api_key: Option<String>,
+        url: Option<String>,
+        save_default: bool,
+    },
 }
 
 /// Information about the currently selected entity in a screen.

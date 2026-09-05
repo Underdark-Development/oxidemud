@@ -62,6 +62,10 @@ pub struct App {
     pub notification_dialog: Option<crate::components::Dialog>,
     pub connect_dialog: Option<crate::components::Dialog>,
     pub network_client: Option<crate::network::SpadeNetworkClient>,
+    pub rpc_resp_tx:
+        tokio::sync::mpsc::UnboundedSender<(String, Result<serde_json::Value, String>)>,
+    pub rpc_resp_rx:
+        tokio::sync::mpsc::UnboundedReceiver<(String, Result<serde_json::Value, String>)>,
 }
 
 struct TerminalGuard;
@@ -74,16 +78,28 @@ impl Drop for TerminalGuard {
 
 impl App {
     pub fn new(cli: crate::config::Config, file_config: SpadeConfig) -> Self {
-        let host = cli
+        let mode = cli.mode();
+        let mut host = cli
             .connect_host
             .unwrap_or_else(|| file_config.connection.host.clone());
-        let port = cli.connect_port.unwrap_or(file_config.connection.port);
+        let mut port = cli.connect_port.unwrap_or(file_config.connection.port);
         let url = cli.url.clone();
-        let tls = file_config.connection.tls
+        let mut tls = file_config.connection.tls
             || url
                 .as_ref()
                 .map(|u| u.starts_with("wss://") || u.starts_with("https://"))
                 .unwrap_or(false);
+
+        if let Some(ref u) = url {
+            if let Some((parsed_host, parsed_port, parsed_tls)) =
+                crate::network::parse_host_port_from_url(u)
+            {
+                host = parsed_host;
+                port = parsed_port;
+                tls = parsed_tls;
+            }
+        }
+
         let api_key = cli.api_key.or(file_config.connection.api_key);
         let content_path = PathBuf::from(file_config.content_path.clone());
 
@@ -94,7 +110,21 @@ impl App {
             RoomGridScreen::new(content_path.clone(), registry.clone(), file_map.clone());
         let file_browser = FileBrowserScreen::new(content_path.clone());
         let script_console = ScriptConsoleScreen::new();
-        let live_dashboard = LiveDashboardScreen::new();
+        let mut live_dashboard = LiveDashboardScreen::new();
+
+        let default_target = if let Some(ref u) = url {
+            u.clone()
+        } else {
+            format!("{}:{}", host, port)
+        };
+        live_dashboard.connect_input = default_target;
+        live_dashboard.connect_dialog = crate::screens::live_dashboard::ConnectDialogState::new(
+            host.clone(),
+            port.to_string(),
+            tls,
+            api_key.clone().unwrap_or_default(),
+            true,
+        );
 
         let screens: Vec<Box<dyn Screen>> = vec![
             Box::new(entities),
@@ -105,8 +135,10 @@ impl App {
             Box::new(live_dashboard),
         ];
 
+        let (rpc_resp_tx, rpc_resp_rx) = tokio::sync::mpsc::unbounded_channel();
+
         Self {
-            mode: cli.mode,
+            mode,
             should_quit: false,
             mouse_pos: None,
             status_message: None,
@@ -131,7 +163,9 @@ impl App {
             notification_history: Vec::new(),
             notification_dialog: None,
             connect_dialog: None,
-            network_client: if cli.mode != Mode::Offline {
+            rpc_resp_tx,
+            rpc_resp_rx,
+            network_client: if mode != Mode::Offline {
                 Some(crate::network::SpadeNetworkClient::connect(
                     url.as_deref(),
                     &host,
@@ -143,6 +177,20 @@ impl App {
                 None
             },
         }
+    }
+
+    pub fn connection_status(&self) -> ConnectionStatus {
+        self.network_client
+            .as_ref()
+            .map(|c| c.status())
+            .unwrap_or(ConnectionStatus::Disconnected)
+    }
+
+    pub fn ping_ms(&self) -> u64 {
+        self.network_client
+            .as_ref()
+            .map(|c| c.ping_ms())
+            .unwrap_or(0)
     }
 
     pub fn rpc(&self) -> Option<std::sync::Arc<oxide_ws_rpc::RpcClient>> {
@@ -357,6 +405,66 @@ impl App {
                 self.screens[ScreenId::ScriptConsole.as_index()].load_script_file(&path);
                 self.set_status(format!("Loaded script {}", path.display()));
             }
+            crate::screens::ScreenAction::RpcCall {
+                method,
+                params,
+                description,
+            } => {
+                if let Some(rpc) = self.rpc() {
+                    let desc = description.clone();
+                    let tx = self.rpc_resp_tx.clone();
+                    tokio::spawn(async move {
+                        let res = rpc.call(&method, params).await.map_err(|e| e.to_string());
+                        let _ = tx.send((desc, res));
+                    });
+                    self.set_status(format!("Sending {description}..."));
+                } else {
+                    self.set_status(format!("Cannot {description}: not connected to server RPC"));
+                    let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                    if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
+                        dash.add_log(format!(
+                            "[ERROR] Not connected to server RPC (cannot {description})"
+                        ));
+                    }
+                }
+            }
+            crate::screens::ScreenAction::Reconnect {
+                host,
+                port,
+                tls,
+                api_key,
+                url,
+                save_default,
+            } => {
+                self.connection_host = host.clone();
+                self.connection_port = port;
+                self.connection_tls = tls;
+                self.api_key = api_key.clone();
+                self.connection_url = url.clone();
+                self.mode = Mode::Online;
+
+                if save_default {
+                    let mut cfg = crate::config_file::load_config();
+                    cfg.connection.host = host.clone();
+                    cfg.connection.port = port;
+                    cfg.connection.tls = tls;
+                    cfg.connection.api_key = api_key.clone();
+                    if let Err(e) = crate::config_file::save_config(&cfg) {
+                        self.set_status(format!("Config save error: {e}"));
+                    } else {
+                        self.set_status("Connection saved to config.toml");
+                    }
+                }
+
+                self.network_client = Some(crate::network::SpadeNetworkClient::connect(
+                    url.as_deref(),
+                    &host,
+                    port,
+                    tls,
+                    api_key,
+                ));
+                self.set_status(format!("Connecting to {}:{}...", host, port));
+            }
             crate::screens::ScreenAction::None => {}
         }
     }
@@ -367,9 +475,43 @@ impl App {
         let mut event_loop = crate::event::EventLoop::new()?;
 
         while !self.should_quit {
+            while let Ok((desc, res)) = self.rpc_resp_rx.try_recv() {
+                match res {
+                    Ok(val) => {
+                        let msg = val
+                            .get("message")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Success");
+                        self.set_status(format!("{desc}: {msg}"));
+                        let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                        if let Some(dash) =
+                            screen.as_any_mut().downcast_mut::<LiveDashboardScreen>()
+                        {
+                            dash.add_log(format!("[RPC SUCCESS] {desc}: {msg}"));
+                        }
+                    }
+                    Err(err) => {
+                        self.set_status(format!("{desc} failed: {err}"));
+                        let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                        if let Some(dash) =
+                            screen.as_any_mut().downcast_mut::<LiveDashboardScreen>()
+                        {
+                            dash.add_log(format!("[RPC ERROR] {desc} failed: {err}"));
+                        }
+                    }
+                }
+            }
+
             if let Some(ref mut client) = self.network_client {
                 let status = client.status();
                 let ping = client.ping_ms();
+
+                let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
+                if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
+                    dash.status = status;
+                    dash.ping_ms = ping;
+                }
+
                 if let Some(telemetry) = client.poll_telemetry() {
                     let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
                     if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
@@ -385,45 +527,7 @@ impl App {
             } else {
                 let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
                 if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
-                    if dash.status == ConnectionStatus::Connecting {
-                        let target = dash.connect_input.trim().to_string();
-                        let (url_opt, host, port, tls) = if target.starts_with("ws://")
-                            || target.starts_with("wss://")
-                            || target.starts_with("http://")
-                            || target.starts_with("https://")
-                        {
-                            let tls =
-                                target.starts_with("wss://") || target.starts_with("https://");
-                            (
-                                Some(target.clone()),
-                                self.connection_host.clone(),
-                                self.connection_port,
-                                tls,
-                            )
-                        } else {
-                            let parts: Vec<&str> = target.split(':').collect();
-                            let host = parts.first().copied().unwrap_or("127.0.0.1").to_string();
-                            let port = parts
-                                .get(1)
-                                .and_then(|p| p.parse::<u16>().ok())
-                                .unwrap_or(8080);
-                            (None, host, port, self.connection_tls)
-                        };
-
-                        self.connection_host = host.clone();
-                        self.connection_port = port;
-                        self.connection_url = url_opt.clone();
-                        self.connection_tls = tls;
-                        self.network_client = Some(crate::network::SpadeNetworkClient::connect(
-                            url_opt.as_deref(),
-                            &host,
-                            port,
-                            tls,
-                            self.api_key.clone(),
-                        ));
-                        self.mode = Mode::Online;
-                        self.set_status(format!("Connecting to {}:{}...", host, port));
-                    }
+                    dash.status = ConnectionStatus::Disconnected;
                 }
             }
 

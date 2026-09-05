@@ -197,7 +197,7 @@ mod tests {
 
     fn test_app() -> App {
         let cli = Config {
-            mode: Mode::Offline,
+            mode: Some(Mode::Offline),
             url: None,
             connect_host: None,
             connect_port: None,

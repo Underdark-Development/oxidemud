@@ -64,6 +64,50 @@ pub struct SpadeNetworkClient {
     rpc: Arc<std::sync::RwLock<Option<Arc<oxide_ws_rpc::RpcClient>>>>,
 }
 
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http;
+
+/// Parse host, port, and TLS flag from a URL or host:port string.
+pub fn parse_host_port_from_url(url: &str) -> Option<(String, u16, bool)> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let (tls, rest) = if let Some(stripped) = trimmed.strip_prefix("https://") {
+        (true, stripped)
+    } else if let Some(stripped) = trimmed.strip_prefix("wss://") {
+        (true, stripped)
+    } else if let Some(stripped) = trimmed.strip_prefix("http://") {
+        (false, stripped)
+    } else if let Some(stripped) = trimmed.strip_prefix("ws://") {
+        (false, stripped)
+    } else {
+        (false, trimmed)
+    };
+
+    let host_port = if let Some(idx) = rest.find('/') {
+        &rest[..idx]
+    } else {
+        rest
+    };
+
+    let parts: Vec<&str> = host_port.split(':').collect();
+    let host = parts.first()?.trim().to_string();
+    if host.is_empty() {
+        return None;
+    }
+    let port = if let Some(p_str) = parts.get(1) {
+        p_str.trim().parse::<u16>().ok()?
+    } else if tls {
+        443
+    } else {
+        8080
+    };
+
+    Some((host, port, tls))
+}
+
 /// Resolve a WebSocket URL given an optional URL string, host, port, TLS setting, and default path.
 pub fn resolve_ws_url(
     url: Option<&str>,
@@ -153,15 +197,12 @@ impl SpadeNetworkClient {
 
                 *status_clone.lock().unwrap() = ConnectionStatus::Connecting;
 
-                let mut req_builder = http::Request::builder().uri(&url_str);
-
-                if let Some(ref key) = api_key {
-                    req_builder = req_builder.header("Authorization", format!("Bearer {}", key));
-                }
-
-                let request = match req_builder.body(()) {
+                let mut request = match url_str.clone().into_client_request() {
                     Ok(req) => req,
-                    Err(_) => {
+                    Err(e) => {
+                        let _ = log_tx.send(format!(
+                            "[NETWORK ERROR] Invalid WebSocket URL '{url_str}': {e}"
+                        ));
                         *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
                         *rpc_clone.write().unwrap() = None;
                         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -169,16 +210,32 @@ impl SpadeNetworkClient {
                     }
                 };
 
+                if let Some(ref key) = api_key {
+                    if let Ok(value) = http::HeaderValue::from_str(&format!("Bearer {key}")) {
+                        request
+                            .headers_mut()
+                            .insert(http::header::AUTHORIZATION, value);
+                    }
+                }
+
                 // Connect to JSON-RPC alongside telemetry stream
-                if let Ok(rpc_client) =
-                    oxide_ws_rpc::RpcClient::connect(&rpc_url_str, api_key.as_deref()).await
-                {
-                    *rpc_clone.write().unwrap() = Some(Arc::new(rpc_client));
+                match oxide_ws_rpc::RpcClient::connect(&rpc_url_str, api_key.as_deref()).await {
+                    Ok(rpc_client) => {
+                        *rpc_clone.write().unwrap() = Some(Arc::new(rpc_client));
+                        let _ = log_tx.send(format!("[NETWORK] JSON-RPC connected: {rpc_url_str}"));
+                    }
+                    Err(e) => {
+                        let _ = log_tx.send(format!(
+                            "[NETWORK ERROR] JSON-RPC connection failed ({rpc_url_str}): {e}"
+                        ));
+                    }
                 }
 
                 match connect_async(request).await {
                     Ok((ws_stream, _)) => {
                         *status_clone.lock().unwrap() = ConnectionStatus::Connected;
+                        let _ =
+                            log_tx.send(format!("[NETWORK] Telemetry stream connected: {url_str}"));
                         let (mut write, mut read) = ws_stream.split();
                         let mut last_ping_sent: Option<Instant> = None;
                         let mut ping_interval = tokio::time::interval(Duration::from_secs(3));
@@ -235,10 +292,16 @@ impl SpadeNetworkClient {
 
                         *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
                         *rpc_clone.write().unwrap() = None;
+                        let _ = log_tx.send(format!(
+                            "[NETWORK] Telemetry stream disconnected from {url_str}"
+                        ));
                     }
-                    Err(_) => {
+                    Err(e) => {
                         *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
                         *rpc_clone.write().unwrap() = None;
+                        let _ = log_tx.send(format!(
+                            "[NETWORK ERROR] Failed to connect to {url_str}: {e}"
+                        ));
                     }
                 }
 
@@ -372,5 +435,49 @@ mod tests {
         let ping = SpadeControlCommand::Ping;
         let ping_json = serde_json::to_string(&ping).unwrap();
         assert_eq!(ping_json, r#"{"action":"Ping"}"#);
+    }
+
+    #[test]
+    fn test_parse_host_port_from_url() {
+        assert_eq!(
+            parse_host_port_from_url("ws://127.0.0.1:8080/ws/spade"),
+            Some(("127.0.0.1".into(), 8080, false))
+        );
+        assert_eq!(
+            parse_host_port_from_url("wss://mud.oxide.org:9000/ws/rpc"),
+            Some(("mud.oxide.org".into(), 9000, true))
+        );
+        assert_eq!(
+            parse_host_port_from_url("https://secure.example.com"),
+            Some(("secure.example.com".into(), 443, true))
+        );
+        assert_eq!(
+            parse_host_port_from_url("192.168.1.1:4000"),
+            Some(("192.168.1.1".into(), 4000, false))
+        );
+    }
+
+    #[test]
+    fn test_client_request_construction_with_auth() {
+        let url = "ws://127.0.0.1:8080/ws/spade";
+        let mut request = url.to_string().into_client_request().unwrap();
+        let value = http::HeaderValue::from_str("Bearer secret-test-token").unwrap();
+        request
+            .headers_mut()
+            .insert(http::header::AUTHORIZATION, value);
+
+        assert_eq!(
+            request
+                .headers()
+                .get("authorization")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "Bearer secret-test-token"
+        );
+        assert_eq!(
+            request.headers().get("upgrade").unwrap().to_str().unwrap(),
+            "websocket"
+        );
     }
 }

@@ -163,22 +163,45 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     }
 
     // Status line 0: Document metrics (left) and Mode badge with connection info (right-aligned)
-    let mode_str = match app.mode {
-        crate::app::Mode::Offline => "offline".to_string(),
+    let (mode_badge, badge_fg, badge_bg) = match app.mode {
+        crate::app::Mode::Offline => (" offline ".to_string(), Color::Black, Color::Indexed(245)),
         crate::app::Mode::Online => {
-            format!("online @ {}:{}", app.connection_host, app.connection_port)
+            let status = app.connection_status();
+            let target = format!("{}:{}", app.connection_host, app.connection_port);
+            match status {
+                crate::network::ConnectionStatus::Connected => {
+                    let ping = app.ping_ms();
+                    (
+                        format!(" online ● {target} ({ping}ms) "),
+                        Color::Black,
+                        Color::Green,
+                    )
+                }
+                crate::network::ConnectionStatus::Connecting => (
+                    format!(" connecting ◐ {target} "),
+                    Color::Black,
+                    Color::Yellow,
+                ),
+                crate::network::ConnectionStatus::Disconnected => (
+                    format!(" disconnected ○ {target} "),
+                    Color::White,
+                    Color::Red,
+                ),
+            }
         }
-        crate::app::Mode::Split => "split".to_string(),
+        crate::app::Mode::Split => (" split ".to_string(), Color::Black, Color::Cyan),
     };
-    let mode_badge = format!(" {mode_str} ");
     let badge_x = (status_area.x + status_area.width).saturating_sub(mode_badge.len() as u16 + 1);
 
-    // Render right-aligned mode badge (inverted Black text on White background)
+    // Render right-aligned mode badge
     buf.set_string(
         badge_x,
         status_area.y,
         &mode_badge,
-        Style::default().fg(Color::Black).bg(Color::White),
+        Style::default()
+            .fg(badge_fg)
+            .bg(badge_bg)
+            .add_modifier(ratatui::style::Modifier::BOLD),
     );
 
     // Left-aligned metrics: unsaved changes, syntax errors, validation errors
