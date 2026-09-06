@@ -15,7 +15,12 @@ max_delay_mins = 300
 
 [api]
 enabled = true
-bind_addr = "127.0.0.1:8080"
+# Bind address for REST API and WebSocket listeners.
+# Use "0.0.0.0:8080" for Docker deployments so sibling containers (e.g. cloudflared,
+# reverse proxies) can reach the service over internal bridge networks.
+# (The host is still protected via docker-compose.yml loopback-only port mapping 127.0.0.1:8080:8080).
+# For non-Docker host installs, you may use "127.0.0.1:8080" if preferred.
+bind_addr = "0.0.0.0:8080"
 
 [api.tls]
 # Primary Option A: Automatic Let's Encrypt (Recommended for public production servers)

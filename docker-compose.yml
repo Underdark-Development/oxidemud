@@ -12,6 +12,7 @@ services:
       - "4000:4000" # MUD Telnet (Direct TCP)
       - "127.0.0.1:8080:8080" # REST API & WebSockets (Loopback only; forwarded via Cloudflare Tunnel or Caddy)
     volumes:
+      - ${OXIDE_DIR:-.}/server.toml:/app/server.toml
       - ${OXIDE_DIR:-.}/content:/app/content
       - ${OXIDE_DIR:-.}/data:/app/data
       - ${OXIDE_DIR:-.}/logs:/app/logs

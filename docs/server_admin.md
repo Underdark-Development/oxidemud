@@ -289,26 +289,36 @@ The recommended production deployment for OxideMUD uses **Docker Compose** with 
    - Log into [dash.teams.cloudflare.com](https://dash.teams.cloudflare.com/) (free for up to 50 users).
    - Go to **Networks** -> **Tunnels** -> Click **Create a Tunnel**.
    - Select **Cloudflared** and enter a tunnel name (e.g. `oxide-mud`).
-3. **Copy Tunnel Token:**
+3. **Copy Tunnel Token & Configure .env:**
    - Copy the generated tunnel token string (`eyJh...`).
    - Create or edit `.env` in your deployment path and set:
      ```env
      TUNNEL_TOKEN=eyJh...
+     COMPOSE_PROFILES=tunnel
      ```
-4. **Configure Public Hostname Route in Cloudflare Dashboard:**
-   - On the **Public Hostnames** step:
+     _(Setting `COMPOSE_PROFILES=tunnel` ensures `cloudflared` starts automatically whenever `docker compose` is executed)._
+4. **Configure Public Hostname Route & Verify DNS in Cloudflare:**
+   - On the **Public Hostnames** step of the tunnel setup:
      - **Subdomain / Domain:** e.g., `mud.example.com`
      - **Type:** `HTTP`
      - **URL:** `oxide-server:8080` _(uses internal Docker container service name)_
-5. **Launch Docker Containers:**
+   - **Check DNS Records:** In the main Cloudflare Dashboard under **DNS** -> **Records**, verify that `mud.example.com` has a `CNAME` pointing to `<tunnel-id>.cfargotunnel.com` (proxied / orange cloud).
+     > [!IMPORTANT]
+     > Ensure there are **no preexisting `A` or `AAAA` records** for `mud.example.com` pointing to the VPS IP address. If an `A` record exists, Cloudflare bypasses the tunnel and sends traffic directly to VPS port 443, leading to Cloudflare **Error 522 (Connection Timed Out)**.
+5. **Verify `server.toml` API Bind Address:**
+   Ensure `[api] bind_addr = "0.0.0.0:8080"` in `server.toml`. Inside the container, binding to `0.0.0.0:8080` allows `cloudflared` to connect across the Docker bridge network. If left as `127.0.0.1:8080`, `cloudflared` will receive `connection refused` and return **Error 502 (Bad Gateway)**.
+   _(The host remains secure because `docker-compose.yml` maps this port strictly to the host's loopback interface `127.0.0.1:8080:8080`)._
+   `server.toml` is mounted as a volume, so edits on the host take effect with a simple `docker compose restart oxide-server`.
+6. **Launch Docker Containers:**
    ```bash
-   docker-compose up -d --build
+   docker compose --profile tunnel up -d --build
    ```
+   _(Or simply `docker compose up -d --build` if `COMPOSE_PROFILES=tunnel` is in `.env`)._
 
 #### Telnet vs. WebSockets Traffic Flow
 
 - **Telnet (Port 4000):** A direct TCP port exposed on the host VPS. It is **not** tunneled through Cloudflare — tunnels only carry HTTP/WebSocket, and Cloudflare's edge does not forward raw TCP, so the proxied tunnel hostname (`mud.example.com`) cannot serve telnet. Desktop clients (TinTin++, Mudlet) must connect to either a **DNS-only (grey cloud)** record pointing at the VPS (e.g. `telnet.mud.example.com:4000`) or the VPS's raw IP. The host firewall must still allow inbound `4000/tcp` (see Host Firewall Configuration); the tunnel provides no filtering or rate limiting for raw TCP.
-- **WebSockets & REST API (Port 8080):** Bound internally to loopback (`127.0.0.1:8080`) and encrypted at Cloudflare Edge. Web clients, Spade, and MCP connect to `wss://mud.example.com/ws/*`.
+- **WebSockets & REST API (Port 8080):** Bound internally to host loopback (`127.0.0.1:8080`) and exposed to `cloudflared` via Docker networking (`0.0.0.0:8080` inside the container). Encrypted at Cloudflare Edge and tunneled outbound. Web clients, Spade, and MCP connect to `wss://mud.example.com/ws/*`.
 
 #### Alternate Setup 1: Caddy Reverse Proxy (Non-Cloudflare)
 
