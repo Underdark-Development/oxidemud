@@ -3,11 +3,14 @@ use ratatui::{
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, Gauge, List, ListItem, Paragraph, Row, Sparkline, Table,
         TableState, Widget,
     },
 };
+
+use std::time::Instant;
 
 use crate::network::{ConnectionStatus, SpadeTelemetry};
 use crate::screens::{Screen, ScreenAction};
@@ -42,6 +45,154 @@ impl DashboardPane {
             DashboardPane::Logs => DashboardPane::Players,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFilterTab {
+    #[default]
+    All,
+    Errors,
+    Warnings,
+    Info,
+    NetworkRpc,
+    Game,
+}
+
+impl LogFilterTab {
+    pub fn all() -> &'static [LogFilterTab] {
+        &[
+            LogFilterTab::All,
+            LogFilterTab::Errors,
+            LogFilterTab::Warnings,
+            LogFilterTab::Info,
+            LogFilterTab::NetworkRpc,
+            LogFilterTab::Game,
+        ]
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LogFilterTab::All => "All",
+            LogFilterTab::Errors => "Errors",
+            LogFilterTab::Warnings => "Warnings",
+            LogFilterTab::Info => "Info",
+            LogFilterTab::NetworkRpc => "Network/RPC",
+            LogFilterTab::Game => "Game",
+        }
+    }
+
+    pub fn matches(self, line: &str) -> bool {
+        let upper = line.to_uppercase();
+        match self {
+            LogFilterTab::All => true,
+            LogFilterTab::Errors => {
+                upper.contains("ERROR") || upper.contains("FATAL") || upper.contains("CRITICAL")
+            }
+            LogFilterTab::Warnings => upper.contains("WARN"),
+            LogFilterTab::Info => {
+                upper.contains("INFO") && !upper.contains("WARN") && !upper.contains("ERROR")
+            }
+            LogFilterTab::NetworkRpc => {
+                upper.contains("[NETWORK")
+                    || upper.contains("[RPC")
+                    || upper.contains("[WS")
+                    || upper.contains("[TELNET")
+                    || upper.contains("CONNECTION")
+                    || upper.contains("DISCONNECT")
+            }
+            LogFilterTab::Game => {
+                upper.contains("[COMBAT")
+                    || upper.contains("[GAME")
+                    || upper.contains("[ROOM")
+                    || upper.contains("[PLAYER")
+                    || upper.contains("[MOB")
+                    || upper.contains("[QUEST")
+            }
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            LogFilterTab::All => LogFilterTab::Errors,
+            LogFilterTab::Errors => LogFilterTab::Warnings,
+            LogFilterTab::Warnings => LogFilterTab::Info,
+            LogFilterTab::Info => LogFilterTab::NetworkRpc,
+            LogFilterTab::NetworkRpc => LogFilterTab::Game,
+            LogFilterTab::Game => LogFilterTab::All,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            LogFilterTab::All => LogFilterTab::Game,
+            LogFilterTab::Errors => LogFilterTab::All,
+            LogFilterTab::Warnings => LogFilterTab::Errors,
+            LogFilterTab::Info => LogFilterTab::Warnings,
+            LogFilterTab::NetworkRpc => LogFilterTab::Info,
+            LogFilterTab::Game => LogFilterTab::NetworkRpc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LogSearchState {
+    pub active: bool,
+    pub query: String,
+    pub cursor: usize,
+    pub matches: Vec<usize>,
+    pub selected_match: usize,
+}
+
+impl LogSearchState {
+    pub fn update_matches(&mut self, filtered_logs: &[&String]) {
+        self.matches.clear();
+        let trimmed = self.query.trim();
+        if trimmed.is_empty() {
+            self.selected_match = 0;
+            return;
+        }
+        let q = trimmed.to_lowercase();
+        for (i, log) in filtered_logs.iter().enumerate() {
+            if log.to_lowercase().contains(&q) {
+                self.matches.push(i);
+            }
+        }
+        if !self.matches.is_empty() && self.selected_match >= self.matches.len() {
+            self.selected_match = self.matches.len() - 1;
+        }
+    }
+
+    pub fn next_match(&mut self) -> Option<usize> {
+        if self.matches.is_empty() {
+            return None;
+        }
+        self.selected_match = (self.selected_match + 1) % self.matches.len();
+        Some(self.matches[self.selected_match])
+    }
+
+    pub fn prev_match(&mut self) -> Option<usize> {
+        if self.matches.is_empty() {
+            return None;
+        }
+        self.selected_match = if self.selected_match == 0 {
+            self.matches.len() - 1
+        } else {
+            self.selected_match - 1
+        };
+        Some(self.matches[self.selected_match])
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct LogStreamState {
+    pub filter_tab: LogFilterTab,
+    pub scroll_offset: usize,
+    pub paused: bool,
+    pub search: LogSearchState,
+    pub toast: Option<(String, Instant)>,
+    pub tab_rects: Vec<(LogFilterTab, Rect)>,
+    pub pause_chip_rect: Rect,
+    pub search_chip_rect: Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +297,7 @@ pub struct LiveDashboardScreen {
     pub logs: Vec<String>,
     pub log_scroll_paused: bool,
     pub log_filter: String,
+    pub log_stream: LogStreamState,
     pub table_state: TableState,
     pub gecho_dialog_open: bool,
     pub gecho_input: String,
@@ -183,6 +335,7 @@ impl LiveDashboardScreen {
             logs: Vec::new(),
             log_scroll_paused: false,
             log_filter: String::new(),
+            log_stream: LogStreamState::default(),
             table_state,
             gecho_dialog_open: false,
             gecho_input: String::new(),
@@ -232,7 +385,7 @@ impl LiveDashboardScreen {
         }
 
         for log in telemetry.logs.clone() {
-            self.logs.push(log);
+            self.add_log(log);
         }
 
         self.telemetry = Some(telemetry);
@@ -242,6 +395,125 @@ impl LiveDashboardScreen {
         self.logs.push(log);
         if self.logs.len() > 5000 {
             self.logs.remove(0);
+        }
+        if !self.log_stream.paused && self.log_stream.scroll_offset == 0 {
+            // Stay pinned to the bottom
+            self.log_stream.scroll_offset = 0;
+        }
+        if !self.log_stream.search.query.trim().is_empty() {
+            let filtered: Vec<&String> = self
+                .logs
+                .iter()
+                .filter(|l| self.log_stream.filter_tab.matches(l))
+                .collect();
+            self.log_stream.search.update_matches(&filtered);
+        }
+    }
+
+    pub fn scroll_log_up(&mut self, lines: usize) {
+        let total = self
+            .logs
+            .iter()
+            .filter(|l| self.log_stream.filter_tab.matches(l))
+            .count();
+        self.log_stream.scroll_offset = self
+            .log_stream
+            .scroll_offset
+            .saturating_add(lines)
+            .min(total);
+        self.log_stream.paused = true;
+        self.log_scroll_paused = true;
+    }
+
+    pub fn scroll_log_down(&mut self, lines: usize) {
+        self.log_stream.scroll_offset = self.log_stream.scroll_offset.saturating_sub(lines);
+        if self.log_stream.scroll_offset == 0 && !self.log_scroll_paused {
+            self.log_stream.paused = false;
+        }
+    }
+
+    pub fn scroll_log_to_top(&mut self) {
+        let total = self
+            .logs
+            .iter()
+            .filter(|l| self.log_stream.filter_tab.matches(l))
+            .count();
+        self.log_stream.scroll_offset = total;
+        self.log_stream.paused = true;
+        self.log_scroll_paused = true;
+    }
+
+    pub fn scroll_log_to_bottom(&mut self) {
+        self.log_stream.scroll_offset = 0;
+        self.log_stream.paused = false;
+        self.log_scroll_paused = false;
+    }
+
+    pub fn center_on_filtered_index(
+        &mut self,
+        match_idx: usize,
+        total: usize,
+        visible_height: usize,
+    ) {
+        if total == 0 || visible_height == 0 {
+            self.log_stream.scroll_offset = 0;
+            return;
+        }
+        let half_h = visible_height / 2;
+        let end = (match_idx + half_h + 1).min(total);
+        self.log_stream.scroll_offset = total.saturating_sub(end);
+        let max_scroll = total.saturating_sub(visible_height);
+        self.log_stream.scroll_offset = self.log_stream.scroll_offset.min(max_scroll);
+        self.log_stream.paused = true;
+        self.log_scroll_paused = true;
+    }
+
+    pub fn jump_search_match(&mut self, forward: bool, visible_height: usize) {
+        let filtered: Vec<&String> = self
+            .logs
+            .iter()
+            .filter(|l| self.log_stream.filter_tab.matches(l))
+            .collect();
+        self.log_stream.search.update_matches(&filtered);
+        let match_idx = if forward {
+            self.log_stream.search.next_match()
+        } else {
+            self.log_stream.search.prev_match()
+        };
+        if let Some(idx) = match_idx {
+            self.center_on_filtered_index(idx, filtered.len(), visible_height);
+        }
+    }
+
+    pub fn export_logs(&mut self) {
+        let filtered: Vec<&String> = self
+            .logs
+            .iter()
+            .filter(|l| self.log_stream.filter_tab.matches(l))
+            .collect();
+
+        let count = filtered.len();
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let filename = format!("spade-logs-{}.log", now_secs);
+
+        let content = filtered
+            .iter()
+            .map(|s| (*s).as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        match std::fs::write(&filename, content) {
+            Ok(_) => {
+                self.log_stream.toast = Some((
+                    format!("Exported {} lines to {}", count, filename),
+                    Instant::now(),
+                ));
+            }
+            Err(e) => {
+                self.log_stream.toast = Some((format!("Export failed: {}", e), Instant::now()));
+            }
         }
     }
 
@@ -592,6 +864,7 @@ impl Screen for LiveDashboardScreen {
             || self.gecho_dialog_open
             || self.kick_dialog_open
             || self.shutdown_dialog_open
+            || self.log_stream.search.active
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
@@ -737,6 +1010,176 @@ impl Screen for LiveDashboardScreen {
             }
         }
 
+        // Search Input Overlay
+        if self.log_stream.search.active {
+            match key.code {
+                KeyCode::Esc => {
+                    self.log_stream.search.active = false;
+                    return true;
+                }
+                KeyCode::Enter => {
+                    self.log_stream.search.active = false;
+                    return true;
+                }
+                _ => {
+                    if handle_text_field_key(
+                        &mut self.log_stream.search.query,
+                        &mut self.log_stream.search.cursor,
+                        key,
+                        false,
+                    ) {
+                        let filtered: Vec<&String> = self
+                            .logs
+                            .iter()
+                            .filter(|l| self.log_stream.filter_tab.matches(l))
+                            .collect();
+                        self.log_stream.search.update_matches(&filtered);
+                        if let Some(idx) = self.log_stream.search.matches.last().copied() {
+                            self.center_on_filtered_index(idx, filtered.len(), 10);
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+
+        // Dedicated Full Log Screen View
+        if self.view_mode == DashboardView::FullLog {
+            match key.code {
+                KeyCode::Esc | KeyCode::Tab | KeyCode::Char('q') | KeyCode::Char('Q') => {
+                    self.view_mode = DashboardView::Dashboard;
+                    return true;
+                }
+                KeyCode::Char('l') | KeyCode::Char('L') => {
+                    self.view_mode = DashboardView::Dashboard;
+                    return true;
+                }
+                KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.export_logs();
+                    return true;
+                }
+                KeyCode::Char(' ') => {
+                    self.log_stream.paused = !self.log_stream.paused;
+                    self.log_scroll_paused = self.log_stream.paused;
+                    return true;
+                }
+                KeyCode::Char('/') => {
+                    self.log_stream.search.active = true;
+                    self.log_stream.search.cursor = self.log_stream.search.query.len();
+                    return true;
+                }
+                KeyCode::Char('n') => {
+                    self.jump_search_match(true, 15);
+                    return true;
+                }
+                KeyCode::Char('N') => {
+                    self.jump_search_match(false, 15);
+                    return true;
+                }
+                KeyCode::Char('[') | KeyCode::Left => {
+                    self.log_stream.filter_tab = self.log_stream.filter_tab.prev();
+                    self.log_stream.scroll_offset = 0;
+                    return true;
+                }
+                KeyCode::Char(']') | KeyCode::Right => {
+                    self.log_stream.filter_tab = self.log_stream.filter_tab.next();
+                    self.log_stream.scroll_offset = 0;
+                    return true;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.scroll_log_up(1);
+                    return true;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.scroll_log_down(1);
+                    return true;
+                }
+                KeyCode::PageUp => {
+                    self.scroll_log_up(10);
+                    return true;
+                }
+                KeyCode::PageDown => {
+                    self.scroll_log_down(10);
+                    return true;
+                }
+                KeyCode::Home => {
+                    self.scroll_log_to_top();
+                    return true;
+                }
+                KeyCode::End => {
+                    self.scroll_log_to_bottom();
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+
+        // Export hotkey works anywhere in Dashboard
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            self.export_logs();
+            return true;
+        }
+
+        // Log-pane specific keys when DashboardPane::Logs is focused
+        if self.focused_pane == DashboardPane::Logs {
+            match key.code {
+                KeyCode::Char('/') => {
+                    self.log_stream.search.active = true;
+                    self.log_stream.search.cursor = self.log_stream.search.query.len();
+                    return true;
+                }
+                KeyCode::Char(' ') => {
+                    self.log_stream.paused = !self.log_stream.paused;
+                    self.log_scroll_paused = self.log_stream.paused;
+                    return true;
+                }
+                KeyCode::Char('n') => {
+                    self.jump_search_match(true, 8);
+                    return true;
+                }
+                KeyCode::Char('N') => {
+                    self.jump_search_match(false, 8);
+                    return true;
+                }
+                KeyCode::Char('[') => {
+                    self.log_stream.filter_tab = self.log_stream.filter_tab.prev();
+                    self.log_stream.scroll_offset = 0;
+                    return true;
+                }
+                KeyCode::Char(']') => {
+                    self.log_stream.filter_tab = self.log_stream.filter_tab.next();
+                    self.log_stream.scroll_offset = 0;
+                    return true;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.scroll_log_up(1);
+                    return true;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.scroll_log_down(1);
+                    return true;
+                }
+                KeyCode::PageUp => {
+                    self.scroll_log_up(6);
+                    return true;
+                }
+                KeyCode::PageDown => {
+                    self.scroll_log_down(6);
+                    return true;
+                }
+                KeyCode::Home => {
+                    self.scroll_log_to_top();
+                    return true;
+                }
+                KeyCode::End => {
+                    self.scroll_log_to_bottom();
+                    return true;
+                }
+                _ => {}
+            }
+        }
+
+        // Global dashboard navigation
         match key.code {
             KeyCode::Tab => {
                 self.focused_pane = self.focused_pane.next();
@@ -793,11 +1236,7 @@ impl Screen for LiveDashboardScreen {
                 self.shutdown_cursor = self.shutdown_delay_input.len();
                 true
             }
-            KeyCode::Char(' ') if self.view_mode == DashboardView::FullLog => {
-                self.log_scroll_paused = !self.log_scroll_paused;
-                true
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
+            KeyCode::Down | KeyCode::Char('j') if self.focused_pane == DashboardPane::Players => {
                 if let Some(ref t) = self.telemetry {
                     if !t.players.is_empty() {
                         let i = match self.table_state.selected() {
@@ -809,7 +1248,7 @@ impl Screen for LiveDashboardScreen {
                 }
                 true
             }
-            KeyCode::Up => {
+            KeyCode::Up if self.focused_pane == DashboardPane::Players => {
                 if let Some(ref t) = self.telemetry {
                     if !t.players.is_empty() {
                         let i = match self.table_state.selected() {
@@ -1039,25 +1478,90 @@ impl Screen for LiveDashboardScreen {
                 && row < r.y + r.height
         };
 
+        match mouse.kind {
+            MouseEventKind::ScrollUp
+                if self.view_mode == DashboardView::FullLog || in_rect(self.logs_rect) =>
+            {
+                self.scroll_log_up(3);
+                return;
+            }
+            MouseEventKind::ScrollDown
+                if self.view_mode == DashboardView::FullLog || in_rect(self.logs_rect) =>
+            {
+                self.scroll_log_down(3);
+                return;
+            }
+            _ => {}
+        }
+
         if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
-            if in_rect(self.players_rect) {
-                self.focused_pane = DashboardPane::Players;
-                let rel_y = row.saturating_sub(self.players_rect.y + 2);
-                if let Some(ref t) = self.telemetry {
-                    if (rel_y as usize) < t.players.len() {
-                        self.table_state.select(Some(rel_y as usize));
+            if self.view_mode == DashboardView::FullLog || in_rect(self.logs_rect) {
+                for &(tab, rect) in &self.log_stream.tab_rects {
+                    if col >= rect.x
+                        && col < rect.x + rect.width
+                        && row >= rect.y
+                        && row < rect.y + rect.height
+                    {
+                        self.log_stream.filter_tab = tab;
+                        self.log_stream.scroll_offset = 0;
+                        if self.view_mode != DashboardView::FullLog {
+                            self.focused_pane = DashboardPane::Logs;
+                        }
+                        return;
                     }
                 }
-            } else if in_rect(self.metrics_rect) {
-                self.focused_pane = DashboardPane::Metrics;
-            } else if in_rect(self.logs_rect) {
-                self.focused_pane = DashboardPane::Logs;
-            } else if in_rect(self.header_rect) {
-                let host = self.connect_dialog.host.clone();
-                let port = self.connect_dialog.port.parse().unwrap_or(8080);
-                let tls = self.connect_dialog.tls;
-                let api_key = self.connect_dialog.api_key.clone();
-                self.open_connect_dialog(&host, port, tls, Some(&api_key));
+                let p_rect = self.log_stream.pause_chip_rect;
+                if p_rect.width > 0
+                    && col >= p_rect.x
+                    && col < p_rect.x + p_rect.width
+                    && row >= p_rect.y
+                    && row < p_rect.y + p_rect.height
+                {
+                    self.log_stream.paused = !self.log_stream.paused;
+                    self.log_scroll_paused = self.log_stream.paused;
+                    if self.view_mode != DashboardView::FullLog {
+                        self.focused_pane = DashboardPane::Logs;
+                    }
+                    return;
+                }
+                let s_rect = self.log_stream.search_chip_rect;
+                if s_rect.width > 0
+                    && col >= s_rect.x
+                    && col < s_rect.x + s_rect.width
+                    && row >= s_rect.y
+                    && row < s_rect.y + s_rect.height
+                {
+                    self.log_stream.search.active = !self.log_stream.search.active;
+                    if self.log_stream.search.active {
+                        self.log_stream.search.cursor = self.log_stream.search.query.len();
+                    }
+                    if self.view_mode != DashboardView::FullLog {
+                        self.focused_pane = DashboardPane::Logs;
+                    }
+                    return;
+                }
+            }
+
+            if self.view_mode == DashboardView::Dashboard {
+                if in_rect(self.players_rect) {
+                    self.focused_pane = DashboardPane::Players;
+                    let rel_y = row.saturating_sub(self.players_rect.y + 2);
+                    if let Some(ref t) = self.telemetry {
+                        if (rel_y as usize) < t.players.len() {
+                            self.table_state.select(Some(rel_y as usize));
+                        }
+                    }
+                } else if in_rect(self.metrics_rect) {
+                    self.focused_pane = DashboardPane::Metrics;
+                } else if in_rect(self.logs_rect) {
+                    self.focused_pane = DashboardPane::Logs;
+                } else if in_rect(self.header_rect) {
+                    let host = self.connect_dialog.host.clone();
+                    let port = self.connect_dialog.port.parse().unwrap_or(8080);
+                    let tls = self.connect_dialog.tls;
+                    let api_key = self.connect_dialog.api_key.clone();
+                    self.open_connect_dialog(&host, port, tls, Some(&api_key));
+                }
             }
         }
     }
@@ -1336,95 +1840,205 @@ impl LiveDashboardScreen {
 
         // --- 3. Bottom Panel: Event Log Feed ---
         let log_block = pane_block("Server Logs", self.focused_pane == DashboardPane::Logs);
-        let items: Vec<ListItem> = self
-            .logs
-            .iter()
-            .rev()
-            .take(chunks[2].height.saturating_sub(2) as usize)
-            .rev()
-            .map(|l| {
-                let style = if l.contains("ERROR") {
-                    Style::default()
-                        .fg(theme::DANGER)
-                        .add_modifier(Modifier::BOLD)
-                } else if l.contains("WARN") {
-                    Style::default().fg(theme::WARNING)
-                } else if l.contains("[NETWORK") || l.contains("[RPC") {
-                    Style::default().fg(theme::PRIMARY)
-                } else {
-                    Style::default().fg(theme::FG_BRIGHT)
-                };
-                ListItem::new(l.as_str()).style(style)
-            })
-            .collect();
-        Widget::render(List::new(items).block(log_block), chunks[2], buf);
+        let inner_log = log_block.inner(chunks[2]);
+        Widget::render(log_block, chunks[2], buf);
+
+        if inner_log.height >= 2 {
+            let filtered: Vec<&String> = self
+                .logs
+                .iter()
+                .filter(|l| self.log_stream.filter_tab.matches(l))
+                .collect();
+            let total = filtered.len();
+
+            let show_search_prompt = self.log_stream.search.active
+                || (self.log_stream.toast.is_some()
+                    && self
+                        .log_stream
+                        .toast
+                        .as_ref()
+                        .map(|(_, t)| t.elapsed().as_secs() < 4)
+                        .unwrap_or(false));
+
+            let log_constraints = if show_search_prompt && inner_log.height >= 3 {
+                vec![
+                    Constraint::Length(1), // Top control tabs
+                    Constraint::Min(1),    // Log lines
+                    Constraint::Length(1), // Search prompt or Toast
+                ]
+            } else {
+                vec![
+                    Constraint::Length(1), // Top control tabs
+                    Constraint::Min(1),    // Log lines
+                ]
+            };
+
+            let log_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(log_constraints)
+                .split(inner_log);
+
+            render_log_tab_controls(
+                log_layout[0],
+                buf,
+                &mut self.log_stream,
+                total,
+                log_layout[1].height as usize,
+            );
+
+            let visible_h = log_layout[1].height as usize;
+            let max_scroll = total.saturating_sub(visible_h);
+            self.log_stream.scroll_offset = self.log_stream.scroll_offset.min(max_scroll);
+
+            let slice: &[&String] = if total == 0 {
+                &[]
+            } else if self.log_stream.scroll_offset == 0 {
+                let start = total.saturating_sub(visible_h);
+                &filtered[start..total]
+            } else {
+                let end = total - self.log_stream.scroll_offset;
+                let start = end.saturating_sub(visible_h);
+                &filtered[start..end]
+            };
+
+            let search_q = &self.log_stream.search.query;
+            let items: Vec<ListItem> = slice
+                .iter()
+                .map(|line| ListItem::new(format_log_line(line, search_q)))
+                .collect();
+
+            Widget::render(List::new(items), log_layout[1], buf);
+
+            if show_search_prompt && log_layout.len() > 2 {
+                render_log_search_prompt(
+                    log_layout[2],
+                    buf,
+                    &self.log_stream.search,
+                    &self.log_stream.toast,
+                );
+            }
+        }
 
         // --- 4. Footer Action Bar ---
-        let footer_text = " [Tab] Switch Pane | [L] Full Logs | [G] Global Echo | [K] Kick Player | [S] Shutdown | [C] Settings ";
+        let footer_text = match self.focused_pane {
+            DashboardPane::Logs => {
+                " [Tab] Switch Pane • [L] Full Logs • [/] Search • [Space] Pause • [n/N] Match • [Ctrl+S] Export • [[]/[]] Tab • [C] Settings "
+            }
+            DashboardPane::Players => {
+                " [Tab] Switch Pane • [↑↓] Select Player • [K] Kick • [G] Echo • [L] Full Logs • [S] Shutdown • [C] Settings "
+            }
+            DashboardPane::Metrics => {
+                " [Tab] Switch Pane • [L] Full Logs • [G] Global Echo • [S] Shutdown • [C] Settings "
+            }
+        };
         Paragraph::new(footer_text)
             .style(Style::default().bg(theme::BG_DARK).fg(theme::FG_BRIGHT))
             .render(chunks[3], buf);
     }
 
     fn render_full_log(&mut self, area: Rect, buf: &mut Buffer) {
+        let show_search_prompt = self.log_stream.search.active
+            || (self.log_stream.toast.is_some()
+                && self
+                    .log_stream
+                    .toast
+                    .as_ref()
+                    .map(|(_, t)| t.elapsed().as_secs() < 4)
+                    .unwrap_or(false));
+
+        let constraints = if show_search_prompt {
+            vec![
+                Constraint::Length(3), // Header & Tab controls
+                Constraint::Min(5),    // Full log stream
+                Constraint::Length(1), // Search prompt or Toast
+                Constraint::Length(1), // Footer bar
+            ]
+        } else {
+            vec![
+                Constraint::Length(3), // Header & Tab controls
+                Constraint::Min(5),    // Full log stream
+                Constraint::Length(1), // Footer bar
+            ]
+        };
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Min(5),
-                Constraint::Length(1),
-            ])
+            .constraints(constraints)
             .split(area);
 
-        let pause_status = if self.log_scroll_paused {
-            "PAUSED"
-        } else {
-            "ON"
-        };
-        let header_text = format!(
-            " Filter: [All] | Auto-Scroll: {} (Press Space to Pause) | Total Lines: {} ",
-            pause_status,
-            self.logs.len()
-        );
+        self.logs_rect = chunks[1];
+
+        let filtered: Vec<&String> = self
+            .logs
+            .iter()
+            .filter(|l| self.log_stream.filter_tab.matches(l))
+            .collect();
+        let total = filtered.len();
+
         let header_block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
-            .title(" SERVER LOG VIEW - UNEDITED STREAM ")
-            .style(theme::border_accent());
+            .title(" SERVER LOG VIEW - DIAGNOSTIC STREAM ")
+            .title_style(
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .border_style(theme::border_accent());
+        let header_inner = header_block.inner(chunks[0]);
+        Widget::render(header_block, chunks[0], buf);
 
-        Paragraph::new(header_text)
-            .block(header_block)
-            .style(Style::default().fg(theme::WARNING))
-            .render(chunks[0], buf);
+        render_log_tab_controls(
+            header_inner,
+            buf,
+            &mut self.log_stream,
+            total,
+            chunks[1].height.saturating_sub(2) as usize,
+        );
 
         let log_block = Block::default()
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .style(theme::border_accent());
+        let log_inner = log_block.inner(chunks[1]);
+        Widget::render(log_block, chunks[1], buf);
 
-        let items: Vec<ListItem> = self
-            .logs
+        let visible_h = log_inner.height as usize;
+        let max_scroll = total.saturating_sub(visible_h);
+        self.log_stream.scroll_offset = self.log_stream.scroll_offset.min(max_scroll);
+
+        let slice: &[&String] = if total == 0 {
+            &[]
+        } else if self.log_stream.scroll_offset == 0 {
+            let start = total.saturating_sub(visible_h);
+            &filtered[start..total]
+        } else {
+            let end = total - self.log_stream.scroll_offset;
+            let start = end.saturating_sub(visible_h);
+            &filtered[start..end]
+        };
+
+        let search_q = &self.log_stream.search.query;
+        let items: Vec<ListItem> = slice
             .iter()
-            .rev()
-            .take(chunks[1].height.saturating_sub(2) as usize)
-            .rev()
-            .map(|l| {
-                let style = if l.contains("ERROR") {
-                    Style::default()
-                        .fg(theme::DANGER)
-                        .add_modifier(Modifier::BOLD)
-                } else if l.contains("WARN") {
-                    Style::default().fg(theme::WARNING)
-                } else {
-                    Style::default().fg(theme::PRIMARY)
-                };
-                ListItem::new(l.as_str()).style(style)
-            })
+            .map(|line| ListItem::new(format_log_line(line, search_q)))
             .collect();
 
-        Widget::render(List::new(items).block(log_block), chunks[1], buf);
+        Widget::render(List::new(items), log_inner, buf);
 
-        let footer_text = " [Tab] Back to Dashboard | [Space] Pause Stream | [Q] Quit ";
+        let footer_area = if show_search_prompt {
+            render_log_search_prompt(
+                chunks[2],
+                buf,
+                &self.log_stream.search,
+                &self.log_stream.toast,
+            );
+            chunks[3]
+        } else {
+            chunks[2]
+        };
+
+        let footer_text = " [Tab/Esc] Dashboard • [Space] Pause Stream • [/] Search • [n/N] Next/Prev Match • [Ctrl+S] Export • [[]/[]] Filter Tab ";
         Paragraph::new(footer_text)
             .style(
                 Style::default()
@@ -1432,7 +2046,388 @@ impl LiveDashboardScreen {
                     .fg(theme::BG)
                     .add_modifier(Modifier::BOLD),
             )
-            .render(chunks[2], buf);
+            .render(footer_area, buf);
+    }
+}
+
+pub fn split_highlight(
+    text: &str,
+    query: &str,
+    base_style: Style,
+    highlight_style: Style,
+    spans: &mut Vec<Span<'static>>,
+) {
+    let trimmed_q = query.trim();
+    if trimmed_q.is_empty() {
+        spans.push(Span::styled(text.to_string(), base_style));
+        return;
+    }
+    let text_lower = text.to_lowercase();
+    let q_lower = trimmed_q.to_lowercase();
+    let mut cursor = 0;
+    while let Some(rel_pos) = text_lower[cursor..].find(&q_lower) {
+        let match_start = cursor + rel_pos;
+        let match_end = match_start + q_lower.len();
+        if match_start > cursor {
+            spans.push(Span::styled(
+                text[cursor..match_start].to_string(),
+                base_style,
+            ));
+        }
+        spans.push(Span::styled(
+            text[match_start..match_end].to_string(),
+            highlight_style,
+        ));
+        cursor = match_end;
+    }
+    if cursor < text.len() {
+        spans.push(Span::styled(text[cursor..].to_string(), base_style));
+    }
+}
+
+pub fn format_log_line(line: &str, search_query: &str) -> Line<'static> {
+    let mut spans = Vec::new();
+    let highlight_style = Style::default()
+        .bg(theme::PRIMARY)
+        .fg(theme::BG)
+        .add_modifier(Modifier::BOLD);
+
+    let upper = line.to_uppercase();
+    let is_error = upper.contains("ERROR") || upper.contains("FATAL") || upper.contains("CRITICAL");
+    let is_warn = !is_error && upper.contains("WARN");
+    let is_info = !is_error && !is_warn && upper.contains("INFO");
+
+    let trimmed = line.trim_start();
+    let mut rest = trimmed;
+
+    // 1. Check for bracketed or bare timestamp
+    if rest.starts_with('[') {
+        if let Some(close_bracket) = rest.find(']') {
+            let inside = &rest[1..close_bracket];
+            if inside.chars().any(|c| c.is_ascii_digit())
+                && (inside.contains(':') || inside.contains('-'))
+            {
+                let tag = &rest[..=close_bracket];
+                split_highlight(
+                    tag,
+                    search_query,
+                    Style::default().fg(theme::FG_MUTED),
+                    highlight_style,
+                    &mut spans,
+                );
+                spans.push(Span::raw(" "));
+                rest = rest[close_bracket + 1..].trim_start();
+            }
+        }
+    } else if rest.len() >= 19
+        && (rest.chars().nth(4) == Some('-') || rest.chars().nth(2) == Some(':'))
+    {
+        if let Some(space_idx) = rest.find(' ') {
+            let ts = &rest[..space_idx];
+            split_highlight(
+                ts,
+                search_query,
+                Style::default().fg(theme::FG_MUTED),
+                highlight_style,
+                &mut spans,
+            );
+            spans.push(Span::raw(" "));
+            rest = rest[space_idx + 1..].trim_start();
+        }
+    }
+
+    // 2. Check for bracketed tag [TAG]
+    if rest.starts_with('[') {
+        if let Some(close_bracket) = rest.find(']') {
+            let tag = &rest[..=close_bracket];
+            let tag_style = if is_error {
+                Style::default()
+                    .fg(theme::DANGER)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_warn {
+                Style::default()
+                    .fg(theme::WARNING)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD)
+            };
+            split_highlight(tag, search_query, tag_style, highlight_style, &mut spans);
+            spans.push(Span::raw(" "));
+            rest = rest[close_bracket + 1..].trim_start();
+        }
+    }
+
+    // 3. Body text styling
+    let body_style = if is_error {
+        Style::default()
+            .fg(theme::DANGER)
+            .add_modifier(Modifier::BOLD)
+    } else if is_warn {
+        Style::default().fg(theme::WARNING)
+    } else if is_info {
+        Style::default().fg(theme::POSITIVE)
+    } else {
+        Style::default().fg(theme::FG_BRIGHT)
+    };
+
+    split_highlight(rest, search_query, body_style, highlight_style, &mut spans);
+
+    Line::from(spans)
+}
+
+fn render_log_tab_controls(
+    area: Rect,
+    buf: &mut Buffer,
+    log_stream: &mut LogStreamState,
+    total_lines: usize,
+    _visible_height: usize,
+) {
+    if area.width < 10 || area.height < 1 {
+        return;
+    }
+    log_stream.tab_rects.clear();
+
+    // 1. Render Tabs on the left
+    let mut x = area.x;
+    for &tab in LogFilterTab::all() {
+        let label = format!("[ {} ]", tab.label());
+        let w = label.chars().count() as u16;
+        if x + w > area.x + area.width {
+            break;
+        }
+        let tab_rect = Rect::new(x, area.y, w, 1);
+        log_stream.tab_rects.push((tab, tab_rect));
+
+        let style = if tab == log_stream.filter_tab {
+            Style::default()
+                .bg(theme::PRIMARY)
+                .fg(theme::BG)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().bg(theme::BG_DARK).fg(theme::FG_MUTED)
+        };
+        for (i, ch) in label.chars().enumerate() {
+            if let Some(cell) = buf.cell_mut((x + i as u16, area.y)) {
+                cell.set_char(ch);
+                cell.set_style(style);
+            }
+        }
+        x += w + 1;
+    }
+
+    // 2. Right-aligned status chips
+    let (pause_label, pause_style) = if log_stream.paused {
+        (
+            "[⏸ PAUSED]",
+            Style::default()
+                .bg(theme::WARNING)
+                .fg(theme::BG)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            "[● LIVE]",
+            Style::default()
+                .bg(theme::BG_DARK)
+                .fg(theme::POSITIVE)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+    let pause_w = pause_label.chars().count() as u16;
+
+    let scroll_badge = if total_lines == 0 {
+        "[Empty]".to_string()
+    } else if log_stream.scroll_offset == 0 {
+        format!("[{}/{}]", total_lines, total_lines)
+    } else {
+        let current = total_lines.saturating_sub(log_stream.scroll_offset);
+        format!(
+            "[{}/{} ↑{}L]",
+            current, total_lines, log_stream.scroll_offset
+        )
+    };
+    let scroll_w = scroll_badge.chars().count() as u16;
+
+    let search_badge = if !log_stream.search.query.trim().is_empty() {
+        let count = log_stream.search.matches.len();
+        if count > 0 {
+            format!(
+                "[/] \"{}\" ({}/{})",
+                log_stream.search.query,
+                log_stream.search.selected_match + 1,
+                count
+            )
+        } else {
+            format!("[/] \"{}\" (0)", log_stream.search.query)
+        }
+    } else {
+        "[/] Search".to_string()
+    };
+    let search_w = search_badge.chars().count() as u16;
+    let search_style = if log_stream.search.active {
+        Style::default()
+            .bg(theme::PRIMARY)
+            .fg(theme::BG)
+            .add_modifier(Modifier::BOLD)
+    } else if !log_stream.search.query.trim().is_empty() {
+        Style::default().bg(theme::SURFACE).fg(theme::PRIMARY)
+    } else {
+        Style::default().bg(theme::BG_DARK).fg(theme::FG_MUTED)
+    };
+
+    let total_right_w = pause_w + 1 + scroll_w + 1 + search_w;
+    if area.width > total_right_w + 2 {
+        let mut rx = area.x + area.width - pause_w;
+        log_stream.pause_chip_rect = Rect::new(rx, area.y, pause_w, 1);
+        for (i, ch) in pause_label.chars().enumerate() {
+            if let Some(cell) = buf.cell_mut((rx + i as u16, area.y)) {
+                cell.set_char(ch);
+                cell.set_style(pause_style);
+            }
+        }
+
+        rx = rx.saturating_sub(scroll_w + 1);
+        let scroll_style = Style::default().bg(theme::BG_DARK).fg(theme::FG_MUTED);
+        for (i, ch) in scroll_badge.chars().enumerate() {
+            if let Some(cell) = buf.cell_mut((rx + i as u16, area.y)) {
+                cell.set_char(ch);
+                cell.set_style(scroll_style);
+            }
+        }
+
+        rx = rx.saturating_sub(search_w + 1);
+        log_stream.search_chip_rect = Rect::new(rx, area.y, search_w, 1);
+        for (i, ch) in search_badge.chars().enumerate() {
+            if let Some(cell) = buf.cell_mut((rx + i as u16, area.y)) {
+                cell.set_char(ch);
+                cell.set_style(search_style);
+            }
+        }
+    }
+}
+
+fn render_log_search_prompt(
+    area: Rect,
+    buf: &mut Buffer,
+    search: &LogSearchState,
+    toast: &Option<(String, Instant)>,
+) {
+    if area.width < 10 || area.height < 1 {
+        return;
+    }
+    for x in area.x..area.x + area.width {
+        if let Some(cell) = buf.cell_mut((x, area.y)) {
+            cell.set_char(' ');
+            cell.set_style(Style::default().bg(theme::BG_DARK));
+        }
+    }
+
+    if let Some((ref msg, instant)) = toast {
+        if instant.elapsed().as_secs() < 4 {
+            let toast_text = format!(" {msg} ");
+            let toast_style = Style::default()
+                .bg(theme::POSITIVE)
+                .fg(theme::BG)
+                .add_modifier(Modifier::BOLD);
+            for (i, ch) in toast_text.chars().enumerate() {
+                if let Some(cell) = buf.cell_mut((area.x + i as u16, area.y)) {
+                    cell.set_char(ch);
+                    cell.set_style(toast_style);
+                }
+            }
+            return;
+        }
+    }
+
+    let prompt_prefix = " > ";
+    let prefix_style = Style::default()
+        .fg(theme::PRIMARY)
+        .add_modifier(Modifier::BOLD)
+        .bg(theme::BG_DARK);
+    for (i, ch) in prompt_prefix.chars().enumerate() {
+        if let Some(cell) = buf.cell_mut((area.x + i as u16, area.y)) {
+            cell.set_char(ch);
+            cell.set_style(prefix_style);
+        }
+    }
+
+    let input_x = area.x + prompt_prefix.len() as u16;
+    let query = &search.query;
+    let cursor = search.cursor;
+
+    if query.is_empty() {
+        let placeholder = "Search logs... (Enter to filter, Esc to dismiss, n/N for matches)";
+        let ph_style = Style::default().fg(theme::FG_MUTED).bg(theme::BG_DARK);
+        for (i, ch) in placeholder.chars().enumerate() {
+            if input_x + i as u16 >= area.x + area.width {
+                break;
+            }
+            if let Some(cell) = buf.cell_mut((input_x + i as u16, area.y)) {
+                cell.set_char(ch);
+                cell.set_style(ph_style);
+            }
+        }
+        if let Some(cell) = buf.cell_mut((input_x, area.y)) {
+            cell.set_char('█');
+            cell.set_style(Style::default().fg(theme::PRIMARY).bg(theme::BG_DARK));
+        }
+    } else {
+        let mut draw_x = input_x;
+        for (byte_idx, ch) in query.char_indices() {
+            if draw_x >= area.x + area.width {
+                break;
+            }
+            let is_cursor = byte_idx == cursor;
+            let style = if is_cursor {
+                Style::default()
+                    .bg(theme::PRIMARY)
+                    .fg(theme::BG)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::FG).bg(theme::BG_DARK)
+            };
+            if let Some(cell) = buf.cell_mut((draw_x, area.y)) {
+                cell.set_char(ch);
+                cell.set_style(style);
+            }
+            draw_x += 1;
+        }
+        if cursor >= query.len() && draw_x < area.x + area.width {
+            if let Some(cell) = buf.cell_mut((draw_x, area.y)) {
+                cell.set_char('█');
+                cell.set_style(Style::default().fg(theme::PRIMARY).bg(theme::BG_DARK));
+            }
+        }
+
+        let match_info = if search.matches.is_empty() {
+            " [No matches] ".to_string()
+        } else {
+            format!(
+                " [Match {} of {}] ",
+                search.selected_match + 1,
+                search.matches.len()
+            )
+        };
+        let info_w = match_info.chars().count() as u16;
+        if area.width > info_w + 5 {
+            let info_x = area.x + area.width - info_w;
+            let info_style = if search.matches.is_empty() {
+                Style::default().fg(theme::WARNING).bg(theme::BG_DARK)
+            } else {
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .bg(theme::BG_DARK)
+                    .add_modifier(Modifier::BOLD)
+            };
+            for (i, ch) in match_info.chars().enumerate() {
+                if let Some(cell) = buf.cell_mut((info_x + i as u16, area.y)) {
+                    cell.set_char(ch);
+                    cell.set_style(info_style);
+                }
+            }
+        }
     }
 }
 
@@ -2626,5 +3621,219 @@ mod tests {
         screen.handle_mouse(click_host, area);
         assert_eq!(screen.connect_dialog.active_field, ConnectField::Host);
         assert_eq!(screen.connect_dialog.host_cursor, 4);
+    }
+
+    #[test]
+    fn test_log_stream_severity_filter_tabs() {
+        assert_eq!(LogFilterTab::all().len(), 6);
+        assert_eq!(LogFilterTab::All.next(), LogFilterTab::Errors);
+        assert_eq!(LogFilterTab::All.prev(), LogFilterTab::Game);
+
+        let err_line = "[2026-09-06] [SERVER] ERROR Database connection timed out";
+        let warn_line = "[2026-09-06] [SERVER] WARN Memory threshold exceeded";
+        let info_line = "[2026-09-06] [SERVER] INFO World tick completed in 2ms";
+        let net_line = "[2026-09-06] [NETWORK] New WebSocket client connected from 127.0.0.1";
+        let combat_line = "[2026-09-06] [COMBAT] Player attacked Goblin for 15 damage";
+
+        assert!(LogFilterTab::All.matches(err_line));
+        assert!(LogFilterTab::All.matches(warn_line));
+        assert!(LogFilterTab::All.matches(info_line));
+        assert!(LogFilterTab::All.matches(net_line));
+        assert!(LogFilterTab::All.matches(combat_line));
+
+        assert!(LogFilterTab::Errors.matches(err_line));
+        assert!(!LogFilterTab::Errors.matches(info_line));
+
+        assert!(LogFilterTab::Warnings.matches(warn_line));
+        assert!(!LogFilterTab::Warnings.matches(err_line));
+
+        assert!(LogFilterTab::Info.matches(info_line));
+        assert!(!LogFilterTab::Info.matches(err_line));
+
+        assert!(LogFilterTab::NetworkRpc.matches(net_line));
+        assert!(!LogFilterTab::NetworkRpc.matches(combat_line));
+
+        assert!(LogFilterTab::Game.matches(combat_line));
+        assert!(!LogFilterTab::Game.matches(net_line));
+    }
+
+    #[test]
+    fn test_log_stream_scrollback_and_pause() {
+        let mut screen = LiveDashboardScreen::new();
+        for i in 0..50 {
+            screen.add_log(format!("Log message line {i}"));
+        }
+        assert_eq!(screen.logs.len(), 50);
+        assert_eq!(screen.log_stream.scroll_offset, 0);
+        assert!(!screen.log_stream.paused);
+
+        // Scroll up
+        screen.scroll_log_up(5);
+        assert_eq!(screen.log_stream.scroll_offset, 5);
+        assert!(screen.log_stream.paused);
+
+        // Scroll down
+        screen.scroll_log_down(2);
+        assert_eq!(screen.log_stream.scroll_offset, 3);
+        assert!(screen.log_stream.paused);
+
+        // Scroll to bottom
+        screen.scroll_log_to_bottom();
+        assert_eq!(screen.log_stream.scroll_offset, 0);
+        assert!(!screen.log_stream.paused);
+
+        // Scroll to top
+        screen.scroll_log_to_top();
+        assert_eq!(screen.log_stream.scroll_offset, 50);
+        assert!(screen.log_stream.paused);
+    }
+
+    #[test]
+    fn test_log_search_matching_and_navigation() {
+        let mut screen = LiveDashboardScreen::new();
+        screen.add_log("alpha error 1".into());
+        screen.add_log("beta warning 2".into());
+        screen.add_log("gamma error 3".into());
+        screen.add_log("delta info 4".into());
+        screen.add_log("epsilon error 5".into());
+
+        // Focus logs pane and press '/' to open search
+        screen.focused_pane = DashboardPane::Logs;
+        screen.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(screen.log_stream.search.active);
+
+        // Type "error"
+        for c in "error".chars() {
+            screen.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        assert_eq!(screen.log_stream.search.query, "error");
+        assert_eq!(screen.log_stream.search.matches.len(), 3); // lines 0, 2, 4
+
+        // Press 'n' to navigate matches
+        screen.jump_search_match(true, 5);
+        assert_eq!(screen.log_stream.search.selected_match, 1);
+
+        // Press 'N' to navigate backwards
+        screen.jump_search_match(false, 5);
+        assert_eq!(screen.log_stream.search.selected_match, 0);
+
+        // Commit search with Enter
+        screen.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(!screen.log_stream.search.active);
+        assert_eq!(screen.log_stream.search.query, "error");
+    }
+
+    #[test]
+    fn test_format_log_line_highlighting() {
+        let line = "[2026-09-06] [NETWORK] ERROR connection failed";
+        let formatted = format_log_line(line, "fail");
+        // Spans: timestamp, tag, level/body with query match
+        assert!(!formatted.spans.is_empty());
+        let full_text: String = formatted.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(full_text.contains("connection failed"));
+
+        // Match span should have bold styling
+        let match_span = formatted.spans.iter().find(|s| s.content == "fail");
+        assert!(match_span.is_some());
+    }
+
+    #[test]
+    fn test_log_mouse_scroll_and_tab_clicks() {
+        let mut screen = LiveDashboardScreen::new();
+        for i in 0..30 {
+            screen.add_log(format!("[NETWORK] Client packet {i}"));
+        }
+
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 30,
+        };
+        let mut buf = Buffer::empty(area);
+        screen.render(area, &mut buf, None);
+
+        // Verify tabs were registered in tab_rects
+        assert!(!screen.log_stream.tab_rects.is_empty());
+
+        // Click on 2nd tab (Errors)
+        let errors_tab_rect = screen.log_stream.tab_rects[1].1;
+        let click_errors = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: errors_tab_rect.x + 1,
+            row: errors_tab_rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(click_errors, area);
+        assert_eq!(screen.log_stream.filter_tab, LogFilterTab::Errors);
+
+        // Click back on 1st tab (All) to have logs to scroll
+        let all_tab_rect = screen.log_stream.tab_rects[0].1;
+        let click_all = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: all_tab_rect.x + 1,
+            row: all_tab_rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(click_all, area);
+        assert_eq!(screen.log_stream.filter_tab, LogFilterTab::All);
+
+        // Mouse Wheel Scroll Up over logs_rect
+        let scroll_up = MouseEvent {
+            kind: MouseEventKind::ScrollUp,
+            column: screen.logs_rect.x + 2,
+            row: screen.logs_rect.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(scroll_up, area);
+        assert_eq!(screen.log_stream.scroll_offset, 3);
+        assert!(screen.log_stream.paused);
+
+        // Mouse Wheel Scroll Down
+        let scroll_down = MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: screen.logs_rect.x + 2,
+            row: screen.logs_rect.y + 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(scroll_down, area);
+        assert_eq!(screen.log_stream.scroll_offset, 0);
+
+        // Click on pause chip toggles pause
+        screen.log_stream.paused = false;
+        screen.log_scroll_paused = false;
+        let pause_rect = screen.log_stream.pause_chip_rect;
+        if pause_rect.width > 0 {
+            let click_pause = MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: pause_rect.x + 1,
+                row: pause_rect.y,
+                modifiers: KeyModifiers::NONE,
+            };
+            screen.handle_mouse(click_pause, area);
+            assert!(screen.log_stream.paused);
+
+            screen.handle_mouse(click_pause, area);
+            assert!(!screen.log_stream.paused);
+        }
+    }
+
+    #[test]
+    fn test_log_export_to_file() {
+        let mut screen = LiveDashboardScreen::new();
+        screen.add_log("Line 1 test export".into());
+        screen.add_log("Line 2 test export".into());
+
+        screen.export_logs();
+        assert!(screen.log_stream.toast.is_some());
+        let toast = screen.log_stream.toast.as_ref().unwrap().0.clone();
+        assert!(toast.contains("Exported 2 lines to spade-logs-"));
+
+        // Extract filename and verify file exists, then delete it
+        if let Some(pos) = toast.find("spade-logs-") {
+            let filename = &toast[pos..];
+            assert!(std::path::Path::new(filename).exists());
+            let _ = std::fs::remove_file(filename);
+        }
     }
 }
