@@ -137,6 +137,27 @@ impl App {
 
         let (rpc_resp_tx, rpc_resp_rx) = tokio::sync::mpsc::unbounded_channel();
 
+        let active_screen = if let Some(ref screen_query) = cli.screen {
+            match ScreenId::from_pattern(screen_query) {
+                Some(screen_id) => screen_id,
+                None => {
+                    eprintln!(
+                        "Warning: unknown screen '{}', defaulting to Entities Editor",
+                        screen_query
+                    );
+                    ScreenId::Entities
+                }
+            }
+        } else {
+            ScreenId::Entities
+        };
+
+        let sidebar_visible = if active_screen == ScreenId::LiveDashboard {
+            false
+        } else {
+            file_config.prefs.sidebar_open
+        };
+
         Self {
             mode,
             should_quit: false,
@@ -147,11 +168,11 @@ impl App {
             connection_port: port,
             connection_tls: tls,
             api_key: api_key.clone(),
-            sidebar_visible: file_config.prefs.sidebar_open,
+            sidebar_visible,
             prefs: file_config.prefs,
             content_path,
             screens,
-            active_screen: ScreenId::Entities,
+            active_screen,
             registry,
             file_map,
             command_sidebar: CommandSidebar::new(),

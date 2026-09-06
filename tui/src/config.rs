@@ -1,7 +1,7 @@
 use crate::app::Mode;
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "spade", about = "MUD Game Engine Builder TUI & MUD Client")]
 pub struct Config {
     /// Execution mode: offline, online, or split (defaults to online if URL/host/api-key provided, else offline)
@@ -23,6 +23,10 @@ pub struct Config {
     /// API key for authenticated server connections
     #[arg(short = 'k', long = "api-key", alias = "key")]
     pub api_key: Option<String>,
+
+    /// Default startup screen (e.g. "dash", "entities", "room", "validation", "console", "files")
+    #[arg(short = 's', long = "screen")]
+    pub screen: Option<String>,
 
     /// Launch into the design-system gallery (prototype build)
     #[arg(long, hide = true)]
@@ -142,5 +146,17 @@ mod tests {
         assert_eq!(config.mode(), Mode::Online);
         assert_eq!(config.connect_host.as_deref(), Some("192.168.1.100"));
         assert_eq!(config.connect_port, Some(8080));
+    }
+
+    #[test]
+    fn test_screen_arg_parsing() {
+        let config = Config::parse_from_args(["spade", "--screen", "dash"]);
+        assert_eq!(config.screen.as_deref(), Some("dash"));
+
+        let config_short = Config::parse_from_args(["spade", "-s", "live_dashboard"]);
+        assert_eq!(config_short.screen.as_deref(), Some("live_dashboard"));
+
+        let config_default = Config::parse_from_args(["spade"]);
+        assert_eq!(config_default.screen, None);
     }
 }

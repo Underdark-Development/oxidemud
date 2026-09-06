@@ -115,10 +115,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
     // Global: Ctrl+B to toggle sidebar
     if key.code == KeyCode::Char('b') && key.modifiers == KeyModifiers::CONTROL {
-        app.sidebar_visible = !app.sidebar_visible;
-        if app.sidebar_visible {
-            app.sidebar_focused = true;
-        }
+        app.handle_command_action(CommandAction::ToggleSidebar);
         return;
     }
 
@@ -202,6 +199,7 @@ mod tests {
             connect_host: None,
             connect_port: None,
             api_key: None,
+            screen: None,
             subcommand: None,
             prototype: false,
         };
@@ -227,6 +225,41 @@ mod tests {
         app.menu_bar
             .handle_key(KeyEvent::new(KeyCode::Char(hotkey), KeyModifiers::ALT));
         assert!(app.menu_bar.open_menu.is_some());
+    }
+
+    #[test]
+    fn test_app_starts_with_specified_screen() {
+        let mut cli = Config {
+            mode: Some(Mode::Offline),
+            url: None,
+            connect_host: None,
+            connect_port: None,
+            api_key: None,
+            screen: Some("dash".to_string()),
+            subcommand: None,
+            prototype: false,
+        };
+        let config = SpadeConfig {
+            content_path: std::env::temp_dir()
+                .join("spade-nonexistent-content")
+                .to_string_lossy()
+                .into_owned(),
+            ..Default::default()
+        };
+        let app = App::new(cli.clone(), config.clone());
+        assert_eq!(app.active_screen, ScreenId::LiveDashboard);
+        assert!(
+            !app.sidebar_visible,
+            "LiveDashboard should start with sidebar hidden"
+        );
+
+        cli.screen = Some("room".to_string());
+        let app2 = App::new(cli, config);
+        assert_eq!(app2.active_screen, ScreenId::RoomGrid);
+        assert!(
+            app2.sidebar_visible,
+            "RoomGrid should honor default sidebar_open"
+        );
     }
 
     #[test]

@@ -84,6 +84,101 @@ impl ScreenId {
             Self::LiveDashboard,
         ]
     }
+
+    /// Resolves a screen ID from a user query string using flexible pattern matching.
+    ///
+    /// Supports:
+    /// - F-key / index notation (`"1"`..`"6"`, `"f1"`..`"f6"`)
+    /// - Exact alias matches (e.g. `"dash"`, `"dashboard"`, `"live"`, `"entities"`, `"room"`, `"grid"`)
+    /// - Prefix matches (e.g. `"ent"`, `"val"`, `"scr"`)
+    /// - Substring matches (e.g. `"board"`, `"browser"`)
+    pub fn from_pattern(query: &str) -> Option<Self> {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return None;
+        }
+
+        // 1. Direct index or F-key: "1".."6" or "f1".."f6"
+        let fkey_candidate = q.strip_prefix('f').unwrap_or(&q);
+        if let Ok(n) = fkey_candidate.parse::<u8>() {
+            if let Some(id) = Self::from_fkey(n) {
+                return Some(id);
+            }
+        }
+
+        let screens: [(Self, &[&str]); 6] = [
+            (
+                Self::Entities,
+                &["entities", "entity", "entities_editor", "editor"],
+            ),
+            (
+                Self::RoomGrid,
+                &["room_grid", "rooms", "room", "grid", "roomgrid"],
+            ),
+            (
+                Self::Validation,
+                &["validation", "validate", "validation_panel", "panel"],
+            ),
+            (
+                Self::FileBrowser,
+                &["file_browser", "files", "file", "browser", "filebrowser"],
+            ),
+            (
+                Self::ScriptConsole,
+                &[
+                    "script_console",
+                    "scripts",
+                    "script",
+                    "console",
+                    "scriptconsole",
+                ],
+            ),
+            (
+                Self::LiveDashboard,
+                &[
+                    "live_dashboard",
+                    "dashboard",
+                    "dash",
+                    "live",
+                    "livedashboard",
+                ],
+            ),
+        ];
+
+        let normalized_q = q.replace(['-', ' '], "_");
+        let compact_q = q.replace(['-', ' ', '_'], "");
+
+        // Pass 1: Exact match against alias or compact alias
+        for (id, aliases) in &screens {
+            if aliases
+                .iter()
+                .any(|&a| a == normalized_q || a.replace('_', "") == compact_q)
+            {
+                return Some(*id);
+            }
+        }
+
+        // Pass 2: Prefix match (alias starts with query or compact alias starts with compact query)
+        for (id, aliases) in &screens {
+            if aliases.iter().any(|&a| {
+                a.starts_with(&normalized_q) || a.replace('_', "").starts_with(&compact_q)
+            }) {
+                return Some(*id);
+            }
+        }
+
+        // Pass 3: Substring match (alias contains query or compact alias contains compact query)
+        for (id, aliases) in &screens {
+            if aliases
+                .iter()
+                .any(|&a| a.contains(&normalized_q) || a.replace('_', "").contains(&compact_q))
+            {
+                return Some(*id);
+            }
+        }
+
+        None
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -235,5 +330,98 @@ impl Screen for PlaceholderScreen {
                 ratatui::style::Style::default().fg(crate::theme::FG_MUTED),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_screen_id_from_pattern_live_dashboard() {
+        assert_eq!(
+            ScreenId::from_pattern("dash"),
+            Some(ScreenId::LiveDashboard)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("dashboard"),
+            Some(ScreenId::LiveDashboard)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("live"),
+            Some(ScreenId::LiveDashboard)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("live_dashboard"),
+            Some(ScreenId::LiveDashboard)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("live-dashboard"),
+            Some(ScreenId::LiveDashboard)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("Live Dashboard"),
+            Some(ScreenId::LiveDashboard)
+        );
+        assert_eq!(ScreenId::from_pattern("6"), Some(ScreenId::LiveDashboard));
+        assert_eq!(ScreenId::from_pattern("f6"), Some(ScreenId::LiveDashboard));
+        assert_eq!(ScreenId::from_pattern("F6"), Some(ScreenId::LiveDashboard));
+    }
+
+    #[test]
+    fn test_screen_id_from_pattern_other_screens() {
+        assert_eq!(ScreenId::from_pattern("entities"), Some(ScreenId::Entities));
+        assert_eq!(ScreenId::from_pattern("entity"), Some(ScreenId::Entities));
+        assert_eq!(ScreenId::from_pattern("editor"), Some(ScreenId::Entities));
+        assert_eq!(ScreenId::from_pattern("1"), Some(ScreenId::Entities));
+        assert_eq!(ScreenId::from_pattern("f1"), Some(ScreenId::Entities));
+
+        assert_eq!(ScreenId::from_pattern("room"), Some(ScreenId::RoomGrid));
+        assert_eq!(ScreenId::from_pattern("rooms"), Some(ScreenId::RoomGrid));
+        assert_eq!(ScreenId::from_pattern("grid"), Some(ScreenId::RoomGrid));
+        assert_eq!(
+            ScreenId::from_pattern("room-grid"),
+            Some(ScreenId::RoomGrid)
+        );
+
+        assert_eq!(ScreenId::from_pattern("val"), Some(ScreenId::Validation));
+        assert_eq!(
+            ScreenId::from_pattern("validate"),
+            Some(ScreenId::Validation)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("validation"),
+            Some(ScreenId::Validation)
+        );
+        assert_eq!(ScreenId::from_pattern("panel"), Some(ScreenId::Validation));
+
+        assert_eq!(ScreenId::from_pattern("file"), Some(ScreenId::FileBrowser));
+        assert_eq!(ScreenId::from_pattern("files"), Some(ScreenId::FileBrowser));
+        assert_eq!(
+            ScreenId::from_pattern("browser"),
+            Some(ScreenId::FileBrowser)
+        );
+
+        assert_eq!(
+            ScreenId::from_pattern("script"),
+            Some(ScreenId::ScriptConsole)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("scripts"),
+            Some(ScreenId::ScriptConsole)
+        );
+        assert_eq!(
+            ScreenId::from_pattern("console"),
+            Some(ScreenId::ScriptConsole)
+        );
+    }
+
+    #[test]
+    fn test_screen_id_from_pattern_invalid() {
+        assert_eq!(ScreenId::from_pattern(""), None);
+        assert_eq!(ScreenId::from_pattern("   "), None);
+        assert_eq!(ScreenId::from_pattern("nonexistent"), None);
+        assert_eq!(ScreenId::from_pattern("99"), None);
+        assert_eq!(ScreenId::from_pattern("f9"), None);
     }
 }
