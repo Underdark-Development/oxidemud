@@ -58,6 +58,7 @@ A split-pane editor:
 - **Left**: World tree listing all templates grouped by category (Races, Classes, Items, Mobs, Areas, Skills, Stances, Passives, Affixes, Sets).
 - **Right**: Inline field editor with text, number, multiline, and dropdown edit modes. Supports dirty tracking, undo for field edits, and delete with confirmation. Array fields render as sections with inline action chips ("+ Add Entry", "Clear", and per-item "▲"/"▼" reorder and "✕" remove); reorder via the chips or `Alt+Up`/`Alt+Down` on a selected array item.
 - Context-sensitive **Command Sidebar** (right edge) showing available actions for the selected entity.
+- **Online Content Synchronization**: When connected to a live server in Online Mode, press `s` or click the `Sync (s)` button chip in the header bar to query the remote content catalog over `/ws/rpc` (`content.list` and `content.read`). The header bar shows the synchronized remote file count.
 
 ### F2: Room Grid
 
@@ -90,12 +91,13 @@ An execution environment for Rhai scripting:
 - Press `F9` to run the script. The engine discovers test functions (any function whose name starts with `test_`) and runs them in a try/catch harness.
 - Load script files from the File Browser via double-click / Enter.
 
-### F6: Live Dashboard (Planned)
+### F6: Live Dashboard
 
-A diagnostics panel for running servers — **not yet implemented**:
+A real-time administrative and diagnostics dashboard for running servers:
 
-- Will display performance gauges, ticks per second, memory allocations, and database query latencies.
-- Will show a real-time tail of the server's warning and audit logs.
+- Displays live performance gauges (CPU tick drift, memory utilization, WAL size, dirty entities).
+- Real-time tail of server audit and engine logs with severity filtering, search, and pause controls.
+- Live character inspector drawer and direct immortal administrative actions.
 
 ---
 

@@ -452,6 +452,20 @@ async fn handle_request(req: &RpcRequest, user: &AuthedUser) -> RpcResponse {
         "ping" => Ok(serde_json::json!("pong")),
         "players.list" => players_list_method().await,
         "player.state" => player_state_method(req.params.clone()).await,
+        "content.list" => {
+            if let Err(e) = require_immortal(user) {
+                Err(e)
+            } else {
+                content_list_method(user, req).await
+            }
+        }
+        "content.read" => {
+            if let Err(e) = require_immortal(user) {
+                Err(e)
+            } else {
+                content_read_method(user, req).await
+            }
+        }
         "content.write" => {
             if let Err(e) = require_immortal(user) {
                 Err(e)
@@ -817,6 +831,269 @@ fn validate_content_write_bounds(rel: &str, content: &str) -> Result<(), RpcErro
             None,
         ));
     }
+    Ok(())
+}
+
+/// `content.read` — params `{ path }`. Reads a template or script file from
+/// the content directory. Enforces path traversal defenses, symlink rejection,
+/// and maximum file size bounds.
+async fn content_read_method(
+    _user: &AuthedUser,
+    req: &RpcRequest,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    let rel = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("path"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            rpc_error(
+                ERR_INVALID_PARAMS,
+                "invalid params: missing string 'path'",
+                None,
+            )
+        })?;
+
+    if rel.chars().count() > MAX_PATH_LEN {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            format!("path too long: exceeds limit of {MAX_PATH_LEN} chars"),
+            None,
+        ));
+    }
+    if FsPath::new(rel).components().count() > MAX_PATH_DEPTH {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            "path has too many components",
+            None,
+        ));
+    }
+
+    let content_dir = crate::get_content_path().ok_or_else(|| {
+        rpc_error(
+            ERR_CONTENT_NOT_CONFIGURED,
+            "content path not configured",
+            None,
+        )
+    })?;
+
+    let content_dir = content_dir.clone();
+    let rel_owned = rel.to_string();
+    tokio::task::spawn_blocking(move || read_content_sync(&content_dir, &rel_owned))
+        .await
+        .map_err(|e| rpc_error(ERR_INTERNAL, format!("content read task failed: {e}"), None))?
+}
+
+fn read_content_sync(content_dir: &FsPath, rel: &str) -> Result<serde_json::Value, RpcErrorBody> {
+    let target = resolve_content_path(content_dir, rel)?;
+    reject_final_symlink(&target, rel)?;
+
+    if !target.is_file() {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            format!("file not found: {rel}"),
+            None,
+        ));
+    }
+
+    let meta = match std::fs::metadata(&target) {
+        Ok(m) => m,
+        Err(e) => {
+            return Err(rpc_error(
+                ERR_INTERNAL,
+                format!("failed to stat content file: {e}"),
+                None,
+            ));
+        }
+    };
+
+    let size = meta.len();
+    if size as usize > MAX_CONTENT_BYTES {
+        return Err(rpc_error(
+            ERR_INVALID_PARAMS,
+            format!("file too large: {size} bytes exceeds limit of {MAX_CONTENT_BYTES}"),
+            None,
+        ));
+    }
+
+    let content = match std::fs::read_to_string(&target) {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(rpc_error(
+                ERR_INTERNAL,
+                format!("failed to read content file: {e}"),
+                None,
+            ));
+        }
+    };
+
+    let modified_ts = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    Ok(serde_json::json!({
+        "path": rel,
+        "content": content,
+        "size_bytes": size,
+        "modified": modified_ts,
+    }))
+}
+
+/// `content.list` — params `{ category? }`. Recursively lists template and script files
+/// in the content directory, optionally filtered by category.
+async fn content_list_method(
+    _user: &AuthedUser,
+    req: &RpcRequest,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    let category = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("category"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    if let Some(ref cat) = category {
+        if cat.chars().count() > 64 || cat.contains('/') || cat.contains('\\') || cat.contains("..")
+        {
+            return Err(rpc_error(
+                ERR_INVALID_PARAMS,
+                "category must be an alphanumeric identifier without slashes or traversal",
+                None,
+            ));
+        }
+    }
+
+    let content_dir = crate::get_content_path().ok_or_else(|| {
+        rpc_error(
+            ERR_CONTENT_NOT_CONFIGURED,
+            "content path not configured",
+            None,
+        )
+    })?;
+
+    let content_dir = content_dir.clone();
+    tokio::task::spawn_blocking(move || list_content_sync(&content_dir, category.as_deref()))
+        .await
+        .map_err(|e| rpc_error(ERR_INTERNAL, format!("content list task failed: {e}"), None))?
+}
+
+fn list_content_sync(
+    content_dir: &FsPath,
+    filter_category: Option<&str>,
+) -> Result<serde_json::Value, RpcErrorBody> {
+    if !content_dir.is_dir() {
+        return Ok(serde_json::json!({
+            "files": [],
+            "total": 0,
+        }));
+    }
+
+    let target_dir = if let Some(cat) = filter_category {
+        content_dir.join(cat)
+    } else {
+        content_dir.to_path_buf()
+    };
+
+    if !target_dir.exists() {
+        return Ok(serde_json::json!({
+            "files": [],
+            "total": 0,
+        }));
+    }
+
+    let mut files = Vec::new();
+    collect_content_files(&target_dir, content_dir, 0, &mut files)?;
+    files.sort_by(|a, b| {
+        a["path"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["path"].as_str().unwrap_or(""))
+    });
+
+    let total = files.len();
+    Ok(serde_json::json!({
+        "files": files,
+        "total": total,
+    }))
+}
+
+fn collect_content_files(
+    dir: &FsPath,
+    base: &FsPath,
+    depth: usize,
+    results: &mut Vec<serde_json::Value>,
+) -> Result<(), RpcErrorBody> {
+    if depth > 12 {
+        return Ok(());
+    }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(err) => {
+            tracing::warn!("Failed to read content dir {:?}: {err}", dir);
+            return Ok(());
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let name_str = file_name.to_string_lossy();
+
+        if name_str.starts_with('.') {
+            continue;
+        }
+
+        let ft = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+
+        if ft.is_symlink() {
+            continue;
+        }
+
+        if ft.is_dir() {
+            collect_content_files(&path, base, depth + 1, results)?;
+        } else if ft.is_file() && (name_str.ends_with(".toml") || name_str.ends_with(".rhai")) {
+            let rel = path
+                .strip_prefix(base)
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| name_str.to_string());
+
+            let category = rel.split('/').next().unwrap_or("").to_string();
+
+            let (size_bytes, modified_ts) = match entry.metadata() {
+                Ok(m) => {
+                    let size = m.len();
+                    let ts = m
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    (size, ts)
+                }
+                Err(_) => (0, 0),
+            };
+
+            results.push(serde_json::json!({
+                "path": rel,
+                "category": category,
+                "size_bytes": size_bytes,
+                "modified": modified_ts,
+            }));
+        }
+    }
+
     Ok(())
 }
 
@@ -2730,5 +3007,89 @@ triggers = []\n";
             assert_eq!(err.code, ERR_PARSE, "code must be -32700 (ERR_PARSE)");
             assert_eq!(err.message, "parse error");
         }
+    }
+
+    #[tokio::test]
+    async fn test_content_read_and_list_methods() {
+        let tmp =
+            std::env::temp_dir().join(format!("oxide_test_content_read_{}", uuid::Uuid::new_v4()));
+        let content_dir = tmp.join("content");
+        std::fs::create_dir_all(content_dir.join("items")).unwrap();
+        std::fs::create_dir_all(content_dir.join("areas/midgaard")).unwrap();
+
+        std::fs::write(
+            content_dir.join("items/sword.toml"),
+            "id = \"iron_sword\"\nname = \"Iron Sword\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            content_dir.join("areas/midgaard/temple.toml"),
+            "id = \"temple_1\"\nname = \"Temple of Midgaard\"\n",
+        )
+        .unwrap();
+
+        let admin = AuthedUser {
+            username: "immortal_tester".into(),
+            access_level: "immortal".into(),
+        };
+        let lurker = AuthedUser {
+            username: "player_tester".into(),
+            access_level: "player".into(),
+        };
+
+        // 1. RBAC enforcement
+        let read_req = test_req(
+            "content.read",
+            serde_json::json!({ "path": "items/sword.toml" }),
+        );
+        let resp = handle_request(&read_req, &lurker).await;
+        assert_eq!(resp.error.unwrap().code, ERR_FORBIDDEN);
+
+        let list_req = test_req("content.list", serde_json::json!({}));
+        let resp = handle_request(&list_req, &lurker).await;
+        assert_eq!(resp.error.unwrap().code, ERR_FORBIDDEN);
+
+        // 2. Traversal rejection in read
+        let bad_read = read_content_sync(&content_dir, "../etc/passwd");
+        assert!(bad_read.is_err());
+        assert_eq!(bad_read.unwrap_err().code, ERR_INVALID_PARAMS);
+
+        // 3. Successful read
+        let ok_read =
+            read_content_sync(&content_dir, "items/sword.toml").expect("read must succeed");
+        assert_eq!(ok_read["path"], "items/sword.toml");
+        assert!(ok_read["content"].as_str().unwrap().contains("iron_sword"));
+        assert!(ok_read["size_bytes"].as_u64().unwrap() > 0);
+
+        // 4. File not found
+        let missing = read_content_sync(&content_dir, "items/ghost.toml");
+        assert!(missing.is_err());
+        assert_eq!(missing.unwrap_err().code, ERR_INVALID_PARAMS);
+
+        // 5. Successful list all
+        let all_files = list_content_sync(&content_dir, None).expect("list must succeed");
+        let list = all_files["files"].as_array().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0]["path"], "areas/midgaard/temple.toml");
+        assert_eq!(list[0]["category"], "areas");
+        assert_eq!(list[1]["path"], "items/sword.toml");
+        assert_eq!(list[1]["category"], "items");
+
+        // 6. Successful list with category filter
+        let item_files =
+            list_content_sync(&content_dir, Some("items")).expect("list category must succeed");
+        let item_list = item_files["files"].as_array().unwrap();
+        assert_eq!(item_list.len(), 1);
+        assert_eq!(item_list[0]["path"], "items/sword.toml");
+
+        // 7. Traversal in category filter rejected
+        let bad_cat = test_req(
+            "content.list",
+            serde_json::json!({ "category": "../areas" }),
+        );
+        let resp = handle_request(&bad_cat, &admin).await;
+        assert_eq!(resp.error.unwrap().code, ERR_INVALID_PARAMS);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

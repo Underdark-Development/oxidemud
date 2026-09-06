@@ -31,6 +31,14 @@ pub enum Focus {
 }
 
 #[derive(Debug, Clone)]
+pub struct RemoteFileInfo {
+    pub path: String,
+    pub category: String,
+    pub size_bytes: u64,
+    pub modified: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct NodeInfo {
     pub category: String,
     pub id: String,
@@ -60,6 +68,10 @@ pub struct EntitiesScreen {
     draft_data: HashMap<(String, String), String>,
     /// Entities with in-memory edits not yet saved to disk.
     unsaved: HashSet<(String, String)>,
+    /// Remote file catalog received via content.list RPC endpoint.
+    pub remote_catalog: Option<HashMap<String, RemoteFileInfo>>,
+    /// Pending action to be taken by App event loop.
+    pub pending_action: crate::screens::ScreenAction,
 }
 
 impl EntitiesScreen {
@@ -90,9 +102,19 @@ impl EntitiesScreen {
             preview: None,
             draft_data: HashMap::new(),
             unsaved: HashSet::new(),
+            remote_catalog: None,
+            pending_action: crate::screens::ScreenAction::None,
         };
         screen.rebuild_tree();
         screen
+    }
+
+    pub fn apply_remote_catalog(&mut self, files: Vec<RemoteFileInfo>) {
+        let mut map = HashMap::new();
+        for file in files {
+            map.insert(file.path.clone(), file);
+        }
+        self.remote_catalog = Some(map);
     }
 
     pub fn reload(&mut self) {
@@ -268,6 +290,13 @@ impl EntitiesScreen {
                 }
             }
             KeyCode::Char('r') => self.reload(),
+            KeyCode::Char('s') => {
+                self.pending_action = crate::screens::ScreenAction::RpcCall {
+                    method: "content.list".to_string(),
+                    params: serde_json::json!({}),
+                    description: "fetch remote content catalog".to_string(),
+                };
+            }
             KeyCode::Char('n') => {
                 let node_info = self.tree.selected_data().cloned();
                 if let Some(info) = node_info {
@@ -988,6 +1017,14 @@ impl Screen for EntitiesScreen {
 
     fn inspect_entity(&mut self, category: &str, id: &str) {
         self.open_detail(category.to_string(), id.to_string());
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn take_action(&mut self) -> super::ScreenAction {
+        std::mem::replace(&mut self.pending_action, super::ScreenAction::None)
     }
 
     fn modal_overlay_active(&self) -> bool {
@@ -1711,6 +1748,31 @@ impl Screen for EntitiesScreen {
                 " Entities ",
                 Style::default().fg(title_fg).bg(theme::PANEL),
             );
+
+            let mut header_x = area.x + 11;
+            if let Some(ref catalog) = self.remote_catalog {
+                let remote_label = format!("Remote: {} ", catalog.len());
+                let rem_len = remote_label.chars().count() as u16;
+                if header_x + rem_len < area.x + tree_width {
+                    buf.set_string(
+                        header_x,
+                        area.y,
+                        &remote_label,
+                        Style::default().fg(theme::POSITIVE).bg(theme::PANEL),
+                    );
+                    header_x += rem_len + 1;
+                }
+            }
+
+            let sync_chip = " Sync (s) ";
+            let sync_len = sync_chip.chars().count() as u16;
+            if header_x + sync_len < area.x + tree_width {
+                let style = theme::button_style(
+                    theme::ButtonVariant::Default,
+                    theme::ButtonState::Inactive,
+                );
+                buf.set_string(header_x, area.y, sync_chip, style);
+            }
         }
 
         let tree_width = self.tree_width_pct(area.width);

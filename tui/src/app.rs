@@ -483,6 +483,44 @@ impl App {
                             .and_then(|m| m.as_str())
                             .unwrap_or("Success");
                         self.set_status(format!("{desc}: {msg}"));
+
+                        if desc == "fetch remote content catalog" {
+                            if let Some(files_val) = val.get("files").and_then(|f| f.as_array()) {
+                                let mut parsed_files = Vec::new();
+                                for f in files_val {
+                                    if let (Some(path), Some(cat)) = (
+                                        f.get("path").and_then(|p| p.as_str()),
+                                        f.get("category").and_then(|c| c.as_str()),
+                                    ) {
+                                        parsed_files.push(
+                                            crate::screens::entities::RemoteFileInfo {
+                                                path: path.to_string(),
+                                                category: cat.to_string(),
+                                                size_bytes: f
+                                                    .get("size_bytes")
+                                                    .and_then(|s| s.as_u64())
+                                                    .unwrap_or(0),
+                                                modified: f
+                                                    .get("modified")
+                                                    .and_then(|m| m.as_u64())
+                                                    .unwrap_or(0),
+                                            },
+                                        );
+                                    }
+                                }
+                                let count = parsed_files.len();
+                                let entities_screen =
+                                    &mut self.screens[ScreenId::Entities.as_index()];
+                                if let Some(entities) = entities_screen
+                                    .as_any_mut()
+                                    .downcast_mut::<crate::screens::entities::EntitiesScreen>(
+                                ) {
+                                    entities.apply_remote_catalog(parsed_files);
+                                }
+                                self.set_status(format!("Remote catalog synced: {count} files"));
+                            }
+                        }
+
                         let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
                         if let Some(dash) =
                             screen.as_any_mut().downcast_mut::<LiveDashboardScreen>()
