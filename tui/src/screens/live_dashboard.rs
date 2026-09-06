@@ -356,6 +356,8 @@ pub struct LiveDashboardScreen {
     pub shutdown_dialog_rect: Rect,
     pub character_inspector: CharacterInspectorState,
     pub last_player_click: Option<(usize, Instant)>,
+    pub player_sort_column: usize,
+    pub player_sort_ascending: bool,
 }
 
 impl LiveDashboardScreen {
@@ -396,6 +398,8 @@ impl LiveDashboardScreen {
             shutdown_dialog_rect: Rect::default(),
             character_inspector: CharacterInspectorState::default(),
             last_player_click: None,
+            player_sort_column: 0,
+            player_sort_ascending: true,
         }
     }
 
@@ -549,6 +553,79 @@ impl LiveDashboardScreen {
         }
 
         self.telemetry = Some(telemetry);
+        self.apply_player_sort();
+    }
+
+    pub fn handle_player_header_click(&mut self, col: usize) {
+        if col == self.player_sort_column {
+            self.player_sort_ascending = !self.player_sort_ascending;
+        } else {
+            self.player_sort_column = col.min(5);
+            self.player_sort_ascending = true;
+        }
+        self.apply_player_sort();
+    }
+
+    pub fn apply_player_sort(&mut self) {
+        if let Some(ref mut t) = self.telemetry {
+            let selected_name = self
+                .table_state
+                .selected()
+                .and_then(|idx| t.players.get(idx).map(|p| p.name.clone()));
+
+            let col = self.player_sort_column;
+            let asc = self.player_sort_ascending;
+
+            t.players.sort_by(|a, b| {
+                let cmp = match col {
+                    0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                    1 => a
+                        .level
+                        .cmp(&b.level)
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    2 => a
+                        .class
+                        .to_lowercase()
+                        .cmp(&b.class.to_lowercase())
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    3 => a
+                        .room
+                        .to_lowercase()
+                        .cmp(&b.room.to_lowercase())
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    4 => a
+                        .idle_secs
+                        .cmp(&b.idle_secs)
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    5 => a
+                        .protocol
+                        .to_lowercase()
+                        .cmp(&b.protocol.to_lowercase())
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+                    _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                };
+                if asc {
+                    cmp
+                } else {
+                    cmp.reverse()
+                }
+            });
+
+            if let Some(name) = selected_name {
+                if let Some(new_idx) = t.players.iter().position(|p| p.name == name) {
+                    self.table_state.select(Some(new_idx));
+                } else if !t.players.is_empty() {
+                    let clamped = self
+                        .table_state
+                        .selected()
+                        .unwrap_or(0)
+                        .min(t.players.len() - 1);
+                    self.table_state.select(Some(clamped));
+                } else {
+                    self.table_state.select(None);
+                }
+            }
+        }
     }
 
     pub fn add_log(&mut self, log: String) {
@@ -1925,21 +2002,50 @@ impl Screen for LiveDashboardScreen {
             if self.view_mode == DashboardView::Dashboard {
                 if in_rect(self.players_rect) {
                     self.focused_pane = DashboardPane::Players;
-                    let rel_y = row.saturating_sub(self.players_rect.y + 2);
-                    if let Some(ref t) = self.telemetry {
-                        let sel_idx = rel_y as usize;
-                        if sel_idx < t.players.len() {
-                            self.table_state.select(Some(sel_idx));
-                            if let Some((prev_idx, prev_time)) = self.last_player_click {
-                                if prev_idx == sel_idx && prev_time.elapsed().as_millis() < 400 {
-                                    if let Some(p) = t.players.get(sel_idx) {
-                                        self.open_character_inspector(p.clone());
-                                    }
-                                    self.last_player_click = None;
-                                    return;
-                                }
+                    let header_row = self.players_rect.y + 1;
+                    let min_data_row = self.players_rect.y + 2;
+                    let max_data_row =
+                        self.players_rect.y + self.players_rect.height.saturating_sub(1);
+                    if row == header_row {
+                        let header_inner = Rect::new(
+                            self.players_rect.x + 1,
+                            header_row,
+                            self.players_rect.width.saturating_sub(2),
+                            1,
+                        );
+                        let col_areas = Layout::horizontal([
+                            Constraint::Percentage(20),
+                            Constraint::Percentage(10),
+                            Constraint::Percentage(20),
+                            Constraint::Percentage(25),
+                            Constraint::Percentage(10),
+                            Constraint::Percentage(15),
+                        ])
+                        .split(header_inner);
+                        for (col_idx, r) in col_areas.iter().enumerate() {
+                            if col >= r.x && col < r.x + r.width {
+                                self.handle_player_header_click(col_idx);
+                                break;
                             }
-                            self.last_player_click = Some((sel_idx, Instant::now()));
+                        }
+                    } else if row >= min_data_row && row < max_data_row {
+                        let rel_y = row - min_data_row;
+                        if let Some(ref t) = self.telemetry {
+                            let sel_idx = rel_y as usize;
+                            if sel_idx < t.players.len() {
+                                self.table_state.select(Some(sel_idx));
+                                if let Some((prev_idx, prev_time)) = self.last_player_click {
+                                    if prev_idx == sel_idx && prev_time.elapsed().as_millis() < 400
+                                    {
+                                        if let Some(p) = t.players.get(sel_idx) {
+                                            self.open_character_inspector(p.clone());
+                                        }
+                                        self.last_player_click = None;
+                                        return;
+                                    }
+                                }
+                                self.last_player_click = Some((sel_idx, Instant::now()));
+                            }
                         }
                     }
                 } else if in_rect(self.metrics_rect) {
@@ -2201,6 +2307,22 @@ impl LiveDashboardScreen {
             Vec::new()
         };
 
+        let mut headers = vec![
+            "Player".to_string(),
+            "Lvl".to_string(),
+            "Class".to_string(),
+            "Room".to_string(),
+            "Idle".to_string(),
+            "Proto".to_string(),
+        ];
+        if self.player_sort_column < headers.len() {
+            headers[self.player_sort_column].push_str(if self.player_sort_ascending {
+                " ▲"
+            } else {
+                " ▼"
+            });
+        }
+
         let table = Table::new(
             rows,
             [
@@ -2213,7 +2335,7 @@ impl LiveDashboardScreen {
             ],
         )
         .header(
-            Row::new(vec!["Player", "Lvl", "Class", "Room", "Idle", "Proto"]).style(
+            Row::new(headers).style(
                 theme::text()
                     .fg(theme::WARNING)
                     .add_modifier(Modifier::BOLD),
@@ -3483,52 +3605,27 @@ impl LiveDashboardScreen {
             return;
         };
 
-        // Slide-out drawer on right edge
-        let drawer_width = (area.width * 46 / 100).max(42).min(area.width);
-        let drawer_rect = Rect {
-            x: area.x + area.width.saturating_sub(drawer_width),
-            y: area.y,
-            width: drawer_width,
-            height: area.height,
+        // Centered modal dialog per Spade UI/UX Design Guide
+        let dialog_width = 56.min(area.width);
+        let dialog_height = 26.min(area.height);
+        let dialog_rect = Rect {
+            x: area.x + (area.width.saturating_sub(dialog_width)) / 2,
+            y: area.y + (area.height.saturating_sub(dialog_height)) / 2,
+            width: dialog_width,
+            height: dialog_height,
         };
-        self.character_inspector.drawer_rect = drawer_rect;
+        self.character_inspector.drawer_rect = dialog_rect;
 
-        // Clear background
-        Clear.render(drawer_rect, buf);
-        for y in drawer_rect.y..drawer_rect.y + drawer_rect.height {
-            for x in drawer_rect.x..drawer_rect.x + drawer_rect.width {
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_char(' ');
-                    cell.set_style(Style::default().bg(theme::BG_DARK));
-                }
-            }
-        }
+        let title_str = format!("CHARACTER: {}", p.name);
+        clear_and_fill_dialog(dialog_rect, &title_str, theme::PRIMARY, buf);
 
-        // Rounded border with bold title
-        let title_str = format!(" CHARACTER: {} ", p.name.to_uppercase());
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(
-                Style::default()
-                    .fg(theme::PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .title(Span::styled(
-                title_str,
-                Style::default()
-                    .fg(theme::PRIMARY)
-                    .add_modifier(Modifier::BOLD),
-            ));
-        block.render(drawer_rect, buf);
-
-        if drawer_rect.width < 30 || drawer_rect.height < 15 {
+        if dialog_rect.width < 25 || dialog_rect.height < 15 {
             return;
         }
 
-        let inner_x = drawer_rect.x + 2;
-        let mut curr_y = drawer_rect.y + 1;
-        let avail_w = drawer_rect.width.saturating_sub(4);
+        let inner_x = dialog_rect.x + 2;
+        let mut curr_y = dialog_rect.y + 1;
+        let avail_w = dialog_rect.width.saturating_sub(4);
 
         // 1. Identity section
         buf.set_string(
@@ -3544,17 +3641,38 @@ impl LiveDashboardScreen {
         let id_style_label = Style::default().fg(theme::FG_MUTED);
         let id_style_val = Style::default().fg(theme::FG_BRIGHT);
 
-        buf.set_string(inner_x, curr_y, "Level: ", id_style_label);
-        buf.set_string(inner_x + 7, curr_y, format!("{}", p.level), id_style_val);
-        buf.set_string(inner_x + 14, curr_y, "Class: ", id_style_label);
-        buf.set_string(inner_x + 21, curr_y, &p.class, id_style_val);
-        curr_y += 1;
+        if avail_w >= 36 {
+            buf.set_string(inner_x, curr_y, "Level: ", id_style_label);
+            buf.set_string(inner_x + 7, curr_y, format!("{}", p.level), id_style_val);
+            buf.set_string(inner_x + 14, curr_y, "Class: ", id_style_label);
+            buf.set_string(inner_x + 21, curr_y, &p.class, id_style_val);
+            curr_y += 1;
 
-        buf.set_string(inner_x, curr_y, "Race:  ", id_style_label);
-        buf.set_string(inner_x + 7, curr_y, &p.race, id_style_val);
-        buf.set_string(inner_x + 14, curr_y, "Proto: ", id_style_label);
-        buf.set_string(inner_x + 21, curr_y, &p.protocol, id_style_val);
-        curr_y += 1;
+            buf.set_string(inner_x, curr_y, "Race:  ", id_style_label);
+            buf.set_string(inner_x + 7, curr_y, &p.race, id_style_val);
+            buf.set_string(inner_x + 14, curr_y, "Proto: ", id_style_label);
+            buf.set_string(inner_x + 21, curr_y, &p.protocol, id_style_val);
+            curr_y += 1;
+        } else {
+            let col2_x = inner_x + avail_w / 2;
+            buf.set_string(inner_x, curr_y, "Lvl: ", id_style_label);
+            buf.set_string(inner_x + 5, curr_y, format!("{}", p.level), id_style_val);
+            buf.set_string(col2_x, curr_y, "Cls: ", id_style_label);
+            let cls_max = (avail_w.saturating_sub(avail_w / 2 + 5) as usize).max(1);
+            let cls_disp: String = p.class.chars().take(cls_max).collect();
+            buf.set_string(col2_x + 5, curr_y, &cls_disp, id_style_val);
+            curr_y += 1;
+
+            buf.set_string(inner_x, curr_y, "Race: ", id_style_label);
+            let race_max = ((avail_w / 2).saturating_sub(6) as usize).max(1);
+            let race_disp: String = p.race.chars().take(race_max).collect();
+            buf.set_string(inner_x + 6, curr_y, &race_disp, id_style_val);
+            buf.set_string(col2_x, curr_y, "Proto: ", id_style_label);
+            let proto_max = (avail_w.saturating_sub(avail_w / 2 + 7) as usize).max(1);
+            let proto_disp: String = p.protocol.chars().take(proto_max).collect();
+            buf.set_string(col2_x + 7, curr_y, &proto_disp, id_style_val);
+            curr_y += 1;
+        }
 
         buf.set_string(inner_x, curr_y, "Room:  ", id_style_label);
         let max_room_chars = (avail_w.saturating_sub(7) as usize).max(1);
@@ -3618,7 +3736,7 @@ impl LiveDashboardScreen {
                 (hp_ratio * 100.0) as u32
             ));
         hp_gauge.render(Rect::new(inner_x, curr_y, avail_w, 1), buf);
-        curr_y += 2;
+        curr_y += 1;
 
         // Mana Gauge
         let (mp_cur, mp_max) = self
@@ -3640,7 +3758,7 @@ impl LiveDashboardScreen {
                 (mp_ratio * 100.0) as u32
             ));
         mp_gauge.render(Rect::new(inner_x, curr_y, avail_w, 1), buf);
-        curr_y += 2;
+        curr_y += 1;
 
         // Stamina Gauge
         let (sp_cur, sp_max) = self
@@ -3747,13 +3865,11 @@ impl LiveDashboardScreen {
                 .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         );
-        curr_y += 2;
+        curr_y += 1;
 
         self.character_inspector.button_rects.clear();
 
-        // Row 1 of buttons: Heal, Revive, Advance
-        let row1_y = curr_y;
-        let buttons_row1 = [
+        let action_buttons = [
             (
                 "heal",
                 Button::new("Heal (h)", theme::ButtonVariant::Default),
@@ -3766,27 +3882,6 @@ impl LiveDashboardScreen {
                 "advance",
                 Button::new("Advance (a)", theme::ButtonVariant::Neutral),
             ),
-        ];
-
-        let mut x = inner_x;
-        for (action, btn) in buttons_row1 {
-            let is_hovered = mouse_pos
-                .is_some_and(|(col, row)| row == row1_y && col >= x && col < x + btn.width());
-            let state = if is_hovered {
-                theme::ButtonState::Active
-            } else {
-                theme::ButtonState::Inactive
-            };
-            let rect = btn.render(buf, x, row1_y, state);
-            self.character_inspector.button_rects.push((action, rect));
-            x += btn.width() + 2;
-        }
-
-        curr_y += 2;
-
-        // Row 2 of buttons: Force Cmd, Kick, Close
-        let row2_y = curr_y;
-        let buttons_row2 = [
             (
                 "force_cmd",
                 Button::new("Force Cmd (m)", theme::ButtonVariant::Neutral),
@@ -3795,24 +3890,39 @@ impl LiveDashboardScreen {
                 "kick",
                 Button::new("Kick (k)", theme::ButtonVariant::Destructive),
             ),
-            (
-                "close",
-                Button::new("Close (Esc)", theme::ButtonVariant::Neutral),
-            ),
         ];
 
         let mut x = inner_x;
-        for (action, btn) in buttons_row2 {
+        let mut row_y = curr_y;
+        for (action, btn) in action_buttons {
+            if x > inner_x && x + btn.width() > inner_x + avail_w {
+                x = inner_x;
+                row_y += 2;
+            }
             let is_hovered = mouse_pos
-                .is_some_and(|(col, row)| row == row2_y && col >= x && col < x + btn.width());
+                .is_some_and(|(col, row)| row == row_y && col >= x && col < x + btn.width());
             let state = if is_hovered {
                 theme::ButtonState::Active
             } else {
                 theme::ButtonState::Inactive
             };
-            let rect = btn.render(buf, x, row2_y, state);
+            let rect = btn.render(buf, x, row_y, state);
             self.character_inspector.button_rects.push((action, rect));
             x += btn.width() + 2;
+        }
+
+        // 5. Standard dialog button footer: right-aligned Close button
+        let footer_y = dialog_rect.y + dialog_rect.height.saturating_sub(2);
+        let close_rects = render_dialog_buttons(
+            buf,
+            dialog_rect,
+            footer_y,
+            &[("Close (Esc)", theme::ButtonVariant::Neutral)],
+            0,
+            mouse_pos,
+        );
+        if let Some(&r) = close_rects.first() {
+            self.character_inspector.button_rects.push(("close", r));
         }
     }
 }
