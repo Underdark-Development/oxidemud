@@ -324,7 +324,22 @@ Outline for an offline transpiler and runner architecture (`lpc-to-oxide`) to co
 
 ---
 
-### 6. Development Roadmap Summary
+### 6. Spade Live Dashboard Future Enhancements (Planned)
+
+Future usability and cross-tooling capabilities planned for the Spade Live Dashboard (`F6`):
+
+- **Studio Bridge (Grid & Editor Links):**
+  - **Jump to Room in Grid:** Cross-link from online player rows and the character inspector to **Room Grid (`F2`)**, centering the map viewport on the selected player's current room.
+  - **Inspect Room Template:** Cross-link directly to **Entity Editor (`F1`)** with the player's current room template loaded for live inspection or editing.
+  - **Interactive Teleport Modal:** In-dashboard modal dialog with target room auto-completion to teleport players via `imm.teleport` RPC without leaving the dashboard.
+- **Integrated Immortal Command Prompt:**
+  - Interactive command entry bar (`:`) allowing direct execution of any server immortal command with history recall (`Up`/`Down`), routing execution through `/ws/rpc` and streaming output into the dashboard log feed.
+- **Subsystem Metrics & Profiling:**
+  - Additional telemetry gauges for Rhai script execution latency, WAL sync latency percentiles, and network packet dispatch rates.
+
+---
+
+### 7. Development Roadmap Summary
 
 - **Phase 0–3 (Core Engine & Content Baseline) ✓:** Cargo workspace, ECS, TCP/Telnet, Login/Char creation, combat, items, mobs, skills, races, classes, durability baseline.
 - **Phase 4 (Advanced Gameplay) ✓:** Crafting, quests, factions, prestige, multi-classing, spells, economy, regeneration, time & weather.
