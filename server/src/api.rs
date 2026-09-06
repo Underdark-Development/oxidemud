@@ -304,21 +304,38 @@ async fn ws_spade_handler(ws: WebSocketUpgrade) -> Response {
                                     .unwrap_or_else(|| ("12:00 PM".into(), "Spring".into()));
 
                                 let mut players = Vec::new();
-                                for (entity, (_player, room_key, _db_id)) in w.query::<(&oxide_core::Player, &oxide_core::RoomKey, &oxide_core::DbId)>().iter() {
-                                    let level = w.query_one::<&oxide_core::Level>(entity).ok().and_then(|mut q| q.get().copied()).map(|l| l.0).unwrap_or(1);
-                                    let class_name = w.query_one::<&oxide_core::Class>(entity).ok().and_then(|mut q| q.get().cloned()).map(|c| c.0).unwrap_or_else(|| "Unknown".into());
-                                    let race_name = w.query_one::<&oxide_core::Race>(entity).ok().and_then(|mut q| q.get().cloned()).map(|r| r.0).unwrap_or_else(|| "Human".into());
-                                    let name = oxide_core::get_name(&w, entity).map(|n| n.0.clone()).unwrap_or_else(|| "Player".into());
+                                if let Some(reg_lock) = crate::get_registry() {
+                                    if let Ok(reg) = reg_lock.try_lock() {
+                                        for entity in reg.connected_entities() {
+                                            let level = w.query_one::<&oxide_core::Level>(entity).ok().and_then(|mut q| q.get().copied()).map(|l| l.0).unwrap_or(1);
+                                            let class_name = w.query_one::<&oxide_core::Class>(entity).ok().and_then(|mut q| q.get().cloned()).map(|c| c.0).unwrap_or_else(|| "Unknown".into());
+                                            let race_name = w.query_one::<&oxide_core::Race>(entity).ok().and_then(|mut q| q.get().cloned()).map(|r| r.0).unwrap_or_else(|| "Human".into());
+                                            let name = oxide_core::get_name(&w, entity).map(|n| n.0.clone()).unwrap_or_else(|| "Player".into());
+                                            let room_key = if let Ok(mut q_pos) = w.query_one::<&oxide_core::Position>(entity) {
+                                                if let Some(pos) = q_pos.get() {
+                                                    if let Ok(mut q_rk) = w.query_one::<&oxide_core::RoomKey>(pos.room) {
+                                                        q_rk.get().map(|rk| rk.0.clone()).unwrap_or_else(|| "Unknown".to_string())
+                                                    } else {
+                                                        "Unknown".to_string()
+                                                    }
+                                                } else {
+                                                    "Unknown".to_string()
+                                                }
+                                            } else {
+                                                "Unknown".to_string()
+                                            };
 
-                                    players.push(serde_json::json!({
-                                        "name": name,
-                                        "level": level,
-                                        "class": class_name,
-                                        "race": race_name,
-                                        "room": room_key.0,
-                                        "idle_secs": 0,
-                                        "protocol": "Telnet"
-                                    }));
+                                            players.push(serde_json::json!({
+                                                "name": name,
+                                                "level": level,
+                                                "class": class_name,
+                                                "race": race_name,
+                                                "room": room_key,
+                                                "idle_secs": 0,
+                                                "protocol": "Telnet"
+                                            }));
+                                        }
+                                    }
                                 }
                                 (rooms, mobs, items, dirty, gt_str, s_str, "Clear".to_string(), players)
                             } else {
