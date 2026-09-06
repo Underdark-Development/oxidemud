@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.10.0 - 2026-09-06
+#### Features
+- (**spade**) add --screen cli arg with pattern matching - (a7062a1) - Kevin Lanni
+#### Bug Fixes
+- (**api**) query connected_entities and resolve room from position in spade telemetry - (a915704) - Kevin Lanni
+- (**commands**) format gecho as standard unadorned text without prefix - (fb24341) - Kevin Lanni
+- (**docker**) mount server.toml, bind 0.0.0.0 for tunnel ingress, and update docs - (647f7f2) - Kevin Lanni
+
+- - -
+
 ## 0.9.0 - 2026-09-06
 #### Features
 - (**api**) rename reboot to shutdown across mcp and spade clients - (1fc551c) - Kevin Lanni
