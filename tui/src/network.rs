@@ -59,6 +59,7 @@ pub struct SpadeNetworkClient {
     ping_ms: Arc<std::sync::Mutex<u64>>,
     telemetry_rx: mpsc::UnboundedReceiver<SpadeTelemetry>,
     log_rx: mpsc::UnboundedReceiver<String>,
+    client_log_rx: mpsc::UnboundedReceiver<String>,
     cmd_tx: mpsc::UnboundedSender<SpadeControlCommand>,
     shutdown_flag: Arc<AtomicBool>,
     rpc: Arc<std::sync::RwLock<Option<Arc<oxide_ws_rpc::RpcClient>>>>,
@@ -180,6 +181,7 @@ impl SpadeNetworkClient {
         let ping_ms = Arc::new(std::sync::Mutex::new(0));
         let (telemetry_tx, telemetry_rx) = mpsc::unbounded_channel();
         let (log_tx, log_rx) = mpsc::unbounded_channel();
+        let (client_log_tx, client_log_rx) = mpsc::unbounded_channel();
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<SpadeControlCommand>();
         let shutdown_flag = Arc::new(AtomicBool::new(false));
         let rpc = Arc::new(std::sync::RwLock::new(None));
@@ -188,6 +190,7 @@ impl SpadeNetworkClient {
         let ping_clone = ping_ms.clone();
         let shutdown_clone = shutdown_flag.clone();
         let rpc_clone = rpc.clone();
+        let client_log_tx_clone = client_log_tx.clone();
 
         tokio::spawn(async move {
             loop {
@@ -196,11 +199,12 @@ impl SpadeNetworkClient {
                 }
 
                 *status_clone.lock().unwrap() = ConnectionStatus::Connecting;
+                let _ = client_log_tx_clone.send(format!("[NETWORK] Connecting to {url_str}..."));
 
                 let mut request = match url_str.clone().into_client_request() {
                     Ok(req) => req,
                     Err(e) => {
-                        let _ = log_tx.send(format!(
+                        let _ = client_log_tx_clone.send(format!(
                             "[NETWORK ERROR] Invalid WebSocket URL '{url_str}': {e}"
                         ));
                         *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
@@ -222,10 +226,11 @@ impl SpadeNetworkClient {
                 match oxide_ws_rpc::RpcClient::connect(&rpc_url_str, api_key.as_deref()).await {
                     Ok(rpc_client) => {
                         *rpc_clone.write().unwrap() = Some(Arc::new(rpc_client));
-                        let _ = log_tx.send(format!("[NETWORK] JSON-RPC connected: {rpc_url_str}"));
+                        let _ = client_log_tx_clone
+                            .send(format!("[NETWORK] JSON-RPC connected: {rpc_url_str}"));
                     }
                     Err(e) => {
-                        let _ = log_tx.send(format!(
+                        let _ = client_log_tx_clone.send(format!(
                             "[NETWORK ERROR] JSON-RPC connection failed ({rpc_url_str}): {e}"
                         ));
                     }
@@ -234,8 +239,8 @@ impl SpadeNetworkClient {
                 match connect_async(request).await {
                     Ok((ws_stream, _)) => {
                         *status_clone.lock().unwrap() = ConnectionStatus::Connected;
-                        let _ =
-                            log_tx.send(format!("[NETWORK] Telemetry stream connected: {url_str}"));
+                        let _ = client_log_tx_clone
+                            .send(format!("[NETWORK] Telemetry stream connected: {url_str}"));
                         let (mut write, mut read) = ws_stream.split();
                         let mut last_ping_sent: Option<Instant> = None;
                         let mut ping_interval = tokio::time::interval(Duration::from_secs(3));
@@ -292,14 +297,14 @@ impl SpadeNetworkClient {
 
                         *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
                         *rpc_clone.write().unwrap() = None;
-                        let _ = log_tx.send(format!(
+                        let _ = client_log_tx_clone.send(format!(
                             "[NETWORK] Telemetry stream disconnected from {url_str}"
                         ));
                     }
                     Err(e) => {
                         *status_clone.lock().unwrap() = ConnectionStatus::Disconnected;
                         *rpc_clone.write().unwrap() = None;
-                        let _ = log_tx.send(format!(
+                        let _ = client_log_tx_clone.send(format!(
                             "[NETWORK ERROR] Failed to connect to {url_str}: {e}"
                         ));
                     }
@@ -314,6 +319,7 @@ impl SpadeNetworkClient {
             ping_ms,
             telemetry_rx,
             log_rx,
+            client_log_rx,
             cmd_tx,
             shutdown_flag,
             rpc,
@@ -334,6 +340,10 @@ impl SpadeNetworkClient {
 
     pub fn poll_log(&mut self) -> Option<String> {
         self.log_rx.try_recv().ok()
+    }
+
+    pub fn poll_client_log(&mut self) -> Option<String> {
+        self.client_log_rx.try_recv().ok()
     }
 
     pub fn rpc(&self) -> Option<Arc<oxide_ws_rpc::RpcClient>> {

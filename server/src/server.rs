@@ -752,6 +752,10 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                             cb(&mut w, &mut conn, &reg);
                         }
                         if let Some(entity) = login_flow.entity() {
+                            let player_name = oxide_core::get_name(&w, entity)
+                                .map(|n| n.0.clone())
+                                .unwrap_or_else(|| "Unknown".to_string());
+                            tracing::info!("Player '{player_name}' ({conn_id}) connected");
                             crate::prompt::send_player_prompt(&w, entity, &reg);
                         }
                     }
@@ -1200,6 +1204,7 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
                 reg.broadcast_to_room(&w, room, &msg.render(true, true), Some(entity));
             }
 
+            tracing::info!("Player '{}' ({conn_id}) disconnected", name);
             reg.unregister(entity);
             oxide_core::handle_player_disconnect_group(&mut w, entity);
             let _ = w.despawn(entity).inspect_err(|e| {
@@ -1209,6 +1214,7 @@ async fn handle_connection(conn_id: String, stream: tokio::net::TcpStream, ctx: 
     }
 
     let _ = output_handle.await;
+    tracing::info!("Connection ({conn_id}) closed");
 }
 
 // ---------------------------------------------------------------------------

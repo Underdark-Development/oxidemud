@@ -10,6 +10,7 @@ use crate::screens::file_browser::FileBrowserScreen;
 use crate::screens::live_dashboard::LiveDashboardScreen;
 use crate::screens::room_grid::RoomGridScreen;
 use crate::screens::script_console::ScriptConsoleScreen;
+use crate::screens::spade_logs::SpadeLogsScreen;
 use crate::screens::validation_panel::ValidationPanelScreen;
 use crate::screens::{Screen, ScreenId};
 use oxide_core::templates::TemplateRegistry;
@@ -133,6 +134,7 @@ impl App {
             Box::new(file_browser),
             Box::new(script_console),
             Box::new(live_dashboard),
+            Box::new(SpadeLogsScreen::new()),
         ];
 
         let (rpc_resp_tx, rpc_resp_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -277,6 +279,14 @@ impl App {
         self.status_message = Some((msg.into(), Instant::now()));
     }
 
+    pub fn add_spade_log(&mut self, line: String) {
+        if let Some(screen) = self.screens.get_mut(ScreenId::SpadeLogs.as_index()) {
+            if let Some(logs) = screen.as_any_mut().downcast_mut::<SpadeLogsScreen>() {
+                logs.add_log(line);
+            }
+        }
+    }
+
     pub fn clear_hover(&mut self) {
         self.mouse_pos = None;
     }
@@ -344,6 +354,10 @@ impl App {
                 let url = self.connection_url.clone();
                 let tls = self.connection_tls;
                 let api_key = self.api_key.clone();
+                self.add_spade_log(format!(
+                    "[NETWORK] Connecting to {}:{} (tls: {})...",
+                    host, port, tls
+                ));
                 self.network_client = Some(crate::network::SpadeNetworkClient::connect(
                     url.as_deref(),
                     &host,
@@ -355,6 +369,7 @@ impl App {
                 self.set_status(format!("Connecting to {}:{}...", host, port));
             }
             CommandAction::DisconnectServer => {
+                self.add_spade_log("[NETWORK] Disconnected from server.".to_string());
                 self.network_client = None;
                 self.mode = Mode::Offline;
                 self.set_status("Disconnected from server.");
@@ -434,19 +449,17 @@ impl App {
                 if let Some(rpc) = self.rpc() {
                     let desc = description.clone();
                     let tx = self.rpc_resp_tx.clone();
+                    self.add_spade_log(format!("[RPC] Dispatching {description} ({method})"));
                     tokio::spawn(async move {
                         let res = rpc.call(&method, params).await.map_err(|e| e.to_string());
                         let _ = tx.send((desc, res));
                     });
                     self.set_status(format!("Sending {description}..."));
                 } else {
+                    self.add_spade_log(format!(
+                        "[RPC ERROR] Cannot {description}: not connected to server RPC"
+                    ));
                     self.set_status(format!("Cannot {description}: not connected to server RPC"));
-                    let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
-                    if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
-                        dash.add_log(format!(
-                            "[ERROR] Not connected to server RPC (cannot {description})"
-                        ));
-                    }
                 }
             }
             crate::screens::ScreenAction::Reconnect {
@@ -457,6 +470,10 @@ impl App {
                 url,
                 save_default,
             } => {
+                self.add_spade_log(format!(
+                    "[NETWORK] Reconnecting to {}:{} (tls: {})...",
+                    host, port, tls
+                ));
                 self.connection_host = host.clone();
                 self.connection_port = port;
                 self.connection_tls = tls;
@@ -471,8 +488,10 @@ impl App {
                     cfg.connection.tls = tls;
                     cfg.connection.api_key = api_key.clone();
                     if let Err(e) = crate::config_file::save_config(&cfg) {
+                        self.add_spade_log(format!("[CONFIG ERROR] Failed to save config: {e}"));
                         self.set_status(format!("Config save error: {e}"));
                     } else {
+                        self.add_spade_log("[CONFIG] Connection saved to config.toml".to_string());
                         self.set_status("Connection saved to config.toml");
                     }
                 }
@@ -503,6 +522,7 @@ impl App {
                             .get("message")
                             .and_then(|m| m.as_str())
                             .unwrap_or("Success");
+                        self.add_spade_log(format!("[RPC SUCCESS] {desc}: {msg}"));
                         self.set_status(format!("{desc}: {msg}"));
 
                         if desc == "fetch remote content catalog" {
@@ -547,17 +567,11 @@ impl App {
                             screen.as_any_mut().downcast_mut::<LiveDashboardScreen>()
                         {
                             dash.handle_rpc_response(&desc, &val);
-                            dash.add_log(format!("[RPC SUCCESS] {desc}: {msg}"));
                         }
                     }
                     Err(err) => {
+                        self.add_spade_log(format!("[RPC ERROR] {desc} failed: {err}"));
                         self.set_status(format!("{desc} failed: {err}"));
-                        let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
-                        if let Some(dash) =
-                            screen.as_any_mut().downcast_mut::<LiveDashboardScreen>()
-                        {
-                            dash.add_log(format!("[RPC ERROR] {desc} failed: {err}"));
-                        }
                     }
                 }
             }
@@ -582,6 +596,12 @@ impl App {
                     let screen = &mut self.screens[ScreenId::LiveDashboard.as_index()];
                     if let Some(dash) = screen.as_any_mut().downcast_mut::<LiveDashboardScreen>() {
                         dash.add_log(log_line);
+                    }
+                }
+                while let Some(client_log) = client.poll_client_log() {
+                    let screen = &mut self.screens[ScreenId::SpadeLogs.as_index()];
+                    if let Some(logs) = screen.as_any_mut().downcast_mut::<SpadeLogsScreen>() {
+                        logs.add_log(client_log);
                     }
                 }
             } else {

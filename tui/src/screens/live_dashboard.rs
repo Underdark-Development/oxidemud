@@ -474,7 +474,6 @@ impl LiveDashboardScreen {
                 params: serde_json::json!({ "target_name": name }),
                 description: format!("Heal {name}"),
             };
-            self.add_log(format!("[IMM] Requested heal for {name}"));
         }
     }
 
@@ -486,7 +485,6 @@ impl LiveDashboardScreen {
                 params: serde_json::json!({ "target_name": name }),
                 description: format!("Revive {name}"),
             };
-            self.add_log(format!("[IMM] Requested revive for {name}"));
         }
     }
 
@@ -498,9 +496,6 @@ impl LiveDashboardScreen {
                 params: serde_json::json!({ "player_name": name, "target_level": target_level }),
                 description: format!("Advance {name} to level {target_level}"),
             };
-            self.add_log(format!(
-                "[IMM] Requested advance for {name} to level {target_level}"
-            ));
         }
         self.character_inspector.advance_dialog_open = false;
     }
@@ -517,7 +512,6 @@ impl LiveDashboardScreen {
                 }),
                 description: format!("Force command on {name}: {command}"),
             };
-            self.add_log(format!("[IMM] Forced command on {name}: {command}"));
         }
         self.character_inspector.force_cmd_dialog_open = false;
     }
@@ -807,7 +801,6 @@ impl LiveDashboardScreen {
                 params: serde_json::json!({ "message": msg }),
                 description: format!("Global Echo: \"{msg}\""),
             };
-            self.logs.push(format!("[GECHO] {msg}"));
         }
         self.gecho_input.clear();
         self.gecho_cursor = 0;
@@ -824,9 +817,6 @@ impl LiveDashboardScreen {
             }),
             description: format!("Server Shutdown (delay: {delay:?})"),
         };
-        self.logs.push(format!(
-            "[SHUTDOWN] Initiating server shutdown (delay: {delay:?})..."
-        ));
         self.shutdown_dialog_open = false;
         self.shutdown_delay_input.clear();
         self.shutdown_cursor = 0;
@@ -843,7 +833,6 @@ impl LiveDashboardScreen {
                 }),
                 description: format!("Kick Player {target}"),
             };
-            self.logs.push(format!("[KICK] Kicking player {target}..."));
         }
         self.kick_dialog_open = false;
     }

@@ -263,10 +263,32 @@ async fn ws_spade_handler(ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(|mut socket| async move {
         tracing::info!("New Spade WebSocket session established");
 
+        let (history, mut log_rx) = crate::subscribe_server_logs();
+
+        // Send existing log backlog so Spade immediately displays current server console logs
+        for line in history {
+            let msg = serde_json::json!({ "log": line }).to_string();
+            if socket.send(AxumWsMessage::Text(msg)).await.is_err() {
+                return;
+            }
+        }
+
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
         loop {
             tokio::select! {
+                recv_res = log_rx.recv() => {
+                    match recv_res {
+                        Ok(log_line) => {
+                            let msg = serde_json::json!({ "log": log_line }).to_string();
+                            if socket.send(AxumWsMessage::Text(msg)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
                 _ = interval.tick() => {
                     let total_mem = sysinfo::System::new_all().total_memory();
                     let used_mem = sysinfo::System::new_all().used_memory();

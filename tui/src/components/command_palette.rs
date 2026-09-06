@@ -70,6 +70,11 @@ impl CommandPalette {
                 CommandAction::SwitchScreen(ScreenId::LiveDashboard.as_index()),
             ),
             PaletteItem::new(
+                "Switch to Spade Logs",
+                Some("F7"),
+                CommandAction::SwitchScreen(ScreenId::SpadeLogs.as_index()),
+            ),
+            PaletteItem::new(
                 "Save Active Entity",
                 Some("Ctrl+S"),
                 CommandAction::SaveEntity,

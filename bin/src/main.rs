@@ -76,12 +76,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(move || file_writer.clone())
         .with_ansi(false);
 
+    let broadcast_writer = LogBroadcastWriter {
+        buffer: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+    };
+    let broadcast_layer = tracing_subscriber::fmt::layer()
+        .with_writer(move || broadcast_writer.clone())
+        .with_ansi(false);
+
     let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
 
     use tracing_subscriber::prelude::*;
     tracing_subscriber::Registry::default()
         .with(stdout_layer)
         .with(file_layer)
+        .with(broadcast_layer)
         .init();
 
     // Initial prune of old logs
@@ -333,6 +341,42 @@ impl std::io::Write for TracingWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct LogBroadcastWriter {
+    buffer: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+impl std::io::Write for LogBroadcastWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut b = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
+        b.extend_from_slice(buf);
+        while let Some(pos) = b.iter().position(|&c| c == b'\n') {
+            let line_bytes: Vec<u8> = b.drain(..=pos).collect();
+            if let Ok(line) = std::str::from_utf8(&line_bytes) {
+                let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
+                if !trimmed.is_empty() {
+                    oxide_server::broadcast_server_log(trimmed.to_string());
+                }
+            }
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let mut b = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
+        if !b.is_empty() {
+            if let Ok(line) = std::str::from_utf8(&b) {
+                let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
+                if !trimmed.is_empty() {
+                    oxide_server::broadcast_server_log(trimmed.to_string());
+                }
+            }
+            b.clear();
+        }
         Ok(())
     }
 }

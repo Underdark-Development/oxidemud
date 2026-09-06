@@ -105,7 +105,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
-    // F1..F6: screen switching
+    // F1..F7: screen switching
     if let KeyCode::F(n) = key.code {
         if let Some(id) = ScreenId::from_fkey(n) {
             app.switch_screen(id);

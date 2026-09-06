@@ -1,6 +1,7 @@
 pub mod design_prototype;
 pub mod entities;
 pub mod entity_inspector;
+pub mod spade_logs;
 pub mod validation_panel;
 
 use oxide_core::templates::TemplateRegistry;
@@ -23,6 +24,7 @@ pub enum ScreenId {
     FileBrowser = 3,
     ScriptConsole = 4,
     LiveDashboard = 5,
+    SpadeLogs = 6,
 }
 
 impl ScreenId {
@@ -38,12 +40,13 @@ impl ScreenId {
             Self::FileBrowser => "File Browser",
             Self::ScriptConsole => "Script Console",
             Self::LiveDashboard => "Live Dashboard",
+            Self::SpadeLogs => "Spade Logs",
         }
     }
 
     pub fn fkey(self) -> Option<u8> {
         let n = self as usize as u8 + 1;
-        if n <= 6 {
+        if n <= 7 {
             Some(n)
         } else {
             None
@@ -58,6 +61,7 @@ impl ScreenId {
             4 => Some(Self::FileBrowser),
             5 => Some(Self::ScriptConsole),
             6 => Some(Self::LiveDashboard),
+            7 => Some(Self::SpadeLogs),
             _ => None,
         }
     }
@@ -70,6 +74,7 @@ impl ScreenId {
             3 => Some(Self::FileBrowser),
             4 => Some(Self::ScriptConsole),
             5 => Some(Self::LiveDashboard),
+            6 => Some(Self::SpadeLogs),
             _ => None,
         }
     }
@@ -82,14 +87,15 @@ impl ScreenId {
             Self::FileBrowser,
             Self::ScriptConsole,
             Self::LiveDashboard,
+            Self::SpadeLogs,
         ]
     }
 
     /// Resolves a screen ID from a user query string using flexible pattern matching.
     ///
     /// Supports:
-    /// - F-key / index notation (`"1"`..`"6"`, `"f1"`..`"f6"`)
-    /// - Exact alias matches (e.g. `"dash"`, `"dashboard"`, `"live"`, `"entities"`, `"room"`, `"grid"`)
+    /// - F-key / index notation (`"1"`..`"7"`, `"f1"`..`"f7"`)
+    /// - Exact alias matches (e.g. `"dash"`, `"dashboard"`, `"live"`, `"entities"`, `"room"`, `"grid"`, `"logs"`)
     /// - Prefix matches (e.g. `"ent"`, `"val"`, `"scr"`)
     /// - Substring matches (e.g. `"board"`, `"browser"`)
     pub fn from_pattern(query: &str) -> Option<Self> {
@@ -98,7 +104,7 @@ impl ScreenId {
             return None;
         }
 
-        // 1. Direct index or F-key: "1".."6" or "f1".."f6"
+        // 1. Direct index or F-key: "1".."7" or "f1".."f7"
         let fkey_candidate = q.strip_prefix('f').unwrap_or(&q);
         if let Ok(n) = fkey_candidate.parse::<u8>() {
             if let Some(id) = Self::from_fkey(n) {
@@ -106,7 +112,7 @@ impl ScreenId {
             }
         }
 
-        let screens: [(Self, &[&str]); 6] = [
+        let screens: [(Self, &[&str]); 7] = [
             (
                 Self::Entities,
                 &["entities", "entity", "entities_editor", "editor"],
@@ -141,6 +147,18 @@ impl ScreenId {
                     "dash",
                     "live",
                     "livedashboard",
+                ],
+            ),
+            (
+                Self::SpadeLogs,
+                &[
+                    "spade_logs",
+                    "spadelogs",
+                    "spade_log",
+                    "spadelog",
+                    "logs",
+                    "client_logs",
+                    "clientlogs",
                 ],
             ),
         ];
@@ -294,6 +312,7 @@ pub const SCREEN_TITLES: &[&str] = &[
     "File Browser",
     "Script Console",
     "Live Dashboard",
+    "Spade Logs",
 ];
 
 pub struct PlaceholderScreen {
