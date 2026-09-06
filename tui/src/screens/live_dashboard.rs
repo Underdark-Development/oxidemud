@@ -12,9 +12,10 @@ use ratatui::{
 
 use std::time::Instant;
 
+use crate::components::Button;
 use crate::network::{ConnectionStatus, OnlinePlayerInfo, SpadeTelemetry};
 use crate::screens::{Screen, ScreenAction};
-use crate::theme;
+use crate::theme::{self, ButtonState, ButtonVariant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DashboardView {
@@ -1529,42 +1530,42 @@ impl Screen for LiveDashboardScreen {
         }
     }
 
-    fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>) {
+    fn render(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
         if area.width < 10 || area.height < 5 {
             return;
         }
 
         match self.view_mode {
-            DashboardView::Dashboard => self.render_dashboard(area, buf),
-            DashboardView::FullLog => self.render_full_log(area, buf),
+            DashboardView::Dashboard => self.render_dashboard(area, buf, mouse_pos),
+            DashboardView::FullLog => self.render_full_log(area, buf, mouse_pos),
         }
 
         if self.gecho_dialog_open {
-            self.render_gecho_dialog(area, buf);
+            self.render_gecho_dialog(area, buf, mouse_pos);
         }
 
         if self.kick_dialog_open {
-            self.render_kick_dialog(area, buf);
+            self.render_kick_dialog(area, buf, mouse_pos);
         }
 
         if self.shutdown_dialog_open {
-            self.render_shutdown_dialog(area, buf);
+            self.render_shutdown_dialog(area, buf, mouse_pos);
         }
 
         if self.connect_dialog.is_open {
-            self.render_connect_dialog(area, buf);
+            self.render_connect_dialog(area, buf, mouse_pos);
         }
 
         if self.character_inspector.is_open {
-            self.render_character_inspector(area, buf);
+            self.render_character_inspector(area, buf, mouse_pos);
         }
 
         if self.character_inspector.advance_dialog_open {
-            self.render_advance_dialog(area, buf);
+            self.render_advance_dialog(area, buf, mouse_pos);
         }
 
         if self.character_inspector.force_cmd_dialog_open {
-            self.render_force_cmd_dialog(area, buf);
+            self.render_force_cmd_dialog(area, buf, mouse_pos);
         }
     }
 
@@ -1980,7 +1981,7 @@ fn pane_block(title: &str, focused: bool) -> Block<'static> {
 }
 
 impl LiveDashboardScreen {
-    fn render_dashboard(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_dashboard(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
         let is_small = area.width < 100 || area.height < 28;
 
         let chunks = Layout::default()
@@ -2270,6 +2271,7 @@ impl LiveDashboardScreen {
                 &mut self.log_stream,
                 total,
                 log_layout[1].height as usize,
+                mouse_pos,
             );
 
             let visible_h = log_layout[1].height as usize;
@@ -2322,7 +2324,7 @@ impl LiveDashboardScreen {
             .render(chunks[3], buf);
     }
 
-    fn render_full_log(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_full_log(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
         let show_search_prompt = self.log_stream.search.active
             || (self.log_stream.toast.is_some()
                 && self
@@ -2380,6 +2382,7 @@ impl LiveDashboardScreen {
             &mut self.log_stream,
             total,
             chunks[1].height.saturating_sub(2) as usize,
+            mouse_pos,
         );
 
         let log_block = Block::default()
@@ -2569,6 +2572,7 @@ fn render_log_tab_controls(
     log_stream: &mut LogStreamState,
     total_lines: usize,
     _visible_height: usize,
+    mouse_pos: Option<(u16, u16)>,
 ) {
     if area.width < 10 || area.height < 1 {
         return;
@@ -2578,119 +2582,91 @@ fn render_log_tab_controls(
     // 1. Render Tabs on the left
     let mut x = area.x;
     for &tab in LogFilterTab::all() {
-        let label = format!("[ {} ]", tab.label());
-        let w = label.chars().count() as u16;
+        let btn = Button::new(tab.label(), ButtonVariant::Default);
+        let w = btn.width();
         if x + w > area.x + area.width {
             break;
         }
-        let tab_rect = Rect::new(x, area.y, w, 1);
-        log_stream.tab_rects.push((tab, tab_rect));
-
-        let style = if tab == log_stream.filter_tab {
-            Style::default()
-                .bg(theme::PRIMARY)
-                .fg(theme::BG)
-                .add_modifier(Modifier::BOLD)
+        let is_hovered =
+            mouse_pos.is_some_and(|(col, row)| row == area.y && col >= x && col < x + w);
+        let state = if tab == log_stream.filter_tab || is_hovered {
+            ButtonState::Active
         } else {
-            Style::default().bg(theme::BG_DARK).fg(theme::FG_MUTED)
+            ButtonState::Inactive
         };
-        for (i, ch) in label.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((x + i as u16, area.y)) {
-                cell.set_char(ch);
-                cell.set_style(style);
-            }
-        }
-        x += w + 1;
+        let tab_rect = btn.render(buf, x, area.y, state);
+        log_stream.tab_rects.push((tab, tab_rect));
+        x += w + 2;
     }
 
     // 2. Right-aligned status chips
-    let (pause_label, pause_style) = if log_stream.paused {
-        (
-            "[⏸ PAUSED]",
-            Style::default()
-                .bg(theme::WARNING)
-                .fg(theme::BG)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else {
-        (
-            "[● LIVE]",
-            Style::default()
-                .bg(theme::BG_DARK)
-                .fg(theme::POSITIVE)
-                .add_modifier(Modifier::BOLD),
-        )
+    let is_chip_hovered = |rx: u16, rw: u16| {
+        mouse_pos.is_some_and(|(col, row)| row == area.y && col >= rx && col < rx + rw)
     };
-    let pause_w = pause_label.chars().count() as u16;
 
-    let scroll_badge = if total_lines == 0 {
-        "[Empty]".to_string()
+    let pause_btn = if log_stream.paused {
+        Button::new("⏸ PAUSED", ButtonVariant::Warning)
+    } else {
+        Button::new("● LIVE", ButtonVariant::Default)
+    };
+    let pause_w = pause_btn.width();
+
+    let scroll_text = if total_lines == 0 {
+        "Empty".to_string()
     } else if log_stream.scroll_offset == 0 {
-        format!("[{}/{}]", total_lines, total_lines)
+        format!("{total_lines}/{total_lines}")
     } else {
         let current = total_lines.saturating_sub(log_stream.scroll_offset);
-        format!(
-            "[{}/{} ↑{}L]",
-            current, total_lines, log_stream.scroll_offset
-        )
+        format!("{current}/{total_lines} ↑{}L", log_stream.scroll_offset)
     };
-    let scroll_w = scroll_badge.chars().count() as u16;
+    let scroll_chip = Button::new(scroll_text, ButtonVariant::Neutral);
+    let scroll_w = scroll_chip.width();
 
-    let search_badge = if !log_stream.search.query.trim().is_empty() {
+    let search_text = if !log_stream.search.query.trim().is_empty() {
         let count = log_stream.search.matches.len();
         if count > 0 {
             format!(
-                "[/] \"{}\" ({}/{})",
+                "Search (/): \"{}\" ({}/{})",
                 log_stream.search.query,
                 log_stream.search.selected_match + 1,
                 count
             )
         } else {
-            format!("[/] \"{}\" (0)", log_stream.search.query)
+            format!("Search (/): \"{}\" (0)", log_stream.search.query)
         }
     } else {
-        "[/] Search".to_string()
+        "Search (/)".to_string()
     };
-    let search_w = search_badge.chars().count() as u16;
-    let search_style = if log_stream.search.active {
-        Style::default()
-            .bg(theme::PRIMARY)
-            .fg(theme::BG)
-            .add_modifier(Modifier::BOLD)
-    } else if !log_stream.search.query.trim().is_empty() {
-        Style::default().bg(theme::SURFACE).fg(theme::PRIMARY)
+    let search_variant = if log_stream.search.active || !log_stream.search.query.trim().is_empty() {
+        ButtonVariant::Default
     } else {
-        Style::default().bg(theme::BG_DARK).fg(theme::FG_MUTED)
+        ButtonVariant::Neutral
     };
+    let search_btn = Button::new(search_text, search_variant);
+    let search_w = search_btn.width();
 
-    let total_right_w = pause_w + 1 + scroll_w + 1 + search_w;
+    let total_right_w = pause_w + 2 + scroll_w + 2 + search_w;
     if area.width > total_right_w + 2 {
         let mut rx = area.x + area.width - pause_w;
-        log_stream.pause_chip_rect = Rect::new(rx, area.y, pause_w, 1);
-        for (i, ch) in pause_label.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((rx + i as u16, area.y)) {
-                cell.set_char(ch);
-                cell.set_style(pause_style);
-            }
-        }
+        let p_hover = is_chip_hovered(rx, pause_w);
+        let pause_state = if log_stream.paused || p_hover {
+            ButtonState::Active
+        } else {
+            ButtonState::Inactive
+        };
+        log_stream.pause_chip_rect = pause_btn.render(buf, rx, area.y, pause_state);
 
-        rx = rx.saturating_sub(scroll_w + 1);
-        let scroll_style = Style::default().bg(theme::BG_DARK).fg(theme::FG_MUTED);
-        for (i, ch) in scroll_badge.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((rx + i as u16, area.y)) {
-                cell.set_char(ch);
-                cell.set_style(scroll_style);
-            }
-        }
+        rx = rx.saturating_sub(scroll_w + 2);
+        let _ = scroll_chip.render(buf, rx, area.y, ButtonState::Inactive);
 
-        rx = rx.saturating_sub(search_w + 1);
-        log_stream.search_chip_rect = Rect::new(rx, area.y, search_w, 1);
-        for (i, ch) in search_badge.chars().enumerate() {
-            if let Some(cell) = buf.cell_mut((rx + i as u16, area.y)) {
-                cell.set_char(ch);
-                cell.set_style(search_style);
-            }
-        }
+        rx = rx.saturating_sub(search_w + 2);
+        let s_hover = is_chip_hovered(rx, search_w);
+        let search_state = if log_stream.search.active || s_hover {
+            ButtonState::Active
+        } else {
+            ButtonState::Inactive
+        };
+        log_stream.search_chip_rect = search_btn.render(buf, rx, area.y, search_state);
     }
 }
 
@@ -3018,99 +2994,51 @@ fn render_checkbox(buf: &mut Buffer, x: u16, y: u16, label: &str, checked: bool,
     buf.set_string(x + 4, y, label, text_style);
 }
 
-const CONNECT_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
-    (
-        " Connect (enter) ",
-        theme::ButtonVariant::Default,
-        theme::ButtonState::Active,
-    ),
-    (
-        " Cancel (esc) ",
-        theme::ButtonVariant::Neutral,
-        theme::ButtonState::Inactive,
-    ),
+const CONNECT_BUTTONS: [(&str, theme::ButtonVariant); 2] = [
+    ("Connect (Enter)", theme::ButtonVariant::Default),
+    ("Cancel (Esc)", theme::ButtonVariant::Neutral),
 ];
 
-const KICK_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
-    (
-        " Confirm Kick (y) ",
-        theme::ButtonVariant::Destructive,
-        theme::ButtonState::Active,
-    ),
-    (
-        " Cancel (n) ",
-        theme::ButtonVariant::Neutral,
-        theme::ButtonState::Inactive,
-    ),
+const KICK_BUTTONS: [(&str, theme::ButtonVariant); 2] = [
+    ("Confirm Kick (y)", theme::ButtonVariant::Destructive),
+    ("Cancel (n)", theme::ButtonVariant::Neutral),
 ];
 
-const GECHO_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
-    (
-        " Send (y) ",
-        theme::ButtonVariant::Default,
-        theme::ButtonState::Active,
-    ),
-    (
-        " Cancel (n) ",
-        theme::ButtonVariant::Neutral,
-        theme::ButtonState::Inactive,
-    ),
+const GECHO_BUTTONS: [(&str, theme::ButtonVariant); 2] = [
+    ("Send (Enter)", theme::ButtonVariant::Default),
+    ("Cancel (Esc)", theme::ButtonVariant::Neutral),
 ];
 
-const SHUTDOWN_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
-    (
-        " Confirm (y) ",
-        theme::ButtonVariant::Destructive,
-        theme::ButtonState::Active,
-    ),
-    (
-        " Cancel (n) ",
-        theme::ButtonVariant::Neutral,
-        theme::ButtonState::Inactive,
-    ),
+const SHUTDOWN_BUTTONS: [(&str, theme::ButtonVariant); 2] = [
+    ("Confirm (y)", theme::ButtonVariant::Destructive),
+    ("Cancel (n)", theme::ButtonVariant::Neutral),
 ];
 
-const ADVANCE_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
-    (
-        " Advance (Enter) ",
-        theme::ButtonVariant::Default,
-        theme::ButtonState::Active,
-    ),
-    (
-        " Cancel (Esc) ",
-        theme::ButtonVariant::Neutral,
-        theme::ButtonState::Inactive,
-    ),
+const ADVANCE_BUTTONS: [(&str, theme::ButtonVariant); 2] = [
+    ("Advance (Enter)", theme::ButtonVariant::Default),
+    ("Cancel (Esc)", theme::ButtonVariant::Neutral),
 ];
 
-const FORCE_CMD_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
-    (
-        " Execute (Enter) ",
-        theme::ButtonVariant::Default,
-        theme::ButtonState::Active,
-    ),
-    (
-        " Cancel (Esc) ",
-        theme::ButtonVariant::Neutral,
-        theme::ButtonState::Inactive,
-    ),
+const FORCE_CMD_BUTTONS: [(&str, theme::ButtonVariant); 2] = [
+    ("Execute (Enter)", theme::ButtonVariant::Default),
+    ("Cancel (Esc)", theme::ButtonVariant::Neutral),
 ];
 
 fn dialog_button_rects(
     dialog_area: Rect,
     row_y: u16,
-    buttons: &[(&str, theme::ButtonVariant, theme::ButtonState)],
+    buttons: &[(&str, theme::ButtonVariant)],
 ) -> Vec<Rect> {
     let btn_gap = 2u16;
     let row_w: u16 = buttons
         .iter()
-        .map(|(label, _, _)| label.chars().count() as u16)
+        .map(|(label, _)| label.chars().count() as u16 + 2)
         .sum::<u16>()
         + btn_gap * (buttons.len().saturating_sub(1)) as u16;
     let mut x = dialog_area.x + dialog_area.width.saturating_sub(row_w + 2);
     let mut rects = Vec::with_capacity(buttons.len());
-    for (label, _, _) in buttons {
-        let width = label.chars().count() as u16;
+    for (label, _) in buttons {
+        let width = label.chars().count() as u16 + 2;
         rects.push(Rect::new(x, row_y, width, 1));
         x += width + btn_gap;
     }
@@ -3121,19 +3049,31 @@ fn render_dialog_buttons(
     buf: &mut Buffer,
     dialog_area: Rect,
     row_y: u16,
-    buttons: &[(&str, theme::ButtonVariant, theme::ButtonState)],
-) {
-    for ((label, variant, state), rect) in
-        buttons
+    buttons: &[(&str, theme::ButtonVariant)],
+    default_active_idx: usize,
+    mouse_pos: Option<(u16, u16)>,
+) -> Vec<Rect> {
+    let rects = dialog_button_rects(dialog_area, row_y, buttons);
+    let any_hovered = mouse_pos.is_some_and(|(col, row)| {
+        rects
             .iter()
-            .zip(dialog_button_rects(dialog_area, row_y, buttons))
-    {
-        buf.set_string(rect.x, rect.y, label, theme::button_style(*variant, *state));
+            .any(|r| row == r.y && col >= r.x && col < r.x + r.width)
+    });
+    for (i, ((label, variant), rect)) in buttons.iter().zip(&rects).enumerate() {
+        let is_hovered = mouse_pos
+            .is_some_and(|(col, row)| row == rect.y && col >= rect.x && col < rect.x + rect.width);
+        let state = if is_hovered || (!any_hovered && i == default_active_idx) {
+            theme::ButtonState::Active
+        } else {
+            theme::ButtonState::Inactive
+        };
+        Button::new(*label, *variant).render(buf, rect.x, rect.y, state);
     }
+    rects
 }
 
 impl LiveDashboardScreen {
-    fn render_kick_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_kick_dialog(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
         let dialog_area = Rect {
             x: area.x + area.width / 4,
             y: area.y + area.height / 3,
@@ -3160,10 +3100,15 @@ impl LiveDashboardScreen {
         );
 
         let row_y = inner.y + inner.height - 1;
-        render_dialog_buttons(buf, dialog_area, row_y, &KICK_BUTTONS);
+        render_dialog_buttons(buf, dialog_area, row_y, &KICK_BUTTONS, 1, mouse_pos);
     }
 
-    fn render_shutdown_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_shutdown_dialog(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        mouse_pos: Option<(u16, u16)>,
+    ) {
         let dialog_area = Rect {
             x: area.x + area.width / 4,
             y: area.y + area.height / 3,
@@ -3213,10 +3158,10 @@ impl LiveDashboardScreen {
         }
 
         let row_y = inner.y + inner.height - 1;
-        render_dialog_buttons(buf, dialog_area, row_y, &SHUTDOWN_BUTTONS);
+        render_dialog_buttons(buf, dialog_area, row_y, &SHUTDOWN_BUTTONS, 1, mouse_pos);
     }
 
-    fn render_gecho_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_gecho_dialog(&mut self, area: Rect, buf: &mut Buffer, mouse_pos: Option<(u16, u16)>) {
         let dialog_area = Rect {
             x: area.x + area.width / 4,
             y: area.y + area.height / 3,
@@ -3271,10 +3216,15 @@ impl LiveDashboardScreen {
         }
 
         let row_y = inner.y + inner.height - 1;
-        render_dialog_buttons(buf, dialog_area, row_y, &GECHO_BUTTONS);
+        render_dialog_buttons(buf, dialog_area, row_y, &GECHO_BUTTONS, 0, mouse_pos);
     }
 
-    fn render_connect_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_connect_dialog(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        mouse_pos: Option<(u16, u16)>,
+    ) {
         let width = 66.min(area.width.saturating_sub(2));
         let height = 17.min(area.height.saturating_sub(2));
         let dialog_area = Rect {
@@ -3359,9 +3309,9 @@ impl LiveDashboardScreen {
             self.connect_dialog.active_field == ConnectField::SaveDefault,
         );
 
-        // Footer buttons: [ Connect ] and [ Cancel ] (right-aligned)
+        // Footer buttons: Connect and Cancel (right-aligned)
         let btn_y = inner_y + 12;
-        render_dialog_buttons(buf, dialog_area, btn_y, &CONNECT_BUTTONS);
+        render_dialog_buttons(buf, dialog_area, btn_y, &CONNECT_BUTTONS, 0, mouse_pos);
 
         // Clean keyboard hints (centered, no bracket fatigue)
         let hint_line = "Tab/↑↓ Field  •  Space Toggle  •  Enter Connect  •  Esc Cancel";
@@ -3375,7 +3325,12 @@ impl LiveDashboardScreen {
         );
     }
 
-    fn render_advance_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_advance_dialog(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        mouse_pos: Option<(u16, u16)>,
+    ) {
         let dialog_area = Rect {
             x: area.x + area.width / 4,
             y: area.y + area.height / 3,
@@ -3439,10 +3394,15 @@ impl LiveDashboardScreen {
         }
 
         let row_y = inner.y + inner.height - 1;
-        render_dialog_buttons(buf, dialog_area, row_y, &ADVANCE_BUTTONS);
+        render_dialog_buttons(buf, dialog_area, row_y, &ADVANCE_BUTTONS, 0, mouse_pos);
     }
 
-    fn render_force_cmd_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_force_cmd_dialog(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        mouse_pos: Option<(u16, u16)>,
+    ) {
         let dialog_area = Rect {
             x: area.x + area.width / 4,
             y: area.y + area.height / 3,
@@ -3506,10 +3466,15 @@ impl LiveDashboardScreen {
         }
 
         let row_y = inner.y + inner.height - 1;
-        render_dialog_buttons(buf, dialog_area, row_y, &FORCE_CMD_BUTTONS);
+        render_dialog_buttons(buf, dialog_area, row_y, &FORCE_CMD_BUTTONS, 0, mouse_pos);
     }
 
-    fn render_character_inspector(&mut self, area: Rect, buf: &mut Buffer) {
+    fn render_character_inspector(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        mouse_pos: Option<(u16, u16)>,
+    ) {
         let Some(ref p) = self.character_inspector.player else {
             return;
         };
@@ -3784,90 +3749,67 @@ impl LiveDashboardScreen {
 
         // Row 1 of buttons: Heal, Revive, Advance
         let row1_y = curr_y;
-        let btn_heal = "[ Heal (h) ]";
-        let btn_revive = "[ Revive (r) ]";
-        let btn_advance = "[ Advance (a) ]";
+        let buttons_row1 = [
+            (
+                "heal",
+                Button::new("Heal (h)", theme::ButtonVariant::Default),
+            ),
+            (
+                "revive",
+                Button::new("Revive (r)", theme::ButtonVariant::Default),
+            ),
+            (
+                "advance",
+                Button::new("Advance (a)", theme::ButtonVariant::Neutral),
+            ),
+        ];
 
-        let r1_rect = Rect::new(inner_x, row1_y, btn_heal.chars().count() as u16, 1);
-        buf.set_string(
-            r1_rect.x,
-            r1_rect.y,
-            btn_heal,
-            theme::button_style(theme::ButtonVariant::Default, theme::ButtonState::Active),
-        );
-        self.character_inspector
-            .button_rects
-            .push(("heal", r1_rect));
-
-        let r2_x = r1_rect.x + r1_rect.width + 1;
-        let r2_rect = Rect::new(r2_x, row1_y, btn_revive.chars().count() as u16, 1);
-        buf.set_string(
-            r2_rect.x,
-            r2_rect.y,
-            btn_revive,
-            theme::button_style(theme::ButtonVariant::Default, theme::ButtonState::Inactive),
-        );
-        self.character_inspector
-            .button_rects
-            .push(("revive", r2_rect));
-
-        let r3_x = r2_rect.x + r2_rect.width + 1;
-        let r3_rect = Rect::new(r3_x, row1_y, btn_advance.chars().count() as u16, 1);
-        buf.set_string(
-            r3_rect.x,
-            r3_rect.y,
-            btn_advance,
-            theme::button_style(theme::ButtonVariant::Neutral, theme::ButtonState::Inactive),
-        );
-        self.character_inspector
-            .button_rects
-            .push(("advance", r3_rect));
+        let mut x = inner_x;
+        for (action, btn) in buttons_row1 {
+            let is_hovered = mouse_pos
+                .is_some_and(|(col, row)| row == row1_y && col >= x && col < x + btn.width());
+            let state = if is_hovered {
+                theme::ButtonState::Active
+            } else {
+                theme::ButtonState::Inactive
+            };
+            let rect = btn.render(buf, x, row1_y, state);
+            self.character_inspector.button_rects.push((action, rect));
+            x += btn.width() + 2;
+        }
 
         curr_y += 2;
 
         // Row 2 of buttons: Force Cmd, Kick, Close
         let row2_y = curr_y;
-        let btn_force = "[ Force Cmd (m) ]";
-        let btn_kick = "[ Kick (k) ]";
-        let btn_close = "[ Close (Esc) ]";
-
-        let r4_rect = Rect::new(inner_x, row2_y, btn_force.chars().count() as u16, 1);
-        buf.set_string(
-            r4_rect.x,
-            r4_rect.y,
-            btn_force,
-            theme::button_style(theme::ButtonVariant::Neutral, theme::ButtonState::Inactive),
-        );
-        self.character_inspector
-            .button_rects
-            .push(("force_cmd", r4_rect));
-
-        let r5_x = r4_rect.x + r4_rect.width + 1;
-        let r5_rect = Rect::new(r5_x, row2_y, btn_kick.chars().count() as u16, 1);
-        buf.set_string(
-            r5_rect.x,
-            r5_rect.y,
-            btn_kick,
-            theme::button_style(
-                theme::ButtonVariant::Destructive,
-                theme::ButtonState::Inactive,
+        let buttons_row2 = [
+            (
+                "force_cmd",
+                Button::new("Force Cmd (m)", theme::ButtonVariant::Neutral),
             ),
-        );
-        self.character_inspector
-            .button_rects
-            .push(("kick", r5_rect));
+            (
+                "kick",
+                Button::new("Kick (k)", theme::ButtonVariant::Destructive),
+            ),
+            (
+                "close",
+                Button::new("Close (Esc)", theme::ButtonVariant::Neutral),
+            ),
+        ];
 
-        let r6_x = r5_rect.x + r5_rect.width + 1;
-        let r6_rect = Rect::new(r6_x, row2_y, btn_close.chars().count() as u16, 1);
-        buf.set_string(
-            r6_rect.x,
-            r6_rect.y,
-            btn_close,
-            theme::button_style(theme::ButtonVariant::Neutral, theme::ButtonState::Inactive),
-        );
-        self.character_inspector
-            .button_rects
-            .push(("close", r6_rect));
+        let mut x = inner_x;
+        for (action, btn) in buttons_row2 {
+            let is_hovered = mouse_pos
+                .is_some_and(|(col, row)| row == row2_y && col >= x && col < x + btn.width());
+            let state = if is_hovered {
+                theme::ButtonState::Active
+            } else {
+                theme::ButtonState::Inactive
+            };
+            let rect = btn.render(buf, x, row2_y, state);
+            self.character_inspector.button_rects.push((action, rect));
+            x += btn.width() + 2;
+        }
     }
 }
 
@@ -3898,20 +3840,64 @@ mod tests {
             Rect::new(0, 0, w, h),
             1,
             &[
-                (
-                    " Connect (enter) ",
-                    crate::theme::ButtonVariant::Default,
-                    crate::theme::ButtonState::Active,
-                ),
-                (
-                    " Cancel (esc) ",
-                    crate::theme::ButtonVariant::Neutral,
-                    crate::theme::ButtonState::Inactive,
-                ),
+                ("Connect (Enter)", crate::theme::ButtonVariant::Default),
+                ("Cancel (Esc)", crate::theme::ButtonVariant::Neutral),
             ],
+            0,
+            None,
         );
         assert_eq!(buf[(w - 1, 1)].symbol(), "│");
         assert_eq!(buf[(w - 2, 1)].symbol(), " ");
+    }
+
+    #[test]
+    fn test_buttons_conform_to_design_guide() {
+        // Verify 2-space gap and 1-space padding per side in dialog buttons
+        let dialog_area = Rect::new(0, 0, 80, 5);
+        let rects = dialog_button_rects(dialog_area, 3, &CONNECT_BUTTONS);
+        assert_eq!(rects.len(), 2);
+        // Connect (Enter) is 15 chars + 2 padding = 17 width
+        assert_eq!(rects[0].width, 17);
+        // Cancel (Esc) is 12 chars + 2 padding = 14 width
+        assert_eq!(rects[1].width, 14);
+        // Exactly 2-space gap between buttons
+        assert_eq!(rects[1].x - (rects[0].x + rects[0].width), 2);
+
+        // Verify rendered buffer has NO bracket characters for buttons
+        let mut buf = Buffer::empty(dialog_area);
+        render_dialog_buttons(&mut buf, dialog_area, 3, &CONNECT_BUTTONS, 0, None);
+        for x in dialog_area.x..dialog_area.x + dialog_area.width {
+            let ch = buf[(x, 3)].symbol();
+            assert_ne!(ch, "[", "Found bracket '[' in button row at x={x}");
+            assert_ne!(ch, "]", "Found bracket ']' in button row at x={x}");
+        }
+
+        // Test hover state activation:
+        // 1. Hovering Connect button (Default variant) activates PRIMARY bg
+        let mut buf_hover0 = Buffer::empty(dialog_area);
+        render_dialog_buttons(
+            &mut buf_hover0,
+            dialog_area,
+            3,
+            &CONNECT_BUTTONS,
+            0,
+            Some((rects[0].x, 3)),
+        );
+        let cell0 = &buf_hover0[(rects[0].x + 1, 3)];
+        assert_eq!(cell0.style().bg, Some(theme::PRIMARY));
+
+        // 2. Hovering Cancel button (Neutral variant) activates FG_MUTED bg
+        let mut buf_hover1 = Buffer::empty(dialog_area);
+        render_dialog_buttons(
+            &mut buf_hover1,
+            dialog_area,
+            3,
+            &CONNECT_BUTTONS,
+            0,
+            Some((rects[1].x, 3)),
+        );
+        let cell1 = &buf_hover1[(rects[1].x + 1, 3)];
+        assert_eq!(cell1.style().bg, Some(theme::FG_MUTED));
     }
 
     #[test]
