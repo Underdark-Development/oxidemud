@@ -12,7 +12,7 @@ use ratatui::{
 
 use std::time::Instant;
 
-use crate::network::{ConnectionStatus, SpadeTelemetry};
+use crate::network::{ConnectionStatus, OnlinePlayerInfo, SpadeTelemetry};
 use crate::screens::{Screen, ScreenAction};
 use crate::theme;
 
@@ -195,6 +195,42 @@ pub struct LogStreamState {
     pub search_chip_rect: Rect,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CharacterVitals {
+    pub current: i32,
+    pub max: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CharacterAttributes {
+    pub strength: i32,
+    pub dexterity: i32,
+    pub constitution: i32,
+    pub intelligence: i32,
+    pub wisdom: i32,
+    pub charisma: i32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CharacterInspectorState {
+    pub is_open: bool,
+    pub player: Option<OnlinePlayerInfo>,
+    pub health: Option<CharacterVitals>,
+    pub mana: Option<CharacterVitals>,
+    pub stamina: Option<CharacterVitals>,
+    pub attributes: Option<CharacterAttributes>,
+    pub advance_dialog_open: bool,
+    pub advance_input: String,
+    pub advance_cursor: usize,
+    pub force_cmd_dialog_open: bool,
+    pub force_cmd_input: String,
+    pub force_cmd_cursor: usize,
+    pub drawer_rect: Rect,
+    pub button_rects: Vec<(&'static str, Rect)>,
+    pub advance_dialog_rect: Rect,
+    pub force_cmd_dialog_rect: Rect,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectField {
     Host,
@@ -317,6 +353,8 @@ pub struct LiveDashboardScreen {
     pub kick_dialog_rect: Rect,
     pub gecho_dialog_rect: Rect,
     pub shutdown_dialog_rect: Rect,
+    pub character_inspector: CharacterInspectorState,
+    pub last_player_click: Option<(usize, Instant)>,
 }
 
 impl LiveDashboardScreen {
@@ -355,7 +393,124 @@ impl LiveDashboardScreen {
             kick_dialog_rect: Rect::default(),
             gecho_dialog_rect: Rect::default(),
             shutdown_dialog_rect: Rect::default(),
+            character_inspector: CharacterInspectorState::default(),
+            last_player_click: None,
         }
+    }
+
+    pub fn open_character_inspector(&mut self, player: OnlinePlayerInfo) {
+        let name = player.name.clone();
+        self.character_inspector.player = Some(player);
+        self.character_inspector.health = None;
+        self.character_inspector.mana = None;
+        self.character_inspector.stamina = None;
+        self.character_inspector.attributes = None;
+        self.character_inspector.is_open = true;
+
+        // Query imm.stat
+        self.action = ScreenAction::RpcCall {
+            method: "imm.stat".into(),
+            params: serde_json::json!({ "target_name": name }),
+            description: format!("Character Stats for {name}"),
+        };
+    }
+
+    pub fn close_character_inspector(&mut self) {
+        self.character_inspector.is_open = false;
+        self.character_inspector.advance_dialog_open = false;
+        self.character_inspector.force_cmd_dialog_open = false;
+    }
+
+    pub fn handle_rpc_response(&mut self, desc: &str, val: &serde_json::Value) {
+        if desc.starts_with("Character Stats for") || val.get("health").is_some() {
+            if let Some(ref current_p) = self.character_inspector.player {
+                if let Some(target) = val.get("target").and_then(|t| t.as_str()) {
+                    if !target.eq_ignore_ascii_case(&current_p.name) {
+                        return;
+                    }
+                }
+            }
+
+            if let Some(h) = val.get("health") {
+                let cur = h.get("current").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                let max = h.get("max").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                self.character_inspector.health = Some(CharacterVitals { current: cur, max });
+            }
+            if let Some(m) = val.get("mana") {
+                let cur = m.get("current").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                let max = m.get("max").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                self.character_inspector.mana = Some(CharacterVitals { current: cur, max });
+            }
+            if let Some(s) = val.get("stamina") {
+                let cur = s.get("current").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                let max = s.get("max").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                self.character_inspector.stamina = Some(CharacterVitals { current: cur, max });
+            }
+            if let Some(a) = val.get("attributes") {
+                self.character_inspector.attributes = Some(CharacterAttributes {
+                    strength: a.get("strength").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
+                    dexterity: a.get("dexterity").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
+                    constitution: a.get("constitution").and_then(|v| v.as_i64()).unwrap_or(10)
+                        as i32,
+                    intelligence: a.get("intelligence").and_then(|v| v.as_i64()).unwrap_or(10)
+                        as i32,
+                    wisdom: a.get("wisdom").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
+                    charisma: a.get("charisma").and_then(|v| v.as_i64()).unwrap_or(10) as i32,
+                });
+            }
+        }
+    }
+
+    pub fn submit_heal(&mut self) {
+        if let Some(ref p) = self.character_inspector.player {
+            let name = p.name.clone();
+            self.action = ScreenAction::RpcCall {
+                method: "imm.heal".into(),
+                params: serde_json::json!({ "target_name": name }),
+                description: format!("Heal {name}"),
+            };
+            self.add_log(format!("[IMM] Requested heal for {name}"));
+        }
+    }
+
+    pub fn submit_revive(&mut self) {
+        if let Some(ref p) = self.character_inspector.player {
+            let name = p.name.clone();
+            self.action = ScreenAction::RpcCall {
+                method: "imm.revive".into(),
+                params: serde_json::json!({ "target_name": name }),
+                description: format!("Revive {name}"),
+            };
+            self.add_log(format!("[IMM] Requested revive for {name}"));
+        }
+    }
+
+    pub fn submit_advance(&mut self, target_level: u8) {
+        if let Some(ref p) = self.character_inspector.player {
+            let name = p.name.clone();
+            self.action = ScreenAction::RpcCall {
+                method: "imm.advance".into(),
+                params: serde_json::json!({ "player_name": name, "target_level": target_level }),
+                description: format!("Advance {name} to level {target_level}"),
+            };
+            self.add_log(format!(
+                "[IMM] Requested advance for {name} to level {target_level}"
+            ));
+        }
+        self.character_inspector.advance_dialog_open = false;
+    }
+
+    pub fn submit_force_command(&mut self, command: &str) {
+        if let Some(ref p) = self.character_inspector.player {
+            let name = p.name.clone();
+            self.action = ScreenAction::RpcCall {
+                method: "imm.force_command".into(),
+                params: serde_json::json!({ "player_name": name, "command": command }),
+                description: format!("Force command on {name}: {command}"),
+            };
+            self.add_log(format!("[IMM] Forced command on {name}: {command}"));
+        }
+        self.character_inspector.force_cmd_dialog_open = false;
     }
 
     pub fn open_connect_dialog(&mut self, host: &str, port: u16, tls: bool, api_key: Option<&str>) {
@@ -865,6 +1020,9 @@ impl Screen for LiveDashboardScreen {
             || self.kick_dialog_open
             || self.shutdown_dialog_open
             || self.log_stream.search.active
+            || self.character_inspector.is_open
+            || self.character_inspector.advance_dialog_open
+            || self.character_inspector.force_cmd_dialog_open
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
@@ -1007,6 +1165,94 @@ impl Screen for LiveDashboardScreen {
                     );
                     return true;
                 }
+            }
+        }
+
+        if self.character_inspector.advance_dialog_open {
+            match key.code {
+                KeyCode::Esc => {
+                    self.character_inspector.advance_dialog_open = false;
+                    return true;
+                }
+                KeyCode::Enter => {
+                    let lvl = self
+                        .character_inspector
+                        .advance_input
+                        .trim()
+                        .parse::<u8>()
+                        .unwrap_or(1);
+                    self.submit_advance(lvl);
+                    return true;
+                }
+                _ => {
+                    handle_text_field_key(
+                        &mut self.character_inspector.advance_input,
+                        &mut self.character_inspector.advance_cursor,
+                        key,
+                        true,
+                    );
+                    return true;
+                }
+            }
+        }
+
+        if self.character_inspector.force_cmd_dialog_open {
+            match key.code {
+                KeyCode::Esc => {
+                    self.character_inspector.force_cmd_dialog_open = false;
+                    return true;
+                }
+                KeyCode::Enter => {
+                    let cmd = self.character_inspector.force_cmd_input.trim().to_string();
+                    self.submit_force_command(&cmd);
+                    return true;
+                }
+                _ => {
+                    handle_text_field_key(
+                        &mut self.character_inspector.force_cmd_input,
+                        &mut self.character_inspector.force_cmd_cursor,
+                        key,
+                        false,
+                    );
+                    return true;
+                }
+            }
+        }
+
+        if self.character_inspector.is_open {
+            match key.code {
+                KeyCode::Esc => {
+                    self.close_character_inspector();
+                    return true;
+                }
+                KeyCode::Char('h') | KeyCode::Char('H') => {
+                    self.submit_heal();
+                    return true;
+                }
+                KeyCode::Char('r') | KeyCode::Char('R') => {
+                    self.submit_revive();
+                    return true;
+                }
+                KeyCode::Char('a') | KeyCode::Char('A') => {
+                    self.character_inspector.advance_dialog_open = true;
+                    self.character_inspector.advance_input = "50".into();
+                    self.character_inspector.advance_cursor = 2;
+                    return true;
+                }
+                KeyCode::Char('m') | KeyCode::Char('M') => {
+                    self.character_inspector.force_cmd_dialog_open = true;
+                    self.character_inspector.force_cmd_input.clear();
+                    self.character_inspector.force_cmd_cursor = 0;
+                    return true;
+                }
+                KeyCode::Char('k') | KeyCode::Char('K') => {
+                    if let Some(ref p) = self.character_inspector.player {
+                        self.kick_target = Some(p.name.clone());
+                        self.kick_dialog_open = true;
+                    }
+                    return true;
+                }
+                _ => return true,
             }
         }
 
@@ -1236,6 +1482,19 @@ impl Screen for LiveDashboardScreen {
                 self.shutdown_cursor = self.shutdown_delay_input.len();
                 true
             }
+            KeyCode::Char('i') | KeyCode::Char('I') | KeyCode::Enter
+                if self.focused_pane == DashboardPane::Players =>
+            {
+                if let Some(ref t) = self.telemetry {
+                    if let Some(sel) = self.table_state.selected() {
+                        if let Some(p) = t.players.get(sel) {
+                            self.open_character_inspector(p.clone());
+                            return true;
+                        }
+                    }
+                }
+                true
+            }
             KeyCode::Down | KeyCode::Char('j') if self.focused_pane == DashboardPane::Players => {
                 if let Some(ref t) = self.telemetry {
                     if !t.players.is_empty() {
@@ -1294,6 +1553,18 @@ impl Screen for LiveDashboardScreen {
 
         if self.connect_dialog.is_open {
             self.render_connect_dialog(area, buf);
+        }
+
+        if self.character_inspector.is_open {
+            self.render_character_inspector(area, buf);
+        }
+
+        if self.character_inspector.advance_dialog_open {
+            self.render_advance_dialog(area, buf);
+        }
+
+        if self.character_inspector.force_cmd_dialog_open {
+            self.render_force_cmd_dialog(area, buf);
         }
     }
 
@@ -1468,6 +1739,110 @@ impl Screen for LiveDashboardScreen {
             return;
         }
 
+        // 3b. Advance Dialog
+        if self.character_inspector.advance_dialog_open {
+            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+                let r = self.character_inspector.advance_dialog_rect;
+                if r.width > 0 {
+                    if col < r.x || col >= r.x + r.width || row < r.y || row >= r.y + r.height {
+                        self.character_inspector.advance_dialog_open = false;
+                    } else if row == r.y + 1 + r.height.saturating_sub(2) - 1 {
+                        let rects = dialog_button_rects(r, row, &ADVANCE_BUTTONS);
+                        if let Some(rect) = rects.first() {
+                            if col >= rect.x && col < rect.x + rect.width {
+                                let lvl = self
+                                    .character_inspector
+                                    .advance_input
+                                    .trim()
+                                    .parse::<u8>()
+                                    .unwrap_or(1);
+                                self.submit_advance(lvl);
+                            }
+                        }
+                        if let Some(rect) = rects.last() {
+                            if col >= rect.x && col < rect.x + rect.width {
+                                self.character_inspector.advance_dialog_open = false;
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // 3c. Force Command Dialog
+        if self.character_inspector.force_cmd_dialog_open {
+            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+                let r = self.character_inspector.force_cmd_dialog_rect;
+                if r.width > 0 {
+                    if col < r.x || col >= r.x + r.width || row < r.y || row >= r.y + r.height {
+                        self.character_inspector.force_cmd_dialog_open = false;
+                    } else if row == r.y + 1 + r.height.saturating_sub(2) - 1 {
+                        let rects = dialog_button_rects(r, row, &FORCE_CMD_BUTTONS);
+                        if let Some(rect) = rects.first() {
+                            if col >= rect.x && col < rect.x + rect.width {
+                                let cmd =
+                                    self.character_inspector.force_cmd_input.trim().to_string();
+                                self.submit_force_command(&cmd);
+                            }
+                        }
+                        if let Some(rect) = rects.last() {
+                            if col >= rect.x && col < rect.x + rect.width {
+                                self.character_inspector.force_cmd_dialog_open = false;
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // 3d. Character Inspector Drawer
+        if self.character_inspector.is_open {
+            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
+                let r = self.character_inspector.drawer_rect;
+                if r.width > 0 {
+                    if col < r.x || col >= r.x + r.width || row < r.y || row >= r.y + r.height {
+                        self.close_character_inspector();
+                        return;
+                    }
+
+                    for &(btn_id, rect) in &self.character_inspector.button_rects {
+                        if col >= rect.x
+                            && col < rect.x + rect.width
+                            && row >= rect.y
+                            && row < rect.y + rect.height
+                        {
+                            match btn_id {
+                                "heal" => self.submit_heal(),
+                                "revive" => self.submit_revive(),
+                                "advance" => {
+                                    self.character_inspector.advance_dialog_open = true;
+                                    self.character_inspector.advance_input = "50".into();
+                                    self.character_inspector.advance_cursor = 2;
+                                }
+                                "force_cmd" => {
+                                    self.character_inspector.force_cmd_dialog_open = true;
+                                    self.character_inspector.force_cmd_input.clear();
+                                    self.character_inspector.force_cmd_cursor = 0;
+                                }
+                                "kick" => {
+                                    if let Some(ref p) = self.character_inspector.player {
+                                        self.kick_target = Some(p.name.clone());
+                                        self.kick_dialog_open = true;
+                                    }
+                                }
+                                "close" => self.close_character_inspector(),
+                                _ => {}
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         // 4. Main Dashboard Panes
         let in_rect = |r: Rect| {
             r.width > 0
@@ -1547,8 +1922,19 @@ impl Screen for LiveDashboardScreen {
                     self.focused_pane = DashboardPane::Players;
                     let rel_y = row.saturating_sub(self.players_rect.y + 2);
                     if let Some(ref t) = self.telemetry {
-                        if (rel_y as usize) < t.players.len() {
-                            self.table_state.select(Some(rel_y as usize));
+                        let sel_idx = rel_y as usize;
+                        if sel_idx < t.players.len() {
+                            self.table_state.select(Some(sel_idx));
+                            if let Some((prev_idx, prev_time)) = self.last_player_click {
+                                if prev_idx == sel_idx && prev_time.elapsed().as_millis() < 400 {
+                                    if let Some(p) = t.players.get(sel_idx) {
+                                        self.open_character_inspector(p.clone());
+                                    }
+                                    self.last_player_click = None;
+                                    return;
+                                }
+                            }
+                            self.last_player_click = Some((sel_idx, Instant::now()));
                         }
                     }
                 } else if in_rect(self.metrics_rect) {
@@ -1925,7 +2311,7 @@ impl LiveDashboardScreen {
                 " [Tab] Switch Pane • [L] Full Logs • [/] Search • [Space] Pause • [n/N] Match • [Ctrl+S] Export • [[]/[]] Tab • [C] Settings "
             }
             DashboardPane::Players => {
-                " [Tab] Switch Pane • [↑↓] Select Player • [K] Kick • [G] Echo • [L] Full Logs • [S] Shutdown • [C] Settings "
+                " [Tab] Switch Pane • [↑↓] Select • [I/Enter] Inspect • [K] Kick • [G] Echo • [L] Logs • [S] Shutdown • [C] Settings "
             }
             DashboardPane::Metrics => {
                 " [Tab] Switch Pane • [L] Full Logs • [G] Global Echo • [S] Shutdown • [C] Settings "
@@ -2684,6 +3070,32 @@ const SHUTDOWN_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = 
     ),
 ];
 
+const ADVANCE_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
+    (
+        " Advance (Enter) ",
+        theme::ButtonVariant::Default,
+        theme::ButtonState::Active,
+    ),
+    (
+        " Cancel (Esc) ",
+        theme::ButtonVariant::Neutral,
+        theme::ButtonState::Inactive,
+    ),
+];
+
+const FORCE_CMD_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
+    (
+        " Execute (Enter) ",
+        theme::ButtonVariant::Default,
+        theme::ButtonState::Active,
+    ),
+    (
+        " Cancel (Esc) ",
+        theme::ButtonVariant::Neutral,
+        theme::ButtonState::Inactive,
+    ),
+];
+
 fn dialog_button_rects(
     dialog_area: Rect,
     row_y: u16,
@@ -2961,6 +3373,501 @@ impl LiveDashboardScreen {
             hint_line,
             Style::default().fg(theme::FG_MUTED).bg(theme::BG_DARK),
         );
+    }
+
+    fn render_advance_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+        let dialog_area = Rect {
+            x: area.x + area.width / 4,
+            y: area.y + area.height / 3,
+            width: area.width / 2,
+            height: 7,
+        };
+
+        self.character_inspector.advance_dialog_rect = dialog_area;
+        let target_name = self
+            .character_inspector
+            .player
+            .as_ref()
+            .map(|p| p.name.as_str())
+            .unwrap_or("Player");
+        clear_and_fill_dialog(
+            dialog_area,
+            &format!("Advance {target_name} Level"),
+            theme::PRIMARY,
+            buf,
+        );
+
+        let inner = Rect {
+            x: dialog_area.x + 2,
+            y: dialog_area.y + 1,
+            width: dialog_area.width.saturating_sub(4),
+            height: dialog_area.height.saturating_sub(2),
+        };
+        buf.set_string(
+            inner.x,
+            inner.y,
+            "Target level (1 - 50):",
+            Style::default().fg(theme::FG).bg(theme::BG_DARK),
+        );
+
+        let prompt_x = inner.x;
+        let value_x = prompt_x + 3;
+        buf.set_string(prompt_x, inner.y + 1, " > ", theme::prompt_style());
+        if self.character_inspector.advance_input.is_empty() {
+            buf.set_string(value_x, inner.y + 1, "█", theme::prompt_style());
+        } else {
+            let cursor = self
+                .character_inspector
+                .advance_cursor
+                .min(self.character_inspector.advance_input.len());
+            let before = &self.character_inspector.advance_input[..cursor];
+            let after = &self.character_inspector.advance_input[cursor..];
+            let value_style = Style::default().fg(theme::FG).bg(theme::BG_DARK);
+            buf.set_string(value_x, inner.y + 1, before, value_style);
+            buf.set_string(
+                value_x + before.chars().count() as u16,
+                inner.y + 1,
+                "█",
+                theme::prompt_style(),
+            );
+            buf.set_string(
+                value_x + before.chars().count() as u16 + 1,
+                inner.y + 1,
+                after,
+                value_style,
+            );
+        }
+
+        let row_y = inner.y + inner.height - 1;
+        render_dialog_buttons(buf, dialog_area, row_y, &ADVANCE_BUTTONS);
+    }
+
+    fn render_force_cmd_dialog(&mut self, area: Rect, buf: &mut Buffer) {
+        let dialog_area = Rect {
+            x: area.x + area.width / 4,
+            y: area.y + area.height / 3,
+            width: area.width / 2,
+            height: 7,
+        };
+
+        self.character_inspector.force_cmd_dialog_rect = dialog_area;
+        let target_name = self
+            .character_inspector
+            .player
+            .as_ref()
+            .map(|p| p.name.as_str())
+            .unwrap_or("Player");
+        clear_and_fill_dialog(
+            dialog_area,
+            &format!("Force Command on {target_name}"),
+            theme::WARNING,
+            buf,
+        );
+
+        let inner = Rect {
+            x: dialog_area.x + 2,
+            y: dialog_area.y + 1,
+            width: dialog_area.width.saturating_sub(4),
+            height: dialog_area.height.saturating_sub(2),
+        };
+        buf.set_string(
+            inner.x,
+            inner.y,
+            "Enter command to execute as target:",
+            Style::default().fg(theme::FG).bg(theme::BG_DARK),
+        );
+
+        let prompt_x = inner.x;
+        let value_x = prompt_x + 3;
+        buf.set_string(prompt_x, inner.y + 1, " > ", theme::prompt_style());
+        if self.character_inspector.force_cmd_input.is_empty() {
+            buf.set_string(value_x, inner.y + 1, "█", theme::prompt_style());
+        } else {
+            let cursor = self
+                .character_inspector
+                .force_cmd_cursor
+                .min(self.character_inspector.force_cmd_input.len());
+            let before = &self.character_inspector.force_cmd_input[..cursor];
+            let after = &self.character_inspector.force_cmd_input[cursor..];
+            let value_style = Style::default().fg(theme::FG).bg(theme::BG_DARK);
+            buf.set_string(value_x, inner.y + 1, before, value_style);
+            buf.set_string(
+                value_x + before.chars().count() as u16,
+                inner.y + 1,
+                "█",
+                theme::prompt_style(),
+            );
+            buf.set_string(
+                value_x + before.chars().count() as u16 + 1,
+                inner.y + 1,
+                after,
+                value_style,
+            );
+        }
+
+        let row_y = inner.y + inner.height - 1;
+        render_dialog_buttons(buf, dialog_area, row_y, &FORCE_CMD_BUTTONS);
+    }
+
+    fn render_character_inspector(&mut self, area: Rect, buf: &mut Buffer) {
+        let Some(ref p) = self.character_inspector.player else {
+            return;
+        };
+
+        // Slide-out drawer on right edge
+        let drawer_width = (area.width * 46 / 100).max(42).min(area.width);
+        let drawer_rect = Rect {
+            x: area.x + area.width.saturating_sub(drawer_width),
+            y: area.y,
+            width: drawer_width,
+            height: area.height,
+        };
+        self.character_inspector.drawer_rect = drawer_rect;
+
+        // Clear background
+        Clear.render(drawer_rect, buf);
+        for y in drawer_rect.y..drawer_rect.y + drawer_rect.height {
+            for x in drawer_rect.x..drawer_rect.x + drawer_rect.width {
+                if let Some(cell) = buf.cell_mut((x, y)) {
+                    cell.set_char(' ');
+                    cell.set_style(Style::default().bg(theme::BG_DARK));
+                }
+            }
+        }
+
+        // Rounded border with bold title
+        let title_str = format!(" CHARACTER: {} ", p.name.to_uppercase());
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .title(Span::styled(
+                title_str,
+                Style::default()
+                    .fg(theme::PRIMARY)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        block.render(drawer_rect, buf);
+
+        if drawer_rect.width < 30 || drawer_rect.height < 15 {
+            return;
+        }
+
+        let inner_x = drawer_rect.x + 2;
+        let mut curr_y = drawer_rect.y + 1;
+        let avail_w = drawer_rect.width.saturating_sub(4);
+
+        // 1. Identity section
+        buf.set_string(
+            inner_x,
+            curr_y,
+            "Identity",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        );
+        curr_y += 1;
+
+        let id_style_label = Style::default().fg(theme::FG_MUTED);
+        let id_style_val = Style::default().fg(theme::FG_BRIGHT);
+
+        buf.set_string(inner_x, curr_y, "Level: ", id_style_label);
+        buf.set_string(inner_x + 7, curr_y, format!("{}", p.level), id_style_val);
+        buf.set_string(inner_x + 14, curr_y, "Class: ", id_style_label);
+        buf.set_string(inner_x + 21, curr_y, &p.class, id_style_val);
+        curr_y += 1;
+
+        buf.set_string(inner_x, curr_y, "Race:  ", id_style_label);
+        buf.set_string(inner_x + 7, curr_y, &p.race, id_style_val);
+        buf.set_string(inner_x + 14, curr_y, "Proto: ", id_style_label);
+        buf.set_string(inner_x + 21, curr_y, &p.protocol, id_style_val);
+        curr_y += 1;
+
+        buf.set_string(inner_x, curr_y, "Room:  ", id_style_label);
+        let max_room_chars = (avail_w.saturating_sub(7) as usize).max(1);
+        let room_disp = if p.room.chars().count() > max_room_chars {
+            let truncated: String = p
+                .room
+                .chars()
+                .take(max_room_chars.saturating_sub(1))
+                .collect();
+            format!("{truncated}…")
+        } else {
+            p.room.clone()
+        };
+        buf.set_string(inner_x + 7, curr_y, &room_disp, id_style_val);
+        curr_y += 1;
+
+        buf.set_string(inner_x, curr_y, "Idle:  ", id_style_label);
+        buf.set_string(
+            inner_x + 7,
+            curr_y,
+            format!("{}s", p.idle_secs),
+            id_style_val,
+        );
+        curr_y += 2;
+
+        // 2. Vitals gauges
+        buf.set_string(
+            inner_x,
+            curr_y,
+            "Vitals",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        );
+        curr_y += 1;
+
+        // HP Gauge
+        let (hp_cur, hp_max) = self
+            .character_inspector
+            .health
+            .map(|v| (v.current, v.max))
+            .unwrap_or((100, 100));
+        let hp_ratio = if hp_max > 0 {
+            (hp_cur as f64 / hp_max as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let hp_color = if hp_ratio > 0.5 {
+            theme::POSITIVE
+        } else if hp_ratio > 0.25 {
+            theme::WARNING
+        } else {
+            theme::DANGER
+        };
+        let hp_gauge = Gauge::default()
+            .block(Block::default())
+            .gauge_style(Style::default().fg(hp_color).bg(theme::PANEL))
+            .ratio(hp_ratio)
+            .label(format!(
+                "HP: {hp_cur}/{hp_max} ({}%)",
+                (hp_ratio * 100.0) as u32
+            ));
+        hp_gauge.render(Rect::new(inner_x, curr_y, avail_w, 1), buf);
+        curr_y += 2;
+
+        // Mana Gauge
+        let (mp_cur, mp_max) = self
+            .character_inspector
+            .mana
+            .map(|v| (v.current, v.max))
+            .unwrap_or((50, 50));
+        let mp_ratio = if mp_max > 0 {
+            (mp_cur as f64 / mp_max as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let mp_gauge = Gauge::default()
+            .block(Block::default())
+            .gauge_style(Style::default().fg(theme::PRIMARY).bg(theme::PANEL))
+            .ratio(mp_ratio)
+            .label(format!(
+                "MP: {mp_cur}/{mp_max} ({}%)",
+                (mp_ratio * 100.0) as u32
+            ));
+        mp_gauge.render(Rect::new(inner_x, curr_y, avail_w, 1), buf);
+        curr_y += 2;
+
+        // Stamina Gauge
+        let (sp_cur, sp_max) = self
+            .character_inspector
+            .stamina
+            .map(|v| (v.current, v.max))
+            .unwrap_or((100, 100));
+        let sp_ratio = if sp_max > 0 {
+            (sp_cur as f64 / sp_max as f64).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let sp_gauge = Gauge::default()
+            .block(Block::default())
+            .gauge_style(Style::default().fg(theme::WARNING).bg(theme::PANEL))
+            .ratio(sp_ratio)
+            .label(format!(
+                "SP: {sp_cur}/{sp_max} ({}%)",
+                (sp_ratio * 100.0) as u32
+            ));
+        sp_gauge.render(Rect::new(inner_x, curr_y, avail_w, 1), buf);
+        curr_y += 2;
+
+        // 3. Attributes Section
+        buf.set_string(
+            inner_x,
+            curr_y,
+            "Attributes",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        );
+        curr_y += 1;
+
+        let attrs = self
+            .character_inspector
+            .attributes
+            .unwrap_or(CharacterAttributes {
+                strength: 10,
+                dexterity: 10,
+                constitution: 10,
+                intelligence: 10,
+                wisdom: 10,
+                charisma: 10,
+            });
+
+        let attr_lbl = Style::default().fg(theme::FG_MUTED);
+        let attr_val = Style::default()
+            .fg(theme::PRIMARY)
+            .add_modifier(Modifier::BOLD);
+
+        let col1_x = inner_x;
+        let col2_x = inner_x + avail_w / 2;
+
+        buf.set_string(col1_x, curr_y, "STR: ", attr_lbl);
+        buf.set_string(
+            col1_x + 5,
+            curr_y,
+            format!("{:<3}", attrs.strength),
+            attr_val,
+        );
+        buf.set_string(col2_x, curr_y, "INT: ", attr_lbl);
+        buf.set_string(
+            col2_x + 5,
+            curr_y,
+            format!("{:<3}", attrs.intelligence),
+            attr_val,
+        );
+        curr_y += 1;
+
+        buf.set_string(col1_x, curr_y, "DEX: ", attr_lbl);
+        buf.set_string(
+            col1_x + 5,
+            curr_y,
+            format!("{:<3}", attrs.dexterity),
+            attr_val,
+        );
+        buf.set_string(col2_x, curr_y, "WIS: ", attr_lbl);
+        buf.set_string(col2_x + 5, curr_y, format!("{:<3}", attrs.wisdom), attr_val);
+        curr_y += 1;
+
+        buf.set_string(col1_x, curr_y, "CON: ", attr_lbl);
+        buf.set_string(
+            col1_x + 5,
+            curr_y,
+            format!("{:<3}", attrs.constitution),
+            attr_val,
+        );
+        buf.set_string(col2_x, curr_y, "CHA: ", attr_lbl);
+        buf.set_string(
+            col2_x + 5,
+            curr_y,
+            format!("{:<3}", attrs.charisma),
+            attr_val,
+        );
+        curr_y += 2;
+
+        // 4. Immortal Actions Chips
+        buf.set_string(
+            inner_x,
+            curr_y,
+            "Immortal Actions",
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        );
+        curr_y += 2;
+
+        self.character_inspector.button_rects.clear();
+
+        // Row 1 of buttons: Heal, Revive, Advance
+        let row1_y = curr_y;
+        let btn_heal = "[ Heal (h) ]";
+        let btn_revive = "[ Revive (r) ]";
+        let btn_advance = "[ Advance (a) ]";
+
+        let r1_rect = Rect::new(inner_x, row1_y, btn_heal.chars().count() as u16, 1);
+        buf.set_string(
+            r1_rect.x,
+            r1_rect.y,
+            btn_heal,
+            theme::button_style(theme::ButtonVariant::Default, theme::ButtonState::Active),
+        );
+        self.character_inspector
+            .button_rects
+            .push(("heal", r1_rect));
+
+        let r2_x = r1_rect.x + r1_rect.width + 1;
+        let r2_rect = Rect::new(r2_x, row1_y, btn_revive.chars().count() as u16, 1);
+        buf.set_string(
+            r2_rect.x,
+            r2_rect.y,
+            btn_revive,
+            theme::button_style(theme::ButtonVariant::Default, theme::ButtonState::Inactive),
+        );
+        self.character_inspector
+            .button_rects
+            .push(("revive", r2_rect));
+
+        let r3_x = r2_rect.x + r2_rect.width + 1;
+        let r3_rect = Rect::new(r3_x, row1_y, btn_advance.chars().count() as u16, 1);
+        buf.set_string(
+            r3_rect.x,
+            r3_rect.y,
+            btn_advance,
+            theme::button_style(theme::ButtonVariant::Neutral, theme::ButtonState::Inactive),
+        );
+        self.character_inspector
+            .button_rects
+            .push(("advance", r3_rect));
+
+        curr_y += 2;
+
+        // Row 2 of buttons: Force Cmd, Kick, Close
+        let row2_y = curr_y;
+        let btn_force = "[ Force Cmd (m) ]";
+        let btn_kick = "[ Kick (k) ]";
+        let btn_close = "[ Close (Esc) ]";
+
+        let r4_rect = Rect::new(inner_x, row2_y, btn_force.chars().count() as u16, 1);
+        buf.set_string(
+            r4_rect.x,
+            r4_rect.y,
+            btn_force,
+            theme::button_style(theme::ButtonVariant::Neutral, theme::ButtonState::Inactive),
+        );
+        self.character_inspector
+            .button_rects
+            .push(("force_cmd", r4_rect));
+
+        let r5_x = r4_rect.x + r4_rect.width + 1;
+        let r5_rect = Rect::new(r5_x, row2_y, btn_kick.chars().count() as u16, 1);
+        buf.set_string(
+            r5_rect.x,
+            r5_rect.y,
+            btn_kick,
+            theme::button_style(
+                theme::ButtonVariant::Destructive,
+                theme::ButtonState::Inactive,
+            ),
+        );
+        self.character_inspector
+            .button_rects
+            .push(("kick", r5_rect));
+
+        let r6_x = r5_rect.x + r5_rect.width + 1;
+        let r6_rect = Rect::new(r6_x, row2_y, btn_close.chars().count() as u16, 1);
+        buf.set_string(
+            r6_rect.x,
+            r6_rect.y,
+            btn_close,
+            theme::button_style(theme::ButtonVariant::Neutral, theme::ButtonState::Inactive),
+        );
+        self.character_inspector
+            .button_rects
+            .push(("close", r6_rect));
     }
 }
 
@@ -3835,5 +4742,258 @@ mod tests {
             assert!(std::path::Path::new(filename).exists());
             let _ = std::fs::remove_file(filename);
         }
+    }
+
+    #[test]
+    fn test_character_inspector_open_and_close() {
+        let mut screen = LiveDashboardScreen::new();
+        let player = OnlinePlayerInfo {
+            name: "Gandalf".into(),
+            level: 50,
+            room: "Wizard Tower".into(),
+            idle_secs: 12,
+            class: "Mage".into(),
+            race: "Human".into(),
+            protocol: "Telnet".into(),
+        };
+
+        // Open inspector
+        screen.open_character_inspector(player);
+        assert!(screen.character_inspector.is_open);
+        assert_eq!(
+            screen
+                .character_inspector
+                .player
+                .as_ref()
+                .map(|p| p.name.as_str()),
+            Some("Gandalf")
+        );
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, params, .. } => {
+                assert_eq!(method, "imm.stat");
+                assert_eq!(
+                    params.get("target_name").and_then(|v| v.as_str()),
+                    Some("Gandalf")
+                );
+            }
+            other => panic!("Expected RpcCall imm.stat, got {:?}", other),
+        }
+
+        // Close inspector via Esc
+        assert!(screen.modal_overlay_active());
+        let consumed = screen.handle_key(make_key(KeyCode::Esc));
+        assert!(consumed);
+        assert!(!screen.character_inspector.is_open);
+        assert!(!screen.modal_overlay_active());
+    }
+
+    #[test]
+    fn test_character_inspector_rpc_response_parsing() {
+        let mut screen = LiveDashboardScreen::new();
+        let player = OnlinePlayerInfo {
+            name: "Conan".into(),
+            level: 30,
+            room: "Arena".into(),
+            idle_secs: 5,
+            class: "Warrior".into(),
+            race: "Human".into(),
+            protocol: "WebSocket".into(),
+        };
+        screen.open_character_inspector(player);
+
+        let json_val = serde_json::json!({
+            "target": "Conan",
+            "health": { "current": 250, "max": 300 },
+            "mana": { "current": 40, "max": 100 },
+            "stamina": { "current": 180, "max": 200 },
+            "attributes": {
+                "strength": 18,
+                "dexterity": 15,
+                "constitution": 17,
+                "intelligence": 10,
+                "wisdom": 12,
+                "charisma": 14
+            }
+        });
+
+        screen.handle_rpc_response("Character Stats for Conan", &json_val);
+
+        assert_eq!(
+            screen.character_inspector.health,
+            Some(CharacterVitals {
+                current: 250,
+                max: 300
+            })
+        );
+        assert_eq!(
+            screen.character_inspector.mana,
+            Some(CharacterVitals {
+                current: 40,
+                max: 100
+            })
+        );
+        assert_eq!(
+            screen.character_inspector.stamina,
+            Some(CharacterVitals {
+                current: 180,
+                max: 200
+            })
+        );
+        assert_eq!(
+            screen.character_inspector.attributes,
+            Some(CharacterAttributes {
+                strength: 18,
+                dexterity: 15,
+                constitution: 17,
+                intelligence: 10,
+                wisdom: 12,
+                charisma: 14,
+            })
+        );
+    }
+
+    #[test]
+    fn test_character_inspector_imm_actions() {
+        let mut screen = LiveDashboardScreen::new();
+        let player = OnlinePlayerInfo {
+            name: "Legolas".into(),
+            level: 40,
+            room: "Lothlorien".into(),
+            idle_secs: 0,
+            class: "Ranger".into(),
+            race: "Elf".into(),
+            protocol: "TLS-WebSocket".into(),
+        };
+        screen.open_character_inspector(player);
+        let _ = screen.take_action();
+
+        // 1. Heal
+        let consumed = screen.handle_key(make_key(KeyCode::Char('h')));
+        assert!(consumed);
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, params, .. } => {
+                assert_eq!(method, "imm.heal");
+                assert_eq!(
+                    params.get("target_name").and_then(|v| v.as_str()),
+                    Some("Legolas")
+                );
+            }
+            other => panic!("Expected RpcCall imm.heal, got {:?}", other),
+        }
+
+        // 2. Revive
+        let consumed = screen.handle_key(make_key(KeyCode::Char('r')));
+        assert!(consumed);
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, params, .. } => {
+                assert_eq!(method, "imm.revive");
+                assert_eq!(
+                    params.get("target_name").and_then(|v| v.as_str()),
+                    Some("Legolas")
+                );
+            }
+            other => panic!("Expected RpcCall imm.revive, got {:?}", other),
+        }
+
+        // 3. Advance level dialog
+        let consumed = screen.handle_key(make_key(KeyCode::Char('a')));
+        assert!(consumed);
+        assert!(screen.character_inspector.advance_dialog_open);
+        // Type level "45"
+        screen.character_inspector.advance_input = "45".into();
+        let consumed = screen.handle_key(make_key(KeyCode::Enter));
+        assert!(consumed);
+        assert!(!screen.character_inspector.advance_dialog_open);
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, params, .. } => {
+                assert_eq!(method, "imm.advance");
+                assert_eq!(
+                    params.get("player_name").and_then(|v| v.as_str()),
+                    Some("Legolas")
+                );
+                assert_eq!(
+                    params.get("target_level").and_then(|v| v.as_u64()),
+                    Some(45)
+                );
+            }
+            other => panic!("Expected RpcCall imm.advance, got {:?}", other),
+        }
+
+        // 4. Force command dialog
+        let consumed = screen.handle_key(make_key(KeyCode::Char('m')));
+        assert!(consumed);
+        assert!(screen.character_inspector.force_cmd_dialog_open);
+        screen.character_inspector.force_cmd_input = "dance".into();
+        let consumed = screen.handle_key(make_key(KeyCode::Enter));
+        assert!(consumed);
+        assert!(!screen.character_inspector.force_cmd_dialog_open);
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, params, .. } => {
+                assert_eq!(method, "imm.force_command");
+                assert_eq!(
+                    params.get("player_name").and_then(|v| v.as_str()),
+                    Some("Legolas")
+                );
+                assert_eq!(
+                    params.get("command").and_then(|v| v.as_str()),
+                    Some("dance")
+                );
+            }
+            other => panic!("Expected RpcCall imm.force_command, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_character_inspector_mouse_and_render() {
+        let mut screen = LiveDashboardScreen::new();
+        let player = OnlinePlayerInfo {
+            name: "Frodo".into(),
+            level: 15,
+            room: "Bag End".into(),
+            idle_secs: 2,
+            class: "Burglar".into(),
+            race: "Hobbit".into(),
+            protocol: "Telnet".into(),
+        };
+        screen.open_character_inspector(player);
+        let _ = screen.take_action();
+
+        let area = Rect::new(0, 0, 100, 40);
+        let mut buf = Buffer::empty(area);
+        screen.render(area, &mut buf, None);
+
+        // Verify drawer rendered
+        assert!(screen.character_inspector.drawer_rect.width > 0);
+        assert!(!screen.character_inspector.button_rects.is_empty());
+
+        // Find "heal" button rect and click it
+        let heal_rect = screen
+            .character_inspector
+            .button_rects
+            .iter()
+            .find(|(id, _)| *id == "heal")
+            .map(|(_, r)| *r)
+            .expect("heal button rect");
+        let click_heal = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: heal_rect.x,
+            row: heal_rect.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(click_heal, area);
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, .. } => assert_eq!(method, "imm.heal"),
+            other => panic!("Expected RpcCall imm.heal, got {:?}", other),
+        }
+
+        // Clicking outside drawer closes it
+        let click_outside = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: screen.character_inspector.drawer_rect.x.saturating_sub(5),
+            row: screen.character_inspector.drawer_rect.y + 5,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(click_outside, area);
+        assert!(!screen.character_inspector.is_open);
     }
 }

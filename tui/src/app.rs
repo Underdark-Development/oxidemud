@@ -487,6 +487,7 @@ impl App {
                         if let Some(dash) =
                             screen.as_any_mut().downcast_mut::<LiveDashboardScreen>()
                         {
+                            dash.handle_rpc_response(&desc, &val);
                             dash.add_log(format!("[RPC SUCCESS] {desc}: {msg}"));
                         }
                     }
