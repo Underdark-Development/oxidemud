@@ -1,11 +1,13 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
-    widgets::{Block, Borders, Widget},
+    style::Style,
+    widgets::{Block, BorderType, Borders, Widget},
 };
 
-/// Draw the border block and fill interior with black background.
+use crate::theme;
+
+/// Draw the rounded border block and fill the interior with the canvas style.
 pub fn render_dropdown_box(buf: &mut Buffer, rect: Rect, border_style: Style) {
     if rect.width < 4 || rect.height < 3 {
         return;
@@ -13,7 +15,9 @@ pub fn render_dropdown_box(buf: &mut Buffer, rect: Rect, border_style: Style) {
     ratatui::widgets::Clear.render(rect, buf);
     let block = Block::default()
         .borders(Borders::ALL)
-        .style(border_style.bg(Color::Black));
+        .border_type(BorderType::Rounded)
+        .border_style(border_style)
+        .style(theme::canvas_style());
     block.render(rect, buf);
     for y in rect.y..rect.y + rect.height {
         for x in rect.x..rect.x + rect.width {
@@ -25,17 +29,17 @@ pub fn render_dropdown_box(buf: &mut Buffer, rect: Rect, border_style: Style) {
                 {
                     cell.set_char(' ');
                 }
-                cell.set_style(Style::default().bg(Color::Black).fg(Color::White));
+                cell.set_style(theme::canvas_style());
             }
         }
     }
 }
 
-/// Apply full-row highlight background for a dropdown item row.
+/// Apply full-row selected background for a dropdown item row.
 pub fn highlight_dropdown_row(buf: &mut Buffer, rect: Rect, y: u16) {
     for x in rect.x + 1..rect.x + rect.width - 1 {
         if let Some(cell) = buf.cell_mut((x, y)) {
-            cell.set_bg(Color::Indexed(240));
+            cell.set_bg(theme::PRIMARY);
         }
     }
 }
@@ -43,8 +47,8 @@ pub fn highlight_dropdown_row(buf: &mut Buffer, rect: Rect, y: u16) {
 /// Style for a dropdown item label (highlighted or normal).
 pub fn dropdown_item_style(highlighted: bool) -> Style {
     if highlighted {
-        Style::default().fg(Color::White).bg(Color::Indexed(240))
+        theme::selected_row()
     } else {
-        Style::default().fg(Color::Indexed(245)).bg(Color::Black)
+        Style::default().fg(theme::FG_MUTED).bg(theme::BG)
     }
 }

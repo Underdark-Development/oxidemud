@@ -139,6 +139,66 @@ Core Rust engine systems (`combat.rs`, `regen.rs`, etc.) do **not** contain hard
 
 ---
 
+## Spade UI/UX Design Guide
+
+Styling language for the spade builder TUI and client. The style is modeled on the opencode TUI aesthetic — **rounded borders, chip-style buttons, inline bold titles, and filled (primary-colored) selection** — while retaining spade's existing dark-gray palette rather than adopting opencode's colors. This section defines the standard; `tui/src/theme.rs` is the single source of truth for the token values and style helpers.
+
+### Design principles
+
+- **Keyboard-first, mouse-optional.** Every action reachable by keyboard; mouse (hover, click, wheel) augments, never gates. Overlays capture input strictly (no bleed-through to underlying panes when a palette, dialog, or menu is open).
+- **Consistency over novelty.** Components reference semantic tokens, never raw colors. One selected-row treatment, one button language, one border tier across every screen.
+- **Calm surfaces.** Dark panels, muted borders, minimal glyph noise. Color is reserved for meaning: primary = focus/action, danger = destructive, warning/positive = state.
+- **Terminal safety.** No flicker, bounded allocations, graceful layout at small sizes, and a 256-color fallback for terminals without truecolor.
+
+### Palette & semantic tokens
+
+Tokens are 256-indexed to match the existing appearance exactly. Components must reference the role names, not the raw values.
+
+| Token          | value            | Role                                                                    |
+| :------------- | :--------------- | :---------------------------------------------------------------------- |
+| `BG`           | black            | main canvas background (screens draw on this)                           |
+| `PANEL`        | 236              | panel/chrome surface (menu bar, sidebar, status bar, overlay interiors) |
+| `BG_DARK`      | 235              | deepest surface (dashboard gauges)                                      |
+| `SURFACE`      | 238              | elevated surface (headers, table rows)                                  |
+| `FG`           | white            | primary text                                                            |
+| `FG_MUTED`     | 245              | secondary text                                                          |
+| `FG_FAINT`     | 242              | de-emphasized text (dimmed overlay)                                     |
+| `FG_BRIGHT`    | 250              | emphasized text                                                         |
+| `PRIMARY`      | cyan             | focus, selection fill, active border, prompt                            |
+| `DANGER`       | red              | destructive actions and errors                                          |
+| `DANGER_BG`    | 52               | risk-tinted surface (rows with validation errors)                       |
+| `WARNING`      | yellow           | warnings, status messages                                               |
+| `POSITIVE`     | green            | success, connected state                                                |
+| `HOVER`        | 240              | hover / dim highlight                                                   |
+| `BORDER`       | 245              | normal border                                                           |
+| `BORDER_FOCUS` | cyan (`PRIMARY`) | focused border                                                          |
+
+### App shell layout
+
+Four stacked regions: **menu/top bar** (1 row), **separator**, **main content** (optionally split into content + right command sidebar), and **two-row status bar**. Overlays (command palette, dialogs, dropdowns, notifications) render above the shell and dim the content behind them.
+
+### Component standards
+
+- **Buttons:** chip style `Label` with one space padding each side, joined horizontally with two-space gaps. **Active** = `PRIMARY` background, dark text, bold; **inactive** = `PRIMARY` text on `BG`; **disabled** = faint text. Destructive-confirm buttons fill with `DANGER` and white bold text when selected; warning actions (e.g. clear) fill with `WARNING`. Optional inline accelerators (`Allow (a)`). Keyboard: `←/→`/`Tab` cycle, `Enter`/`Space` confirm, `Esc` cancels, and dialogs default focus to the **safe** option (Cancel/No).
+- **Dialogs:** rounded border, muted (`BORDER`) color, content on `BG`, sized relative to the terminal and centered. The title is an **inline bold `PRIMARY` line** (no title-bar strip) above the message, which word-wraps to the dialog width. Buttons form a **right-aligned row** below the message. Dialog tone (info/confirm/destructive) is carried by the border color (`DANGER` for destructive confirmations such as delete or quit-with-unsaved-changes).
+- **Selection:** focused/hovered list, tree, table, and palette rows fill with `PRIMARY` (dark text, bold) — one treatment everywhere. The old gray-240 highlighted-row style is retired.
+- **Input & prompt:** command entries and the live-dashboard input use a bold `PRIMARY` `>` prompt with muted placeholder text.
+- **Borders:** idle panels use `BORDER`; the pane or field holding focus uses `BORDER_FOCUS`.
+- **Menus, dropdowns, palette, tooltips:** share the rounded-border and filled-selection conventions; tooltips keep their severity coloring (`DANGER` for TOML errors, `WARNING` for validation warnings) on the border and title.
+- **Forms:** focus marker `▸` and focus labels in `PRIMARY`; validation errors in `DANGER` with `⚠` prefix; read-only values in `FG_MUTED`.
+- **Status bar & mode badge:** mode badges (offline/online/connecting/connected/split) keep their existing semantic colors (`POSITIVE`, `WARNING`, `DANGER`); transient status messages in `WARNING`.
+
+### Interaction conventions
+
+- `Tab`/`Shift+Tab` cycle focus between panes and the sidebar; arrows navigate within a pane. `Esc` closes overlays and cancels dialogs. `Enter` confirms the focused action or default button.
+- Mouse: click selects, double-click opens, wheel scrolls; hover highlights interactive rows only when no overlay owns focus.
+
+### Implementation status
+
+`tui/src/theme.rs` (exported as `spade::theme`) is the single source of truth for the tokens and style helpers (`panel_style`, `canvas_style`, text helpers, `hovered_row`/`selected_row`, border helpers, `button_style`, `dialog_border_color`, `prompt_style`). All components and screens consume these tokens per the standards above; the only remaining raw colors are the syntax highlighter (TOML editor / script editor / file-browser preview tokens) and the `CoreColor` display mapping in the entities preview, both intentionally real-color. Spade's `docs/` user guides describe _usage_ only — this section owns the _visual contract_.
+
+---
+
 ## Unimplemented & Future Features
 
 The following sections detail features that are currently planned, partially implemented, or scheduled for future phases. Because no source code exists yet for these features, these specifications remain the primary reference.

@@ -5,8 +5,8 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::{Constraint, Rect},
-    style::{Color, Style},
-    widgets::{Block, Borders, Widget},
+    style::Style,
+    widgets::{Block, BorderType, Borders, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -17,6 +17,7 @@ use crate::components::dropdown::{
 };
 use crate::components::{Badge, BadgeKind, Dialog, RowBadges, ScrollState, Table};
 use crate::content::FileMap;
+use crate::theme;
 
 mod affixes;
 mod areas;
@@ -464,12 +465,12 @@ impl EntityInspectorScreen {
         let row = table.rows.len();
         Self::add_field(table, name, &val_str);
         let mut badges = vec![Badge {
-            text: "[ + Add Entry ]",
+            text: "+ Add Entry",
             kind: BadgeKind::AddEntry,
         }];
         if count > 0 {
             badges.push(Badge {
-                text: "[ 🗑 Clear ]",
+                text: "Clear",
                 kind: BadgeKind::Clear,
             });
         }
@@ -495,18 +496,18 @@ impl EntityInspectorScreen {
         let mut badges = Vec::new();
         if index > 0 {
             badges.push(Badge {
-                text: "[ ▲ ]",
+                text: "▲",
                 kind: BadgeKind::MoveUp,
             });
         }
         if index + 1 < total {
             badges.push(Badge {
-                text: "[ ▼ ]",
+                text: "▼",
                 kind: BadgeKind::MoveDown,
             });
         }
         badges.push(Badge {
-            text: "[ ✕ ]",
+            text: "✕",
             kind: BadgeKind::Remove,
         });
         table.set_row_badges(
@@ -1653,12 +1654,12 @@ impl Screen for EntityInspectorScreen {
             self.category, self.template_id, dirty_suffix, mode_tab, err_suffix
         );
         let header_style = if val_errors.is_empty() {
-            Style::default()
-                .fg(Color::Cyan)
+            theme::text()
+                .fg(theme::PRIMARY)
                 .add_modifier(ratatui::style::Modifier::BOLD)
         } else {
-            Style::default()
-                .fg(Color::Yellow)
+            theme::text()
+                .fg(theme::WARNING)
                 .add_modifier(ratatui::style::Modifier::BOLD)
         };
         buf.set_string(area.x, area.y, &info, header_style);
@@ -1913,7 +1914,7 @@ impl EntityInspectorScreen {
             }
             KeyCode::Char('D') => {
                 self.delete_dialog = Some(Dialog::new(
-                    Color::Red,
+                    crate::theme::DialogTone::Destructive,
                     "Confirm Delete",
                     &format!(
                         "Delete {} \"{}\"?",
@@ -2184,7 +2185,7 @@ impl EntityInspectorScreen {
 
         let show = (self.cursor_char / 8).is_multiple_of(2);
         if show {
-            buf.set_string(x, y, "▎", Style::default().fg(Color::Cyan));
+            buf.set_string(x, y, "▎", Style::default().fg(theme::PRIMARY));
         }
         self.cursor_char = self.cursor_char.wrapping_add(1);
     }
@@ -2246,7 +2247,9 @@ impl EntityInspectorScreen {
         let block = Block::default()
             .title(" Edit (Esc=cancel, F2=save) ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
+            .border_type(BorderType::Rounded)
+            .border_style(theme::border_accent())
+            .style(theme::canvas_style());
         let inner = block.inner(overlay);
         block.render(overlay, buf);
 
@@ -2277,7 +2280,7 @@ impl EntityInspectorScreen {
             if y >= inner.y + inner.height {
                 break;
             }
-            buf.set_string(inner.x, y, line, Style::default().fg(Color::White));
+            buf.set_string(inner.x, y, line, theme::text());
         }
 
         if cursor_visible {
@@ -2287,7 +2290,7 @@ impl EntityInspectorScreen {
             if x < inner.x + inner.width && y < inner.y + inner.height {
                 let show = (self.cursor_char / 8).is_multiple_of(2);
                 if show {
-                    buf.set_string(x, y, "▎", Style::default().fg(Color::Cyan));
+                    buf.set_string(x, y, "▎", Style::default().fg(theme::PRIMARY));
                 }
                 self.cursor_char = self.cursor_char.wrapping_add(1);
             }
@@ -2416,7 +2419,7 @@ impl EntityInspectorScreen {
         let overlay = Rect::new(box_x, box_y, max_width, box_height);
         self.dropdown_rect = Some(overlay);
 
-        render_dropdown_box(buf, overlay, Style::default().fg(Color::Cyan));
+        render_dropdown_box(buf, overlay, theme::border_accent());
 
         let visible_count = (overlay.height.saturating_sub(2)) as usize;
         let scroll = selection.saturating_sub(visible_count.saturating_sub(1));

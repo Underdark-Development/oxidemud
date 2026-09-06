@@ -201,7 +201,7 @@ impl App {
         let total_unsaved: usize = self.screens.iter().map(|s| s.unsaved_count()).sum();
         if total_unsaved > 0 {
             self.quit_dialog = Some(crate::components::Dialog::new(
-                ratatui::style::Color::Red,
+                crate::theme::DialogTone::Destructive,
                 "Unsaved Changes",
                 &format!(
                     "You have unsaved changes in {} entity/entities.\nDo you want to save before quitting?",
@@ -304,7 +304,7 @@ impl App {
                         .join("\n")
                 };
                 self.notification_dialog = Some(crate::components::Dialog::new(
-                    ratatui::style::Color::Cyan,
+                    crate::theme::DialogTone::Info,
                     "Notification History",
                     &history_text,
                     &["Close".into()],
@@ -659,7 +659,7 @@ impl App {
     }
 }
 
-fn init_terminal(enable_mouse: bool) -> color_eyre::Result<Tui> {
+pub(crate) fn init_terminal(enable_mouse: bool) -> color_eyre::Result<Tui> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -679,7 +679,7 @@ fn init_terminal(enable_mouse: bool) -> color_eyre::Result<Tui> {
     Ok(Terminal::new(backend)?)
 }
 
-fn restore_terminal() -> color_eyre::Result<()> {
+pub(crate) fn restore_terminal() -> color_eyre::Result<()> {
     let mut stdout = io::stdout();
     use std::io::Write;
     let _ = write!(stdout, "\x1b[?1003l");

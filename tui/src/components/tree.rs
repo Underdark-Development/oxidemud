@@ -1,12 +1,13 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::Widget,
 };
 
 use crate::components::ScrollState;
+use crate::theme;
 
 #[derive(Clone)]
 pub struct TreeNode<T> {
@@ -227,10 +228,16 @@ impl<T> Widget for &Tree<T> {
             let is_selected = Some(idx) == self.selected;
             let y = area.y + i as u16;
 
-            if is_selected || self.hovered == Some(idx) {
+            if is_selected {
                 for x in area.x..area.x + area.width {
                     if let Some(cell) = buf.cell_mut((x, y)) {
-                        cell.set_bg(Color::Indexed(240));
+                        cell.set_bg(theme::PRIMARY);
+                    }
+                }
+            } else if self.hovered == Some(idx) {
+                for x in area.x..area.x + area.width {
+                    if let Some(cell) = buf.cell_mut((x, y)) {
+                        cell.set_bg(theme::HOVER);
                     }
                 }
             }
@@ -245,17 +252,14 @@ impl<T> Widget for &Tree<T> {
             };
 
             let text_fg = if self.muted {
-                Color::Indexed(245)
+                theme::FG_MUTED
             } else {
-                Color::White
+                theme::FG
             };
             let label_style = if is_selected {
-                Style::default()
-                    .fg(text_fg)
-                    .bg(Color::Indexed(240))
-                    .add_modifier(Modifier::BOLD)
+                theme::selected_row()
             } else if self.hovered == Some(idx) {
-                Style::default().fg(text_fg).bg(Color::Indexed(240))
+                Style::default().fg(text_fg).bg(theme::HOVER)
             } else {
                 Style::default().fg(text_fg)
             };
@@ -263,13 +267,13 @@ impl<T> Widget for &Tree<T> {
             let prefix_style = if is_selected {
                 label_style
             } else {
-                Style::default().fg(Color::Indexed(245))
+                Style::default().fg(theme::FG_MUTED)
             };
 
             let marker_style = if self.muted {
-                Style::default().fg(Color::Indexed(240))
+                Style::default().fg(theme::FG_FAINT)
             } else {
-                Style::default().fg(Color::Indexed(245))
+                Style::default().fg(theme::FG_MUTED)
             };
 
             let mut label_spans: Vec<Span> = vec![Span::styled(indent_str, Style::default())];
@@ -290,7 +294,7 @@ impl<T> Widget for &Tree<T> {
                         let matched = &node.label[match_pos..match_end];
                         let after = &node.label[match_end..];
 
-                        let highlight_style = Style::default().fg(Color::Black).bg(Color::Yellow);
+                        let highlight_style = Style::default().fg(theme::BG).bg(theme::WARNING);
                         if !before.is_empty() {
                             label_spans.push(Span::styled(before, label_style));
                         }

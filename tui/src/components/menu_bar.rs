@@ -2,12 +2,13 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
 };
 
 use super::dropdown::{dropdown_item_style, highlight_dropdown_row, render_dropdown_box};
 use super::CommandAction;
 use crate::screens::ScreenId;
+use crate::theme;
 
 const APP_NAME: &str = " spade ";
 
@@ -217,7 +218,7 @@ impl MenuBar {
 
         for x in area.x..area.x + area.width {
             if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_bg(Color::Indexed(236));
+                cell.set_bg(theme::PANEL);
             }
         }
 
@@ -227,7 +228,7 @@ impl MenuBar {
             x,
             area.y,
             " ",
-            Style::default().fg(Color::White).bg(Color::Indexed(236)),
+            Style::default().fg(theme::FG).bg(theme::PANEL),
         );
         x += 1;
 
@@ -235,13 +236,13 @@ impl MenuBar {
             x,
             area.y,
             APP_NAME,
-            Style::default().fg(Color::White).bg(Color::Indexed(236)),
+            Style::default().fg(theme::FG).bg(theme::PANEL),
         );
         for (i, _) in APP_NAME.char_indices() {
             let cx = x + i as u16;
             if let Some(cell) = buf.cell_mut((cx, area.y)) {
-                cell.set_fg(Color::Black);
-                cell.set_bg(Color::White);
+                cell.set_fg(theme::BG);
+                cell.set_bg(theme::FG);
             }
         }
         x += APP_NAME.len() as u16;
@@ -251,9 +252,9 @@ impl MenuBar {
             let is_active = self.open_menu == Some(i) || self.hovered_label == Some(i);
             let label = format!(" {} ", menu.label);
             let (fg, bg) = if is_active {
-                (Color::Black, Color::White)
+                (theme::BG, theme::FG)
             } else {
-                (Color::White, Color::Indexed(236))
+                (theme::FG, theme::PANEL)
             };
             buf.set_string(x, area.y, &label, Style::default().fg(fg).bg(bg));
             x += label.len() as u16;
@@ -267,9 +268,7 @@ impl MenuBar {
                 area.x + sx,
                 area.y,
                 screen_name,
-                Style::default()
-                    .fg(Color::Indexed(245))
-                    .bg(Color::Indexed(236)),
+                Style::default().fg(theme::FG_MUTED).bg(theme::PANEL),
             );
         }
     }
@@ -381,7 +380,7 @@ impl MenuBar {
         hovered: Option<usize>,
         _is_sub: bool,
     ) {
-        render_dropdown_box(buf, rect, Style::default().fg(Color::White));
+        render_dropdown_box(buf, rect, theme::border_accent());
 
         for (i, item) in items.iter().enumerate() {
             let y = rect.y + 1 + i as u16;
@@ -395,8 +394,8 @@ impl MenuBar {
                 for sx in sep_x..sep_end {
                     if let Some(cell) = buf.cell_mut((sx, y)) {
                         cell.set_char('─');
-                        cell.set_fg(Color::Indexed(245));
-                        cell.set_bg(Color::Black);
+                        cell.set_fg(theme::FG_MUTED);
+                        cell.set_bg(theme::BG);
                     }
                 }
                 continue;

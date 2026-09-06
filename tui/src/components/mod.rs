@@ -1,3 +1,4 @@
+pub mod button;
 pub mod command_palette;
 pub mod command_sidebar;
 mod context_menu;
@@ -5,19 +6,18 @@ pub mod dialog;
 pub mod dropdown;
 mod form;
 pub mod menu_bar;
-mod modal;
 mod scroll_state;
 pub mod table;
 mod tabs;
 pub mod tooltip;
 mod tree;
 
+pub use button::Button;
 pub use command_palette::{CommandPalette, PaletteItem};
 pub use command_sidebar::CommandAction;
 pub use context_menu::ContextMenu;
 pub use dialog::Dialog;
 pub use form::{FieldType, Form, FormField};
-pub use modal::Modal;
 pub use scroll_state::ScrollState;
 pub use table::{Badge, BadgeKind, BadgeSpan, RowBadges, RowErrorInfo, Table};
 pub use tabs::Tabs;

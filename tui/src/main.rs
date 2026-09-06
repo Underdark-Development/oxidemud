@@ -9,6 +9,10 @@ async fn main() -> color_eyre::Result<()> {
     let cli = Config::parse();
     let file_config = load_config();
 
+    if cli.prototype() {
+        return spade::screens::design_prototype::run_prototype().await;
+    }
+
     let mut app = App::new(cli, file_config);
     app.run().await
 }

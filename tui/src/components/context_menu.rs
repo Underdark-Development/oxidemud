@@ -1,10 +1,11 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Widget},
+    widgets::{Block, BorderType, Borders, Widget},
 };
+
+use crate::theme::{self};
 
 pub struct ContextMenu {
     pub items: Vec<(String, String)>,
@@ -66,8 +67,9 @@ impl Widget for &ContextMenu {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .style(Style::default().bg(Color::Black));
+            .border_type(BorderType::Rounded)
+            .border_style(theme::border_accent())
+            .style(theme::canvas_style());
 
         let inner = block.inner(menu_area);
         block.render(menu_area, buf);
@@ -79,12 +81,9 @@ impl Widget for &ContextMenu {
             }
             let is_selected = i == self.selected;
             let style = if is_selected {
-                Style::default()
-                    .fg(Color::White)
-                    .bg(Color::Indexed(250))
-                    .add_modifier(Modifier::BOLD)
+                theme::selected_row()
             } else {
-                Style::default().fg(Color::White)
+                theme::text()
             };
             let marker = if is_selected { "▸ " } else { "  " };
             let line = Line::from(Span::styled(format!("{}{}", marker, label), style));

@@ -8,7 +8,7 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Modifier as RatModifier, Style},
+    style::{Modifier as RatModifier, Style},
     widgets::{Block, Borders, Widget},
 };
 use std::collections::{HashMap, HashSet};
@@ -18,6 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use super::{entity_inspector::EntityInspectorScreen, EntityContext, Screen};
 use crate::components::{CommandAction, ScrollState, Tree};
 use crate::content::{self, FileMap};
+use crate::theme;
 
 mod tree_builder;
 use oxide_core::format::preview;
@@ -390,7 +391,7 @@ impl EntitiesScreen {
         for y in area.y..area.y + area.height {
             for x in area.x..area.x + area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_style(Style::default().fg(Color::Indexed(245)));
+                    cell.set_style(Style::default().fg(theme::FG_MUTED));
                 }
             }
         }
@@ -399,13 +400,15 @@ impl EntitiesScreen {
         let help_block = Block::default()
             .title(" Help ")
             .borders(Borders::ALL)
-            .style(Style::default().bg(Color::Black).fg(Color::White));
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(theme::border_muted())
+            .style(theme::canvas_style());
         help_block.render(help_area, buf);
 
         for (i, line) in help_text.iter().enumerate() {
             let ly = help_y + 1 + i as u16;
             if ly < help_y + help_height - 1 {
-                buf.set_string(help_x + 2, ly, line, Style::default().fg(Color::White));
+                buf.set_string(help_x + 2, ly, line, theme::text());
             }
         }
     }
@@ -513,7 +516,7 @@ impl EntitiesScreen {
         for y in area.y..area.y + area.height {
             for x in area.x..area.x + area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_style(Style::default().fg(Color::Indexed(245)));
+                    cell.set_style(Style::default().fg(theme::FG_MUTED));
                 }
             }
         }
@@ -523,7 +526,9 @@ impl EntitiesScreen {
         let block = ratatui::widgets::Block::default()
             .title(title_str)
             .borders(ratatui::widgets::Borders::ALL)
-            .style(Style::default().bg(Color::Black).fg(Color::White));
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(theme::border_muted())
+            .style(theme::canvas_style());
         block.render(modal_area, buf);
 
         let inner_x = modal_x + 2;
@@ -540,7 +545,7 @@ impl EntitiesScreen {
                 modal_x + 2,
                 hint_y,
                 "Esc/Enter to dismiss",
-                Style::default().fg(Color::Indexed(245)),
+                theme::text_muted(),
             );
         }
     }
@@ -1431,7 +1436,7 @@ impl Screen for EntitiesScreen {
                 if let Some(ref mut detail) = self.detail {
                     let singular = crate::screens::entity_inspector::singularize(&data.category);
                     detail.delete_dialog = Some(crate::components::Dialog::new(
-                        ratatui::style::Color::Red,
+                        crate::theme::DialogTone::Destructive,
                         "Confirm Delete",
                         &format!("Delete {} \"{}\"?", singular, data.id),
                         &["Cancel".to_string(), "Delete".to_string()],
@@ -1638,7 +1643,7 @@ impl Screen for EntitiesScreen {
         for y in area.y..area.y + area.height {
             for x in area.x..area.x + area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_bg(Color::Indexed(236));
+                    cell.set_bg(theme::PANEL);
                 }
             }
         }
@@ -1678,7 +1683,7 @@ impl Screen for EntitiesScreen {
                 area.x,
                 area.y,
                 &search_text,
-                Style::default().fg(Color::Cyan).bg(Color::Indexed(236)),
+                Style::default().fg(theme::PRIMARY).bg(theme::PANEL),
             );
             let s_len = self
                 .search
@@ -1691,20 +1696,20 @@ impl Screen for EntitiesScreen {
                     cursor_x,
                     area.y,
                     "\u{2588}",
-                    Style::default().fg(Color::Cyan).bg(Color::Indexed(236)),
+                    Style::default().fg(theme::PRIMARY).bg(theme::PANEL),
                 );
             }
         } else {
             let title_fg = if tree_muted {
-                Color::Indexed(245)
+                theme::FG_MUTED
             } else {
-                Color::White
+                theme::FG
             };
             buf.set_string(
                 area.x,
                 area.y,
                 " Entities ",
-                Style::default().fg(title_fg).bg(Color::Indexed(236)),
+                Style::default().fg(title_fg).bg(theme::PANEL),
             );
         }
 
@@ -1741,20 +1746,20 @@ impl Screen for EntitiesScreen {
         for y in detail_area.y..detail_area.y + detail_area.height {
             for x in detail_area.x..detail_area.x + detail_area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_bg(Color::Black);
+                    cell.set_bg(theme::BG);
                 }
             }
         }
         let detail_title_fg = if detail_muted {
-            Color::Indexed(245)
+            theme::FG_MUTED
         } else {
-            Color::White
+            theme::FG
         };
         buf.set_string(
             detail_area.x,
             detail_area.y - 1,
             " Detail ",
-            Style::default().fg(detail_title_fg).bg(Color::Black),
+            Style::default().fg(detail_title_fg).bg(theme::BG),
         );
 
         if let Some(ref mut detail) = self.detail {

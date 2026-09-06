@@ -1,3 +1,4 @@
+pub mod design_prototype;
 pub mod entities;
 pub mod entity_inspector;
 pub mod validation_panel;
@@ -231,7 +232,7 @@ impl Screen for PlaceholderScreen {
                 x,
                 y,
                 &msg,
-                ratatui::style::Style::default().fg(ratatui::style::Color::Indexed(245)),
+                ratatui::style::Style::default().fg(crate::theme::FG_MUTED),
             );
         }
     }

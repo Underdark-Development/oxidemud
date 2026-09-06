@@ -5,6 +5,8 @@ use ratatui::{
     text::{Line, Span},
 };
 
+use crate::theme;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
     Structured,
@@ -510,10 +512,10 @@ impl RawTomlEditor {
             let num_str = format!("{:>3} │", line_idx + 1);
             let num_style = if is_cur_line {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(theme::WARNING)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Indexed(242))
+                Style::default().fg(theme::FG_FAINT)
             };
             buf.set_string(area.x, y, &num_str, num_style);
 
@@ -532,11 +534,11 @@ impl RawTomlEditor {
             if let Some(err) = line_error {
                 let err_style = if err.is_syntax {
                     Style::default()
-                        .fg(Color::LightRed)
+                        .fg(theme::DANGER)
                         .add_modifier(Modifier::UNDERLINED | Modifier::BOLD)
                 } else {
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(theme::WARNING)
                         .add_modifier(Modifier::UNDERLINED | Modifier::BOLD)
                 };
 
@@ -546,9 +548,9 @@ impl RawTomlEditor {
                 }
 
                 let badge_style = if err.is_syntax {
-                    Style::default().fg(Color::White).bg(Color::Red)
+                    Style::default().fg(theme::FG).bg(theme::DANGER)
                 } else {
-                    Style::default().fg(Color::Black).bg(Color::Yellow)
+                    Style::default().fg(theme::BG).bg(theme::WARNING)
                 };
 
                 spans.push(Span::styled(format!("  [ {} ]", err.message), badge_style));
@@ -570,8 +572,8 @@ impl RawTomlEditor {
                         let sel_x = x_start + col as u16;
                         if sel_x < area.x + area.width {
                             if let Some(cell) = buf.cell_mut((sel_x, y)) {
-                                cell.set_bg(Color::Indexed(242));
-                                cell.set_fg(Color::White);
+                                cell.set_bg(theme::FG_FAINT);
+                                cell.set_fg(theme::FG);
                             }
                         }
                     }
@@ -607,11 +609,9 @@ impl RawTomlEditor {
             )
         };
         let footer_style = if self.error.is_some() {
-            Style::default().fg(Color::White).bg(Color::Red)
+            Style::default().fg(theme::FG).bg(theme::DANGER)
         } else {
-            Style::default()
-                .fg(Color::Indexed(245))
-                .bg(Color::Indexed(236))
+            Style::default().fg(theme::FG_MUTED).bg(theme::PANEL)
         };
         buf.set_string(area.x, footer_y, &status_msg, footer_style);
 

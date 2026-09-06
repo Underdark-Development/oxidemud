@@ -24,6 +24,10 @@ pub struct Config {
     #[arg(short = 'k', long = "api-key", alias = "key")]
     pub api_key: Option<String>,
 
+    /// Launch into the design-system gallery (prototype build)
+    #[arg(long, hide = true)]
+    pub prototype: bool,
+
     #[command(subcommand)]
     pub subcommand: Option<SubCommand>,
 }
@@ -63,6 +67,11 @@ impl Config {
 
     pub fn mode(&self) -> Mode {
         self.mode.unwrap_or(Mode::Offline)
+    }
+
+    /// Whether to launch into the design-system prototype gallery.
+    pub fn prototype(&self) -> bool {
+        self.prototype
     }
 
     pub fn parse_from_args<I, T>(itr: I) -> Self

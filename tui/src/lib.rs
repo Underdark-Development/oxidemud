@@ -7,4 +7,5 @@ mod event;
 mod input;
 pub mod network;
 pub mod screens;
+pub mod theme;
 mod ui;

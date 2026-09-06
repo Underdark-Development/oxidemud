@@ -1,10 +1,12 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Widget,
 };
+
+use crate::theme;
 
 pub enum FieldType {
     Text,
@@ -199,10 +201,10 @@ impl Widget for &Form {
 
             let label_style = if is_focused {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme::PRIMARY)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                theme::text()
             };
 
             let focus_marker = if is_focused { "▸ " } else { "  " };
@@ -219,11 +221,11 @@ impl Widget for &Form {
             buf.set_line(area.x, y, &label_line, self.label_width + 2);
 
             let value_style = if has_error {
-                Style::default().fg(Color::LightRed)
+                Style::default().fg(theme::DANGER)
             } else if field.read_only {
-                Style::default().fg(Color::Indexed(245))
+                Style::default().fg(theme::FG_MUTED)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(theme::FG)
             };
 
             let display_value = match &field.field_type {
@@ -258,7 +260,7 @@ impl Widget for &Form {
                 if let Some(err) = &field.error {
                     value_spans.push(Span::styled(
                         format!("  ⚠ {}", err),
-                        Style::default().fg(Color::LightRed),
+                        Style::default().fg(theme::DANGER),
                     ));
                 }
             }

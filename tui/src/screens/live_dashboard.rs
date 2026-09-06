@@ -4,13 +4,14 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{
-        Block, Borders, Clear, Gauge, List, ListItem, Paragraph, Row, Sparkline, Table, TableState,
-        Widget,
+        Block, BorderType, Borders, Clear, Gauge, List, ListItem, Paragraph, Row, Sparkline, Table,
+        TableState, Widget,
     },
 };
 
 use crate::network::{ConnectionStatus, SpadeTelemetry};
 use crate::screens::{Screen, ScreenAction};
+use crate::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DashboardView {
@@ -287,6 +288,55 @@ impl LiveDashboardScreen {
         self.connect_dialog.is_open = false;
         self.connect_input = format!("{}:{}", host, port);
         self.status = ConnectionStatus::Connecting;
+    }
+
+    fn submit_gecho(&mut self) {
+        let msg = self.gecho_input.trim().to_string();
+        if !msg.is_empty() {
+            self.action = ScreenAction::RpcCall {
+                method: "imm.gecho".into(),
+                params: serde_json::json!({ "message": msg }),
+                description: format!("Global Echo: \"{msg}\""),
+            };
+            self.logs.push(format!("[GECHO] {msg}"));
+        }
+        self.gecho_input.clear();
+        self.gecho_cursor = 0;
+        self.gecho_dialog_open = false;
+    }
+
+    fn submit_shutdown(&mut self) {
+        let delay = self.shutdown_delay_input.trim().parse::<u32>().ok();
+        self.action = ScreenAction::RpcCall {
+            method: "imm.shutdown".into(),
+            params: serde_json::json!({
+                "confirm": true,
+                "delay_mins": delay
+            }),
+            description: format!("Server Shutdown (delay: {delay:?})"),
+        };
+        self.logs.push(format!(
+            "[SHUTDOWN] Initiating server shutdown (delay: {delay:?})..."
+        ));
+        self.shutdown_dialog_open = false;
+        self.shutdown_delay_input.clear();
+        self.shutdown_cursor = 0;
+    }
+
+    fn submit_kick(&mut self) {
+        if let Some(target) = self.kick_target.take() {
+            self.action = ScreenAction::RpcCall {
+                method: "imm.force_command".into(),
+                params: serde_json::json!({
+                    "player_name": target,
+                    "command": "quit",
+                    "confirm": true
+                }),
+                description: format!("Kick Player {target}"),
+            };
+            self.logs.push(format!("[KICK] Kicking player {target}..."));
+        }
+        self.kick_dialog_open = false;
     }
 }
 
@@ -633,18 +683,7 @@ impl Screen for LiveDashboardScreen {
                     return true;
                 }
                 KeyCode::Enter => {
-                    let msg = self.gecho_input.trim().to_string();
-                    if !msg.is_empty() {
-                        self.action = ScreenAction::RpcCall {
-                            method: "imm.gecho".into(),
-                            params: serde_json::json!({ "message": msg }),
-                            description: format!("Global Echo: \"{msg}\""),
-                        };
-                        self.logs.push(format!("[GECHO] {msg}"));
-                        self.gecho_input.clear();
-                        self.gecho_cursor = 0;
-                    }
-                    self.gecho_dialog_open = false;
+                    self.submit_gecho();
                     return true;
                 }
                 _ => {
@@ -667,19 +706,7 @@ impl Screen for LiveDashboardScreen {
                     return true;
                 }
                 KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    if let Some(target) = self.kick_target.take() {
-                        self.action = ScreenAction::RpcCall {
-                            method: "imm.force_command".into(),
-                            params: serde_json::json!({
-                                "player_name": target,
-                                "command": "quit",
-                                "confirm": true
-                            }),
-                            description: format!("Kick Player {target}"),
-                        };
-                        self.logs.push(format!("[KICK] Kicking player {target}..."));
-                    }
-                    self.kick_dialog_open = false;
+                    self.submit_kick();
                     return true;
                 }
                 _ => return true,
@@ -695,21 +722,7 @@ impl Screen for LiveDashboardScreen {
                     return true;
                 }
                 KeyCode::Enter => {
-                    let delay = self.shutdown_delay_input.trim().parse::<u32>().ok();
-                    self.action = ScreenAction::RpcCall {
-                        method: "imm.shutdown".into(),
-                        params: serde_json::json!({
-                            "confirm": true,
-                            "delay_mins": delay
-                        }),
-                        description: format!("Server Shutdown (delay: {delay:?})"),
-                    };
-                    self.logs.push(format!(
-                        "[SHUTDOWN] Initiating server shutdown (delay: {delay:?})..."
-                    ));
-                    self.shutdown_dialog_open = false;
-                    self.shutdown_delay_input.clear();
-                    self.shutdown_cursor = 0;
+                    self.submit_shutdown();
                     return true;
                 }
                 _ => {
@@ -916,15 +929,16 @@ impl Screen for LiveDashboardScreen {
                         self.connect_dialog.active_field = ConnectField::SaveDefault;
                         self.connect_dialog.save_default = !self.connect_dialog.save_default;
                     } else if row == inner_y + 12 {
-                        let total_btn_width = 31;
-                        let btn_start_x = rect.x + (rect.width.saturating_sub(total_btn_width)) / 2;
-                        let connect_btn_x = btn_start_x;
-                        let cancel_btn_x = btn_start_x + 13 + 6;
-
-                        if col >= connect_btn_x && col < connect_btn_x + 13 {
-                            self.submit_reconnect();
-                        } else if col >= cancel_btn_x && col < cancel_btn_x + 12 {
-                            self.connect_dialog.is_open = false;
+                        let rects = dialog_button_rects(rect, inner_y + 12, &CONNECT_BUTTONS);
+                        if let Some(connect) = rects.first() {
+                            if col >= connect.x && col < connect.x + connect.width {
+                                self.submit_reconnect();
+                            }
+                        }
+                        if let Some(cancel) = rects.last() {
+                            if col >= cancel.x && col < cancel.x + cancel.width {
+                                self.connect_dialog.is_open = false;
+                            }
                         }
                     }
                 }
@@ -940,20 +954,19 @@ impl Screen for LiveDashboardScreen {
                     if col < r.x || col >= r.x + r.width || row < r.y || row >= r.y + r.height {
                         self.kick_dialog_open = false;
                         self.kick_target = None;
-                    } else if row >= r.y + 2 && row <= r.y + 5 {
-                        if let Some(target) = self.kick_target.take() {
-                            self.action = ScreenAction::RpcCall {
-                                method: "imm.force_command".into(),
-                                params: serde_json::json!({
-                                    "player_name": target,
-                                    "command": "quit",
-                                    "confirm": true
-                                }),
-                                description: format!("Kick Player {target}"),
-                            };
-                            self.logs.push(format!("[KICK] Kicking player {target}..."));
+                    } else if row == r.y + 1 + r.height.saturating_sub(2) - 1 {
+                        let rects = dialog_button_rects(r, row, &KICK_BUTTONS);
+                        if let Some(rect) = rects.first() {
+                            if col >= rect.x && col < rect.x + rect.width {
+                                self.submit_kick();
+                            }
                         }
-                        self.kick_dialog_open = false;
+                        if let Some(rect) = rects.last() {
+                            if col >= rect.x && col < rect.x + rect.width {
+                                self.kick_dialog_open = false;
+                                self.kick_target = None;
+                            }
+                        }
                     }
                 }
             }
@@ -969,6 +982,21 @@ impl Screen for LiveDashboardScreen {
                 {
                     self.gecho_dialog_open = false;
                     self.gecho_input.clear();
+                    self.gecho_cursor = 0;
+                } else if row == r.y + 1 + r.height.saturating_sub(2) - 1 {
+                    let rects = dialog_button_rects(r, row, &GECHO_BUTTONS);
+                    if let Some(rect) = rects.first() {
+                        if col >= rect.x && col < rect.x + rect.width {
+                            self.submit_gecho();
+                        }
+                    }
+                    if let Some(rect) = rects.last() {
+                        if col >= rect.x && col < rect.x + rect.width {
+                            self.gecho_dialog_open = false;
+                            self.gecho_input.clear();
+                            self.gecho_cursor = 0;
+                        }
+                    }
                 }
             }
             return;
@@ -981,6 +1009,21 @@ impl Screen for LiveDashboardScreen {
                 {
                     self.shutdown_dialog_open = false;
                     self.shutdown_delay_input.clear();
+                    self.shutdown_cursor = 0;
+                } else if row == r.y + 1 + r.height.saturating_sub(2) - 1 {
+                    let rects = dialog_button_rects(r, row, &SHUTDOWN_BUTTONS);
+                    if let Some(rect) = rects.first() {
+                        if col >= rect.x && col < rect.x + rect.width {
+                            self.submit_shutdown();
+                        }
+                    }
+                    if let Some(rect) = rects.last() {
+                        if col >= rect.x && col < rect.x + rect.width {
+                            self.shutdown_dialog_open = false;
+                            self.shutdown_delay_input.clear();
+                            self.shutdown_cursor = 0;
+                        }
+                    }
                 }
             }
             return;
@@ -1029,22 +1072,20 @@ impl Screen for LiveDashboardScreen {
 }
 
 fn pane_block(title: &str, focused: bool) -> Block<'static> {
+    let base = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(format!(" {title} "));
     if focused {
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" {title} "))
-            .title_style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .border_style(Style::default().fg(Color::Cyan))
+        base.title_style(
+            Style::default()
+                .fg(theme::PRIMARY)
+                .add_modifier(Modifier::BOLD),
+        )
+        .border_style(theme::border_accent())
     } else {
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" {title} "))
-            .title_style(Style::default().fg(Color::Indexed(245)))
-            .border_style(Style::default().fg(Color::Indexed(238)))
+        base.title_style(Style::default().fg(theme::FG_MUTED))
+            .border_style(Style::default().fg(theme::SURFACE))
     }
 }
 
@@ -1091,11 +1132,12 @@ impl LiveDashboardScreen {
         );
         let header_block = Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .title(" Server Telemetry ")
-            .style(Style::default().fg(Color::Indexed(238)));
+            .style(Style::default().fg(theme::SURFACE));
         Paragraph::new(header_text)
             .block(header_block)
-            .style(Style::default().fg(Color::White))
+            .style(theme::text())
             .render(chunks[0], buf);
 
         // 2. Middle Row: Adaptive Split (Horizontal on wide, Vertical on narrow)
@@ -1150,11 +1192,11 @@ impl LiveDashboardScreen {
         let mem_used_mb = mem_used as f64 / (1024.0 * 1024.0);
         let mem_total_gb = mem_total as f64 / (1024.0 * 1024.0 * 1024.0);
         let mem_color = if mem_ratio > 0.85 {
-            Color::Red
+            theme::DANGER
         } else if mem_ratio > 0.60 {
-            Color::Yellow
+            theme::WARNING
         } else {
-            Color::Cyan
+            theme::PRIMARY
         };
         let mem_label = if mem_total > 0 {
             format!(
@@ -1169,7 +1211,7 @@ impl LiveDashboardScreen {
 
         Gauge::default()
             .block(Block::default().title("Memory Usage"))
-            .gauge_style(Style::default().fg(mem_color).bg(Color::Indexed(236)))
+            .gauge_style(Style::default().fg(mem_color).bg(theme::PANEL))
             .ratio(mem_ratio)
             .label(mem_label)
             .render(inner_sys[0], buf);
@@ -1184,7 +1226,7 @@ impl LiveDashboardScreen {
         let players_label = format!("{} / 50 Active", players_count);
         Gauge::default()
             .block(Block::default().title("Active Players"))
-            .gauge_style(Style::default().fg(Color::Green).bg(Color::Indexed(236)))
+            .gauge_style(Style::default().fg(theme::POSITIVE).bg(theme::PANEL))
             .ratio(players_ratio)
             .label(players_label)
             .render(inner_sys[1], buf);
@@ -1192,11 +1234,11 @@ impl LiveDashboardScreen {
         // Tick Drift Sparkline
         let last_drift = self.drift_history.last().copied().unwrap_or(0) as f64 / 10.0;
         let drift_color = if last_drift > 50.0 {
-            Color::Red
+            theme::DANGER
         } else if last_drift > 15.0 {
-            Color::Yellow
+            theme::WARNING
         } else {
-            Color::Green
+            theme::POSITIVE
         };
         let drift_title = format!("Tick Drift: {:.1}ms", last_drift);
         Sparkline::default()
@@ -1239,7 +1281,7 @@ impl LiveDashboardScreen {
             wal_kb, dirty, rooms, mobs, items, game_time, season, weather, rhai_timers
         );
         Paragraph::new(stats_text)
-            .style(Style::default().fg(Color::White))
+            .style(theme::text())
             .render(inner_sys[3], buf);
 
         // --- Right/Bottom: Online Players Table Pane ---
@@ -1277,16 +1319,16 @@ impl LiveDashboardScreen {
         )
         .header(
             Row::new(vec!["Player", "Lvl", "Class", "Room", "Idle", "Proto"]).style(
-                Style::default()
-                    .fg(Color::Yellow)
+                theme::text()
+                    .fg(theme::WARNING)
                     .add_modifier(Modifier::BOLD),
             ),
         )
         .block(player_block)
         .row_highlight_style(
             Style::default()
-                .bg(Color::Indexed(238))
-                .fg(Color::Cyan)
+                .bg(theme::SURFACE)
+                .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD),
         );
 
@@ -1302,13 +1344,15 @@ impl LiveDashboardScreen {
             .rev()
             .map(|l| {
                 let style = if l.contains("ERROR") {
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(theme::DANGER)
+                        .add_modifier(Modifier::BOLD)
                 } else if l.contains("WARN") {
-                    Style::default().fg(Color::Yellow)
+                    Style::default().fg(theme::WARNING)
                 } else if l.contains("[NETWORK") || l.contains("[RPC") {
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(theme::PRIMARY)
                 } else {
-                    Style::default().fg(Color::Indexed(250))
+                    Style::default().fg(theme::FG_BRIGHT)
                 };
                 ListItem::new(l.as_str()).style(style)
             })
@@ -1318,11 +1362,7 @@ impl LiveDashboardScreen {
         // --- 4. Footer Action Bar ---
         let footer_text = " [Tab] Switch Pane | [L] Full Logs | [G] Global Echo | [K] Kick Player | [S] Shutdown | [C] Settings ";
         Paragraph::new(footer_text)
-            .style(
-                Style::default()
-                    .bg(Color::Indexed(235))
-                    .fg(Color::Indexed(248)),
-            )
+            .style(Style::default().bg(theme::BG_DARK).fg(theme::FG_BRIGHT))
             .render(chunks[3], buf);
     }
 
@@ -1348,17 +1388,19 @@ impl LiveDashboardScreen {
         );
         let header_block = Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .title(" SERVER LOG VIEW - UNEDITED STREAM ")
-            .style(Style::default().fg(Color::Cyan));
+            .style(theme::border_accent());
 
         Paragraph::new(header_text)
             .block(header_block)
-            .style(Style::default().fg(Color::Yellow))
+            .style(Style::default().fg(theme::WARNING))
             .render(chunks[0], buf);
 
         let log_block = Block::default()
             .borders(Borders::ALL)
-            .style(Style::default().fg(Color::Cyan));
+            .border_type(BorderType::Rounded)
+            .style(theme::border_accent());
 
         let items: Vec<ListItem> = self
             .logs
@@ -1368,11 +1410,13 @@ impl LiveDashboardScreen {
             .rev()
             .map(|l| {
                 let style = if l.contains("ERROR") {
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(theme::DANGER)
+                        .add_modifier(Modifier::BOLD)
                 } else if l.contains("WARN") {
-                    Style::default().fg(Color::Yellow)
+                    Style::default().fg(theme::WARNING)
                 } else {
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(theme::PRIMARY)
                 };
                 ListItem::new(l.as_str()).style(style)
             })
@@ -1384,8 +1428,8 @@ impl LiveDashboardScreen {
         Paragraph::new(footer_text)
             .style(
                 Style::default()
-                    .bg(Color::Cyan)
-                    .fg(Color::Black)
+                    .bg(theme::PRIMARY)
+                    .fg(theme::BG)
                     .add_modifier(Modifier::BOLD),
             )
             .render(chunks[2], buf);
@@ -1398,15 +1442,35 @@ fn clear_and_fill_dialog(area: Rect, title: &str, border_color: Color, buf: &mut
         for x in area.x..area.x + area.width {
             if let Some(cell) = buf.cell_mut((x, y)) {
                 cell.set_char(' ');
-                cell.set_style(Style::default().bg(Color::Indexed(235)));
+                cell.set_style(Style::default().bg(theme::BG_DARK));
             }
         }
     }
     Block::default()
         .borders(Borders::ALL)
-        .title(format!(" {title} "))
-        .style(Style::default().fg(border_color).bg(Color::Indexed(235)))
+        .border_type(BorderType::Rounded)
+        .style(Style::default().fg(border_color).bg(theme::BG_DARK))
         .render(area, buf);
+
+    let title_w = title.chars().count() as u16;
+    if area.width >= title_w + 2 {
+        for cx in (area.x + 1)..(area.x + area.width - 1) {
+            if let Some(cell) = buf.cell_mut((cx, area.y)) {
+                cell.set_char(' ');
+                cell.set_style(Style::default().bg(theme::BG_DARK));
+            }
+        }
+        let title_x = area.x + (area.width - title_w) / 2;
+        buf.set_string(
+            title_x,
+            area.y,
+            title,
+            Style::default()
+                .fg(border_color)
+                .bg(theme::BG_DARK)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
 }
 
 struct TextField<'a> {
@@ -1429,30 +1493,30 @@ fn render_text_field(buf: &mut Buffer, x: u16, y: u16, field: TextField<'_>) {
     let is_masked = field.is_masked;
     let label_style = if is_focused {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(theme::PRIMARY)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(248))
+        Style::default().fg(theme::FG_MUTED)
     };
 
     let bracket_style = if is_focused {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(theme::PRIMARY)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(240))
+        Style::default().fg(theme::HOVER)
     };
 
     let bg_color = if is_focused {
-        Color::Black
+        theme::BG
     } else {
-        Color::Indexed(234)
+        theme::BG_DARK
     };
 
     let text_style = if is_focused {
-        Style::default().fg(Color::White).bg(bg_color)
+        Style::default().fg(theme::FG).bg(bg_color)
     } else {
-        Style::default().fg(Color::Indexed(250)).bg(bg_color)
+        Style::default().fg(theme::FG_BRIGHT).bg(bg_color)
     };
 
     // Draw label (padded to 13 chars)
@@ -1492,7 +1556,7 @@ fn render_text_field(buf: &mut Buffer, x: u16, y: u16, field: TextField<'_>) {
                 interior_x + 1,
                 y,
                 &ph_disp,
-                Style::default().fg(Color::Indexed(241)).bg(bg_color),
+                Style::default().fg(theme::FG_FAINT).bg(bg_color),
             );
         }
     } else {
@@ -1517,13 +1581,13 @@ fn render_text_field(buf: &mut Buffer, x: u16, y: u16, field: TextField<'_>) {
             if cursor_col < max_chars && char_cursor < total_chars && !value.is_empty() {
                 cell.set_style(
                     Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
+                        .fg(theme::BG)
+                        .bg(theme::PRIMARY)
                         .add_modifier(Modifier::BOLD),
                 );
             } else {
                 cell.set_char('█');
-                cell.set_style(Style::default().fg(Color::Cyan).bg(bg_color));
+                cell.set_style(Style::default().fg(theme::PRIMARY).bg(bg_color));
             }
         }
     }
@@ -1535,24 +1599,22 @@ fn render_text_field(buf: &mut Buffer, x: u16, y: u16, field: TextField<'_>) {
 fn render_checkbox(buf: &mut Buffer, x: u16, y: u16, label: &str, checked: bool, is_focused: bool) {
     let bracket_style = if is_focused {
         Style::default()
-            .fg(Color::Cyan)
+            .fg(theme::PRIMARY)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(240))
+        Style::default().fg(theme::HOVER)
     };
 
     let bg_color = if is_focused {
-        Color::Black
+        theme::BG
     } else {
-        Color::Indexed(234)
+        theme::BG_DARK
     };
 
     let text_style = if is_focused {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme::FG).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(250))
+        Style::default().fg(theme::FG_BRIGHT)
     };
 
     buf.set_string(x, y, "[", bracket_style);
@@ -1561,7 +1623,7 @@ fn render_checkbox(buf: &mut Buffer, x: u16, y: u16, label: &str, checked: bool,
             cell.set_char('X');
             cell.set_style(
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(theme::POSITIVE)
                     .bg(bg_color)
                     .add_modifier(Modifier::BOLD),
             );
@@ -1575,6 +1637,94 @@ fn render_checkbox(buf: &mut Buffer, x: u16, y: u16, label: &str, checked: bool,
     buf.set_string(x + 4, y, label, text_style);
 }
 
+const CONNECT_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
+    (
+        " Connect (enter) ",
+        theme::ButtonVariant::Default,
+        theme::ButtonState::Active,
+    ),
+    (
+        " Cancel (esc) ",
+        theme::ButtonVariant::Neutral,
+        theme::ButtonState::Inactive,
+    ),
+];
+
+const KICK_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
+    (
+        " Confirm Kick (y) ",
+        theme::ButtonVariant::Destructive,
+        theme::ButtonState::Active,
+    ),
+    (
+        " Cancel (n) ",
+        theme::ButtonVariant::Neutral,
+        theme::ButtonState::Inactive,
+    ),
+];
+
+const GECHO_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
+    (
+        " Send (y) ",
+        theme::ButtonVariant::Default,
+        theme::ButtonState::Active,
+    ),
+    (
+        " Cancel (n) ",
+        theme::ButtonVariant::Neutral,
+        theme::ButtonState::Inactive,
+    ),
+];
+
+const SHUTDOWN_BUTTONS: [(&str, theme::ButtonVariant, theme::ButtonState); 2] = [
+    (
+        " Confirm (y) ",
+        theme::ButtonVariant::Destructive,
+        theme::ButtonState::Active,
+    ),
+    (
+        " Cancel (n) ",
+        theme::ButtonVariant::Neutral,
+        theme::ButtonState::Inactive,
+    ),
+];
+
+fn dialog_button_rects(
+    dialog_area: Rect,
+    row_y: u16,
+    buttons: &[(&str, theme::ButtonVariant, theme::ButtonState)],
+) -> Vec<Rect> {
+    let btn_gap = 2u16;
+    let row_w: u16 = buttons
+        .iter()
+        .map(|(label, _, _)| label.chars().count() as u16)
+        .sum::<u16>()
+        + btn_gap * (buttons.len().saturating_sub(1)) as u16;
+    let mut x = dialog_area.x + dialog_area.width.saturating_sub(row_w + 2);
+    let mut rects = Vec::with_capacity(buttons.len());
+    for (label, _, _) in buttons {
+        let width = label.chars().count() as u16;
+        rects.push(Rect::new(x, row_y, width, 1));
+        x += width + btn_gap;
+    }
+    rects
+}
+
+fn render_dialog_buttons(
+    buf: &mut Buffer,
+    dialog_area: Rect,
+    row_y: u16,
+    buttons: &[(&str, theme::ButtonVariant, theme::ButtonState)],
+) {
+    for ((label, variant, state), rect) in
+        buttons
+            .iter()
+            .zip(dialog_button_rects(dialog_area, row_y, buttons))
+    {
+        buf.set_string(rect.x, rect.y, label, theme::button_style(*variant, *state));
+    }
+}
+
 impl LiveDashboardScreen {
     fn render_kick_dialog(&mut self, area: Rect, buf: &mut Buffer) {
         let dialog_area = Rect {
@@ -1585,21 +1735,25 @@ impl LiveDashboardScreen {
         };
 
         self.kick_dialog_rect = dialog_area;
-        clear_and_fill_dialog(dialog_area, "CONFIRM KICK PLAYER", Color::Red, buf);
+        clear_and_fill_dialog(dialog_area, "Confirm Kick Player", theme::DANGER, buf);
 
         let target_name = self.kick_target.as_deref().unwrap_or("Unknown");
-        let text = format!(
-            "Are you sure you want to disconnect player '{target_name}'?\n\n [Enter / Y] Confirm Kick    [Esc / N] Cancel"
-        );
         let inner = Rect {
             x: dialog_area.x + 2,
             y: dialog_area.y + 1,
             width: dialog_area.width.saturating_sub(4),
             height: dialog_area.height.saturating_sub(2),
         };
-        Paragraph::new(text)
-            .style(Style::default().fg(Color::White).bg(Color::Indexed(235)))
-            .render(inner, buf);
+        let msg = format!("Disconnect player '{target_name}'?");
+        buf.set_string(
+            inner.x,
+            inner.y,
+            &msg,
+            Style::default().fg(theme::FG).bg(theme::BG_DARK),
+        );
+
+        let row_y = inner.y + inner.height - 1;
+        render_dialog_buttons(buf, dialog_area, row_y, &KICK_BUTTONS);
     }
 
     fn render_shutdown_dialog(&mut self, area: Rect, buf: &mut Buffer) {
@@ -1611,27 +1765,48 @@ impl LiveDashboardScreen {
         };
 
         self.shutdown_dialog_rect = dialog_area;
-        clear_and_fill_dialog(dialog_area, "SERVER SHUTDOWN (ADMIN)", Color::Red, buf);
+        clear_and_fill_dialog(dialog_area, "Server Shutdown (Admin)", theme::DANGER, buf);
 
-        let text = if self.shutdown_delay_input.is_empty() {
-            "Shutdown delay (minutes):\n > █ (0 = immediate)\n\n [Enter] Confirm Shutdown    [Esc] Cancel".to_string()
-        } else {
-            let cursor = self.shutdown_cursor.min(self.shutdown_delay_input.len());
-            let before = &self.shutdown_delay_input[..cursor];
-            let after = &self.shutdown_delay_input[cursor..];
-            format!(
-                "Shutdown delay (minutes):\n > {before}█{after}\n\n [Enter] Confirm Shutdown    [Esc] Cancel"
-            )
-        };
         let inner = Rect {
             x: dialog_area.x + 2,
             y: dialog_area.y + 1,
             width: dialog_area.width.saturating_sub(4),
             height: dialog_area.height.saturating_sub(2),
         };
-        Paragraph::new(text)
-            .style(Style::default().fg(Color::White).bg(Color::Indexed(235)))
-            .render(inner, buf);
+        buf.set_string(
+            inner.x,
+            inner.y,
+            "Shutdown delay (minutes):",
+            Style::default().fg(theme::FG).bg(theme::BG_DARK),
+        );
+
+        let prompt_x = inner.x;
+        let value_x = prompt_x + 3;
+        buf.set_string(prompt_x, inner.y + 1, " > ", theme::prompt_style());
+        if self.shutdown_delay_input.is_empty() {
+            buf.set_string(value_x, inner.y + 1, "█", theme::prompt_style());
+        } else {
+            let cursor = self.shutdown_cursor.min(self.shutdown_delay_input.len());
+            let before = &self.shutdown_delay_input[..cursor];
+            let after = &self.shutdown_delay_input[cursor..];
+            let value_style = Style::default().fg(theme::FG).bg(theme::BG_DARK);
+            buf.set_string(value_x, inner.y + 1, before, value_style);
+            buf.set_string(
+                value_x + before.chars().count() as u16,
+                inner.y + 1,
+                "█",
+                theme::prompt_style(),
+            );
+            buf.set_string(
+                value_x + before.chars().count() as u16 + 1,
+                inner.y + 1,
+                after,
+                value_style,
+            );
+        }
+
+        let row_y = inner.y + inner.height - 1;
+        render_dialog_buttons(buf, dialog_area, row_y, &SHUTDOWN_BUTTONS);
     }
 
     fn render_gecho_dialog(&mut self, area: Rect, buf: &mut Buffer) {
@@ -1645,24 +1820,51 @@ impl LiveDashboardScreen {
         self.gecho_dialog_rect = dialog_area;
         clear_and_fill_dialog(
             dialog_area,
-            "BROADCAST GLOBAL ECHO (gecho)",
-            Color::Yellow,
+            "Broadcast Global Echo (gecho)",
+            theme::WARNING,
             buf,
         );
 
-        let cursor = self.gecho_cursor.min(self.gecho_input.len());
-        let before = &self.gecho_input[..cursor];
-        let after = &self.gecho_input[cursor..];
-        let text = format!("Enter announcement to broadcast:\n\n > {before}█{after}");
         let inner = Rect {
             x: dialog_area.x + 2,
             y: dialog_area.y + 1,
             width: dialog_area.width.saturating_sub(4),
             height: dialog_area.height.saturating_sub(2),
         };
-        Paragraph::new(text)
-            .style(Style::default().fg(Color::White).bg(Color::Indexed(235)))
-            .render(inner, buf);
+        buf.set_string(
+            inner.x,
+            inner.y,
+            "Enter announcement to broadcast:",
+            Style::default().fg(theme::FG).bg(theme::BG_DARK),
+        );
+
+        let prompt_x = inner.x;
+        let value_x = prompt_x + 3;
+        buf.set_string(prompt_x, inner.y + 1, " > ", theme::prompt_style());
+        if self.gecho_input.is_empty() {
+            buf.set_string(value_x, inner.y + 1, "█", theme::prompt_style());
+        } else {
+            let cursor = self.gecho_cursor.min(self.gecho_input.len());
+            let before = &self.gecho_input[..cursor];
+            let after = &self.gecho_input[cursor..];
+            let value_style = Style::default().fg(theme::FG).bg(theme::BG_DARK);
+            buf.set_string(value_x, inner.y + 1, before, value_style);
+            buf.set_string(
+                value_x + before.chars().count() as u16,
+                inner.y + 1,
+                "█",
+                theme::prompt_style(),
+            );
+            buf.set_string(
+                value_x + before.chars().count() as u16 + 1,
+                inner.y + 1,
+                after,
+                value_style,
+            );
+        }
+
+        let row_y = inner.y + inner.height - 1;
+        render_dialog_buttons(buf, dialog_area, row_y, &GECHO_BUTTONS);
     }
 
     fn render_connect_dialog(&mut self, area: Rect, buf: &mut Buffer) {
@@ -1676,7 +1878,7 @@ impl LiveDashboardScreen {
         };
 
         self.connect_dialog_rect = dialog_area;
-        clear_and_fill_dialog(dialog_area, "CONNECTION SETTINGS", Color::Cyan, buf);
+        clear_and_fill_dialog(dialog_area, "Connection Settings", theme::PRIMARY, buf);
 
         let inner_y = dialog_area.y + 1;
         let inner_x = dialog_area.x + 2;
@@ -1750,33 +1952,9 @@ impl LiveDashboardScreen {
             self.connect_dialog.active_field == ConnectField::SaveDefault,
         );
 
-        // Footer buttons: [ Connect ] and [ Cancel ] (centered)
-        let total_btn_width = 31;
-        let btn_start_x = dialog_area.x + (dialog_area.width.saturating_sub(total_btn_width)) / 2;
-        let connect_btn_x = btn_start_x;
-        let cancel_btn_x = btn_start_x + 13 + 6;
+        // Footer buttons: [ Connect ] and [ Cancel ] (right-aligned)
         let btn_y = inner_y + 12;
-
-        let connect_btn = " [ Connect ] ";
-        let cancel_btn = " [ Cancel ] ";
-
-        buf.set_string(
-            connect_btn_x,
-            btn_y,
-            connect_btn,
-            Style::default()
-                .fg(Color::Cyan)
-                .bg(Color::Indexed(237))
-                .add_modifier(Modifier::BOLD),
-        );
-        buf.set_string(
-            cancel_btn_x,
-            btn_y,
-            cancel_btn,
-            Style::default()
-                .fg(Color::Indexed(248))
-                .bg(Color::Indexed(237)),
-        );
+        render_dialog_buttons(buf, dialog_area, btn_y, &CONNECT_BUTTONS);
 
         // Clean keyboard hints (centered, no bracket fatigue)
         let hint_line = "Tab/↑↓ Field  •  Space Toggle  •  Enter Connect  •  Esc Cancel";
@@ -1786,9 +1964,7 @@ impl LiveDashboardScreen {
             hint_x,
             inner_y + 14,
             hint_line,
-            Style::default()
-                .fg(Color::Indexed(245))
-                .bg(Color::Indexed(235)),
+            Style::default().fg(theme::FG_MUTED).bg(theme::BG_DARK),
         );
     }
 }
@@ -1803,6 +1979,37 @@ mod tests {
 
     fn make_key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn test_dialog_button_row_preserves_right_border() {
+        let w = 66u16;
+        let h = 2u16;
+        let mut buf = Buffer::empty(Rect::new(0, 0, w, h));
+        for y in 0..h {
+            if let Some(cell) = buf.cell_mut((w - 1, y)) {
+                cell.set_symbol("│");
+            }
+        }
+        render_dialog_buttons(
+            &mut buf,
+            Rect::new(0, 0, w, h),
+            1,
+            &[
+                (
+                    " Connect (enter) ",
+                    crate::theme::ButtonVariant::Default,
+                    crate::theme::ButtonState::Active,
+                ),
+                (
+                    " Cancel (esc) ",
+                    crate::theme::ButtonVariant::Neutral,
+                    crate::theme::ButtonState::Inactive,
+                ),
+            ],
+        );
+        assert_eq!(buf[(w - 1, 1)].symbol(), "│");
+        assert_eq!(buf[(w - 2, 1)].symbol(), " ");
     }
 
     #[test]
@@ -2106,11 +2313,14 @@ mod tests {
         assert_eq!(screen.connect_dialog.active_field, ConnectField::Tls);
         assert!(screen.connect_dialog.tls);
 
-        // 3. Click on [ Connect ] button (centered at dialog.x + 17..dialog.x + 30, row: dialog.y + 13)
+        // 3. Click the right-aligned Connect chip (row: dialog.y + 13)
+        let btn_row = dialog.y + 13;
+        let connect_btn = dialog_button_rects(dialog, btn_row, &CONNECT_BUTTONS)[0];
+        let cancel_btn = dialog_button_rects(dialog, btn_row, &CONNECT_BUTTONS)[1];
         let click_connect_btn = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: dialog.x + 20,
-            row: dialog.y + 13,
+            column: connect_btn.x + 3,
+            row: btn_row,
             modifiers: KeyModifiers::NONE,
         };
         screen.handle_mouse(click_connect_btn, area);
@@ -2132,7 +2342,31 @@ mod tests {
             other => panic!("Expected Reconnect action from button click, got {other:?}"),
         }
 
-        // 4. Click outside dialog dismisses
+        // 4. Click at the old centered ghost position is inert
+        screen.open_connect_dialog("127.0.0.1", 8080, false, None);
+        assert!(screen.connect_dialog.is_open);
+        let click_ghost = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: dialog.x + 20,
+            row: btn_row,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(click_ghost, area);
+        assert!(screen.connect_dialog.is_open);
+        assert!(matches!(screen.take_action(), ScreenAction::None));
+
+        // 5. Click the Cancel chip closes without submitting
+        let click_cancel_btn = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: cancel_btn.x + 2,
+            row: btn_row,
+            modifiers: KeyModifiers::NONE,
+        };
+        screen.handle_mouse(click_cancel_btn, area);
+        assert!(!screen.connect_dialog.is_open);
+        assert!(matches!(screen.take_action(), ScreenAction::None));
+
+        // 6. Click outside dialog dismisses
         screen.open_connect_dialog("127.0.0.1", 8080, false, None);
         assert!(screen.connect_dialog.is_open);
         let click_outside = MouseEvent {
@@ -2143,6 +2377,49 @@ mod tests {
         };
         screen.handle_mouse(click_outside, area);
         assert!(!screen.connect_dialog.is_open);
+    }
+
+    #[test]
+    fn test_mouse_chips_on_kick_dialog() {
+        let mut screen = LiveDashboardScreen::new();
+        screen.kick_target = Some("Player1".into());
+        screen.kick_dialog_open = true;
+
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 30,
+        };
+        let mut buf = Buffer::empty(area);
+        screen.render(area, &mut buf, None);
+        assert!(screen.kick_dialog_rect.width > 0);
+
+        let dialog = screen.kick_dialog_rect;
+        let btn_row = dialog.y + 1 + dialog.height.saturating_sub(2) - 1;
+        let rects = dialog_button_rects(dialog, btn_row, &KICK_BUTTONS);
+        let click_at = |x: u16| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: btn_row,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        screen.handle_mouse(click_at(rects[1].x + 2), area);
+        assert!(!screen.kick_dialog_open);
+        assert!(matches!(screen.take_action(), ScreenAction::None));
+
+        screen.kick_target = Some("Player1".into());
+        screen.kick_dialog_open = true;
+        screen.handle_mouse(click_at(rects[0].x + 3), area);
+        assert!(!screen.kick_dialog_open);
+        match screen.take_action() {
+            ScreenAction::RpcCall { method, params, .. } => {
+                assert_eq!(method, "imm.force_command");
+                assert_eq!(params["player_name"], "Player1");
+            }
+            other => panic!("Expected RpcCall kick action, got {other:?}"),
+        }
     }
 
     #[test]

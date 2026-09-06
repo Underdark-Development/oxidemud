@@ -1,10 +1,12 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::Widget,
 };
+
+use crate::theme;
 
 pub struct Tabs<T> {
     pub titles: Vec<String>,
@@ -68,10 +70,10 @@ impl<T> Widget for &Tabs<T> {
 
             let style = if is_active {
                 Style::default()
-                    .fg(Color::White)
+                    .fg(theme::PRIMARY)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Indexed(245))
+                Style::default().fg(theme::FG_MUTED)
             };
 
             let padding = tab_width.saturating_sub(title.len() as u16 + 2) / 2;
@@ -84,7 +86,7 @@ impl<T> Widget for &Tabs<T> {
                 let underline = Line::from(Span::styled(
                     "─".repeat(tab_width as usize),
                     Style::default()
-                        .fg(Color::White)
+                        .fg(theme::PRIMARY)
                         .add_modifier(Modifier::BOLD),
                 ));
                 buf.set_line(tab_area.x, tab_area.y + 1, &underline, tab_width);

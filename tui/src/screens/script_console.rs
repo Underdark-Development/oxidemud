@@ -10,6 +10,7 @@ use ratatui::{
 };
 
 use crate::screens::{Screen, ScreenAction};
+use crate::theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -286,9 +287,7 @@ impl Screen for ScriptConsoleScreen {
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>) {
         let instr = " [Tab] Switch pane  [F9] Run script & tests  [Arrows] Move cursor / scroll ";
-        let instr_style = Style::default()
-            .fg(Color::Indexed(245))
-            .bg(Color::Indexed(236));
+        let instr_style = Style::default().fg(theme::FG_MUTED).bg(theme::PANEL);
         set_str_safe(buf, area, area.x as i32, area.y as i32, instr, instr_style);
         for x in (area.x + instr.len() as u16)..area.x + area.width {
             set_char_safe(buf, area, x as i32, area.y as i32, ' ', instr_style);
@@ -307,9 +306,9 @@ impl Screen for ScriptConsoleScreen {
         // Render editor pane
         let editor_focused = self.focus == Focus::Editor;
         let editor_border_style = if editor_focused {
-            Style::default().fg(Color::Green)
+            Style::default().fg(theme::PRIMARY)
         } else {
-            Style::default().fg(Color::Indexed(240))
+            Style::default().fg(theme::HOVER)
         };
         draw_border(buf, top_area, " Script Editor ", editor_border_style);
 
@@ -335,7 +334,7 @@ impl Screen for ScriptConsoleScreen {
             let line_str = &self.lines[idx];
 
             // Line number
-            let num_style = Style::default().fg(Color::Indexed(242));
+            let num_style = Style::default().fg(theme::FG_FAINT);
             let num_str = format!("{:>3} │ ", idx + 1);
             set_str_safe(
                 buf,
@@ -378,9 +377,9 @@ impl Screen for ScriptConsoleScreen {
         // Render console pane
         let console_focused = self.focus == Focus::Console;
         let console_border_style = if console_focused {
-            Style::default().fg(Color::Green)
+            Style::default().fg(theme::PRIMARY)
         } else {
-            Style::default().fg(Color::Indexed(240))
+            Style::default().fg(theme::HOVER)
         };
         draw_border(buf, bottom_area, " Console Output ", console_border_style);
 
@@ -406,7 +405,7 @@ impl Screen for ScriptConsoleScreen {
                 console_inner.x,
                 console_inner.y + i as u16,
                 log_line,
-                Style::default().fg(Color::Indexed(250)),
+                Style::default().fg(theme::FG_BRIGHT),
             );
         }
     }
@@ -467,7 +466,7 @@ fn highlight_line(line: &str) -> Line<'_> {
     if line.trim().starts_with("//") {
         spans.push(Span::styled(
             line.to_string(),
-            Style::default().fg(Color::Indexed(245)),
+            Style::default().fg(theme::FG_MUTED),
         ));
     } else {
         let words = line.split_inclusive(|c: char| !c.is_alphanumeric() && c != '_');
@@ -478,8 +477,8 @@ fn highlight_line(line: &str) -> Line<'_> {
                 | "import" | "as" => Style::default()
                     .fg(Color::Magenta)
                     .add_modifier(Modifier::BOLD),
-                "true" | "false" => Style::default().fg(Color::Green),
-                _ if trimmed.chars().all(|c| c.is_numeric()) => Style::default().fg(Color::Green),
+                "true" | "false" => Style::default().fg(theme::PRIMARY),
+                _ if trimmed.chars().all(|c| c.is_numeric()) => Style::default().fg(theme::PRIMARY),
                 _ => Style::default().fg(Color::White),
             };
 

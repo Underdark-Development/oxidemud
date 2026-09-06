@@ -1,8 +1,9 @@
 use crate::app::App;
 use crate::screens::ScreenId;
+use crate::theme;
 use ratatui::{
     layout::{Constraint, Layout},
-    style::{Color, Style},
+    style::Style,
     Frame,
 };
 
@@ -26,8 +27,8 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     for x in sep_area.x..sep_area.x + sep_area.width {
         if let Some(cell) = buf.cell_mut((x, sep_area.y)) {
             cell.set_char('─');
-            cell.set_fg(Color::Indexed(245));
-            cell.set_bg(Color::Indexed(236));
+            cell.set_fg(theme::FG_MUTED);
+            cell.set_bg(theme::PANEL);
         }
     }
 
@@ -35,7 +36,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     for y in main_area.y..main_area.y + main_area.height {
         for x in main_area.x..main_area.x + main_area.width {
             if let Some(cell) = buf.cell_mut((x, y)) {
-                cell.set_bg(Color::Black);
+                cell.set_bg(theme::BG);
             }
         }
     }
@@ -62,15 +63,15 @@ pub fn render(app: &mut App, frame: &mut Frame) {
         for y in sidebar_area.y..sidebar_area.y + sidebar_area.height {
             for x in sidebar_area.x..sidebar_area.x + sidebar_area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_bg(Color::Indexed(236));
+                    cell.set_bg(theme::PANEL);
                 }
             }
         }
 
         let sidebar_title_fg = if app.sidebar_focused {
-            Color::White
+            theme::FG
         } else {
-            Color::Indexed(245)
+            theme::FG_MUTED
         };
         let sidebar_title = if app.active_screen == ScreenId::RoomGrid {
             " Attributes "
@@ -81,9 +82,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             sidebar_area.x,
             sidebar_area.y,
             sidebar_title,
-            Style::default()
-                .fg(sidebar_title_fg)
-                .bg(Color::Indexed(236)),
+            Style::default().fg(sidebar_title_fg).bg(theme::PANEL),
         );
 
         let inner_area = ratatui::layout::Rect::new(
@@ -124,8 +123,8 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             for x in area.x..area.x + area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
                     cell.set_style(cell.style().add_modifier(ratatui::style::Modifier::DIM));
-                    if cell.fg == Color::White {
-                        cell.set_fg(Color::Indexed(242));
+                    if cell.fg == theme::FG {
+                        cell.set_fg(theme::FG_FAINT);
                     }
                 }
             }
@@ -157,14 +156,14 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     for y in status_area.y..status_area.y + status_area.height {
         for x in status_area.x..status_area.x + status_area.width {
             if let Some(cell) = buf.cell_mut((x, y)) {
-                cell.set_bg(Color::Indexed(236));
+                cell.set_bg(theme::PANEL);
             }
         }
     }
 
     // Status line 0: Document metrics (left) and Mode badge with connection info (right-aligned)
     let (mode_badge, badge_fg, badge_bg) = match app.mode {
-        crate::app::Mode::Offline => (" offline ".to_string(), Color::Black, Color::Indexed(245)),
+        crate::app::Mode::Offline => (" offline ".to_string(), theme::BG, theme::FG_MUTED),
         crate::app::Mode::Online => {
             let status = app.connection_status();
             let target = format!("{}:{}", app.connection_host, app.connection_port);
@@ -173,23 +172,23 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                     let ping = app.ping_ms();
                     (
                         format!(" online ● {target} ({ping}ms) "),
-                        Color::Black,
-                        Color::Green,
+                        theme::BG,
+                        theme::POSITIVE,
                     )
                 }
                 crate::network::ConnectionStatus::Connecting => (
                     format!(" connecting ◐ {target} "),
-                    Color::Black,
-                    Color::Yellow,
+                    theme::BG,
+                    theme::WARNING,
                 ),
                 crate::network::ConnectionStatus::Disconnected => (
                     format!(" disconnected ○ {target} "),
-                    Color::White,
-                    Color::Red,
+                    theme::FG,
+                    theme::DANGER,
                 ),
             }
         }
-        crate::app::Mode::Split => (" split ".to_string(), Color::Black, Color::Cyan),
+        crate::app::Mode::Split => (" split ".to_string(), theme::BG, theme::PRIMARY),
     };
     let badge_x = (status_area.x + status_area.width).saturating_sub(mode_badge.len() as u16 + 1);
 
@@ -230,7 +229,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
                 status_area.x,
                 status_area.y,
                 &left_text,
-                Style::default().fg(Color::White).bg(Color::Indexed(236)),
+                Style::default().fg(theme::FG).bg(theme::PANEL),
             );
         }
     }
@@ -241,7 +240,7 @@ pub fn render(app: &mut App, frame: &mut Frame) {
             status_area.x,
             status_area.y + 1,
             format!(" {msg}"),
-            Style::default().fg(Color::Yellow).bg(Color::Indexed(236)),
+            Style::default().fg(theme::WARNING).bg(theme::PANEL),
         );
     }
 }

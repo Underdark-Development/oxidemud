@@ -2,12 +2,13 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Widget},
+    style::{Modifier, Style},
+    widgets::{Block, BorderType, Borders, Clear, Widget},
 };
 
 use crate::components::CommandAction;
 use crate::screens::ScreenId;
+use crate::theme;
 
 #[derive(Debug, Clone)]
 pub struct PaletteItem {
@@ -369,26 +370,23 @@ impl CommandPalette {
 
         Clear.render(palette_area, buf);
 
-        // Draw border
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
+            .border_type(BorderType::Rounded)
+            .border_style(theme::border_accent())
             .title(ratatui::text::Span::styled(
                 " Command Palette ",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                theme::text().add_modifier(Modifier::BOLD),
             ))
-            .style(Style::default().bg(Color::Black));
+            .style(theme::canvas_style());
         let inner = block.inner(palette_area);
         block.render(palette_area, buf);
 
-        // Fill background black
         for iy in inner.y..inner.y + inner.height {
             for ix in inner.x..inner.x + inner.width {
                 if let Some(cell) = buf.cell_mut((ix, iy)) {
                     cell.set_char(' ');
-                    cell.set_bg(Color::Black);
+                    cell.set_bg(theme::BG);
                 }
             }
         }
@@ -397,41 +395,33 @@ impl CommandPalette {
             return;
         }
 
-        // Draw Input Prompt
         let prompt = "> ";
-        buf.set_string(inner.x, inner.y, prompt, Style::default().fg(Color::Cyan));
+        buf.set_string(inner.x, inner.y, prompt, theme::prompt_style());
 
         if self.input.is_empty() {
             buf.set_string(
                 inner.x + 2,
                 inner.y,
                 "Search commands...",
-                Style::default().fg(Color::Indexed(240)),
+                Style::default().fg(theme::FG_FAINT),
             );
         } else {
-            buf.set_string(
-                inner.x + 2,
-                inner.y,
-                &self.input,
-                Style::default().fg(Color::White),
-            );
+            buf.set_string(inner.x + 2, inner.y, &self.input, theme::text());
         }
 
-        // Draw active cursor
         let cursor_x = inner.x + 2 + self.input.chars().count() as u16;
         if cursor_x < inner.x + inner.width {
             if let Some(cell) = buf.cell_mut((cursor_x, inner.y)) {
-                cell.set_bg(Color::Indexed(248));
-                cell.set_fg(Color::Black);
+                cell.set_bg(theme::HOVER);
+                cell.set_fg(theme::BG);
             }
         }
 
-        // Separator line
         let sep_y = inner.y + 1;
         for ix in inner.x..inner.x + inner.width {
             if let Some(cell) = buf.cell_mut((ix, sep_y)) {
                 cell.set_char('─');
-                cell.set_fg(Color::Indexed(240));
+                cell.set_fg(theme::FG_MUTED);
             }
         }
 
@@ -470,16 +460,16 @@ impl CommandPalette {
             let is_hovered = self.hovered_index == Some(item_idx);
 
             let style = if is_selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan)
+                theme::selected_row()
             } else if is_hovered {
-                Style::default().fg(Color::White).bg(Color::Indexed(238))
+                Style::default().fg(theme::FG).bg(theme::HOVER)
             } else {
-                Style::default().fg(Color::Indexed(250)).bg(Color::Black)
+                Style::default().fg(theme::FG_BRIGHT).bg(theme::BG)
             };
 
             for ix in row_rect.x..row_rect.x + row_rect.width {
                 if let Some(cell) = buf.cell_mut((ix, item_y)) {
-                    cell.set_bg(style.bg.unwrap_or(Color::Black));
+                    cell.set_bg(style.bg.unwrap_or(theme::BG));
                 }
             }
 

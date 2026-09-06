@@ -1,4 +1,6 @@
-use ratatui::{buffer::Buffer, layout::Rect, style::Color, widgets::Widget};
+use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
+
+use crate::theme;
 
 #[derive(Clone)]
 pub struct ScrollState {
@@ -85,9 +87,9 @@ impl Widget for &ScrollState {
             let cell = &mut buf[(area.x, area.y + y as u16)];
             cell.set_symbol(" ");
             if y >= thumb_pos && y < thumb_pos + thumb_height {
-                cell.set_bg(Color::Indexed(240));
+                cell.set_bg(theme::HOVER);
             } else {
-                cell.set_bg(Color::Indexed(236));
+                cell.set_bg(theme::PANEL);
             }
         }
     }

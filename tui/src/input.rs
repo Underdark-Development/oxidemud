@@ -203,6 +203,7 @@ mod tests {
             connect_port: None,
             api_key: None,
             subcommand: None,
+            prototype: false,
         };
         let config = SpadeConfig {
             content_path: std::env::temp_dir()

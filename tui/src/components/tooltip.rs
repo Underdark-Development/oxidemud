@@ -1,9 +1,11 @@
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap},
+    style::{Modifier, Style},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph, Widget, Wrap},
 };
+
+use crate::theme;
 
 pub struct TooltipPopup;
 
@@ -26,9 +28,9 @@ impl TooltipPopup {
             " ⚠ Validation Error "
         };
         let border_color = if is_toml_error {
-            Color::LightRed
+            theme::DANGER
         } else {
-            Color::Yellow
+            theme::WARNING
         };
 
         // Determine box width (max 60, min 25)
@@ -70,10 +72,12 @@ impl TooltipPopup {
                     .add_modifier(Modifier::BOLD),
             )
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color));
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
+            .style(theme::canvas_style());
 
         let paragraph = Paragraph::new(message)
-            .style(Style::default().fg(Color::White))
+            .style(theme::text())
             .wrap(Wrap { trim: true })
             .block(block);
 

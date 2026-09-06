@@ -8,12 +8,13 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
 };
 
 use crate::components::CommandAction;
 use crate::content::FileMap;
 use crate::screens::{EntityContext, Screen, ScreenAction};
+use crate::theme;
 
 #[derive(Debug, Clone)]
 struct GridCell {
@@ -274,9 +275,7 @@ impl Screen for RoomGridScreen {
 
     fn render(&mut self, area: Rect, buf: &mut Buffer, _mouse_pos: Option<(u16, u16)>) {
         let instr = " [Arrows] Select cell  [Space] Center on room  [Enter / Double-Click] Edit room / Dig exit ";
-        let instr_style = Style::default()
-            .fg(Color::Indexed(245))
-            .bg(Color::Indexed(236));
+        let instr_style = Style::default().fg(theme::FG_MUTED).bg(theme::PANEL);
         set_str_safe(buf, area, area.x as i32, area.y as i32, instr, instr_style);
 
         for x in (area.x + instr.len() as u16)..area.x + area.width {
@@ -297,7 +296,7 @@ impl Screen for RoomGridScreen {
         let selected_coord = self.selected_cell.unwrap_or((0, 0));
 
         // 1. Draw connection lines from center (0, 0)
-        let line_style = Style::default().fg(Color::Indexed(240));
+        let line_style = Style::default().fg(theme::HOVER);
         let active_key = self.active_room.clone();
 
         if let Some((active_area, active_room)) = active_key {
@@ -735,22 +734,20 @@ fn draw_box(
     let (is_active, is_selected) = flags;
     let border_style = if is_active {
         Style::default()
-            .fg(Color::Green)
+            .fg(theme::POSITIVE)
             .add_modifier(Modifier::BOLD)
     } else if is_selected {
         Style::default()
-            .fg(Color::Yellow)
+            .fg(theme::WARNING)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(245))
+        Style::default().fg(theme::FG_MUTED)
     };
 
     let text_style = if is_active || is_selected {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme::FG).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(250))
+        Style::default().fg(theme::FG_BRIGHT)
     };
 
     set_str_safe(buf, area, x, y, "┌──────────────┐", border_style);
@@ -797,18 +794,18 @@ fn draw_box(
 fn draw_dig_box(buf: &mut Buffer, area: Rect, x: i32, y: i32, dir_label: &str, is_selected: bool) {
     let border_style = if is_selected {
         Style::default()
-            .fg(Color::Yellow)
+            .fg(theme::WARNING)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(239))
+        Style::default().fg(theme::SURFACE)
     };
 
     let text_style = if is_selected {
         Style::default()
-            .fg(Color::Yellow)
+            .fg(theme::WARNING)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::Indexed(242))
+        Style::default().fg(theme::FG_FAINT)
     };
 
     set_str_safe(buf, area, x, y, "┌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐", border_style);

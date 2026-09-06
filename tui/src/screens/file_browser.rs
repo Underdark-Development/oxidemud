@@ -14,6 +14,7 @@ use ratatui::{
 use crate::components::CommandAction;
 use crate::components::{Tree, TreeNode};
 use crate::screens::{Screen, ScreenAction};
+use crate::theme;
 
 #[derive(Debug, Clone)]
 pub struct FileNode {
@@ -184,9 +185,7 @@ impl Screen for FileBrowserScreen {
         // Draw instructions bar
         let instr =
             " [Tab] Switch pane  [Arrows] Navigate tree / scroll preview  [Enter] Open file ";
-        let instr_style = Style::default()
-            .fg(Color::Indexed(245))
-            .bg(Color::Indexed(236));
+        let instr_style = Style::default().fg(theme::FG_MUTED).bg(theme::PANEL);
         set_str_safe(buf, area, area.x as i32, area.y as i32, instr, instr_style);
         for x in (area.x + instr.len() as u16)..area.x + area.width {
             set_char_safe(buf, area, x as i32, area.y as i32, ' ', instr_style);
@@ -205,9 +204,9 @@ impl Screen for FileBrowserScreen {
         // Draw left tree borders
         let left_focused = self.focus == Focus::Tree;
         let left_border_style = if left_focused {
-            Style::default().fg(Color::Green)
+            Style::default().fg(theme::PRIMARY)
         } else {
-            Style::default().fg(Color::Indexed(240))
+            Style::default().fg(theme::HOVER)
         };
         draw_border(buf, left_area, " File Tree ", left_border_style);
 
@@ -223,9 +222,9 @@ impl Screen for FileBrowserScreen {
         // Draw right preview borders
         let right_focused = self.focus == Focus::Preview;
         let right_border_style = if right_focused {
-            Style::default().fg(Color::Green)
+            Style::default().fg(theme::PRIMARY)
         } else {
-            Style::default().fg(Color::Indexed(240))
+            Style::default().fg(theme::HOVER)
         };
         draw_border(buf, right_area, " Preview ", right_border_style);
 
@@ -264,7 +263,7 @@ impl Screen for FileBrowserScreen {
             let x = right_inner.x + (right_inner.width.saturating_sub(msg.len() as u16)) / 2;
             let y = right_inner.y + right_inner.height / 2;
             if y < right_inner.y + right_inner.height {
-                buf.set_string(x, y, msg, Style::default().fg(Color::Indexed(245)));
+                buf.set_string(x, y, msg, theme::text_muted());
             }
         }
     }

@@ -3,11 +3,12 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     widgets::Widget,
 };
 
 use crate::components::{Tree, TreeNode};
+use crate::theme;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandAction {
@@ -124,7 +125,7 @@ impl CommandSidebar {
         for y in area.y..area.y + area.height {
             for x in area.x..area.x + area.width {
                 if let Some(cell) = buf.cell_mut((x, y)) {
-                    cell.set_bg(Color::Indexed(236));
+                    cell.set_bg(theme::PANEL);
                 }
             }
         }
@@ -152,17 +153,17 @@ impl CommandSidebar {
         );
         if let Some(ref room) = self.room_details {
             let bold_label = Style::default()
-                .fg(Color::Cyan)
+                .fg(theme::PRIMARY)
                 .add_modifier(Modifier::BOLD);
-            let val_style = Style::default().fg(Color::White);
-            let desc_style = Style::default().fg(Color::Indexed(250));
+            let val_style = Style::default().fg(theme::FG);
+            let desc_style = Style::default().fg(theme::FG_BRIGHT);
 
             let mut y = tree_area.y + 1;
             let x = tree_area.x + 1;
             let w = tree_area.width.saturating_sub(2) as usize;
 
             // Title
-            buf.set_string(x, y, "Room Attributes", bold_label.fg(Color::Green));
+            buf.set_string(x, y, "Room Attributes", bold_label.fg(theme::POSITIVE));
             y += 2;
 
             // ID
@@ -202,12 +203,7 @@ impl CommandSidebar {
                     y += 1;
                 }
                 if wrapped_desc.len() > 4 && y < tree_area.y + tree_area.height {
-                    buf.set_string(
-                        x,
-                        y - 1,
-                        "... (truncated)",
-                        desc_style.fg(Color::Indexed(244)),
-                    );
+                    buf.set_string(x, y - 1, "... (truncated)", desc_style.fg(theme::FG_MUTED));
                 }
             }
             y += 1;
@@ -313,48 +309,39 @@ impl CommandSidebar {
         for x in area.x..area.x + actions_w.saturating_sub(1) {
             if let Some(cell) = buf.cell_mut((x, sep_y)) {
                 cell.set_char('\u{2500}');
-                cell.set_fg(Color::Indexed(245));
-                cell.set_bg(Color::Indexed(236));
+                cell.set_fg(theme::FG_MUTED);
+                cell.set_bg(theme::PANEL);
             }
         }
 
-        // "Actions" header (decorative, not selectable)
         let header_y = sep_y + 1;
-        let header_fg = if focused {
-            Color::White
-        } else {
-            Color::Indexed(245)
-        };
+        let header_fg = if focused { theme::FG } else { theme::FG_MUTED };
         buf.set_string(
             area.x,
             header_y,
             " Actions",
             Style::default()
                 .fg(header_fg)
-                .bg(Color::Indexed(236))
+                .bg(theme::PANEL)
                 .add_modifier(Modifier::BOLD),
         );
 
-        // Entity name line (decorative, not selectable)
         let entity_y = header_y + 1;
         if let Some(ref label) = entity_label {
             buf.set_string(
                 area.x + 1,
                 entity_y,
                 label,
-                Style::default()
-                    .fg(Color::Indexed(245))
-                    .bg(Color::Indexed(236)),
+                Style::default().fg(theme::FG_MUTED).bg(theme::PANEL),
             );
         }
 
-        // Action command items (selectable)
         let cmds_start_y = header_y + 2;
         let action_text_muted = !focused;
         let action_fg = if action_text_muted {
-            Color::Indexed(245)
+            theme::FG_MUTED
         } else {
-            Color::White
+            theme::FG
         };
 
         for (i, (cmd_label, _)) in self.prev_cmds.iter().enumerate() {
@@ -364,24 +351,25 @@ impl CommandSidebar {
             });
             let is_selected = self.actions_selected == Some(i);
 
-            let bg = if is_selected || is_hovered {
-                Color::Indexed(240)
+            let style = if is_selected {
+                theme::selected_row()
+            } else if is_hovered {
+                Style::default().fg(action_fg).bg(theme::HOVER)
             } else {
-                Color::Indexed(236)
+                Style::default().fg(action_fg).bg(theme::PANEL)
             };
 
             if is_selected || is_hovered {
                 for x in area.x..area.x + actions_w {
                     if let Some(cell) = buf.cell_mut((x, cmd_y)) {
-                        cell.set_bg(Color::Indexed(240));
+                        cell.set_bg(style.bg.unwrap_or(theme::PANEL));
                     }
                 }
             }
 
             let text = format!("  {cmd_label}");
-            buf.set_string(area.x, cmd_y, &text, Style::default().fg(action_fg).bg(bg));
+            buf.set_string(area.x, cmd_y, &text, style);
 
-            // Store rect for mouse hit-testing
             self.action_rects
                 .push(Rect::new(area.x, cmd_y, actions_w, 1));
         }

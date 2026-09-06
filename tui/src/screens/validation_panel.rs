@@ -3,12 +3,13 @@ use ratatui::{
     buffer::Buffer,
     crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     layout::{Constraint, Rect},
-    style::{Color, Style},
+    style::Style,
     widgets::Widget,
 };
 
 use super::{Screen, ScreenAction};
 use crate::components::{ScrollState, Table};
+use crate::theme;
 
 pub struct ValidationPanelScreen {
     registry: TemplateRegistry,
@@ -284,15 +285,15 @@ impl Screen for ValidationPanelScreen {
         }
 
         let color = if self.error_count == 0 {
-            Color::Green
+            theme::POSITIVE
         } else {
-            Color::LightRed
+            theme::DANGER
         };
         let status = if self.error_count == 0 {
             " validation passed — no errors ".to_string()
         } else {
             format!(
-                " {} error(s) found  │  💡 Click any header to sort, click error to edit ",
+                " {} error(s) found  │  Click any header to sort, click error to edit ",
                 self.error_count
             )
         };

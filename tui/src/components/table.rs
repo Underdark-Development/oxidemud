@@ -1,13 +1,14 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Row, Table as RtTable, Widget},
 };
 use unicode_width::UnicodeWidthStr;
 
 use crate::components::ScrollState;
+use crate::theme::{self, ButtonVariant};
 
 #[derive(Debug, Clone)]
 pub struct RowErrorInfo {
@@ -22,6 +23,17 @@ pub enum BadgeKind {
     MoveUp,
     MoveDown,
     Remove,
+}
+
+impl BadgeKind {
+    /// Chip variant for this badge's role in the action language.
+    pub fn variant(self) -> ButtonVariant {
+        match self {
+            BadgeKind::AddEntry | BadgeKind::MoveUp | BadgeKind::MoveDown => ButtonVariant::Default,
+            BadgeKind::Clear => ButtonVariant::Warning,
+            BadgeKind::Remove => ButtonVariant::Destructive,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +52,7 @@ pub struct RowBadges {
 #[derive(Debug, Clone, Copy)]
 pub struct BadgeSpan {
     pub kind: BadgeKind,
+    pub text: &'static str,
     pub x0: u16,
     pub x1: u16,
 }
@@ -217,12 +230,14 @@ impl Table {
         let clip = area.x.saturating_add(area.width);
         for badge in &ov.badges {
             x = x.saturating_add(ov.gap);
-            let w = UnicodeWidthStr::width(badge.text) as u16;
+            // Rendered chip includes one space of padding each side.
+            let w = UnicodeWidthStr::width(badge.text) as u16 + 2;
             if x.saturating_add(w) > clip {
                 break;
             }
             spans.push(BadgeSpan {
                 kind: badge.kind,
+                text: badge.text,
                 x0: x,
                 x1: x + w,
             });
@@ -243,12 +258,12 @@ impl Table {
         // Header background across the full width.
         for x in area.x..area.x + area.width {
             if let Some(cell) = buf.cell_mut((x, area.y)) {
-                cell.set_bg(Color::Indexed(238));
+                cell.set_bg(theme::SURFACE);
             }
         }
         let header_style = Style::default()
-            .fg(Color::Cyan)
-            .bg(Color::Indexed(238))
+            .fg(theme::PRIMARY)
+            .bg(theme::SURFACE)
             .add_modifier(Modifier::BOLD);
         let col_areas = self.col_areas(area);
         for (i, header) in self.headers.iter().enumerate() {
@@ -283,65 +298,56 @@ impl Table {
             let is_selected = Some(idx) == self.selected;
             let is_hovered = self.hovered == Some(idx);
 
-            let bg_color = if has_error {
-                Color::Indexed(52)
-            } else if is_selected && is_hovered {
-                Color::Indexed(242)
-            } else if is_selected {
-                Color::Indexed(239)
-            } else if is_hovered {
-                Color::Indexed(236)
-            } else if i % 2 == 1 {
-                Color::Indexed(235)
-            } else {
-                Color::Reset
+            let error_fg = |err: &RowErrorInfo| {
+                if err.is_toml {
+                    theme::DANGER
+                } else {
+                    theme::WARNING
+                }
             };
 
             let text_fg = if let Some(ref err) = err_info {
-                if err.is_toml {
-                    Color::LightRed
-                } else {
-                    Color::Yellow
-                }
+                error_fg(err)
             } else if self.muted {
-                Color::Indexed(245)
+                theme::FG_MUTED
             } else {
-                Color::White
+                theme::FG
             };
 
-            let row_style = if is_selected {
-                Style::default()
-                    .fg(text_fg)
-                    .bg(bg_color)
-                    .add_modifier(Modifier::BOLD)
-            } else if is_hovered {
-                Style::default().fg(text_fg).bg(Color::Indexed(238))
-            } else {
-                Style::default().fg(text_fg).bg(bg_color)
-            };
-
-            let (symbol, symbol_style) = if let Some(ref err) = err_info {
-                (
-                    "⚠ ",
-                    Style::default()
-                        .fg(if err.is_toml {
-                            Color::LightRed
-                        } else {
-                            Color::Yellow
-                        })
-                        .add_modifier(Modifier::BOLD),
-                )
+            let row_style = if let Some(ref err) = err_info {
+                Style::default().fg(error_fg(err)).bg(theme::DANGER_BG)
             } else if is_selected {
-                (
-                    "▸ ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
+                theme::selected_row()
             } else if is_hovered {
-                ("· ", Style::default().fg(Color::Indexed(244)))
+                Style::default().fg(text_fg).bg(theme::HOVER)
             } else {
-                ("  ", Style::default())
+                let mut style = Style::default().fg(text_fg);
+                if i % 2 == 1 {
+                    style = style.bg(theme::BG_DARK);
+                }
+                style
+            };
+
+            let symbol_style = if let Some(ref err) = err_info {
+                Style::default()
+                    .fg(error_fg(err))
+                    .add_modifier(Modifier::BOLD)
+            } else if is_selected {
+                Style::default().fg(theme::BG).add_modifier(Modifier::BOLD)
+            } else if is_hovered {
+                Style::default().fg(theme::FG_MUTED)
+            } else {
+                Style::default()
+            };
+
+            let symbol = if err_info.is_some() {
+                "⚠ "
+            } else if is_selected {
+                "▸ "
+            } else if is_hovered {
+                "· "
+            } else {
+                "  "
             };
 
             if has_error && (is_hovered || (self.hovered.is_none() && is_selected)) {
@@ -365,6 +371,28 @@ impl Table {
             .column_spacing(0)
             .render(body, buf);
 
+        // Inline action chips drawn as overlays at their hit-test positions,
+        // so they render as distinct shell buttons and never get clipped
+        // mid-chip by the table cell layout.
+        for i in 0..visible {
+            let idx = offset + i;
+            if idx >= self.rows.len() {
+                break;
+            }
+            let y = body.y + i as u16;
+            for span in self.badge_spans(idx, area) {
+                let label = format!(" {} ", span.text);
+                let width = UnicodeWidthStr::width(label.as_str()) as usize;
+                buf.set_stringn(
+                    span.x0,
+                    y,
+                    label.as_str(),
+                    width,
+                    theme::chip_style(span.kind.variant(), span.kind == BadgeKind::AddEntry),
+                );
+            }
+        }
+
         // Tooltip popup overlay for hovered error rows.
         if let Some((tx, ty, msg, is_toml)) = active_tooltip {
             crate::components::TooltipPopup::render(buf, area, tx, ty, &msg, is_toml);
@@ -386,7 +414,7 @@ impl Table {
             .enumerate()
             .map(|(col, value)| {
                 let cell_style = if col == 0 && is_array_header {
-                    row_style.fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    row_style.fg(theme::PRIMARY).add_modifier(Modifier::BOLD)
                 } else {
                     row_style
                 };
@@ -396,36 +424,12 @@ impl Table {
                         Span::styled(format!(" {value}"), cell_style),
                     ]))
                 } else {
-                    let mut spans = vec![Span::styled(format!(" {value}"), cell_style)];
-                    if col == 1 {
-                        if let Some(ov) = self.overlays.get(idx).and_then(|o| o.as_ref()) {
-                            for badge in &ov.badges {
-                                spans.push(Span::raw(" ".repeat(ov.gap as usize)));
-                                spans.push(Span::styled(
-                                    badge.text.to_string(),
-                                    Self::badge_style(badge.kind),
-                                ));
-                            }
-                        }
-                    }
-                    Cell::from(Line::from(spans))
+                    Cell::from(Line::from(vec![Span::styled(
+                        format!(" {value}"),
+                        cell_style,
+                    )]))
                 }
             })
             .collect()
-    }
-
-    fn badge_style(kind: BadgeKind) -> Style {
-        match kind {
-            BadgeKind::AddEntry => Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-            BadgeKind::Clear => Style::default().fg(Color::Yellow),
-            BadgeKind::MoveUp | BadgeKind::MoveDown => Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-            BadgeKind::Remove => Style::default()
-                .fg(Color::LightRed)
-                .add_modifier(Modifier::BOLD),
-        }
     }
 }

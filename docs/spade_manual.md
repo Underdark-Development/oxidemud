@@ -56,7 +56,7 @@ Use the function keys to switch between primary workspace panels:
 A split-pane editor:
 
 - **Left**: World tree listing all templates grouped by category (Races, Classes, Items, Mobs, Areas, Skills, Stances, Passives, Affixes, Sets).
-- **Right**: Inline field editor with text, number, multiline, and dropdown edit modes. Supports dirty tracking, undo for field edits, and delete with confirmation. Array fields can be reordered with the `[ ▲ ]`/`[ ▼ ]` row buttons or `Alt+Up`/`Alt+Down` on a selected array item.
+- **Right**: Inline field editor with text, number, multiline, and dropdown edit modes. Supports dirty tracking, undo for field edits, and delete with confirmation. Array fields render as sections with inline action chips ("+ Add Entry", "Clear", and per-item "▲"/"▼" reorder and "✕" remove); reorder via the chips or `Alt+Up`/`Alt+Down` on a selected array item.
 - Context-sensitive **Command Sidebar** (right edge) showing available actions for the selected entity.
 
 ### F2: Room Grid
@@ -103,7 +103,7 @@ A diagnostics panel for running servers — **not yet implemented**:
 
 ### Navigation and Focus
 
-- `Tab` / `Shift+Tab` — Cycle focus between active panes and the sidebar. The focused pane is highlighted with a bright white or cyan border.
+- `Tab` / `Shift+Tab` — Cycle focus between active panes and the sidebar. The focused pane or field is highlighted with a cyan (primary) border and bold cyan title.
 - `Arrows (↑/↓/←/→)` — Navigate lists, forms, and maps.
 - `Enter` — Open a folder, select a list item, or confirm an action.
 - `Escape` — Go back, dismiss context menus, or close modal dialogs.
