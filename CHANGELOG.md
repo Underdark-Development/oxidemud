@@ -2,6 +2,35 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.9.0 - 2026-09-06
+#### Features
+- (**api**) rename reboot to shutdown across mcp and spade clients - (1fc551c) - Kevin Lanni
+- (**api**) replace imm.reboot with admin-only imm.shutdown endpoint - (3406c40) - Kevin Lanni
+- (**commands**) in-game admin-only shutdown command - (5ca6487) - Kevin Lanni
+- (**console**) delayed/cancellable shutdown command, remove restart stub - (62a8664) - Kevin Lanni
+- (**content**) implement content.read and content.list RPC endpoints for online sync - (cde4c7e) - Kevin Lanni
+- (**server**) unified shutdown countdown scheduler with cancellation and [shutdown] config - (ebd8bc6) - Kevin Lanni
+- (**spade**) add live character inspector drawer and direct immortal actions - (40f7e37) - Kevin Lanni
+- (**spade**) implement advanced log stream engine with scrollback, severity tabs, and search - (77e0757) - Kevin Lanni
+- (**spade**) add design gallery and overlay action chips - (fceebd3) - Kevin Lanni
+- (**spade**) overhaul live dashboard, connection modal, and input usability - (6ef6007) - Kevin Lanni
+- (**spade**) integrate oxide-ws-rpc and resolve network URL/TLS scheme handling - (14848af) - Kevin Lanni
+#### Bug Fixes
+- (**server**) allow API keys without required scope in auth middleware - (96ef618) - Kevin Lanni
+- (**spade**) size field column for display width and leading space - (6ed9c27) - Kevin Lanni
+- (**spade**) strip array action buttons from edit buffer - (64e895a) - Kevin Lanni
+- (**spade**) enable array item reordering via buttons and Alt+Up/Down - (03081b9) - Kevin Lanni
+#### Documentation
+- (**spade**) document live dashboard future enhancements in architecture guide - (72d8c01) - Kevin Lanni
+- document shutdown command, [shutdown] config, and imm_shutdown - (6e52e92) - Kevin Lanni
+#### Refactoring
+- (**mcp**) move character creation simulation fully into MCP - (aaac666) - Kevin Lanni
+- (**spade**) render table via ratatui and separate array badges from values - (3cf97d0) - Kevin Lanni
+#### Style
+- (**spade**) align live dashboard buttons with ui design guide - (381c274) - Kevin Lanni
+
+- - -
+
 ## 0.8.0 - 2026-08-22
 #### Features
 - (**server**) add better signal processing support and update restart workflow - (c0bc450) - Kevin Lanni
