@@ -506,7 +506,11 @@ impl LiveDashboardScreen {
             let name = p.name.clone();
             self.action = ScreenAction::RpcCall {
                 method: "imm.force_command".into(),
-                params: serde_json::json!({ "player_name": name, "command": command }),
+                params: serde_json::json!({
+                    "player_name": name,
+                    "command": command,
+                    "confirm": true,
+                }),
                 description: format!("Force command on {name}: {command}"),
             };
             self.add_log(format!("[IMM] Forced command on {name}: {command}"));
@@ -4924,6 +4928,7 @@ mod tests {
                     params.get("command").and_then(|v| v.as_str()),
                     Some("dance")
                 );
+                assert_eq!(params.get("confirm").and_then(|v| v.as_bool()), Some(true));
             }
             other => panic!("Expected RpcCall imm.force_command, got {:?}", other),
         }

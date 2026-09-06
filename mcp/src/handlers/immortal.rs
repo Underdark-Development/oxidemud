@@ -74,7 +74,8 @@ pub async fn imm_force_command(
 
     let payload = serde_json::json!({
         "player_name": p.player_name,
-        "command": p.command
+        "command": p.command,
+        "confirm": p.confirm
     });
 
     ctx.call_imm_prefixed("imm.force_command", payload).await
