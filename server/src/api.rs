@@ -2066,7 +2066,7 @@ async fn imm_gecho_core(params: GechoParams) -> Result<serde_json::Value, (Statu
     ))?;
 
     let reg = registry_lock.lock().await;
-    let formatted_msg = format!("\r\n\x1b[1;33m[GLOBAL ECHO] {}\x1b[0m\r\n", params.message);
+    let formatted_msg = format!("{}\r\n", params.message);
     reg.broadcast_all(&formatted_msg);
 
     Ok(serde_json::json!({

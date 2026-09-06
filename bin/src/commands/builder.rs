@@ -744,7 +744,7 @@ pub fn cmd_gecho(
         return;
     }
     tracing::warn!(executor = ?conn.entity(), "gecho run: {msg}");
-    let bytes = format!("[Global Echo] {msg}\r\n").into_bytes();
+    let bytes = format!("{msg}\r\n").into_bytes();
     for entity in registry.connected_entities() {
         if let Some(tx) = registry.sender(entity) {
             let _ = tx.send(bytes.clone());
