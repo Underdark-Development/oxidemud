@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.12.0 - 2026-09-07
+#### Features
+- (**core**) add void room as fallback spawn and disconnected holding area - (d08fee1) - Kevin Lanni
+#### Bug Fixes
+- (**ci**) drop unsupported curl --fail-with-body flag for website rebuild hook - (5af5d6f) - Kevin Lanni
+- (**ci**) allow manual website rebuild trigger and validate secret - (065c3e6) - Kevin Lanni
+- (**meta**) filter log output at info by default to stop dependency trace flood - (58f0a79) - Kevin Lanni
+#### Documentation
+- rewrite getting started guide to prefer Docker - (ba6ebc0) - Kevin Lanni
+
+- - -
+
 ## 0.11.0 - 2026-09-07
 #### Features
 - (**spade**) add unified client log console with server log broadcasting - (8a71322) - Kevin Lanni
