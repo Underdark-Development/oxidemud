@@ -8,12 +8,14 @@
 # Intentionally kept separate from deploy.yml / release.yml — the website
 # rebuild has no dependency on VPS deployment and must never be coupled to it.
 #
-# Skipped silently when the repo secret CF_PAGES_BUILD_HOOK_URL is not set,
-# or when the release is a prerelease (their docs should not go live).
+# Can be triggered manually from the Actions UI or automatically when a
+# GitHub Release is fully released. Fails with a clear error if the required
+# repository secret CF_PAGES_BUILD_HOOK_URL is not configured.
 
 name: Trigger Website Rebuild
 
 on:
+  workflow_dispatch:
   release:
     types: [released]
 
@@ -25,8 +27,17 @@ jobs:
     name: Trigger Cloudflare Pages build
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: secrets.CF_PAGES_BUILD_HOOK_URL != ''
     steps:
+      - name: Validate build hook configuration
+        env:
+          CF_HOOK_URL: ${{ secrets.CF_PAGES_BUILD_HOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_HOOK_URL" ]; then
+            echo "::error::Repository secret CF_PAGES_BUILD_HOOK_URL is not configured."
+            exit 1
+          fi
+
       - name: POST to Cloudflare Pages build hook
         env:
           CF_HOOK_URL: ${{ secrets.CF_PAGES_BUILD_HOOK_URL }}
