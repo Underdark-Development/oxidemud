@@ -8,6 +8,7 @@ Select the guide below that corresponds to your area of responsibility:
 
 | Role / Responsibility                 | Guide                                          | Description                                                                                                                                            |
 | :------------------------------------ | :--------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **New Operators & Admins**            | [Getting Started Guide](getting_started.md)    | Quick start with Docker, installation options, server configuration, and connecting clients.                                                           |
 | **Server Administrators**             | [Server Administration Guide](server_admin.md) | How to configure, start, manage, and back up the MUD server.                                                                                           |
 | **Immortal & Admin Staff**            | [Immortal Guide](immortal_guide.md)            | Rules, permission structures, and commands for game moderators and admins.                                                                             |
 | **World Builders & Designers**        | [Builder Manual](builder_manual.md)            | World-building structure, template syntax (including stances, passives, triggers), OLC command references, and validation rules.                       |
