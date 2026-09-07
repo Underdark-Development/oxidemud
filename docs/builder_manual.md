@@ -148,6 +148,8 @@ allowed_classes = ["cleric", "paladin"]
 description = "The sanctuary spawns holy acolytes."
 ```
 
+Rooms with a `[spawn]` section are the possible starting locations offered during character creation. The server automatically falls back to the Void (`system:void`) when no room in the content library has a valid spawn configuration, so a fresh or content-lite server still lets new characters log in — they appear in the Void until content defines a usable spawn. When content later supplies spawns, new characters use those instead. The Void itself cannot be built on: digging, linking, and portal commands targeting or standing in it are refused.
+
 #### Room Weather Fields
 
 Rooms can override, extend, or suppress the area's weather conditions.
@@ -790,13 +792,13 @@ Builders can modify the world dynamically using in-game OLC commands.
 - `@area create <id> <name>` — Creates a new zone.
 - `@area reset <id>` — Forces an immediate area reset.
 - `@area save <id>` — Writes all current in-memory edits for a zone back to its TOML files.
-- `@dig <direction> <dest_room_id> [name]` — Digs an exit from the current room to a new room. If the target room doesn't exist, it creates it.
-- `@link <direction> <dest_room_id>` — Creates a one-way exit from the current room in the specified direction.
-- `@unlink <direction>` — Removes an exit in the specified direction.
-- `@set <field> <value>` — Modifies properties of the current room, target mob, or item (e.g., `@set name The Grand Altar`, `@set flag dark`).
+- `@dig <direction> <dest_room_id> [name]` — Digs an exit from the current room to a new room. If the target room doesn't exist, it creates it. Refused when standing in the Void.
+- `@link <direction> <dest_room_id>` — Creates a one-way exit from the current room in the specified direction. Refused when standing in the Void or linking to the Void.
+- `@unlink <direction>` — Removes an exit in the specified direction. Refused when standing in the Void.
+- `@set <field> <value>` — Modifies properties of the current room, target mob, or item (e.g., `@set name The Grand Altar`, `@set flag dark`). The Void cannot be renamed, re-described, or flagged.
 - `@desc` — Opens a multi-line text editor to set the current room description.
-- `@portal add <keyword> <dest_room_id>` — Adds a portal connection.
-- `@portal remove <keyword>` — Deletes a portal.
+- `@portal add <keyword> <dest_room_id>` — Adds a portal connection. Refused when standing in the Void or targeting the Void.
+- `@portal remove <keyword>` — Deletes a portal. Refused when standing in the Void.
 - `@mob add <mob_id>` — Spawns a mobile template into the current room.
 - `@mob remove <entity_id>` — Despawns a mobile.
 - `@item load <item_id>` — Loads a copy of an item template into your inventory.

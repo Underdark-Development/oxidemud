@@ -402,16 +402,9 @@ impl TemplateRegistry {
             }
         }
 
-        // Validate at least one spawn exists globally across all areas
-        let total_spawns: usize = self.areas.values().map(|a| a.spawns.len()).sum();
-        if total_spawns == 0 {
-            errors.push(ValidationError {
-                template_type: "world",
-                template_id: "*".into(),
-                field: "spawns".into(),
-                message: "World has zero spawn points — at least one [[spawns]] entry is required across all areas".into(),
-            });
-        }
+        // A world with zero spawn points is valid: new characters and failed
+        // spawn lookups fall back to the Void room. Boot-time callers surface
+        // this as a warning rather than a validation error.
 
         // Validate deities
         for (id, deity) in &self.deities {

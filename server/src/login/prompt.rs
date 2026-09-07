@@ -794,7 +794,11 @@ pub fn show_spawn_prompt(flow: &LoginFlow, templates: &TemplateRegistry) -> Vec<
     lines.push("--- Choose Your Starting Location ---".to_string());
 
     if available.is_empty() {
-        lines.push("No spawn points available. Contact an administrator.".to_string());
+        lines.push(
+            "No spawn points are configured. You will appear in the Void until a starting location becomes available."
+                .to_string(),
+        );
+        lines.push("Press enter to continue.".to_string());
         return lines;
     }
 

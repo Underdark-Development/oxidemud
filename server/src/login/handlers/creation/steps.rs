@@ -1532,6 +1532,21 @@ pub fn handle_spawn_select_state(
     let available = templates.available_spawns(race_id, class_id, alignment);
     let input = input.trim();
 
+    if available.is_empty() {
+        // No configured spawns: land the character in the Void, which always
+        // exists and keeps the character contained until an imm rescues them
+        // or content adds a starting location.
+        lines.push(
+            "No spawn points are configured. You will appear in the Void until a starting location becomes available."
+                .to_string(),
+        );
+        flow.create_buffer.spawn_key = Some(oxide_core::VOID_ROOM_KEY.to_string());
+        flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
+            CharacterCreateSubstate::Confirm,
+        ));
+        return lines;
+    }
+
     match input.parse::<usize>() {
         Ok(idx) if idx > 0 && idx <= available.len() => {
             let (area_id, spawn) = available[idx - 1];
@@ -1675,6 +1690,8 @@ async fn finalize_character(
 
     let room_entity = match templates.and_then(|t| t.find_room_by_key(world, &spawn_key)) {
         Some(r) => r,
+        // The Void is not content-backed, so resolve it directly.
+        None if spawn_key == oxide_core::VOID_ROOM_KEY => oxide_core::ensure_void_room(world),
         None => {
             lines.push("Error: The selected starting room could not be found. Please select a starting location again.".to_string());
             flow.state = LoginState::CharacterSelect(CharacterSelectSubstate::CharacterCreate(
@@ -2272,24 +2289,30 @@ pub async fn load_character(
     let valid_spawn_key = char_row
         .spawn_key
         .as_deref()
-        .and_then(|key| {
-            let templates = crate::get_templates()?;
-            let race = &char_row.race;
-            let class = &char_row.class;
-            let alignment_str = alignment.0.as_str();
-            let available = templates.available_spawns(race, class, alignment_str);
-            if available
-                .iter()
-                .any(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room) == key)
-            {
-                Some(key.to_string())
-            } else {
-                available
-                    .first()
-                    .map(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room))
-            }
+        .filter(|key| *key == oxide_core::VOID_ROOM_KEY)
+        .map(|key| key.to_string())
+        .or_else(|| {
+            char_row.spawn_key.as_deref().and_then(|key| {
+                let templates = crate::get_templates()?;
+                let race = &char_row.race;
+                let class = &char_row.class;
+                let alignment_str = alignment.0.as_str();
+                let available = templates.available_spawns(race, class, alignment_str);
+                if available
+                    .iter()
+                    .any(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room) == key)
+                {
+                    Some(key.to_string())
+                } else {
+                    available
+                        .first()
+                        .map(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room))
+                }
+            })
         })
         .or_else(|| {
+            // No stored spawn or no valid one: use the first configured spawn,
+            // or the Void (which always exists) when content defines none.
             let templates = crate::get_templates()?;
             let race = &char_row.race;
             let class = &char_row.class;
@@ -2298,6 +2321,7 @@ pub async fn load_character(
                 .available_spawns(race, class, alignment_str)
                 .first()
                 .map(|(area_id, spawn)| format!("{}:{}", area_id, spawn.room))
+                .or_else(|| Some(oxide_core::VOID_ROOM_KEY.to_string()))
         });
 
     if let Some(ref healed_key) = valid_spawn_key {
@@ -2341,12 +2365,7 @@ pub async fn load_character(
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
-        .or_else(|| {
-            use oxide_core::RoomKey;
-            let mut query = world.query::<(&RoomKey,)>();
-            query.iter().next().map(|(e, _)| e)
-        })
-        .expect("Must find at least one room in the world");
+        .unwrap_or_else(|| oxide_core::ensure_void_room(world));
 
     let recall_room = char_row
         .recall_room_key
@@ -2357,12 +2376,7 @@ pub async fn load_character(
                 .as_deref()
                 .and_then(|key| crate::get_templates().and_then(|t| t.find_room_by_key(world, key)))
         })
-        .or_else(|| {
-            use oxide_core::RoomKey;
-            let mut query = world.query::<(&RoomKey,)>();
-            query.iter().next().map(|(e, _)| e)
-        })
-        .expect("Must find at least one room in the world");
+        .unwrap_or_else(|| oxide_core::ensure_void_room(world));
 
     let player = world.spawn((
         Position::new(room),
@@ -2762,6 +2776,172 @@ mod tests {
         assert_eq!(
             healed_char_row.spawn_key,
             Some("starting_vale:town_square".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_character_falls_back_to_void_with_no_spawns() {
+        let _lock_guard = crate::server::TEMPLATE_TEST_LOCK.lock().unwrap();
+        crate::server::init_templates_for_test(TemplateRegistry::new());
+
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+        let account_id = {
+            let db_guard = db.lock().await;
+            oxide_data::create_account(db_guard.conn(), "testuser", "hash").unwrap()
+        };
+
+        // World with only the Void — no content rooms at all.
+        let mut world = World::new();
+        let void = oxide_core::ensure_void_room(&mut world);
+
+        let _char_id = {
+            let db_guard = db.lock().await;
+            let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
+            oxide_data::create_character(
+                db_guard.conn(),
+                &oxide_data::CreateCharacterParams {
+                    account_id,
+                    name: "VoidSpawn".into(),
+                    race: "human".into(),
+                    class: "warrior".into(),
+                    entity_id,
+                    spawn_key: Some("starting_vale:town_square".into()),
+                    current_room_key: Some("starting_vale:town_square".into()),
+                },
+            )
+            .unwrap()
+        };
+
+        let char_row = {
+            let db_guard = db.lock().await;
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .remove(0)
+        };
+
+        let mut flow = LoginFlow::new();
+        let _lines = load_character(&mut flow, &mut world, &char_row, &db).await;
+
+        let player_entity = flow.entity.unwrap();
+        let pos = world
+            .query_one::<&Position>(player_entity)
+            .unwrap()
+            .get()
+            .map(|p| p.room)
+            .unwrap();
+        assert_eq!(pos, void, "player should be contained in the Void");
+
+        let recall_comp = world
+            .query_one::<&RecallRoom>(player_entity)
+            .unwrap()
+            .get()
+            .map(|r| r.0)
+            .unwrap();
+        assert_eq!(recall_comp, void);
+
+        let healed_char_row = {
+            let db_guard = db.lock().await;
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .remove(0)
+        };
+        assert_eq!(
+            healed_char_row.spawn_key,
+            Some(oxide_core::VOID_ROOM_KEY.to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_load_character_keeps_void_spawn_when_content_spawns_exist() {
+        let _lock_guard = crate::server::TEMPLATE_TEST_LOCK.lock().unwrap();
+        use oxide_core::templates::{AreaTemplate, SpawnEntry};
+        use std::collections::HashMap;
+
+        let mut registry = TemplateRegistry::new();
+        let area = AreaTemplate {
+            id: "starting_vale".to_string(),
+            name: "Starting Vale".to_string(),
+            description: "A start area".to_string(),
+            level_range: None,
+            flags: vec![],
+            weather_zone: None,
+            no_weather: false,
+            weather_matrix: HashMap::new(),
+            reset_interval: None,
+            credits: None,
+            spawns: vec![SpawnEntry {
+                room: "town_square".to_string(),
+                label: "Town Square".to_string(),
+                description: "The main town square".to_string(),
+                allowed_races: vec![],
+                allowed_classes: vec![],
+                allowed_alignments: vec![],
+            }],
+            rooms: HashMap::new(),
+        };
+        registry.areas.insert("starting_vale".to_string(), area);
+        crate::server::init_templates_for_test(registry);
+
+        let db = Mutex::new(oxide_data::Database::open_in_memory().unwrap());
+        let account_id = {
+            let db_guard = db.lock().await;
+            oxide_data::create_account(db_guard.conn(), "testuser", "hash").unwrap()
+        };
+
+        let mut world = World::new();
+        let void = oxide_core::ensure_void_room(&mut world);
+        world.spawn((
+            oxide_core::Name::new("Town Square"),
+            oxide_core::RoomKey("starting_vale:town_square".to_string()),
+        ));
+
+        let _char_id = {
+            let db_guard = db.lock().await;
+            let entity_id = oxide_data::insert_entity(db_guard.conn(), "player").unwrap();
+            oxide_data::create_character(
+                db_guard.conn(),
+                &oxide_data::CreateCharacterParams {
+                    account_id,
+                    name: "HeldInVoid".into(),
+                    race: "human".into(),
+                    class: "warrior".into(),
+                    entity_id,
+                    spawn_key: Some(oxide_core::VOID_ROOM_KEY.to_string()),
+                    current_room_key: Some(oxide_core::VOID_ROOM_KEY.to_string()),
+                },
+            )
+            .unwrap()
+        };
+
+        let char_row = {
+            let db_guard = db.lock().await;
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .remove(0)
+        };
+
+        let mut flow = LoginFlow::new();
+        let _lines = load_character(&mut flow, &mut world, &char_row, &db).await;
+
+        let player_entity = flow.entity.unwrap();
+        let pos = world
+            .query_one::<&Position>(player_entity)
+            .unwrap()
+            .get()
+            .map(|p| p.room)
+            .unwrap();
+        assert_eq!(pos, void, "a Void-housed character should stay in the Void");
+
+        let kept_char_row = {
+            let db_guard = db.lock().await;
+            oxide_data::get_characters_by_account(db_guard.conn(), account_id)
+                .unwrap()
+                .remove(0)
+        };
+        assert_eq!(
+            kept_char_row.spawn_key,
+            Some(oxide_core::VOID_ROOM_KEY.to_string()),
+            "the Void spawn key must not be healed to a content spawn"
         );
     }
 

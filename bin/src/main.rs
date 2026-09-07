@@ -181,6 +181,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pluralize(templates.passives.len(), "passive", "passives")
     );
 
+    let total_spawns: usize = templates.areas.values().map(|a| a.spawns.len()).sum();
+    if total_spawns == 0 {
+        tracing::warn!(
+            "No spawn points defined in content — new characters will appear in The Void until content adds a [[spawns]] entry"
+        );
+    }
+
     // Validate templates before spawning
     let errors = templates.validate();
     if !errors.is_empty() {

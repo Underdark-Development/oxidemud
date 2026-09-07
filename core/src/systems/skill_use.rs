@@ -382,6 +382,18 @@ pub fn apply_skill_effect(
             msgs.push(format!("You feel weakened in {} by {}!", stat, source_name));
         }
         EffectTemplate::Teleport { room } => {
+            // The Void is disconnected: a skill cannot fling someone into it or
+            // whisk an isolated occupant out of it.
+            let target_in_void = world
+                .query_one::<&Position>(resolved_target)
+                .ok()
+                .and_then(|mut q| q.get().map(|p| p.room))
+                .is_some_and(|r| crate::is_void_room(world, r));
+            if target_in_void && !crate::is_staff(world, resolved_target) {
+                msgs.push("You cannot do that right now".to_string());
+                return msgs;
+            }
+
             let mut resolved_room = None;
             for (raw_entity, r_key) in world.query::<&crate::components::RoomKey>().iter() {
                 if r_key.0 == *room {
@@ -391,6 +403,10 @@ pub fn apply_skill_effect(
             }
 
             if let Some(r) = resolved_room {
+                if crate::is_void_room(world, r) {
+                    msgs.push("You cannot do that right now".to_string());
+                    return msgs;
+                }
                 let _ = world.insert(resolved_target, (Position::new(r), crate::Dirty));
                 msgs.push(format!("You are instantly teleported to {}!", room));
             } else {

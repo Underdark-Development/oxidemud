@@ -3,11 +3,19 @@ use oxide_core::{
 };
 
 pub fn init_world() -> World {
+    use oxide_core::{RoomFlags, RoomKey, VOID_ROOM_KEY};
+
     let mut world = World::new();
 
     let void_room = world.spawn((
         Room::new("The Void", "You are floating in a void"),
         oxide_core::VoidRoom,
+        RoomKey(VOID_ROOM_KEY.to_string()),
+        RoomFlags(
+            oxide_core::ROOM_NO_TELEPORT_IN
+                | oxide_core::ROOM_NO_TELEPORT_OUT
+                | oxide_core::ROOM_SILENT,
+        ),
     ));
 
     world

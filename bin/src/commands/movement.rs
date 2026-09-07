@@ -831,7 +831,7 @@ pub fn move_player(
     };
 
     if is_void_room(world, room) {
-        conn.send_line("You cannot move in the void.");
+        conn.send_line("You cannot do that right now");
         return;
     }
 
@@ -867,6 +867,13 @@ pub fn move_player(
                 }
             }
         }
+    }
+
+    // The Void is disconnected: no exit may lead into it. Guard against any
+    // exit that somehow references it as a destination.
+    if core::is_void_room(world, dest) {
+        conn.send_line("You cannot do that right now");
+        return;
     }
 
     let _ = world.insert(entity, (Position::new(dest), core::Dirty));
@@ -915,6 +922,14 @@ fn trigger_follow(
     }
 
     for follower in followers {
+        // The Void can only be entered by imm teleport. Never drag a follower
+        // into it through the follow mechanic.
+        if core::is_void_room(world, dest) {
+            if let Some(tx) = registry.sender(follower) {
+                let _ = tx.send("You cannot do that right now\r\n".to_string().into_bytes());
+            }
+            continue;
+        }
         let _ = world.insert(follower, (Position::new(dest), core::Dirty));
         send_leave_broadcast(world, registry, follower, room, dir_long);
         send_enter_broadcast(world, registry, follower, dest, opp_long);
@@ -1621,7 +1636,9 @@ mod tests {
         assert_eq!(player_room, void_room);
 
         let lines = conn.take_lines();
-        assert!(lines.iter().any(|l| l.contains("cannot move in the void")));
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You cannot do that right now")));
     }
 
     #[test]

@@ -104,6 +104,62 @@ pub fn is_void_room(world: &World, room: Entity) -> bool {
         .is_ok_and(|mut q| q.get().is_some())
 }
 
+/// Room key assigned to the always-present, content-independent Void room.
+///
+/// The Void is the server's disconnected holding area and spawn-of-last-resort:
+/// it cannot be linked to the world, entered, or left except by imm teleport.
+pub const VOID_ROOM_KEY: &str = "system:void";
+
+/// The Void room entity, if it exists.
+pub fn void_room(world: &World) -> Option<Entity> {
+    world
+        .query::<&crate::VoidRoom>()
+        .iter()
+        .next()
+        .map(|(entity, _)| entity)
+}
+
+/// The Void room entity, re-created with its standard components if it is
+/// somehow absent. The Void must always be available as the fallback holding
+/// area, so removal is never permanent.
+pub fn ensure_void_room(world: &mut World) -> Entity {
+    if let Some(room) = void_room(world) {
+        return room;
+    }
+    let room = world.spawn((
+        crate::Room::new("The Void", "You are floating in a void"),
+        crate::VoidRoom,
+        crate::RoomKey(VOID_ROOM_KEY.to_string()),
+        crate::RoomFlags(
+            crate::ROOM_NO_TELEPORT_IN | crate::ROOM_NO_TELEPORT_OUT | crate::ROOM_SILENT,
+        ),
+    ));
+    let _ = world.insert(room, (crate::Position::new(room),));
+    room
+}
+
+/// Whether an entity holds staff rank (access of Immortal or higher).
+///
+/// Staff characters bypass all Void isolation rules.
+pub fn is_staff(world: &World, entity: Entity) -> bool {
+    world
+        .query_one::<&crate::AccessLevel>(entity)
+        .ok()
+        .and_then(|mut q| q.get().copied())
+        .map(|level| level >= crate::AccessLevel::Immortal)
+        .unwrap_or(false)
+}
+
+/// Whether an entity is a non-staff occupant of the Void.
+///
+/// Isolated occupants may only use room-local communication (`say`, `emote`),
+/// cannot send or receive world-facing comms, and cannot leave the Void by any
+/// means other than an imm teleport.
+pub fn is_void_isolated(world: &World, entity: Entity) -> bool {
+    let in_void = get_pos_room(world, entity).is_some_and(|r| is_void_room(world, r));
+    in_void && !is_staff(world, entity)
+}
+
 pub fn get_exits(world: &World, room: Entity) -> Vec<&'static str> {
     let mut exits = Vec::new();
     if let Ok(mut q) = world.query_one::<&crate::RoomExits>(room) {
@@ -263,5 +319,58 @@ mod tests {
 
         let entities = entities_in_room(&world, room);
         assert_eq!(entities, vec![e1]);
+    }
+
+    #[test]
+    fn ensure_void_room_creates_standard_void() {
+        let mut world = World::new();
+        let room = ensure_void_room(&mut world);
+        assert!(is_void_room(&world, room));
+        assert_eq!(void_room(&world), Some(room));
+        assert_eq!(
+            world
+                .query_one::<&RoomKey>(room)
+                .ok()
+                .and_then(|mut q| q.get().map(|k| k.0.clone())),
+            Some(VOID_ROOM_KEY.to_string())
+        );
+        // Idempotent — second call returns the same entity.
+        assert_eq!(ensure_void_room(&mut world), room);
+    }
+
+    #[test]
+    fn is_staff_excludes_players_and_builders() {
+        let mut world = World::new();
+        let player = world.spawn((AccessLevel::Player,));
+        let builder = world.spawn((AccessLevel::Builder,));
+        let immortal = world.spawn((AccessLevel::Immortal,));
+        let god = world.spawn((AccessLevel::God,));
+        let admin = world.spawn((AccessLevel::Admin,));
+        let unqualified = world.spawn(());
+
+        assert!(!is_staff(&world, player));
+        assert!(!is_staff(&world, builder));
+        assert!(!is_staff(&world, unqualified));
+        assert!(is_staff(&world, immortal));
+        assert!(is_staff(&world, god));
+        assert!(is_staff(&world, admin));
+    }
+
+    #[test]
+    fn is_void_isolated_isolates_only_non_staff_in_void() {
+        let mut world = World::new();
+        let void = ensure_void_room(&mut world);
+        let normal_room = world.spawn(());
+
+        let lone_player = world.spawn(());
+
+        let void_player = world.spawn((Position::new(void), AccessLevel::Player));
+        let void_immortal = world.spawn((Position::new(void), AccessLevel::Immortal));
+        let normal_player = world.spawn((Position::new(normal_room), AccessLevel::Player));
+
+        assert!(is_void_isolated(&world, void_player));
+        assert!(!is_void_isolated(&world, void_immortal));
+        assert!(!is_void_isolated(&world, normal_player));
+        assert!(!is_void_isolated(&world, lone_player));
     }
 }

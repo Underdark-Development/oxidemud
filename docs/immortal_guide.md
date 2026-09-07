@@ -83,6 +83,16 @@ Holy Light allows staff members to bypass standard visibility checks:
 - Detect incognito staff.
 - Bypass zone darkness restrictions.
 
+### The Void
+
+The Void (`system:void`) is a permanent special room on every server — a fallback spawn area when no content spawn points exist and a secure holding area for misbehaving or parked characters. Its behavior is hardcoded:
+
+- **Immortal transport is the only way in or out.** Teleport yourself (`goto`) or a player (`@teleport`) to the Void, and back out again. Players cannot follow; builders cannot link it into the world.
+- **Staff bypass the isolation rules.** Immortal+ characters move, teleport, and communicate freely with Void occupants. Builders do _not_ bypass these rules.
+- **Occupants are isolated from the world.** No movement, recall, portals, skills, or world-facing chat works, and `say`/`emote` still work room-locally. Dying in the Void keeps the occupant there.
+
+See `game_mechanics.md` → _The Void_ for the full ruleset.
+
 ---
 
 ## Safety Invariants

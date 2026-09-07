@@ -15,6 +15,14 @@ use oxide_core::content::load_registry_report;
 pub fn run_preflight(content_path: &Path, config_path: &Path) -> i32 {
     let mut errors = 0usize;
 
+    // Preflight runs before the runtime logging stack is built, so install a
+    // minimal stdout subscriber for diagnostics emitted via tracing (e.g.
+    // zero-spawn warnings). Levels below WARN are suppressed.
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stdout)
+        .with_max_level(tracing::level_filters::LevelFilter::WARN)
+        .try_init();
+
     println!("OxideMUD content preflight — {}", content_path.display());
 
     // 1. server.toml (strict: parse errors are failures, unlike runtime
@@ -53,6 +61,16 @@ pub fn run_preflight(content_path: &Path, config_path: &Path) -> i32 {
         println!(
             "  [fail] {} '{}': {} ({})",
             err.template_type, err.template_id, err.message, err.field
+        );
+    }
+
+    // A world with no spawn points is not an error: new characters fall back
+    // to the Void room. Surface it through the logging layer so operators see
+    // a real WARN record.
+    let total_spawns: usize = report.registry.areas.values().map(|a| a.spawns.len()).sum();
+    if total_spawns == 0 {
+        tracing::warn!(
+            "no spawn points defined across all areas — new characters will appear in The Void"
         );
     }
 

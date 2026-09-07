@@ -414,6 +414,8 @@ When launched, the server executes the following startup sequence:
 8. **ScriptingInit**: Sets up the Rhai scripting runtime and resolver.
 9. **ListenerBind**: Binds to the TCP port and initiates the game loop.
 
+**The Void always exists after startup.** On every launch the server seeds a special room, the Void, that is independent of the content library. If `content/` ships no areas with spawn configurations, the startup validation reports a warning (not an error) and new characters are placed in the Void until content defines a usable spawn. Administrators can use the Void as a secure holding area via immortal teleports. See `game_mechanics.md` → _The Void_ for full isolation rules.
+
 ### Game Loop Ticks
 
 The server runs a multi-tick background game loop using an asynchronous event-driven scheduler. Each tick interval fires independently:

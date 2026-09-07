@@ -1240,17 +1240,31 @@ pub fn handle_death(world: &mut World, victim: Entity) -> Entity {
         );
         let _ = world.remove_one::<LastMessenger>(victim);
 
-        let dest = world
-            .query_one::<&RecallRoom>(victim)
+        let current_room = world
+            .query_one::<&Position>(victim)
             .ok()
-            .and_then(|mut q| q.get().map(|r| r.0))
-            .unwrap_or_else(|| {
-                world
-                    .query_one::<&Position>(victim)
-                    .ok()
-                    .and_then(|mut q| q.get().map(|p| p.room))
-                    .unwrap()
-            });
+            .and_then(|mut q| q.get().map(|p| p.room));
+
+        // Dying in the Void must never eject the player: the corpse recall to
+        // their bound town would be an escape route. They stay in the Void and
+        // revive in place instead.
+        let in_void = current_room.is_some_and(|r| crate::is_void_room(world, r));
+        let dest = if in_void {
+            current_room.unwrap()
+        } else {
+            world
+                .query_one::<&RecallRoom>(victim)
+                .ok()
+                .and_then(|mut q| q.get().map(|r| r.0))
+                .or(current_room)
+                .unwrap_or_else(|| {
+                    world
+                        .query_one::<&Position>(victim)
+                        .ok()
+                        .and_then(|mut q| q.get().map(|p| p.room))
+                        .unwrap()
+                })
+        };
 
         let _ = world.insert(victim, (Position::new(dest), crate::Dirty));
     } else {
@@ -1727,6 +1741,42 @@ mod tests {
             .unwrap()
             .get()
             .is_none());
+    }
+
+    #[test]
+    fn test_player_death_in_void_stays_in_void() {
+        use crate::util::ensure_void_room;
+
+        let mut world = World::new();
+        let void_room = ensure_void_room(&mut world);
+        let recall_room = world.spawn(());
+
+        let item = world.spawn(());
+        let player = world.spawn((
+            Position::new(void_room),
+            Health::new(100),
+            Attributes::default(),
+            Level(5),
+            CombatState::NotInCombat,
+            crate::Player::new(1),
+            Name::new("Player"),
+            Inventory(vec![item]),
+            Equipment::new(),
+            RecallRoom(recall_room),
+        ));
+
+        let _corpse = handle_death(&mut world, player);
+
+        let pos = world
+            .query_one::<&Position>(player)
+            .unwrap()
+            .get()
+            .cloned()
+            .unwrap();
+        assert_eq!(
+            pos.room, void_room,
+            "death in the Void must not recall the player to their bound town"
+        );
     }
 
     #[test]

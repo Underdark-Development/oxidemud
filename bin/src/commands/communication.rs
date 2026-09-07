@@ -1,5 +1,5 @@
 use oxide_core as core;
-use oxide_core::{get_name, get_pos_room, is_void_room, AccessLevel, Name, World};
+use oxide_core::{get_name, get_pos_room, AccessLevel, Name, World};
 use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server};
 
 use super::common::*;
@@ -180,11 +180,6 @@ pub fn cmd_say(
         }
     };
 
-    if is_void_room(world, room) {
-        conn.send_line("Your words echo in the void with no one to hear.");
-        return;
-    }
-
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
 
     let is_ghost = world
@@ -300,6 +295,17 @@ pub fn cmd_tell(
         return;
     }
 
+    // Void isolation: occupants cannot send world-facing comms, and a normal
+    // sender cannot reach an isolated occupant (staff bypass both).
+    if void_gags_sending(world, entity) {
+        conn.send_line("You cannot do that right now");
+        return;
+    }
+    if void_blocks_delivery(world, entity, target_entity) {
+        conn.send_line("They cannot be reached.");
+        return;
+    }
+
     let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
     let target_name_real = get_name(world, target_entity)
         .unwrap_or(Name::new("Someone"))
@@ -366,6 +372,16 @@ pub fn cmd_reply(
         return;
     }
 
+    // Void isolation applies to replies just like tells.
+    if void_gags_sending(world, entity) {
+        conn.send_line("You cannot do that right now");
+        return;
+    }
+    if void_blocks_delivery(world, entity, target_entity) {
+        conn.send_line("They cannot be reached.");
+        return;
+    }
+
     let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
     let target_name_real = get_name(world, target_entity)
         .unwrap_or(Name::new("Someone"))
@@ -422,6 +438,11 @@ pub fn cmd_shout(
         }
     };
 
+    if void_gags_sending(world, entity) {
+        conn.send_line("You cannot do that right now");
+        return;
+    }
+
     let area_id = match world.query_one::<&core::RoomKey>(room) {
         Ok(mut q) => q
             .get()
@@ -451,6 +472,10 @@ pub fn cmd_shout(
 
     for &other in &registry.connected_entities() {
         if other == entity {
+            continue;
+        }
+        // Void-isolated occupants do not hear shouts from non-staff.
+        if void_blocks_delivery(world, entity, other) {
             continue;
         }
         if let Some(other_room) = get_pos_room(world, other) {
@@ -494,6 +519,12 @@ pub fn cmd_whisper(
             return;
         }
     };
+
+    // Void isolation: occupants cannot whisper out of the Void.
+    if void_gags_sending(world, entity) {
+        conn.send_line("You cannot do that right now");
+        return;
+    }
 
     let room = match get_pos_room(world, entity) {
         Some(r) => r,
@@ -545,6 +576,11 @@ pub fn cmd_whisper(
         return;
     }
 
+    if void_blocks_delivery(world, entity, target_entity) {
+        conn.send_line("They cannot be reached.");
+        return;
+    }
+
     let sender_name = get_name(world, entity).unwrap_or(Name::new("Someone")).0;
     let target_name_real = get_name(world, target_entity)
         .unwrap_or(Name::new("Someone"))
@@ -589,6 +625,11 @@ fn send_to_channel(
     channel_id: &str,
     message: &str,
 ) -> Result<(), String> {
+    // Void isolation: occupants cannot broadcast to channels.
+    if void_gags_sending(world, entity) {
+        return Err("You cannot do that right now".to_string());
+    }
+
     let ch =
         resolve_channel(channel_id).ok_or_else(|| format!("Unknown channel '{channel_id}'."))?;
 
@@ -659,6 +700,11 @@ fn send_to_channel(
         if other == entity {
             continue;
         }
+        // Void-isolated occupants do not receive channel broadcasts from
+        // non-staff senders.
+        if void_blocks_delivery(world, entity, other) {
+            continue;
+        }
         // Check that recipient has this channel enabled
         let is_enabled = match world.query_one::<&core::ChannelPrefs>(other) {
             Ok(mut q) => q.get().map(|p| p.is_enabled(&ch.id)).unwrap_or(true),
@@ -702,6 +748,11 @@ pub(super) fn broadcast_to_group(
         .and_then(|mut q| q.get().copied())
         .ok_or_else(|| "You are not in a group.".to_string())?;
 
+    // Void isolation: occupants cannot broadcast to their group.
+    if void_gags_sending(world, entity) {
+        return Err("You cannot do that right now".to_string());
+    }
+
     let name = get_name(world, entity)
         .map(|n| n.0.clone())
         .unwrap_or_else(|| "Someone".to_string());
@@ -733,6 +784,11 @@ pub(super) fn broadcast_to_group(
                     if !in_same_room {
                         continue;
                     }
+                }
+                // Void-isolated members do not receive group chat from
+                // non-staff senders.
+                if void_blocks_delivery(world, entity, m_ent) {
+                    continue;
                 }
                 if let Some(tx) = registry.sender(m_ent) {
                     let _ = tx.send(formatted.clone());
@@ -947,11 +1003,6 @@ pub fn cmd_emote(
         }
     };
 
-    if is_void_room(world, room) {
-        conn.send_line("There is no one here to see your emote.");
-        return;
-    }
-
     let name = get_name(world, entity).unwrap_or(Name::new("Someone"));
 
     // Sender sees: "You wave happily."
@@ -1047,14 +1098,162 @@ mod tests {
     }
 
     #[test]
-    fn test_say_void() {
+    fn test_say_void_allowed() {
         let (mut world, void_room, _room_a, _room_b) = test_world();
         let (_player, mut conn, registry) = test_player(&mut world, void_room);
 
         cmd_say(&mut world, &mut conn, "", "hello", &registry);
 
         let lines = conn.take_lines();
-        assert!(lines.iter().any(|l| l.contains("echo in the void")));
+        assert!(lines.iter().any(|l| l.contains("You say")));
+        assert!(lines.iter().any(|l| l.contains("hello")));
+    }
+
+    #[test]
+    fn test_emote_void_allowed() {
+        let (mut world, void_room, _room_a, _room_b) = test_world();
+        let (_player, mut conn, registry) = test_player(&mut world, void_room);
+
+        cmd_emote(&mut world, &mut conn, "", "waves happily", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("You waves happily")));
+    }
+
+    #[test]
+    fn test_tell_gagged_from_void() {
+        let (mut world, void_room, room_a, _room_b) = test_world();
+        let (player, mut conn, mut registry) = test_player(&mut world, void_room);
+
+        let target = world.spawn((Position::new(room_a), Name::new("Target")));
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        registry.register(target, tx);
+
+        cmd_tell(&mut world, &mut conn, "", "Target hello", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You cannot do that right now")));
+        assert!(player != target);
+    }
+
+    #[test]
+    fn test_tell_blocked_to_void() {
+        let (mut world, void_room, room_a, _room_b) = test_world();
+        let (_player, mut conn, mut registry) = test_player(&mut world, room_a);
+
+        let target = world.spawn((Position::new(void_room), Name::new("Target")));
+        let (tx_target, mut rx_target) = tokio::sync::mpsc::unbounded_channel();
+        registry.register(target, tx_target);
+
+        cmd_tell(&mut world, &mut conn, "", "Target hello", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("They cannot be reached.")));
+        assert!(
+            rx_target.try_recv().is_err(),
+            "void occupant must not receive"
+        );
+    }
+
+    #[test]
+    fn test_tell_staff_bypasses_void() {
+        let (mut world, void_room, room_a, _room_b) = test_world();
+        let (player, mut conn, mut registry) = test_player(&mut world, room_a);
+        let _ = world.insert(player, (core::AccessLevel::Immortal,));
+
+        let target = world.spawn((Position::new(void_room), Name::new("Target")));
+        let (tx_target, mut rx_target) = tokio::sync::mpsc::unbounded_channel();
+        registry.register(target, tx_target);
+
+        cmd_tell(&mut world, &mut conn, "", "Target hello", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines.iter().any(|l| l.contains("You tell")));
+        let received = rx_target.try_recv().ok();
+        assert!(
+            received.is_some(),
+            "staff tells should reach void occupants"
+        );
+    }
+
+    #[test]
+    fn test_channel_gagged_from_void() {
+        let (mut world, void_room, _room_a, _room_b) = test_world();
+        let (_player, mut conn, registry) = test_player(&mut world, void_room);
+
+        cmd_ooc(&mut world, &mut conn, "", "is anyone out there?", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You cannot do that right now")));
+    }
+
+    #[test]
+    fn test_shout_gagged_from_void() {
+        let (mut world, void_room, _room_a, _room_b) = test_world();
+        let (_player, mut conn, registry) = test_player(&mut world, void_room);
+
+        cmd_shout(
+            &mut world,
+            &mut conn,
+            "",
+            "can anyone hear this?",
+            &registry,
+        );
+
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You cannot do that right now")));
+    }
+
+    #[test]
+    fn test_whisper_gagged_from_void() {
+        let (mut world, void_room, _room_a, _room_b) = test_world();
+        let (_player, mut conn, registry) = test_player(&mut world, void_room);
+
+        cmd_whisper(&mut world, &mut conn, "", "TestPlayer pst", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You cannot do that right now")));
+    }
+
+    #[test]
+    fn test_gsay_gagged_from_void() {
+        let (mut world, void_room, _room_a, _room_b) = test_world();
+        let (player, mut conn, registry) = test_player(&mut world, void_room);
+
+        let group = world.spawn((core::Group {
+            leader: player,
+            members: vec![core::GroupMemberInfo {
+                entity: Some(player),
+                db_id: 1,
+                name: "TestPlayer".into(),
+                joined_at: std::time::Instant::now(),
+                disconnected_at: None,
+            }],
+            loot_mode: core::LootMode::FreeForAll,
+            formation: core::Formation::Default,
+        },));
+        let _ = world.insert(
+            player,
+            (core::GroupMember {
+                group_id: group,
+                role: core::GroupRole::Leader,
+            },),
+        );
+
+        cmd_gsay(&mut world, &mut conn, "", "save me", &registry);
+
+        let lines = conn.take_lines();
+        assert!(lines
+            .iter()
+            .any(|l| l.contains("You cannot do that right now")));
     }
 
     #[test]

@@ -174,7 +174,7 @@ When a player's health drops to **−10 or below** (or they choose to die while 
 6. Health reset to **1** (not full)
 7. `PlayerState::Dead` inserted (ghost mode)
 8. `LastMessenger` component removed
-9. Player teleported to their **`RecallRoom`** (or stays in current room if no recall set)
+9. Player teleported to their **`RecallRoom`** (or stays in current room if no recall set). If the player dies while already in the Void, they stay in the Void (no recall redirect).
 10. `Dirty` marker added for persistence
 11. Death broadcast sent to the room: _"<name> is dead! R.I.P."_
 
@@ -237,6 +237,30 @@ loss = current_xp × 0.10
 ```
 
 Capped to prevent de-leveling more than 5 levels below current level. Uses the cubic XP curve (`level³ × 100`) to compute the floor. The `Dirty` marker is added so the penalty persists to the database.
+
+---
+
+## The Void
+
+The Void (`system:void`) is a special room that always exists on every server. It cannot be modified, linked into the world, or destroyed, and new servers keep a fresh copy of it even when the content library ships without any rooms or spawn points.
+
+### Purpose
+
+- **Fallback spawn area** — when the game has no usable spawn point (no areas with spawn configurations, or every configured spawn rejected during login), new characters appear in the Void instead of failing to load. As soon as content defines a valid spawn, that spawn becomes the default again.
+- **Secure holding area** — imms can use the Void to park players or characters that should not be part of the game world, knowing the occupant cannot leave by their own actions.
+
+### Isolation rules
+
+- Occupants other than staff **cannot leave the Void by any means**: movement, doors, recall, portals, teleport spells/skills, or death. Attempts to leave are met with _"You cannot do that right now."_
+- Occupants can **use and receive room-local communication**: `say` and `emote` work normally inside the Void, so isolated players can still talk to each other (and any staff present).
+- Occupants **cannot send or receive world-facing communication**: `tell`, `reply`, `whisper`, channels, `shout`, and `gsay`/`gtell` are blocked in both directions. A normal player trying to reach a Void occupant hears _"They cannot be reached."_
+- **Skills do not work** in the Void (spells, combat abilities, and teleport-style effects are disabled), so an occupant cannot escape by scripted means either.
+- **Death does not recall you out** — a player who dies in the Void stays in the Void.
+- **Staff bypass** — characters with immortal rank or higher can move, teleport, and communicate freely with Void occupants. Builders do not bypass these rules.
+
+### Building restrictions
+
+Rooms and structures in the Void cannot be manipulated: digging, linking, unlinking, and portal creation to or from it are refused, and the Void itself cannot be renamed, re-described, flagged, or deleted.
 
 ---
 

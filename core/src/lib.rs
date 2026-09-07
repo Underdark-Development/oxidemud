@@ -31,7 +31,7 @@ pub use components::{
     SetMembership, SetTracker, ShortDesc, SkillCooldowns, SkillDef, SkillType, Switched, Targeting,
     TemporaryEffect, Trainer, VoidRoom, Wallet, WanderBounds, Weapon, WeaponHands, WeaponRange,
     Wizin, EXIT_IS_CLOSED, EXIT_IS_DOOR, EXIT_IS_LOCKED, PORTAL_HIDDEN, ROOM_NO_TELEPORT_IN,
-    ROOM_NO_TELEPORT_OUT, ROOM_PORTAL_IN, ROOM_PORTAL_OUT,
+    ROOM_NO_TELEPORT_OUT, ROOM_PORTAL_IN, ROOM_PORTAL_OUT, ROOM_SILENT,
 };
 pub use components::{HaggleCooldown, LastRestock, PendingHaggle, ShopStock, Shopkeeper};
 pub use prompt::PromptVars;
@@ -82,8 +82,9 @@ pub use templates::{
     PrestigeGate, RecipeDef, RecipeMaterial, RecipeResult, RecipeSkillReq, SocialDef,
 };
 pub use util::{
-    collect_rooms_by_scope, entities_in_room, get_entity_name, get_exits, get_name, get_pos_room,
-    get_room_desc, get_room_name, get_short_desc, is_void_room,
+    collect_rooms_by_scope, ensure_void_room, entities_in_room, get_entity_name, get_exits,
+    get_name, get_pos_room, get_room_desc, get_room_name, get_short_desc, is_staff,
+    is_void_isolated, is_void_room, void_room, VOID_ROOM_KEY,
 };
 
 use hecs as _hecs;

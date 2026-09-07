@@ -4,6 +4,12 @@ use oxide_server::{Command, CommandHelp, Connection, ConnectionRegistry, Server}
 
 use super::movement::cmd_look;
 
+/// Message returned for any builder action that would modify or connect the
+/// Void, which is intentionally disconnected from the rest of the world.
+fn void_guard_message() -> &'static str {
+    "That action is not allowed here: the Void is disconnected from the world."
+}
+
 pub fn register(server: &mut Server) {
     server.register_command(Command {
         name: "@award",
@@ -1111,6 +1117,11 @@ pub fn cmd_dig(
         None => return,
     };
 
+    if core::is_void_room(world, current_room) {
+        conn.send_line(void_guard_message());
+        return;
+    }
+
     let current_area_id = {
         let mut q = world.query_one::<&core::RoomKey>(current_room).unwrap();
         let key = q.get().unwrap();
@@ -1247,6 +1258,11 @@ pub fn cmd_link(
         None => return,
     };
 
+    if core::is_void_room(world, current_room) || dest_name == core::VOID_ROOM_KEY {
+        conn.send_line(void_guard_message());
+        return;
+    }
+
     let target_room =
         oxide_server::get_templates().and_then(|t| t.find_room_by_key(world, dest_name));
     let Some(dest) = target_room else {
@@ -1329,6 +1345,11 @@ pub fn cmd_unlink(
         None => return,
     };
 
+    if core::is_void_room(world, current_room) {
+        conn.send_line(void_guard_message());
+        return;
+    }
+
     let mut current_exits = world
         .query_one::<&mut core::RoomExits>(current_room)
         .ok()
@@ -1409,6 +1430,11 @@ pub fn cmd_room(
                 current_room
             };
 
+            if core::is_void_room(world, target_room) {
+                conn.send_line(void_guard_message());
+                return;
+            }
+
             if target_room == current_room {
                 conn.send_line("You cannot delete the room you are currently standing in. Move somewhere else first.");
                 return;
@@ -1480,6 +1506,11 @@ pub fn cmd_portal(
         None => return,
     };
 
+    if core::is_void_room(world, current_room) {
+        conn.send_line(void_guard_message());
+        return;
+    }
+
     match parts[0] {
         "add" => {
             if parts.len() < 3 {
@@ -1489,6 +1520,11 @@ pub fn cmd_portal(
             let target_key = parts[1];
             let portal_name = parts[2];
             let hide = parts.get(3).is_some_and(|&s| s.to_lowercase() == "hide");
+
+            if target_key == core::VOID_ROOM_KEY {
+                conn.send_line(void_guard_message());
+                return;
+            }
 
             let dest = match oxide_server::get_templates()
                 .and_then(|t| t.find_room_by_key(world, target_key))
@@ -2423,6 +2459,11 @@ pub fn cmd_set(
 
     let is_room = world.query_one::<&core::Room>(target).is_ok();
     let full_value = parts[2..].join(" ");
+
+    if is_room && core::is_void_room(world, target) {
+        conn.send_line(void_guard_message());
+        return;
+    }
 
     if is_room {
         match field.to_lowercase().as_str() {

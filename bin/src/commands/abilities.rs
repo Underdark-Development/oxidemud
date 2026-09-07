@@ -268,6 +268,13 @@ pub fn cmd_use(
         None
     };
 
+    // The Void is disconnected: occupants other than staff are gagged from
+    // invoking any skill or skill-triggering cast/use.
+    if core::is_void_isolated(world, entity) {
+        conn.send_line("You cannot do that right now");
+        return;
+    }
+
     if let Err(err) = core::can_use_skill(world, entity, skill_def, target_entity) {
         conn.send_line(&err);
         return;

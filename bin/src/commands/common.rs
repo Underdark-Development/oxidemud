@@ -39,6 +39,24 @@ pub fn send_to_conn(conn: &mut dyn Connection, message: &str) {
     send_formatted(conn, &text);
 }
 
+/// Whether a non-staff actor is gagged from sending world-facing comms
+/// (tells, replies, whispers, channels, shouts, group chat, emotes-via-remote)
+/// from the Void. Only room-local communication (`say`, `emote`) is allowed in
+/// the Void.
+pub fn void_gags_sending(world: &core::World, entity: core::Entity) -> bool {
+    core::is_void_isolated(world, entity)
+}
+
+/// Whether a non-staff sender's message must be withheld from a Void-isolated
+/// recipient. Staff senders always reach any player, including Void occupants.
+pub fn void_blocks_delivery(
+    world: &core::World,
+    sender: core::Entity,
+    recipient: core::Entity,
+) -> bool {
+    core::is_void_isolated(world, recipient) && !core::is_staff(world, sender)
+}
+
 pub fn find_online_player(
     world: &core::World,
     registry: &ConnectionRegistry,
