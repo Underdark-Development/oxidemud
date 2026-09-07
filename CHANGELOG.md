@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## 0.11.0 - 2026-09-07
+#### Features
+- (**spade**) add unified client log console with server log broadcasting - (8a71322) - Kevin Lanni
+- (**tui**) make player table sortable by column and convert inspector to dialog - (59a5daf) - Kevin Lanni
+#### Bug Fixes
+- (**tui,mcp**) include confirm parameter in imm.force_command calls - (2063a64) - Kevin Lanni
+
+- - -
+
 ## 0.10.0 - 2026-09-06
 #### Features
 - (**spade**) add --screen cli arg with pattern matching - (a7062a1) - Kevin Lanni
