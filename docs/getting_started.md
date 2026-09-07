@@ -103,6 +103,7 @@ max_clients = 256
 [logging]
 retention_days = 5
 rotation = "daily"
+log_level = "info"
 ```
 
 When running with Docker, edits to `server.toml` take effect with a container restart:

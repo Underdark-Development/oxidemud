@@ -7,6 +7,7 @@ default_prompt = "<%h/%Hhp %m/%Mmp> "
 [logging]
 retention_days = 5
 rotation = "daily"
+log_level = "info"
 
 [shutdown]
 # Maximum accepted delay (in minutes) for a delayed server shutdown or restart.

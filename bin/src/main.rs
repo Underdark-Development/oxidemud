@@ -61,7 +61,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     oxide_server::load_motd(Some(&config.motd_path()));
     oxide_server::load_banner(Some(&config.banner_path()));
 
-    // Initialize custom rolling file logging + stdout
+    // Initialize custom rolling file logging + stdout.
+    // The log level comes from RUST_LOG when set (e.g. RUST_LOG=trace to debug
+    // dependency internals), otherwise from `log_level` in server.toml.
     let log_dir = config.log_dir();
     fs::create_dir_all(&log_dir)
         .unwrap_or_else(|e| panic!("Failed to create log dir {}: {e}", log_dir.display()));
@@ -72,20 +74,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer: rolling_writer.clone(),
     };
 
+    use tracing_subscriber::prelude::*;
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(oxide_server::config::get().logging.log_level.as_str())
+    });
+
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(move || file_writer.clone())
-        .with_ansi(false);
+        .with_ansi(false)
+        .with_filter(filter.clone());
 
     let broadcast_writer = LogBroadcastWriter {
         buffer: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
     };
     let broadcast_layer = tracing_subscriber::fmt::layer()
         .with_writer(move || broadcast_writer.clone())
-        .with_ansi(false);
+        .with_ansi(false)
+        .with_filter(filter.clone());
 
-    let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_filter(filter.clone());
 
-    use tracing_subscriber::prelude::*;
     tracing_subscriber::Registry::default()
         .with(stdout_layer)
         .with(file_layer)

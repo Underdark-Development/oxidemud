@@ -232,6 +232,11 @@ retention_days = 5
 # Rotation policy: "daily", "hourly", or "never"
 rotation = "daily"
 
+# Log verbosity: "error", "warn", "info", "debug", or "trace".
+# Each level includes the more-severe levels above it. Defaults to "info".
+# The RUST_LOG environment variable overrides this when set (e.g. RUST_LOG=debug).
+log_level = "info"
+
 [shutdown]
 # Upper bound, in minutes, for accepted delayed shutdown requests
 # (console/in-game/API). Equivalent to 5 hours by default.
@@ -497,6 +502,7 @@ Server logs are written to both standard output (`stdout`) and rotating files in
 - Log file names follow the format: `oxide_server_log_YYYYMMDD_HHMMSS.log`.
 - Log rotation is triggered based on the `logging.rotation` setting (e.g., daily).
 - Expired logs exceeding the `logging.retention_days` threshold are pruned on startup.
+- Log verbosity is controlled by `logging.log_level` (`error`, `warn`, `info`, `debug`, or `trace`; defaults to `info`). Each level includes the more-severe levels above it. The `RUST_LOG` environment variable overrides the config when set, which is handy for temporary deep debugging (`RUST_LOG=debug oxide-server`) — remove it for normal operation to avoid flooding the logs with connection-level noise from dependencies.
 
 ### Console Commands
 

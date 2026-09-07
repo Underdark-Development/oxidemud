@@ -1,7 +1,62 @@
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
+
+/// Server log severity cutoff. Each level includes all more-severe levels above it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
+impl FromStr for LogLevel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "error" => Ok(Self::Error),
+            "warn" | "warning" => Ok(Self::Warn),
+            "info" => Ok(Self::Info),
+            "debug" => Ok(Self::Debug),
+            "trace" => Ok(Self::Trace),
+            other => Err(format!(
+                "invalid log level `{other}` (expected error, warn, info, debug, or trace)"
+            )),
+        }
+    }
+}
+
+impl LogLevel {
+    /// Canonical config spelling for this level.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Trace => "trace",
+        }
+    }
+
+    /// The corresponding `tracing` level filter for this severity cutoff.
+    pub fn as_level_filter(&self) -> tracing::level_filters::LevelFilter {
+        use tracing::level_filters::LevelFilter;
+        match self {
+            Self::Error => LevelFilter::ERROR,
+            Self::Warn => LevelFilter::WARN,
+            Self::Info => LevelFilter::INFO,
+            Self::Debug => LevelFilter::DEBUG,
+            Self::Trace => LevelFilter::TRACE,
+        }
+    }
+}
 
 static CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -22,6 +77,8 @@ pub struct LoggingConfig {
     pub retention_days: u32,
     #[serde(default = "default_log_rotation")]
     pub rotation: String, // "daily", "hourly", "never"
+    #[serde(default = "default_log_level")]
+    pub log_level: LogLevel,
 }
 
 impl Default for LoggingConfig {
@@ -29,6 +86,7 @@ impl Default for LoggingConfig {
         Self {
             retention_days: 5,
             rotation: "daily".to_string(),
+            log_level: LogLevel::Info,
         }
     }
 }
@@ -39,6 +97,10 @@ fn default_log_retention_days() -> u32 {
 
 fn default_log_rotation() -> String {
     "daily".to_string()
+}
+
+fn default_log_level() -> LogLevel {
+    LogLevel::Info
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
