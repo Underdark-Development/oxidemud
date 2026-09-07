@@ -46,7 +46,7 @@ jobs:
           # Retry transient failures (e.g. 429 while a build is in progress),
           # with a bounded timeout on each attempt.
           for i in 1 2 3; do
-            if curl -fsS --fail-with-body --max-time 30 --connect-timeout 10 \
+            if curl -fsS --max-time 30 --connect-timeout 10 \
               -X POST "$CF_HOOK_URL"; then
               echo "Cloudflare Pages rebuild triggered."
               exit 0
